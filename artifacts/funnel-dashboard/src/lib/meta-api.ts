@@ -16,6 +16,14 @@ export interface CampaignSummary {
 }
 
 export interface CampaignsResponse {
+  account_id?: string;
+  period: { since: string; until: string };
+  fetched_at: string;
+  campaigns: CampaignSummary[];
+}
+
+export interface AccountCampaignsResponse {
+  account_id?: string;
   period: { since: string; until: string };
   fetched_at: string;
   campaigns: CampaignSummary[];
@@ -152,6 +160,7 @@ export function fetchTokenHealth(): Promise<TokenHealth> {
 }
 
 export function fetchCampaigns(opts: {
+  ad_account_id?: string;
   since: string;
   until: string;
 }): Promise<CampaignsResponse> {
@@ -161,6 +170,7 @@ export function fetchCampaigns(opts: {
 
 export function fetchInsights(opts: {
   campaign_id: string;
+  ad_account_id?: string;
   since: string;
   until: string;
 }): Promise<CampaignInsights> {

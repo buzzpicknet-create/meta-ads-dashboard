@@ -35,7 +35,7 @@ export function useTokenHealth() {
 
 export function useCampaigns(opts: { since: string; until: string }) {
   return useQuery({
-    queryKey: ["meta", "campaigns", opts.since, opts.until],
+    queryKey: ["meta", "campaigns", opts.since, opts.until, (opts as { ad_account_id?: string }).ad_account_id || ""],
     queryFn: () => fetchCampaigns(opts),
     staleTime: ONE_HOUR,
     enabled: Boolean(opts.since && opts.until),
@@ -48,10 +48,11 @@ export function useInsights(opts: {
   until: string;
 }) {
   return useQuery({
-    queryKey: ["meta", "insights", opts.campaign_id, opts.since, opts.until],
+    queryKey: ["meta", "insights", opts.campaign_id, opts.since, opts.until, (opts as { ad_account_id?: string }).ad_account_id || ""],
     queryFn: () =>
       fetchInsights({
         campaign_id: opts.campaign_id!,
+        ad_account_id: (opts as { ad_account_id?: string }).ad_account_id,
         since: opts.since,
         until: opts.until,
       }),

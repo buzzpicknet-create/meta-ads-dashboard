@@ -95,9 +95,11 @@ router.get("/meta/accounts", async (_req, res) => {
 
 router.get("/meta/campaigns", async (req, res) => {
   try {
+    const accountId = String(req.query["ad_account_id"] || "").trim();
     const { since, until } = parseRange(req.query as Record<string, string>);
     const campaigns = await listCampaigns({ since, until });
     res.json({
+      account_id: accountId || undefined,
       period: { since, until },
       fetched_at: new Date().toISOString(),
       campaigns,
@@ -113,13 +115,14 @@ router.get("/meta/campaigns", async (req, res) => {
 router.get("/meta/insights", async (req, res) => {
   try {
     const campaign_id = String(req.query["campaign_id"] || "");
+    const accountId = String(req.query["ad_account_id"] || "").trim();
     if (!campaign_id) {
       res.status(400).json({ error: "campaign_id is required" });
       return;
     }
     const { since, until } = parseRange(req.query as Record<string, string>);
     const data = await getCampaignInsights({ campaign_id, since, until });
-    res.json(data);
+    res.json({ ...data, account_id: accountId || undefined });
   } catch (err) {
     logger.error({ err }, "Insights fetch failed");
     res

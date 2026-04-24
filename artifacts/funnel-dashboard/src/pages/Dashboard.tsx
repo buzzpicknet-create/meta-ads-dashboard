@@ -708,6 +708,7 @@ export default function Dashboard() {
   const campaigns = useCampaigns(range);
   const insights = useInsights({
     campaign_id: selectedCampaignId,
+    ad_account_id: selectedAccountId || undefined,
     since: range.since,
     until: range.until,
   });
