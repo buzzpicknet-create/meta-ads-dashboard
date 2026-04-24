@@ -83,22 +83,24 @@ function Num({ children }: { children: React.ReactNode }) {
 // ──────────────────────────────────────────────────────────────
 // Verdict logic
 // ──────────────────────────────────────────────────────────────
-function verdictFor(s: SegmentEntry, all: SegmentEntry[]): "winner" | "kill" | "okay" | "weak" {
-  const cpas = all.filter((x) => x.purchases > 0).map((x) => x.cpa);
+const CPA_STOP = 55;
+const CPA_IMPROVE = 50;
+
+function verdictFor(s: SegmentEntry, all: SegmentEntry[]): "winner" | "kill" | "okay" | "improve" {
+  if (s.purchases === 0 || s.cpa > CPA_STOP) return "kill";
+  if (s.cpa > CPA_IMPROVE) return "improve";
+  const cpas = all.filter((x) => x.purchases > 0 && x.cpa <= CPA_IMPROVE).map((x) => x.cpa);
   const minCpa = cpas.length > 0 ? Math.min(...cpas) : 0;
-  const noPurchases = s.purchases === 0;
-  if (noPurchases || (minCpa > 0 && s.cpa > minCpa * 2.5)) return "kill";
-  if (minCpa > 0 && s.cpa <= minCpa * 1.15) return "winner";
-  if (minCpa > 0 && s.cpa <= minCpa * 1.6) return "okay";
-  return "weak";
+  if (minCpa > 0 && s.cpa <= minCpa * 1.2) return "winner";
+  return "okay";
 }
 
-function VerdictBadge({ type }: { type: "winner" | "kill" | "okay" | "weak" }) {
+function VerdictBadge({ type }: { type: "winner" | "kill" | "okay" | "improve" }) {
   const cfg = {
-    winner: { icon: Sparkles, text: "رابح", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30" },
-    kill: { icon: XCircle, text: "أوقفه", cls: "bg-rose-500/15 text-rose-700 dark:text-rose-400 ring-rose-500/30" },
-    okay: { icon: CheckCircle2, text: "مقبول", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-400 ring-sky-500/30" },
-    weak: { icon: TrendingDown, text: "ضعيف", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-amber-500/30" },
+    winner:  { icon: Sparkles,    text: "رابح",          cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30" },
+    kill:    { icon: XCircle,     text: "أوقفه",         cls: "bg-rose-500/15 text-rose-700 dark:text-rose-400 ring-rose-500/30" },
+    okay:    { icon: CheckCircle2,text: "مقبول",         cls: "bg-sky-500/15 text-sky-700 dark:text-sky-400 ring-sky-500/30" },
+    improve: { icon: TrendingDown,text: "قم بتحسين",     cls: "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-amber-500/30" },
   }[type];
   const Icon = cfg.icon;
   return (
@@ -167,9 +169,7 @@ function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEn
   const alerts: { type: "danger" | "warn" | "info"; msg: string }[] = [];
 
   // Drain ads
-  const cpas = byAd.filter((a) => a.purchases > 0).map((a) => a.cpa);
-  const minCpa = cpas.length > 0 ? Math.min(...cpas) : 0;
-  const drainAds = byAd.filter((a) => a.spend >= 100 && (a.purchases === 0 || (minCpa > 0 && a.cpa > minCpa * 2.5)));
+  const drainAds = byAd.filter((a) => a.spend >= 100 && (a.purchases === 0 || a.cpa > CPA_STOP));
   drainAds.forEach((a) => {
     alerts.push({
       type: "danger",
@@ -189,7 +189,7 @@ function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEn
   if (totals.hookRate > 0 && totals.hookRate < 20) alerts.push({ type: "warn", msg: `Hook Rate (${fmt(totals.hookRate, 0)}%) ضعيف — أول 3 ثواني في الفيديو مش بتمسك الناس` });
 
   // Winner scaling alert
-  const winners = byAd.filter((a) => minCpa > 0 && a.cpa <= minCpa * 1.15 && a.purchases > 0);
+  const winners = byAd.filter((a) => a.purchases > 0 && a.cpa <= CPA_IMPROVE);
   if (winners.length > 0) {
     alerts.push({ type: "info", msg: `🏆 ${winners.length} إعلان رابح — ضاعف ميزانيتهم قبل ما الـ Audience يتشبع` });
   }
@@ -238,7 +238,7 @@ function PriorityEngine({ totals, byAd, byAdset }: { totals: DerivedMetrics; byA
     return b.cpa - a.cpa;
   })[0];
 
-  if (worstAd && (worstAd.purchases === 0 || (minCpa > 0 && worstAd.cpa > minCpa * 2))) {
+  if (worstAd && (worstAd.purchases === 0 || worstAd.cpa > CPA_STOP)) {
     actions.push({
       priority: 1,
       icon: PauseCircle,
@@ -246,9 +246,17 @@ function PriorityEngine({ totals, byAd, byAdset }: { totals: DerivedMetrics; byA
       sub: `إنفاق ${fmt(worstAd.spend, 0)} EGP · ${worstAd.purchases} طلب فقط`,
       tone: "kill",
     });
+  } else if (worstAd && worstAd.cpa > CPA_IMPROVE) {
+    actions.push({
+      priority: 1,
+      icon: PauseCircle,
+      label: `حسّن: ${worstAd.label.slice(0, 45)}`,
+      sub: `CPA ${fmt(worstAd.cpa, 0)} EGP — فوق ${CPA_IMPROVE} EGP`,
+      tone: "fix",
+    });
   }
 
-  const bestAd = byAd.find((a) => minCpa > 0 && a.cpa <= minCpa * 1.15 && a.purchases > 0);
+  const bestAd = byAd.find((a) => a.purchases > 0 && a.cpa <= CPA_IMPROVE);
   if (bestAd) {
     actions.push({
       priority: 2,
@@ -341,31 +349,29 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
   const [view, setView] = useState<"ad" | "adset">("ad");
   const segs = view === "ad" ? byAd : byAdset;
 
-  const cpas = segs.filter((a) => a.purchases > 0).map((a) => a.cpa);
-  const minCpa = cpas.length > 0 ? Math.min(...cpas) : 0;
-
-  const winners = segs.filter((s) => minCpa > 0 && s.cpa <= minCpa * 1.15 && s.purchases > 0).slice(0, 3);
+  const winners = segs.filter((s) => s.purchases > 0 && s.cpa <= CPA_IMPROVE).slice(0, 3);
   const losers = [...segs]
     .filter((s) => s.spend >= 30)
-    .filter((s) => s.purchases === 0 || (minCpa > 0 && s.cpa > minCpa * 2.5))
+    .filter((s) => s.purchases === 0 || s.cpa > CPA_IMPROVE)
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 3);
 
   function getProblem(s: SegmentEntry): string {
     if (s.purchases === 0) return "صرف ولا طلب واحد";
-    if (minCpa > 0 && s.cpa > minCpa * 3) return `CPA أعلى 3× من الأفضل (${fmt(s.cpa, 0)} vs ${fmt(minCpa, 0)} EGP)`;
-    return `CPA مرتفع (${fmt(s.cpa, 0)} EGP)`;
+    if (s.cpa > CPA_STOP) return `CPA ${fmt(s.cpa, 0)} EGP — يتجاوز حد الإيقاف (${CPA_STOP} EGP)`;
+    return `CPA ${fmt(s.cpa, 0)} EGP — يتجاوز حد التحسين (${CPA_IMPROVE} EGP)`;
   }
 
   function getDecision(s: SegmentEntry): string {
-    if (s.purchases === 0) return "أوقفه فوراً";
-    if (minCpa > 0 && s.cpa > minCpa * 3) return "أوقفه أو حوّل ميزانيته للرابح";
-    return "راجع الـ Creative والأوديانس";
+    if (s.purchases === 0) return "أوقفه فوراً — لا أوردرات";
+    if (s.cpa > CPA_STOP) return "أوقفه وحوّل الميزانية للرابح";
+    return "قم بتحسين الـ Creative والأوديانس";
   }
 
   function getRec(s: SegmentEntry): string {
     if (s.purchases === 0) return `${fmt(s.spend, 0)} EGP ضاعت — ارفع ميزانية الأفضل بدلاً منه`;
-    return "حوّل الميزانية للإعلان الرابح وراجع الـ Targeting";
+    if (s.cpa > CPA_STOP) return "حوّل الميزانية للإعلان الرابح";
+    return "اختبر Creative جديد أو ضيّق الأوديانس";
   }
 
   function getWinRec(s: SegmentEntry): string {
@@ -550,14 +556,12 @@ type ScenarioPreset = "scale_safe" | "max_profit" | "reduce_risk";
 
 function WhatIfSimulator({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEntry[] }) {
   const killCandidates = useMemo(() => {
-    const cpas = byAd.filter((a) => a.purchases > 0).map((a) => a.cpa);
-    const minCpa = cpas.length > 0 ? Math.min(...cpas) : totals.cpa || 1;
     return [...byAd]
       .filter((a) => a.spend >= 50)
-      .filter((a) => a.purchases === 0 || a.cpa > minCpa * 1.6)
+      .filter((a) => a.purchases === 0 || a.cpa > CPA_IMPROVE)
       .sort((a, b) => b.spend - a.spend)
       .slice(0, 4);
-  }, [byAd, totals.cpa]);
+  }, [byAd]);
 
   const [sim, setSim] = useState<SimState>({
     killed: new Set(),
