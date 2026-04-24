@@ -3,6 +3,7 @@ import {
   fetchAccounts,
   fetchAccount,
   fetchCampaigns,
+  fetchCampaignsForAccount,
   fetchInsights,
   fetchTokenHealth,
 } from "@/lib/meta-api";
@@ -46,7 +47,14 @@ export function useCampaigns(opts: {
       opts.until,
       opts.ad_account_id || "",
     ],
-    queryFn: () => fetchCampaigns(opts),
+    queryFn: () =>
+      opts.ad_account_id
+        ? fetchCampaignsForAccount({
+            ad_account_id: opts.ad_account_id,
+            since: opts.since,
+            until: opts.until,
+          })
+        : fetchCampaigns(opts),
     staleTime: ONE_HOUR,
     enabled: Boolean(opts.since && opts.until),
   });

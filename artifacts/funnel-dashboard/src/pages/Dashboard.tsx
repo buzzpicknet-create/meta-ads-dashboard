@@ -737,6 +737,13 @@ export default function Dashboard() {
     setSelectedCampaignId(null);
   }, [selectedAccountId]);
 
+  const visibleCampaigns = useMemo(() => {
+    const list = campaigns.data?.campaigns || [];
+    return selectedAccountId
+      ? list.filter((c) => c.id && c.name)
+      : list;
+  }, [campaigns.data?.campaigns, selectedAccountId]);
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["meta"] });
   };
@@ -781,7 +788,7 @@ export default function Dashboard() {
 
         {/* CONTROLS */}
         <DashboardControls
-          campaigns={campaigns.data?.campaigns}
+          campaigns={visibleCampaigns}
           accounts={accounts.data?.accounts}
           selectedAccountId={selectedAccountId}
           onSelectAccount={setSelectedAccountId}

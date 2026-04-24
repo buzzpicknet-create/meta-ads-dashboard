@@ -178,6 +178,14 @@ export function fetchInsights(opts: {
   return jsonFetch<CampaignInsights>(`${API_BASE}/meta/insights?${params}`);
 }
 
+export function fetchCampaignsForAccount(opts: {
+  ad_account_id: string;
+  since: string;
+  until: string;
+}): Promise<CampaignsResponse> {
+  return fetchCampaigns(opts);
+}
+
 // ---- Date range helpers ----
 export function todayCairoIso(): string {
   // Cairo = UTC+2 (no DST). Get current Cairo date.
