@@ -1,0 +1,31 @@
+kind = "data-app"
+previewPath = "/"
+title = "Funnel Analysis Dashboard"
+version = "1.0.0"
+id = "artifacts/funnel-dashboard"
+router = "path"
+
+[[integratedSkills]]
+name = "data-visualization"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19087
+
+[services.development]
+run = "pnpm --filter @workspace/funnel-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/funnel-dashboard", "run", "build" ]
+publicDir = "artifacts/funnel-dashboard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19087"
+BASE_PATH = "/"
