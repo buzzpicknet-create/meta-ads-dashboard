@@ -77,6 +77,7 @@ interface Props {
   totals: DerivedMetrics;
   byAd: SegmentEntry[];
   byAdset: SegmentEntry[];
+  campaignName?: string;
 }
 
 function fmt(n: number, d = 0): string {
@@ -86,7 +87,7 @@ function fmt(n: number, d = 0): string {
   });
 }
 
-export function ExecutiveSummary({ totals, byAd, byAdset }: Props) {
+export function ExecutiveSummary({ totals, byAd, byAdset, campaignName }: Props) {
   // Compute kill/scale recommendations from data
   const adsWithSpend = byAd.filter((a) => a.spend >= 50);
   const cpas = adsWithSpend.filter((a) => a.purchases > 0).map((a) => a.cpa);
@@ -179,7 +180,7 @@ export function ExecutiveSummary({ totals, byAd, byAdset }: Props) {
           <div>
             <h2 className="text-lg font-bold">القرارات في 30 ثانية</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              لو ما عندكيش وقت تقري الباقي، نفّذي اللي في الـ 3 كروت دول
+              {campaignName ? `الحملة الحالية: ${campaignName}` : "لو ما عندكيش وقت تقري الباقي، نفّذي اللي في الـ 3 كروت دول"}
             </p>
           </div>
         </div>

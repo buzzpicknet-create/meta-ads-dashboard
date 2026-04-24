@@ -171,3 +171,11 @@ export const actionPlan: ActionItem[] = [
     why: "Hook Rate الإجمالي 20% فقط. لو رفعتيه لـ 30% الـ CPA هينزل من 44 لـ 28 EGP.",
   },
 ];
+
+export function getActionPlanForCampaign(campaignId: string, base: ActionItem[]): ActionItem[] {
+  if (!campaignId) return [];
+  return base.map((item) => ({
+    ...item,
+    id: `${campaignId}:${item.id}`,
+  }));
+}

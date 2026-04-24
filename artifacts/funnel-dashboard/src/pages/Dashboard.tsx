@@ -39,6 +39,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ExecutiveSummary } from "@/components/executive-summary";
 import { ImpactCalculator } from "@/components/impact-calculator";
 import { ActionChecklist } from "@/components/action-checklist";
+import { actionPlan, getActionPlanForCampaign } from "@/lib/data";
 import { DashboardControls } from "@/components/dashboard-controls";
 import { useCampaigns, useInsights, useAccount, useAccounts } from "@/hooks/use-meta";
 import {
@@ -376,7 +377,12 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
   return (
     <div className="space-y-8">
       {/* EXECUTIVE SUMMARY */}
-      <ExecutiveSummary totals={totals} byAd={insights.by_ad} byAdset={insights.by_adset} />
+      <ExecutiveSummary
+        totals={totals}
+        byAd={insights.by_ad}
+        byAdset={insights.by_adset}
+        campaignName={insights.campaign.name}
+      />
 
       {/* KPI CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -689,7 +695,7 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
       </Card>
 
       {/* ACTION CHECKLIST */}
-      <ActionChecklist />
+      <ActionChecklist items={getActionPlanForCampaign(insights.campaign.id, actionPlan)} />
     </div>
   );
 }

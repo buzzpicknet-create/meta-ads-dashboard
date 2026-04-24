@@ -12,7 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { actionPlan, type ActionItem } from "@/lib/data";
+import type { ActionItem } from "@/lib/data";
 
 const STORAGE_KEY = "funnel-checklist-v1";
 
@@ -43,7 +43,7 @@ const priorityConfig = {
   },
 };
 
-export function ActionChecklist() {
+export function ActionChecklist({ items }: { items: ActionItem[] }) {
   const [done, setDone] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -76,8 +76,8 @@ export function ActionChecklist() {
     }
   }
 
-  const completedCount = actionPlan.filter(a => done[a.id]).length;
-  const total = actionPlan.length;
+  const completedCount = items.filter(a => done[a.id]).length;
+  const total = items.length;
   const progress = (completedCount / total) * 100;
 
   return (
@@ -115,7 +115,7 @@ export function ActionChecklist() {
         </div>
       </CardHeader>
       <CardContent className="space-y-2.5 pt-2">
-        {actionPlan.map((item, idx) => (
+        {items.map((item, idx) => (
           <ChecklistRow
             key={item.id}
             item={item}
