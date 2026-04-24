@@ -240,7 +240,10 @@ export async function listCampaigns(opts: {
   until: string;
   adAccountId?: string;
 }): Promise<CampaignSummary[]> {
-  const adAccount = opts.adAccountId || getAdAccountId();
+  const rawAccount = opts.adAccountId || getAdAccountId();
+  const adAccount = rawAccount.startsWith("act_")
+    ? rawAccount.slice(4)
+    : rawAccount;
 
   // 1) Fetch all campaigns metadata
   const campaigns = await fbGet<{
@@ -533,7 +536,10 @@ export async function getCampaignInsights(opts: {
 }
 
 export async function getAccountInfo() {
-  const adAccount = getAdAccountId();
+  const rawAccount = getAdAccountId();
+  const adAccount = rawAccount.startsWith("act_")
+    ? rawAccount.slice(4)
+    : rawAccount;
   const url = new URL(`${BASE_URL}/act_${adAccount}`);
   url.searchParams.set("access_token", getAccessToken());
   url.searchParams.set("fields", "id,name,currency,timezone_name,account_status");
@@ -556,7 +562,8 @@ export async function listAdAccounts(): Promise<AdAccountSummary[]> {
   const ids = getAdAccountIds();
   const accounts = await Promise.all(
     ids.map(async (id) => {
-      const url = new URL(`${BASE_URL}/act_${id}`);
+      const cleanId = id.startsWith("act_") ? id.slice(4) : id;
+      const url = new URL(`${BASE_URL}/act_${cleanId}`);
       url.searchParams.set("access_token", getAccessToken());
       url.searchParams.set("fields", "id,name,currency,timezone_name,account_status");
       const res = await fetch(url.toString());
