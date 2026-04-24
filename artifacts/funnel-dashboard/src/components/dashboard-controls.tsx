@@ -92,7 +92,8 @@ export function DashboardControls({
             الحساب
           </label>
           <Select
-            value={selectedAccountId || undefined}
+            key={selectedAccountId ?? "none"}
+            value={selectedAccountId || ""}
             onValueChange={onSelectAccount}
             dir="rtl"
           >
@@ -120,7 +121,8 @@ export function DashboardControls({
             الحملة
           </label>
           <Select
-            value={selectedCampaignId || undefined}
+            key={selectedAccountId ?? "none"}
+            value={selectedCampaignId || ""}
             onValueChange={onSelectCampaign}
             disabled={isLoadingCampaigns || !campaigns}
             dir="rtl"
