@@ -1,4 +1,4 @@
-import { PauseCircle, Rocket, Wrench } from "lucide-react";
+import { PauseCircle, Rocket, Wrench, Sparkles, Megaphone, Video } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { DerivedMetrics, SegmentEntry } from "@/lib/meta-api";
 
@@ -78,6 +78,9 @@ interface Props {
   byAd: SegmentEntry[];
   byAdset: SegmentEntry[];
   campaignName?: string;
+  headlineWinner?: SegmentEntry | null;
+  adsetWinner?: SegmentEntry | null;
+  mediaWinner?: SegmentEntry | null;
 }
 
 function fmt(n: number, d = 0): string {
@@ -87,58 +90,33 @@ function fmt(n: number, d = 0): string {
   });
 }
 
-export function ExecutiveSummary({ totals, byAd, byAdset, campaignName }: Props) {
-  // Compute kill/scale recommendations from data
-  const adsWithSpend = byAd.filter((a) => a.spend >= 50);
-  const cpas = adsWithSpend.filter((a) => a.purchases > 0).map((a) => a.cpa);
-  const minCpa = cpas.length > 0 ? Math.min(...cpas) : totals.cpa || 1;
-
-  // Kill candidates: high spend + (no purchases OR cpa > 2.5x min)
-  const killCandidates = [...adsWithSpend]
-    .filter((a) => a.purchases === 0 || a.cpa > minCpa * 2.5)
-    .sort((a, b) => b.spend - a.spend)
-    .slice(0, 3);
-
-  // Adset-level kill (if multiple adsets)
-  const adsetKillCandidates =
-    byAdset.length > 1
-      ? [...byAdset]
-          .filter(
-            (a) =>
-              a.spend >= 50 &&
-              (a.purchases === 0 || a.cpa > minCpa * 2.5),
-          )
-          .sort((a, b) => b.spend - a.spend)
-          .slice(0, 1)
-      : [];
-
-  const stopItems: Item[] = [
-    ...adsetKillCandidates.map((a) => ({
-      text: `Ad Set: ${a.label}`,
-      sub:
-        a.purchases === 0
-          ? `${fmt(a.spend, 0)} EGP بدون أوردرات`
-          : `CPA ${fmt(a.cpa, 2)} EGP`,
-    })),
-    ...killCandidates.map((a) => ({
-      text: `Creative: ${a.label}`,
-      sub:
-        a.purchases === 0
-          ? `${fmt(a.spend, 0)} EGP — صفر أوردرات`
-          : `CPA ${fmt(a.cpa, 2)} EGP — مرتفع جداً`,
-    })),
+export function ExecutiveSummary({
+  totals,
+  campaignName,
+  headlineWinner,
+  adsetWinner,
+  mediaWinner,
+}: Props) {
+  const topItems: Item[] = [
+    headlineWinner
+      ? {
+          text: `أفضل Headline: ${headlineWinner.label}`,
+          sub: `CPA ${fmt(headlineWinner.cpa, 2)} EGP · ${fmt(headlineWinner.purchases)} طلب`,
+        }
+      : { text: "أفضل Headline: لا توجد بيانات كافية" },
+    adsetWinner
+      ? {
+          text: `أفضل Ad Set: ${adsetWinner.label}`,
+          sub: `CPA ${fmt(adsetWinner.cpa, 2)} EGP · ${fmt(adsetWinner.purchases)} طلب`,
+        }
+      : { text: "أفضل Ad Set: لا توجد بيانات كافية" },
+    mediaWinner
+      ? {
+          text: `أفضل Video / Media: ${mediaWinner.label}`,
+          sub: `CPA ${fmt(mediaWinner.cpa, 2)} EGP · ${fmt(mediaWinner.purchases)} طلب`,
+        }
+      : { text: "أفضل Video / Media: لا توجد بيانات كافية" },
   ];
-
-  // Scale candidates: lowest CPA among ads with purchases
-  const scaleCandidates = [...adsWithSpend]
-    .filter((a) => a.purchases > 0 && a.cpa <= minCpa * 1.2)
-    .sort((a, b) => a.cpa - b.cpa)
-    .slice(0, 3);
-
-  const scaleItems: Item[] = scaleCandidates.map((a) => ({
-    text: a.label,
-    sub: `CPA ${fmt(a.cpa, 2)} EGP · ${fmt(a.purchases)} طلب — ضاعفي ميزانيته`,
-  }));
 
   // Fix recommendations based on funnel weak points
   const fixItems: Item[] = [];
@@ -180,14 +158,14 @@ export function ExecutiveSummary({ totals, byAd, byAdset, campaignName }: Props)
           <div>
             <h2 className="text-lg font-bold">القرارات في 30 ثانية</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {campaignName ? `الحملة الحالية: ${campaignName}` : "لو ما عندكيش وقت تقري الباقي، نفّذي اللي في الـ 3 كروت دول"}
+              {campaignName ? `الحملة الحالية: ${campaignName}` : "أهم 3 رابحين من Meta"}
             </p>
           </div>
         </div>
         <div className="grid md:grid-cols-3 gap-3">
-          <Column icon={PauseCircle} title="أوقفي دلوقتي" items={stopItems} tone="kill" />
-          <Column icon={Rocket} title="ضاعفي على" items={scaleItems} tone="scale" />
-          <Column icon={Wrench} title="صلّحي اليوم" items={fixItems.slice(0, 3)} tone="fix" />
+          <Column icon={Sparkles} title="Headline الرابح" items={[topItems[0]]} tone="scale" />
+          <Column icon={Megaphone} title="Ad Set الرابح" items={[topItems[1]]} tone="scale" />
+          <Column icon={Video} title="Video / Media الرابحة" items={[topItems[2]]} tone="scale" />
         </div>
       </CardContent>
     </Card>

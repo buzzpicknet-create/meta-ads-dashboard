@@ -382,6 +382,9 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
         byAd={insights.by_ad}
         byAdset={insights.by_adset}
         campaignName={insights.campaign.name}
+        headlineWinner={insights.by_ad.length ? [...insights.by_ad].sort((a, b) => a.cpa - b.cpa)[0] : null}
+        adsetWinner={insights.by_adset.length ? [...insights.by_adset].sort((a, b) => a.cpa - b.cpa)[0] : null}
+        mediaWinner={insights.by_ad.length ? [...insights.by_ad].sort((a, b) => a.cpa - b.cpa)[0] : null}
       />
 
       {/* KPI CARDS */}
@@ -695,7 +698,9 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
       </Card>
 
       {/* ACTION CHECKLIST */}
-      <ActionChecklist items={getActionPlanForCampaign(insights.campaign.id, actionPlan)} />
+      <ActionChecklist
+        items={getActionPlanForCampaign(insights.campaign.id, actionPlan)}
+      />
     </div>
   );
 }
