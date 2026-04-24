@@ -38,8 +38,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ExecutiveSummary } from "@/components/executive-summary";
 import { ImpactCalculator } from "@/components/impact-calculator";
-import { ActionChecklist } from "@/components/action-checklist";
-import { actionPlan, getActionPlanForCampaign } from "@/lib/data";
 import { DashboardControls } from "@/components/dashboard-controls";
 import { useCampaigns, useInsights, useAccount, useAccounts } from "@/hooks/use-meta";
 import {
