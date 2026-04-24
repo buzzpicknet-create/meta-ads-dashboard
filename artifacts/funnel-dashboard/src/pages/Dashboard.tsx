@@ -21,6 +21,7 @@ import {
   ArrowUpRight,
   Bell,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   Eye,
   Flame,
@@ -806,6 +807,307 @@ function WhatIfSimulator({ totals, byAd }: { totals: DerivedMetrics; byAd: Segme
 }
 
 // ──────────────────────────────────────────────────────────────
+// Funnel Diagnostic — CPA Root Cause
+// ──────────────────────────────────────────────────────────────
+function FunnelDiagnostic({ totals }: { totals: DerivedMetrics }) {
+  type Health = "good" | "warn" | "bad" | "neutral";
+
+  const steps: {
+    id: string; label: string; sublabel: string; value: string;
+    health: Health; tip: string; icon: React.ComponentType<{ className?: string }>;
+  }[] = [
+    {
+      id: "cpm", label: "تكلفة المزاد", sublabel: "CPM",
+      value: fmt(totals.cpm, 0) + " EGP",
+      health: totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad",
+      tip: totals.cpm > 60
+        ? "المزاد غالي — الأوديانس ضيقة أو المنافسة شرسة في وقت الإعلان"
+        : totals.cpm > 30 ? "CPM معتدل — راقبه لو ارتفع فجأة"
+        : "CPM صحي — التوزيع كفء",
+      icon: CircleDollarSign,
+    },
+    {
+      id: "ctr", label: "جذب الانتباه", sublabel: "CTR",
+      value: fmtPct(totals.ctr),
+      health: totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad",
+      tip: totals.ctr < 1
+        ? "CTR ضعيف جداً — الكريتف مش بيوقف أحد في الفيد"
+        : totals.ctr < 2 ? "CTR أقل من المثالي — فرصة تحسين الـ Hook"
+        : "CTR صحي — الكريتف شاد الانتباه",
+      icon: MousePointerClick,
+    },
+    {
+      id: "lpv", label: "وصول للصفحة", sublabel: "LPV Rate",
+      value: totals.lpv > 0 ? fmtPct(totals.lpvRate) : "—",
+      health: totals.lpv === 0 ? "neutral" : totals.lpvRate >= 75 ? "good" : totals.lpvRate >= 60 ? "warn" : "bad",
+      tip: totals.lpv === 0
+        ? "لا توجد بيانات LPV — تأكد من pixel الصفحة"
+        : totals.lpvRate < 60
+        ? "الصفحة بطيئة جداً — معظم الكليكات بتنسحب قبل التحميل"
+        : totals.lpvRate < 75 ? "بعض الكليكات بتضيع — سرعة الصفحة تحتاج مراجعة"
+        : "معظم الكليكات بتوصل للصفحة",
+      icon: Eye,
+    },
+    {
+      id: "cr", label: "إتمام الشراء", sublabel: "CR من LPV",
+      value: totals.lpv > 0 ? fmtPct(totals.crLpv) : fmtPct(totals.crClick),
+      health: (totals.lpv > 0 ? totals.crLpv : totals.crClick) >= 5 ? "good"
+        : (totals.lpv > 0 ? totals.crLpv : totals.crClick) >= 2 ? "warn" : "bad",
+      tip: (totals.lpv > 0 ? totals.crLpv : totals.crClick) < 2
+        ? "CR منخفض جداً — مشكلة في الفورم أو السعر أو عدم الثقة"
+        : (totals.lpv > 0 ? totals.crLpv : totals.crClick) < 5
+        ? "CR أقل من 5% — راجع صفحة المنتج والـ Checkout"
+        : "CR صحي — الصفحة بتحوّل زوارها",
+      icon: ShoppingCart,
+    },
+  ];
+
+  const priorityOrder: Health[] = ["bad", "warn", "good", "neutral"];
+  const worstStep = [...steps].sort(
+    (a, b) => priorityOrder.indexOf(a.health) - priorityOrder.indexOf(b.health)
+  )[0];
+
+  const healthColor: Record<Health, string> = {
+    good: "text-emerald-600 dark:text-emerald-400",
+    warn: "text-amber-600 dark:text-amber-400",
+    bad: "text-rose-600 dark:text-rose-400",
+    neutral: "text-muted-foreground",
+  };
+  const healthBg: Record<Health, string> = {
+    good: "bg-emerald-500/10 ring-emerald-500/20",
+    warn: "bg-amber-500/10 ring-amber-500/20",
+    bad: "bg-rose-500/10 ring-rose-500/20",
+    neutral: "bg-muted/40 ring-border",
+  };
+  const healthDot: Record<Health, string> = {
+    good: "bg-emerald-500",
+    warn: "bg-amber-500",
+    bad: "bg-rose-500",
+    neutral: "bg-muted-foreground",
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Target className="h-4 w-4 text-primary" />
+          تشخيص ارتفاع الـ CPA — أين تكمن المشكلة؟
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          CPA = CPM ÷ CTR ÷ CR — أي حلقة ضعيفة ترفع التكلفة على كل الحملة
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {steps.map((step, i) => {
+            const Icon = step.icon;
+            return (
+              <div key={step.id} className="relative">
+                <div className={`rounded-xl ring-1 p-3.5 space-y-2 ${healthBg[step.health]}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-2 h-2 rounded-full ${healthDot[step.health]}`} />
+                      <span className="text-xs font-semibold">{step.label}</span>
+                    </div>
+                    <Icon className={`h-3.5 w-3.5 ${healthColor[step.health]}`} />
+                  </div>
+                  <div className={`text-xl font-bold tabular-nums ${healthColor[step.health]}`}>
+                    <Num>{step.value}</Num>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-tight">{step.tip}</div>
+                </div>
+                {i < steps.length - 1 && (
+                  <div className="hidden md:flex absolute -left-1.5 top-[38%] z-10 text-muted-foreground text-base font-bold">↓</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {worstStep && worstStep.health !== "good" && worstStep.health !== "neutral" && (
+          <div className={`flex items-start gap-3 rounded-xl ring-1 p-3.5 ${healthBg[worstStep.health]}`}>
+            <AlertTriangle className={`h-4 w-4 shrink-0 mt-0.5 ${healthColor[worstStep.health]}`} />
+            <div>
+              <div className={`text-sm font-bold mb-0.5 ${healthColor[worstStep.health]}`}>
+                أكبر عائق الآن: {worstStep.label} ({worstStep.sublabel} = {worstStep.value})
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {worstStep.health === "bad"
+                  ? "هذه المرحلة تضاعف الـ CPA — ركّز عليها أولاً قبل أي تحسين آخر"
+                  : "هذه المرحلة تستهلك جزءاً من ميزانيتك — تحسينها يقلل CPA بشكل ملحوظ"}
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Expert Tips — نصائح الخبير المبنية على البيانات
+// ──────────────────────────────────────────────────────────────
+interface ExpertTip {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  body: string;
+  action: string;
+  tone: "info" | "warn" | "good" | "bad";
+}
+
+function ExpertTips({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEntry[] }) {
+  const tips = useMemo<ExpertTip[]>(() => {
+    const t: ExpertTip[] = [];
+
+    if (totals.cpm > 60) {
+      t.push({
+        icon: CircleDollarSign,
+        title: "المزاد غالي — CPM مرتفع فوق 60 EGP",
+        body: `CPM حالياً ${fmt(totals.cpm, 0)} EGP يعني إنك بتدفع أكتر لكل 1000 مشاهدة. الأسباب الشائعة: أوديانس ضيق جداً، وقت إعلان غالي (Prime Time)، أو Quality Score منخفضة عند Meta. Meta بتكافئ الإعلانات عالية الجودة بـ CPM أرخص.`,
+        action: "وسّع الأوديانس أو جرّب Advantage+ Audience. اختبر Placements مختلفة (Stories vs Reels vs Feed). ارفع جودة الكريتف — إعلانات بـ CTR عالي بتاخد CPM أرخص تلقائياً.",
+        tone: "warn",
+      });
+    } else if (totals.cpm > 30) {
+      t.push({
+        icon: CircleDollarSign,
+        title: "CPM معتدل — راقبه لو ارتفع",
+        body: `CPM حالياً ${fmt(totals.cpm, 0)} EGP — في النطاق المقبول. ارتفاعه المفاجئ يعني إما منافسة متزايدة في الـ Auction أو تشبع الأوديانس.`,
+        action: "راقب CPM يومياً. لو ارتفع أكتر من 20% في أسبوع، راجع الـ Frequency وفكّر في تجديد الكريتف.",
+        tone: "info",
+      });
+    }
+
+    if (totals.ctr < 1) {
+      t.push({
+        icon: MousePointerClick,
+        title: "الكريتف مش بيوقف أحد — CTR أقل من 1%",
+        body: `كل 100 شخص شافوا إعلانك، أقل من ${fmt(totals.ctr, 2)} نقروا. Meta بتعاقب الإعلانات الضعيفة بتقليل التوزيع ورفع CPM. الـ Hook (أول 3 ثواني أو أول سطر) حاسم في قرار النقر.`,
+        action: "ابدأ بسؤال مباشر يلمس المشكلة ('تعبت من..؟'). استخدم رقم مثير في الـ headline ('وفّر 30% من مصروفك'). جرّب 3 hooks مختلفة ووقّف الأضعف بعد 3 أيام.",
+        tone: "bad",
+      });
+    } else if (totals.ctr < 2) {
+      t.push({
+        icon: MousePointerClick,
+        title: "CTR أقل من 2% — فرصة تحسين الكريتف",
+        body: `CTR حالياً ${fmtPct(totals.ctr)}. تحسينه من 1.5% لـ 2% بيعني 33% طلبات زيادة من نفس الميزانية — بدون أي زيادة في الإنفاق. الإعلانات الناجحة في مصر عادةً فوق 2%.`,
+        action: "اختبر UGC (فيديو عميل حقيقي). أضف نص CTA واضح في أول 3 ثواني. جرّب Carousel بدل الصورة الواحدة لمنتجات متعددة.",
+        tone: "warn",
+      });
+    }
+
+    if (totals.lpv > 0 && totals.lpvRate < 65) {
+      t.push({
+        icon: Eye,
+        title: `الصفحة بطيئة — ${fmt(100 - totals.lpvRate, 0)}% من الكليكات بتضيع`,
+        body: `${fmt(100 - totals.lpvRate, 0)}% من الناس اللي نقروا الإعلان خرجوا قبل ما يشوفوا الصفحة. ده بيضاعف CPA لأنك بتدفع على كليكات مش بتوصلك. الصفحة المثالية تفتح في أقل من 2 ثانية على الموبايل — الدراسات بتقول كل ثانية تأخير = 20% تراجع في التحويل.`,
+        action: "افحص سرعة الصفحة على Google PageSpeed Insights. حوّل الصور لـ WebP. فكّر في Meta Instant Experience أو Lead Form لتجنب مشكلة التحميل كلياً.",
+        tone: "bad",
+      });
+    }
+
+    const cr = totals.lpv > 0 ? totals.crLpv : totals.crClick;
+    if (cr < 2) {
+      t.push({
+        icon: ShoppingCart,
+        title: "CR منخفض جداً — الزوار مش بيكملوا الشراء",
+        body: `أقل من 2% من زوار الصفحة بيشتروا. ده يعني المشكلة مش في الإعلان، المشكلة في الصفحة أو الـ Offer. الأسباب الشائعة: السعر غالي بدون مبرر، الفورم طويل ومعقد، ما فيش ضمان أو اجتماعي proof كافي.`,
+        action: "أضف شهادات عملاء وصور حقيقية. وضّح ضمان الإسترجاع بشكل بارز. قصّر الفورم لأقل حقول. جرّب عرض 'محدود الوقت' أو 'آخر 5 قطع'.",
+        tone: "bad",
+      });
+    } else if (cr < 5) {
+      t.push({
+        icon: ShoppingCart,
+        title: "CR أقل من 5% — صفحة المنتج تحتاج تحسين",
+        body: `CR من 2-5% مقبول لكن فيه فرصة كبيرة. الفرق بين CR 3% و5% يعني 67% طلبات زيادة من نفس الميزانية — بدون زيادة إنفاق. ده أسهل وأرخص طريقة لتحسين الـ ROAS.`,
+        action: "A/B test صفحة المنتج (جرّب ترتيب مختلف للمحتوى). غيّر لون زر الشراء. أضف Sticky CTA في الأسفل. استخدم بيانات Hotjar لمعرفة أين يوقف الزوار.",
+        tone: "warn",
+      });
+    }
+
+    if (totals.hookRate > 0 && totals.hookRate < 25) {
+      t.push({
+        icon: Flame,
+        title: `Hook Rate ${fmt(totals.hookRate, 0)}% — الفيديو مش بيمسك`,
+        body: `${fmt(100 - totals.hookRate, 0)}% بيجروا الفيديو قبل 3 ثواني. Meta بتراقب Hook Rate وبتقلل توزيع الإعلانات الضعيفة تدريجياً. إعلان بـ Hook Rate 50%+ بيكلف أرخص بكتير لنفس عدد المشاهدات.`,
+        action: "ابدأ بالمشكلة أو النتيجة مباشرة ('خسرت 3000 EGP في إعلانات؟'). تجنّب الـ Logo في البداية. استخدم Text Overlay سريع. الـ Hook المثالي: سؤال + وجه إنسان + نص واضح.",
+        tone: "warn",
+      });
+    }
+
+    const goodAds = byAd.filter(a => a.purchases > 0 && a.cpa <= CPA_IMPROVE);
+    if (goodAds.length > 0) {
+      t.push({
+        icon: Rocket,
+        title: `فرصة Scale — عندك ${goodAds.length} إعلان بـ CPA تحت ${CPA_IMPROVE} EGP`,
+        body: `لما CPA يكون تحت هدفك والإعلان شغّال، ده وقت ذهبي للتوسع. الانتظار بيعني الـ Audience يتشبع تدريجياً، الـ CPM يرتفع، والـ CTR ينخفض — والنافذة تقفل.`,
+        action: "ارفع ميزانية الإعلانات الرابحة بـ 20-30% كل 48-72 ساعة. لو ارتفع CPA بعد الرفع، وقّف 24 ساعة ثم ارفع بنسبة أصغر. استخدم CBO (Campaign Budget Optimization) لتوزيع ذكي.",
+        tone: "good",
+      });
+    }
+
+    const activeAds = byAd.filter(a => a.spend > 50);
+    if (activeAds.length > 4 && totals.purchases > 0 && totals.purchases / activeAds.length < 10) {
+      t.push({
+        icon: Zap,
+        title: "الميزانية متفرقة — أقل من 50 طلب لكل إعلان",
+        body: `عندك ${activeAds.length} إعلان نشط. لما الميزانية موزعة كتير، كل إعلان يظل في Learning Phase طول الوقت. Meta محتاجة 50 طلب في 7 أيام لكل Ad Set لتفعيل التحسين التلقائي للجمهور.`,
+        action: "دمج Ad Sets الضعيفة. ركّز الميزانية على 2-3 Ad Sets بدلاً من تشتيتها. استخدم Advantage Campaign Budget لتوزيع تلقائي على الأفضل أداءً.",
+        tone: "info",
+      });
+    }
+
+    return t.slice(0, 6);
+  }, [totals, byAd]);
+
+  if (tips.length === 0) return null;
+
+  const toneStyle: Record<ExpertTip["tone"], { bg: string; icon: string; title: string; border: string }> = {
+    info: { bg: "bg-sky-500/5",     icon: "text-sky-600 dark:text-sky-400",       title: "text-sky-700 dark:text-sky-300",     border: "ring-sky-500/20" },
+    warn: { bg: "bg-amber-500/5",   icon: "text-amber-600 dark:text-amber-400",   title: "text-amber-700 dark:text-amber-300", border: "ring-amber-500/20" },
+    good: { bg: "bg-emerald-500/5", icon: "text-emerald-600 dark:text-emerald-400", title: "text-emerald-700 dark:text-emerald-300", border: "ring-emerald-500/20" },
+    bad:  { bg: "bg-rose-500/5",    icon: "text-rose-600 dark:text-rose-400",     title: "text-rose-700 dark:text-rose-300",   border: "ring-rose-500/20" },
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4 text-primary" />
+          نصائح الخبير — تحليل مخصص لبياناتك
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          كل نصيحة مبنية على الأرقام الفعلية في حملتك — اضغط لتفاصيل الإجراء
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2.5">
+          {tips.map((tip, i) => {
+            const Icon = tip.icon;
+            const s = toneStyle[tip.tone];
+            return (
+              <details key={i} className={`rounded-xl ring-1 ${s.border} ${s.bg} group`}>
+                <summary className="flex items-center gap-3 cursor-pointer list-none px-4 py-3 select-none">
+                  <Icon className={`h-4 w-4 shrink-0 ${s.icon}`} />
+                  <span className={`text-sm font-bold flex-1 leading-snug ${s.title}`}>{tip.title}</span>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground/60 group-open:rotate-180 transition-transform shrink-0" />
+                </summary>
+                <div className="px-4 pb-4 mr-7 space-y-2.5">
+                  <p className="text-sm text-muted-foreground leading-relaxed">{tip.body}</p>
+                  <div className="rounded-lg bg-primary/8 ring-1 ring-primary/20 px-3 py-2.5 text-sm">
+                    <span className="font-bold text-primary ml-1">الإجراء:</span>
+                    <span className="text-muted-foreground">{tip.action}</span>
+                  </div>
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Loading skeleton
 // ──────────────────────────────────────────────────────────────
 function DashboardSkeleton() {
@@ -845,6 +1147,9 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
       {/* PRIORITY ENGINE */}
       <PriorityEngine totals={totals} byAd={insights.by_ad} byAdset={insights.by_adset} />
+
+      {/* FUNNEL DIAGNOSTIC */}
+      <FunnelDiagnostic totals={totals} />
 
       {/* KPI CARDS — 6 */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -897,6 +1202,9 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
       {/* PERFORMANCE ANALYSIS */}
       <PerformanceAnalysis byAd={insights.by_ad} byAdset={insights.by_adset} />
+
+      {/* EXPERT TIPS */}
+      <ExpertTips totals={totals} byAd={insights.by_ad} />
 
       {/* WHAT-IF SIMULATOR */}
       <WhatIfSimulator totals={totals} byAd={insights.by_ad} />
