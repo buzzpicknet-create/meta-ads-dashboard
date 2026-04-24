@@ -191,10 +191,6 @@ function FunnelStep({
           فاقد <Num>{fmt(drop)}</Num> مستخدم في الخطوة دي
         </div>
       )}
-      {/* ACTION CHECKLIST */}
-      <ActionChecklist
-        items={getActionPlanForCampaign(insights.campaign.id, actionPlan)}
-      />
     </div>
   );
 }
