@@ -705,7 +705,10 @@ export default function Dashboard() {
 
   const account = useAccount();
   const accounts = useAccounts();
-  const campaigns = useCampaigns(range);
+  const campaigns = useCampaigns({
+    ...range,
+    ad_account_id: selectedAccountId || undefined,
+  });
   const insights = useInsights({
     campaign_id: selectedCampaignId,
     ad_account_id: selectedAccountId || undefined,
@@ -729,6 +732,10 @@ export default function Dashboard() {
       setSelectedAccountId(available[0].id);
     }
   }, [accounts.data, selectedAccountId]);
+
+  useEffect(() => {
+    setSelectedCampaignId(null);
+  }, [selectedAccountId]);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["meta"] });

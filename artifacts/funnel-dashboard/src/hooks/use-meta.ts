@@ -33,9 +33,19 @@ export function useTokenHealth() {
   });
 }
 
-export function useCampaigns(opts: { since: string; until: string }) {
+export function useCampaigns(opts: {
+  since: string;
+  until: string;
+  ad_account_id?: string;
+}) {
   return useQuery({
-    queryKey: ["meta", "campaigns", opts.since, opts.until, (opts as { ad_account_id?: string }).ad_account_id || ""],
+    queryKey: [
+      "meta",
+      "campaigns",
+      opts.since,
+      opts.until,
+      opts.ad_account_id || "",
+    ],
     queryFn: () => fetchCampaigns(opts),
     staleTime: ONE_HOUR,
     enabled: Boolean(opts.since && opts.until),
@@ -46,13 +56,21 @@ export function useInsights(opts: {
   campaign_id: string | null;
   since: string;
   until: string;
+  ad_account_id?: string;
 }) {
   return useQuery({
-    queryKey: ["meta", "insights", opts.campaign_id, opts.since, opts.until, (opts as { ad_account_id?: string }).ad_account_id || ""],
+    queryKey: [
+      "meta",
+      "insights",
+      opts.campaign_id,
+      opts.since,
+      opts.until,
+      opts.ad_account_id || "",
+    ],
     queryFn: () =>
       fetchInsights({
         campaign_id: opts.campaign_id!,
-        ad_account_id: (opts as { ad_account_id?: string }).ad_account_id,
+        ad_account_id: opts.ad_account_id,
         since: opts.since,
         until: opts.until,
       }),
