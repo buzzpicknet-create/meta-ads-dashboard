@@ -238,8 +238,9 @@ export interface AdAccountSummary {
 export async function listCampaigns(opts: {
   since: string;
   until: string;
+  adAccountId?: string;
 }): Promise<CampaignSummary[]> {
-  const adAccount = getAdAccountId();
+  const adAccount = opts.adAccountId || getAdAccountId();
 
   // 1) Fetch all campaigns metadata
   const campaigns = await fbGet<{
@@ -567,17 +568,7 @@ export async function listAdAccounts(): Promise<AdAccountSummary[]> {
     }),
   );
 
-  const fallback = [
-    {
-      id: "1714386865726065",
-      name: "Aktab Hosen",
-      currency: "EGP",
-      timezone_name: "Africa/Cairo",
-      account_status: 1,
-    },
-  ];
-
-  return [...accounts, ...fallback].filter(
+  return [...accounts].filter(
     (a, i, arr) => Boolean(a.id) && arr.findIndex((x) => x.id === a.id) === i,
   );
 }

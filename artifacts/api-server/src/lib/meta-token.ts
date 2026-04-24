@@ -59,7 +59,7 @@ export function getAdAccountId(): string {
 
 export function getAdAccountIds(): string[] {
   const token = getToken();
-  return [token.ad_account_id, "1714386865726065", ...(token.ad_account_ids || [])].filter(
+  return ["1714386865726065", "838054421405431", token.ad_account_id, ...(token.ad_account_ids || [])].filter(
     (value, index, arr) => arr.indexOf(value) === index,
   );
 }
