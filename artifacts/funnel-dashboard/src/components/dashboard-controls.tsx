@@ -91,7 +91,11 @@ export function DashboardControls({
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             الحساب
           </label>
-          <Select value={selectedAccountId ?? ""} onValueChange={onSelectAccount} dir="rtl">
+          <Select
+            value={selectedAccountId || undefined}
+            onValueChange={onSelectAccount}
+            dir="rtl"
+          >
             <SelectTrigger className="w-full h-11 text-right">
               <SelectValue placeholder="اختر حساب" />
             </SelectTrigger>
@@ -116,7 +120,7 @@ export function DashboardControls({
             الحملة
           </label>
           <Select
-            value={selectedCampaignId ?? undefined}
+            value={selectedCampaignId || undefined}
             onValueChange={onSelectCampaign}
             disabled={isLoadingCampaigns || !campaigns}
             dir="rtl"
