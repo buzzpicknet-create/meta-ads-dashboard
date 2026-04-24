@@ -22,21 +22,19 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Eye,
-  Flame,
   MousePointerClick,
-  PauseCircle,
-  Rocket,
   ShoppingCart,
   Sparkles,
   TrendingDown,
   TrendingUp,
-  Wrench,
   XCircle,
-  Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ExecutiveSummary } from "@/components/executive-summary";
+import { ImpactCalculator } from "@/components/impact-calculator";
+import { ActionChecklist } from "@/components/action-checklist";
 import {
   funnelTotals,
   adSetSegments,
@@ -44,10 +42,8 @@ import {
   headlineSegments,
   dailyTrend,
   clarityInsights,
-  actionPlan,
   type Segment,
   type ClarityInsight,
-  type ActionItem,
 } from "@/lib/data";
 
 const CHART_COLORS = {
@@ -353,43 +349,6 @@ function ClarityCard({ insight }: { insight: ClarityInsight }) {
   );
 }
 
-// ---------- Action Item ----------
-function ActionRow({ item, idx }: { item: ActionItem; idx: number }) {
-  const config = {
-    kill: { icon: PauseCircle, cls: "bg-rose-500/10 text-rose-700 dark:text-rose-400 ring-rose-500/30", label: "أوقفي" },
-    scale: { icon: Rocket, cls: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30", label: "ضاعفي" },
-    test: { icon: Zap, cls: "bg-sky-500/10 text-sky-700 dark:text-sky-400 ring-sky-500/30", label: "اختبري" },
-    fix: { icon: Wrench, cls: "bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-amber-500/30", label: "صلّحي" },
-  }[item.priority];
-  const Icon = config.icon;
-
-  return (
-    <div className="flex items-start gap-4 rounded-xl border border-border bg-card p-4 hover-elevate">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground font-bold text-sm tabular-nums">
-        <Num>{String(idx + 1).padStart(2, "0")}</Num>
-      </div>
-      <div className="flex-1 min-w-0 space-y-1.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span
-            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${config.cls}`}
-          >
-            <Icon className="h-3 w-3" />
-            {config.label}
-          </span>
-          {item.expectedSaving && (
-            <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
-              <TrendingUp className="h-3 w-3" />
-              {item.expectedSaving}
-            </span>
-          )}
-        </div>
-        <h4 className="text-sm font-semibold leading-snug">{item.title}</h4>
-        <p className="text-xs text-muted-foreground leading-relaxed">{item.why}</p>
-      </div>
-    </div>
-  );
-}
-
 // ---------- Main Dashboard ----------
 export default function Dashboard() {
   const [segView, setSegView] = useState<"adset" | "ad" | "headline">("adset");
@@ -488,39 +447,8 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* TL;DR BANNER */}
-        <Card className="border-rose-500/30 bg-gradient-to-l from-rose-500/5 via-card to-amber-500/5">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 ring-1 ring-rose-500/30">
-                <Flame className="h-6 w-6 text-rose-600 dark:text-rose-400" />
-              </div>
-              <div className="space-y-2 flex-1">
-                <h2 className="text-lg font-bold">القرار الكبير: فين الفلوس بتضيع؟</h2>
-                <ul className="space-y-1.5 text-sm leading-relaxed">
-                  <li className="flex items-start gap-2">
-                    <span className="text-rose-600 dark:text-rose-400 font-bold">1.</span>
-                    <span>
-                      الـ <strong>Checkout مكسور</strong> (تحليل Clarity) — أكبر مصدر للخسارة. ناس وصلت لزر "تأكيد الطلب" ومحدش أكمل.
-                    </span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-rose-600 dark:text-rose-400 font-bold">2.</span>
-                    <span>
-                      Ad Set <strong>"Broad - 2 images"</strong> + Creative <strong>ad2</strong> = CPA <Num>125</Num> EGP مقابل <Num>29</Num> EGP في الـ Winner. أوقفيهم.
-                    </span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-rose-600 dark:text-rose-400 font-bold">3.</span>
-                    <span>
-                      Hook Rate الفيديو <Num>20%</Num> فقط — أول 3 ثواني هي البلوك الكبير اللي بيمنع تحسّن الـ CPA.
-                    </span>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* EXECUTIVE SUMMARY — TL;DR في 30 ثانية */}
+        <ExecutiveSummary />
 
         {/* KPI CARDS */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -726,6 +654,9 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* IMPACT CALCULATOR */}
+        <ImpactCalculator />
+
         {/* SEGMENTS */}
         <Card>
           <CardHeader className="pb-3">
@@ -813,25 +744,8 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* ACTION PLAN */}
-        <section className="space-y-4">
-          <div className="flex items-end justify-between gap-3 flex-wrap">
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                <Rocket className="h-5 w-5 text-emerald-500" />
-                خطة العمل — افعليها بنفس الترتيب
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                قرارات مباشرة بدون شرح نظري
-              </p>
-            </div>
-          </div>
-          <div className="grid md:grid-cols-2 gap-3">
-            {actionPlan.map((a, idx) => (
-              <ActionRow key={a.id} item={a} idx={idx} />
-            ))}
-          </div>
-        </section>
+        {/* ACTION CHECKLIST */}
+        <ActionChecklist />
 
         {/* FOOTER */}
         <footer className="pt-6 mt-6 border-t border-border">
