@@ -65,90 +65,6 @@ export const funnelTotals = {
   lpvRate: 82.07, // 238/290
 };
 
-export type ClarityInsight = {
-  id: string;
-  severity: "critical" | "high" | "medium" | "low";
-  title: string;
-  arabicSummary: string;
-  whatItMeans: string;
-  funnelStage: "Ad" | "Landing" | "Offer" | "Checkout";
-  affectedSessions: number;
-  diagnosis: string;
-  recommendation: string;
-  expectedImpact: string;
-};
-
-export const clarityInsights: ClarityInsight[] = [
-  {
-    id: "checkout-stuck",
-    severity: "critical",
-    title: "فورم الطلب: تفاعل عالي بدون إكمال",
-    arabicSummary:
-      'الفورم في نفس صفحة المنتج (مفيش Cart ولا صفحة Checkout منفصلة). مستخدمين كتير كتبوا بياناتهم في الفورم، ضغطوا على زر "تأكيد الطلب" — ومحدش طلبه اتسجّل.',
-    whatItMeans:
-      'في فشل تقني في الفورم نفسه — إما الـ Validation بيرفض رقم تليفون/عنوان صحيح، أو زر "تأكيد الطلب" بيلود ومبيبعتش، أو الـ Submit بيفشل بصمت من غير رسالة خطأ واضحة.',
-    funnelStage: "Checkout",
-    affectedSessions: 38516616,
-    diagnosis:
-      'Form Validation Failure أو Submit Handler Broken في صفحة المنتج. ده أخطر مشكلة في الفانل كله — المستخدم عمل كل المجهود (شاف الإعلان، دخل الصفحة، قرا، ملا الفورم، ضغط تأكيد) والمنتج خسر الطلب في آخر millisecond.',
-    recommendation:
-      'افتحي صفحة المنتج بنفسك من موبايل (Chrome + Safari) وكمبيوتر، املي الفورم بأرقام مختلفة (01x, 02x, ببداية صفر وبدونه)، اضغطي تأكيد ولاحظي: في Loading؟ في رسالة نجاح؟ بيوصل WhatsApp/Email؟ شيكي Console لو في Errors. اتأكدي إن الفورم بيبعت لـ Backend شغّال (مش Endpoint قديم).',
-    expectedImpact:
-      "إصلاح ده ممكن يضاعف الـ Purchases من 17 لـ 30+ بنفس الـ Spend (CPA من 44 EGP لـ ~25 EGP).",
-  },
-  {
-    id: "offer-stalled",
-    severity: "high",
-    title: 'زر العرض بيتضغط — والفورم تحت مش بيوصل ليه',
-    arabicSummary:
-      'سيشنز كتير ضغطت على "عرض قطعتين" أو "الحق العرض واطلبها" — لكن لأن الفورم في نفس الصفحة، المفروض الضغط يوديهم له مباشرة. اللي حصل: عملوا تفاعل وبعدين وقفوا.',
-    whatItMeans:
-      'زر العرض ما بيعملش Scroll تلقائي لجزء الفورم، أو بيعمل Scroll لكن الفورم مش واضح إنه "هنا اطلبي". المستخدم بيدوّر بعينه ومش لاقي الخطوة اللي بعدها فيخرج.',
-    funnelStage: "Offer",
-    affectedSessions: 25666,
-    diagnosis:
-      "نية شراء صريحة بدون اتجاه واضح. الزر شال تعب الإقناع، لكن الفورم تحت مش بيتنده عليه ولا بيتميّز لما المستخدم يوصله.",
-    recommendation:
-      'زر العرض لازم يعمل smooth scroll للفورم + يعمل Highlight (Border ملوّن أو Shake خفيف) لمدة ثانية على الفورم لما يوصل له + يعدّل عنوان الفورم تلقائياً لـ "اطلبي عرض القطعتين دلوقتي". وضّحي بصرياً إنها خطوة واحدة.',
-    expectedImpact:
-      "تحسين تدفق الزر→الفورم ممكن يرفع الـ CR من 7.14% لـ 9-10% على نفس الترافيك.",
-  },
-  {
-    id: "ad-mismatch",
-    severity: "high",
-    title: "خروج سريع من إعلانات السوشيال",
-    arabicSummary:
-      "زيارات كتيرة جايّة من Facebook/Instagram على صفحة المنتج، وخرجت في ثواني بعد Scroll واحد أو Click واحد.",
-    whatItMeans:
-      "Mismatch بين الإعلان واللاندينج — اللي وعد به الإعلان مش ظاهر فوراً في الجزء العلوي من الصفحة، فالمستخدم بيحس إنه في مكان غلط ويخرج.",
-    funnelStage: "Ad",
-    affectedSessions: 145452,
-    diagnosis:
-      "Above-the-Fold ضعيف. الفيديو/الصورة الأولى في الإعلان مش متطابقة بصرياً مع أول حاجة بيشوفها المستخدم في الصفحة.",
-    recommendation:
-      "ضعي أول scroll: نفس الـ Hook بتاع الإعلان حرفياً (نص + صورة Before/After). اعرضي السعر والوعد في أول 100 بكسل. شيلي أي Banner أو Cookie Popup يعطّل أول ثانية.",
-    expectedImpact:
-      "تقليل Quick Exit بـ 30% = +60-80 LPV مفيدة بدل ما تتحرق. ممكن CPA ينزل لـ 35 EGP.",
-  },
-  {
-    id: "high-dwell-no-cart",
-    severity: "medium",
-    title: "وقت طويل في الصفحة بدون فتح الفورم",
-    arabicSummary:
-      "مستخدمين قعدوا أكتر من دقيقة في صفحة المنتج، شافوا وقروا وعملوا Scroll، وخرجوا من غير ما يبدأوا حتى يكتبوا أول حرف في فورم الطلب.",
-    whatItMeans:
-      "تردّد في القرار — High Intent بدون فعل. المستخدم مهتم وقاعد بيقرا، لكن في حاجز ثقة أو سعر أو خوف من الفورم نفسه (هل هيتسجّل اسمي؟ هل في تأكيد قبل الشحن؟).",
-    funnelStage: "Landing",
-    affectedSessions: 413657,
-    diagnosis:
-      "نقص في عناصر الإقناع جنب الفورم: Reviews, Trust Badges, ضمان استرجاع، توضيح إن الدفع عند الاستلام (COD) ومفيش أي خصم قبل التأكيد على التليفون.",
-    recommendation:
-      'ضيفي فوق الفورم مباشرة: "✓ الدفع كاش عند الاستلام · ✓ هنكلّمك للتأكيد قبل الشحن · ✓ ضمان استرجاع 14 يوم". تحت زرار "تأكيد الطلب" حطي تقييمات نجوم + Reviews فيديو. وزر "اطلبي دلوقتي" يبقى Sticky في الموبايل وبيعمل Scroll للفورم لما يتضغط.',
-    expectedImpact:
-      "تحويل 10% من اللي بيقعدوا دقيقة بدون فعل = +20 طلب إضافي على نفس الترافيك حالياً.",
-  },
-];
-
 // Per-segment aggregations (computed)
 export type Segment = {
   key: string;
@@ -222,13 +138,6 @@ export type ActionItem = {
 
 export const actionPlan: ActionItem[] = [
   {
-    id: "fix-checkout",
-    priority: "fix",
-    title: 'افتحي صفحة المنتج وجربي الفورم دلوقتي (موبايل + كمبيوتر)',
-    why: 'Clarity بيقول مستخدمين بيملوا الفورم ويضغطوا "تأكيد الطلب" والطلب مش بيتسجّل. ده أكبر مصدر للخسارة لأن الفورم في نفس الصفحة — مفيش خطوة تانية تتلام عليها.',
-    expectedSaving: "ممكن يضاعف الأوردرات (من 17 لـ 30+)",
-  },
-  {
     id: "kill-broad-2-images",
     priority: "kill",
     title: 'أوقفي Ad Set "Broad - 2 images" فوراً',
@@ -260,18 +169,5 @@ export const actionPlan: ActionItem[] = [
     priority: "test",
     title: "اختبري 3 Hooks جديدة لأول 3 ثواني من الفيديو",
     why: "Hook Rate الإجمالي 20% فقط. لو رفعتيه لـ 30% الـ CPA هينزل من 44 لـ 28 EGP.",
-  },
-  {
-    id: "fix-offer-flow",
-    priority: "fix",
-    title: "خلّي زر العرض يعمل Scroll تلقائي للفورم + Highlight",
-    why: 'Clarity: ضغطات على "عرض قطعتين" بدون إكمال. الزر مش بيوصّل المستخدم بصرياً للفورم اللي تحت في نفس الصفحة.',
-  },
-  {
-    id: "fix-trust",
-    priority: "fix",
-    title: 'ضيفي فوق الفورم: "كاش عند الاستلام · تأكيد بالتليفون · استرجاع 14 يوم"',
-    why: "Clarity: 413K سيشن قعدوا أكتر من دقيقة بدون ما يبدأوا الفورم = خوف من إلزام الشراء أو من تسجيل بياناتهم.",
-    expectedSaving: "+20 طلب متوقع",
   },
 ];

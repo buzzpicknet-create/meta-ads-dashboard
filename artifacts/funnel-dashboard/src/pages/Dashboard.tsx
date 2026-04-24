@@ -47,7 +47,6 @@ import {
   type CampaignInsights,
   rangeFromPreset,
 } from "@/lib/meta-api";
-import { clarityInsights, type ClarityInsight } from "@/lib/data";
 
 const CHART_COLORS = {
   primary: "hsl(244 75% 57%)",
@@ -283,73 +282,6 @@ function SegmentTable({ segments, label }: { segments: SegmentEntry[]; label: st
         </tbody>
       </table>
     </div>
-  );
-}
-
-// ---------- Clarity Card ----------
-function ClarityCard({ insight }: { insight: ClarityInsight }) {
-  const sevConfig = {
-    critical: { cls: "bg-rose-500/10 text-rose-700 dark:text-rose-400 ring-rose-500/30", label: "حرج" },
-    high: { cls: "bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-amber-500/30", label: "عالي" },
-    medium: { cls: "bg-sky-500/10 text-sky-700 dark:text-sky-400 ring-sky-500/30", label: "متوسط" },
-    low: { cls: "bg-muted text-muted-foreground ring-border", label: "منخفض" },
-  }[insight.severity];
-
-  const stageIcons = {
-    Ad: Eye,
-    Landing: MousePointerClick,
-    Offer: Sparkles,
-    Checkout: ShoppingCart,
-  };
-  const StageIcon = stageIcons[insight.funnelStage];
-
-  return (
-    <Card className="h-full">
-      <CardContent className="p-5 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1.5 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span
-                className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${sevConfig.cls}`}
-              >
-                {sevConfig.label}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground ring-1 ring-inset ring-border">
-                <StageIcon className="h-3 w-3" />
-                {insight.funnelStage}
-              </span>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                <Num>{fmt(insight.affectedSessions)}</Num> سيشن
-              </span>
-            </div>
-            <h3 className="text-base font-bold leading-snug">{insight.title}</h3>
-          </div>
-        </div>
-
-        <p className="text-sm text-muted-foreground leading-relaxed">{insight.arabicSummary}</p>
-
-        <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3.5">
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
-              التشخيص
-            </div>
-            <p className="text-sm leading-relaxed">{insight.diagnosis}</p>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
-              التوصية
-            </div>
-            <p className="text-sm leading-relaxed">{insight.recommendation}</p>
-          </div>
-          <div className="flex items-start gap-2 rounded-md bg-emerald-500/10 px-3 py-2 ring-1 ring-emerald-500/20">
-            <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-            <span className="text-sm text-emerald-800 dark:text-emerald-300 leading-relaxed">
-              {insight.expectedImpact}
-            </span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -756,26 +688,6 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
         </CardContent>
       </Card>
 
-      {/* CLARITY INSIGHTS */}
-      <section className="space-y-4">
-        <div className="flex items-end justify-between gap-3 flex-wrap">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              رؤى Microsoft Clarity — سلوك المستخدم
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              <Num>{clarityInsights.length}</Num> مشاكل سلوكية مرصودة، مرتّبة من الأخطر للأقل خطورة
-            </p>
-          </div>
-        </div>
-        <div className="grid md:grid-cols-2 gap-4">
-          {clarityInsights.map((i) => (
-            <ClarityCard key={i.id} insight={i} />
-          ))}
-        </div>
-      </section>
-
       {/* ACTION CHECKLIST */}
       <ActionChecklist />
     </div>
@@ -833,7 +745,7 @@ export default function Dashboard() {
                 تحليل الفانل الكامل
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Meta Ads × Microsoft Clarity — تشخيص وقرارات مباشرة
+                Meta Ads — تشخيص وقرارات مباشرة
               </p>
             </div>
             <div className="flex items-center gap-2">
