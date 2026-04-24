@@ -4,6 +4,7 @@ import {
   getCampaignInsights,
   getAccountInfo,
   listAdAccounts,
+  getAccountOverview,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -128,6 +129,22 @@ router.get("/meta/insights", async (req, res) => {
     res
       .status(500)
       .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get("/meta/account-overview", async (req, res) => {
+  try {
+    const accountId = String(req.query["ad_account_id"] || "").trim();
+    if (!accountId) {
+      res.status(400).json({ error: "ad_account_id is required" });
+      return;
+    }
+    const { since, until } = parseRange(req.query as Record<string, string>);
+    const data = await getAccountOverview({ adAccountId: accountId, since, until });
+    res.json(data);
+  } catch (err) {
+    logger.error({ err }, "Account overview fetch failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

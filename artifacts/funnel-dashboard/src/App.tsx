@@ -1,18 +1,66 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, Link, useRoute } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
+import Overview from "@/pages/Overview";
+import { Activity, LayoutDashboard } from "lucide-react";
 
 const queryClient = new QueryClient();
 
+function NavBar() {
+  const [isOverview] = useRoute("/overview");
+  const [isDashboard] = useRoute("/");
+
+  return (
+    <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
+        <div className="flex h-14 items-center justify-between gap-4">
+          <div className="flex items-center gap-1.5 text-sm font-bold">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+            Meta Ads
+          </div>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/overview"
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                isOverview
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              نظرة عامة
+            </Link>
+            <Link
+              href="/"
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                isDashboard
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <Activity className="h-4 w-4" />
+              تحليل الحملة
+            </Link>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route component={NotFound} />
-    </Switch>
+    <>
+      <NavBar />
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/overview" component={Overview} />
+        <Route component={NotFound} />
+      </Switch>
+    </>
   );
 }
 

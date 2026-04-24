@@ -115,6 +115,43 @@ export interface AccountsResponse {
   accounts: AdAccountSummary[];
 }
 
+export interface CampaignSummaryFull {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  objective: string;
+  spend: number;
+  purchases: number;
+  cpa: number;
+  impressions: number;
+  link_clicks: number;
+  lpv: number;
+  ctr: number;
+  cpm: number;
+  cpc: number;
+  cr: number;
+}
+
+export interface AccountOverview {
+  account_id: string;
+  period: { since: string; until: string; days: number };
+  totals: DerivedMetrics;
+  prev_totals: DerivedMetrics;
+  daily: DailyPoint[];
+  campaigns: CampaignSummaryFull[];
+  fetched_at: string;
+}
+
+export function fetchAccountOverview(opts: {
+  ad_account_id: string;
+  since: string;
+  until: string;
+}): Promise<AccountOverview> {
+  const params = new URLSearchParams(opts);
+  return jsonFetch<AccountOverview>(`${API_BASE}/meta/account-overview?${params}`);
+}
+
 export interface TokenHealth {
   ok: boolean;
   token: {

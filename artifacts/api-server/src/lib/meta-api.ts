@@ -535,6 +535,184 @@ export async function getCampaignInsights(opts: {
   };
 }
 
+// ──────────────────────────────────────────────────────────────
+// Account Overview (for the multi-account overview page)
+// ──────────────────────────────────────────────────────────────
+
+export interface CampaignSummaryFull {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  objective: string;
+  spend: number;
+  purchases: number;
+  cpa: number;
+  impressions: number;
+  link_clicks: number;
+  lpv: number;
+  ctr: number;
+  cpm: number;
+  cpc: number;
+  cr: number;
+}
+
+export interface AccountOverview {
+  account_id: string;
+  period: { since: string; until: string; days: number };
+  totals: DerivedMetrics;
+  prev_totals: DerivedMetrics;
+  daily: DailyPoint[];
+  campaigns: CampaignSummaryFull[];
+  fetched_at: string;
+}
+
+export async function getAccountOverview(opts: {
+  adAccountId: string;
+  since: string;
+  until: string;
+}): Promise<AccountOverview> {
+  const rawAccount = opts.adAccountId;
+  const adAccount = rawAccount.startsWith("act_")
+    ? rawAccount.slice(4)
+    : rawAccount;
+
+  const time_range = JSON.stringify({ since: opts.since, until: opts.until });
+  const days = daysBetween(opts.since, opts.until);
+
+  // Previous period (same length, right before since)
+  const prevUntil = new Date(new Date(opts.since + "T00:00:00Z").getTime() - 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const prevSince = new Date(new Date(opts.since + "T00:00:00Z").getTime() - days * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const prev_time_range = JSON.stringify({ since: prevSince, until: prevUntil });
+
+  // Fetch campaigns metadata
+  const campaigns = await fbGet<{
+    id: string;
+    name: string;
+    status: string;
+    effective_status: string;
+    objective: string;
+  }>(`/act_${adAccount}/campaigns`, {
+    fields: "id,name,status,effective_status,objective",
+    limit: "200",
+  });
+
+  // Fetch current period campaign-level insights
+  const insightRows = await fbGet<FbInsightRow>(`/act_${adAccount}/insights`, {
+    level: "campaign",
+    time_range,
+    fields: INSIGHT_FIELDS,
+    limit: "200",
+  });
+
+  // Fetch daily account-level insights (time_increment=1, level=account)
+  const dailyRows = await fbGet<FbInsightRow>(`/act_${adAccount}/insights`, {
+    level: "account",
+    time_range,
+    time_increment: "1",
+    fields: [
+      "impressions",
+      "reach",
+      "spend",
+      "clicks",
+      "inline_link_clicks",
+      "actions",
+      "video_play_actions",
+    ].join(","),
+    limit: "200",
+  });
+
+  // Fetch previous period totals for comparison
+  const prevRows = await fbGet<FbInsightRow>(`/act_${adAccount}/insights`, {
+    level: "account",
+    time_range: prev_time_range,
+    fields: [
+      "impressions",
+      "reach",
+      "spend",
+      "clicks",
+      "inline_link_clicks",
+      "actions",
+      "video_play_actions",
+    ].join(","),
+    limit: "200",
+  });
+
+  // Aggregate current totals
+  const totalsAcc = emptyMetrics();
+  for (const row of insightRows) addRow(totalsAcc, row);
+  const totals = derive(totalsAcc);
+
+  // Aggregate prev totals
+  const prevAcc = emptyMetrics();
+  for (const row of prevRows) addRow(prevAcc, row);
+  const prev_totals = derive(prevAcc);
+
+  // Per-campaign metrics
+  const insightMap = new Map<string, AggregatedMetrics>();
+  for (const row of insightRows) {
+    if (!row.campaign_id) continue;
+    const cur = insightMap.get(row.campaign_id) ?? emptyMetrics();
+    addRow(cur, row);
+    insightMap.set(row.campaign_id, cur);
+  }
+
+  const campaignsFull: CampaignSummaryFull[] = campaigns.map((c) => {
+    const m = insightMap.get(c.id) ?? emptyMetrics();
+    const d = derive(m);
+    return {
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      effective_status: c.effective_status,
+      objective: c.objective,
+      spend: m.spend,
+      purchases: m.purchases,
+      cpa: d.cpa,
+      impressions: m.impressions,
+      link_clicks: m.link_clicks,
+      lpv: m.lpv,
+      ctr: d.ctr,
+      cpm: d.cpm,
+      cpc: d.cpc,
+      cr: d.crLpv,
+    };
+  });
+
+  // Daily trend
+  const daily: DailyPoint[] = dailyRows
+    .filter((r) => r.date_start)
+    .sort((a, b) => (a.date_start! < b.date_start! ? -1 : 1))
+    .map((r) => {
+      const acc = emptyMetrics();
+      addRow(acc, r);
+      const d = derive(acc);
+      return {
+        day: r.date_start!,
+        spend: acc.spend,
+        impressions: acc.impressions,
+        link_clicks: acc.link_clicks,
+        lpv: acc.lpv,
+        purchases: acc.purchases,
+        cpa: d.cpa,
+      };
+    });
+
+  return {
+    account_id: `act_${adAccount}`,
+    period: { since: opts.since, until: opts.until, days },
+    totals,
+    prev_totals,
+    daily,
+    campaigns: campaignsFull.sort((a, b) => b.spend - a.spend),
+    fetched_at: new Date().toISOString(),
+  };
+}
+
 export async function getAccountInfo() {
   const rawAccount = getAdAccountId();
   const adAccount = rawAccount.startsWith("act_")

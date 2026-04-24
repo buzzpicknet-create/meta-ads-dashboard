@@ -6,6 +6,7 @@ import {
   fetchCampaignsForAccount,
   fetchInsights,
   fetchTokenHealth,
+  fetchAccountOverview,
 } from "@/lib/meta-api";
 
 const ONE_HOUR = 60 * 60 * 1000;
@@ -59,6 +60,24 @@ export function useCampaigns(opts: {
     },
     staleTime: ONE_HOUR,
     enabled: Boolean(opts.since && opts.until && opts.ad_account_id),
+  });
+}
+
+export function useAccountOverview(opts: {
+  ad_account_id: string | null;
+  since: string;
+  until: string;
+}) {
+  return useQuery({
+    queryKey: ["meta", "account-overview", opts.ad_account_id, opts.since, opts.until],
+    queryFn: () =>
+      fetchAccountOverview({
+        ad_account_id: opts.ad_account_id!,
+        since: opts.since,
+        until: opts.until,
+      }),
+    staleTime: ONE_HOUR,
+    enabled: Boolean(opts.ad_account_id && opts.since && opts.until),
   });
 }
 
