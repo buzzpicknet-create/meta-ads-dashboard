@@ -77,7 +77,7 @@ function fmtPct(n: number): string {
 }
 
 function Num({ children }: { children: React.ReactNode }) {
-  return <span className="num">{children}</span>;
+  return <span dir="ltr" className="num">{children}</span>;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ function KpiCard({
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
-  sub?: string;
+  sub?: React.ReactNode;
   trend?: { dir: "up" | "down"; text: string; good?: boolean };
   tone?: "good" | "bad" | "warn" | "neutral";
 }) {
@@ -143,7 +143,7 @@ function KpiCard({
             <div className="text-2xl font-bold tracking-tight">
               <Num>{value}</Num>
             </div>
-            {sub && <div className="text-xs text-muted-foreground"><Num>{sub}</Num></div>}
+            {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
             {trend && (
               <div className={`inline-flex items-center gap-1 text-xs font-medium ${trend.good ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                 {trend.dir === "up" ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
@@ -410,7 +410,7 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold truncate">{s.label}</div>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      <Num>CPA {fmt(s.cpa, 0)} EGP · {fmt(s.purchases)} طلب · Spend {fmt(s.spend, 0)} EGP · CTR {fmtPct(s.ctr)}</Num>
+                      <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">CPA <Num>{fmt(s.cpa, 0)} EGP</Num> · <Num>{fmt(s.purchases)}</Num> طلب · Spend <Num>{fmt(s.spend, 0)} EGP</Num> · CTR <Num>{fmtPct(s.ctr)}</Num></span>
                     </div>
                     <div className="text-xs text-emerald-700 dark:text-emerald-400 mt-1 font-medium">التوصية: {getWinRec(s)}</div>
                   </div>
@@ -435,7 +435,7 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate">{s.label}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        <Num>Spend {fmt(s.spend, 0)} EGP · {fmt(s.purchases)} طلب · CTR {fmtPct(s.ctr)}</Num>
+                        <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">Spend <Num>{fmt(s.spend, 0)} EGP</Num> · <Num>{fmt(s.purchases)}</Num> طلب · CTR <Num>{fmtPct(s.ctr)}</Num></span>
                       </div>
                     </div>
                     <VerdictBadge type="kill" />
@@ -735,7 +735,7 @@ function WhatIfSimulator({ totals, byAd }: { totals: DerivedMetrics; byAd: Segme
                     <div className="min-w-0 space-y-0.5">
                       <div className="text-sm font-medium leading-snug truncate">{a.label}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">
-                        <Num>-{fmt(a.spend, 0)} EGP · -{fmt(a.purchases, 0)} طلب</Num>
+                        <span className="inline-flex flex-wrap items-baseline gap-x-1">−<Num>{fmt(a.spend, 0)} EGP</Num> · −<Num>{fmt(a.purchases, 0)}</Num> طلب</span>
                       </div>
                       {sim.killed.has(a.id) && (
                         <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">⚠️ إيقاف هذا الإعلان = خسارة {fmt(a.purchases, 0)} طلب</div>
@@ -834,14 +834,14 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
           icon={CircleDollarSign}
           label="إجمالي الإنفاق"
           value={`${fmt(totals.spend, 0)} EGP`}
-          sub={`CPM ${fmt(totals.cpm, 0)} EGP`}
+          sub={<Num>CPM {fmt(totals.cpm, 0)} EGP</Num>}
           tone="neutral"
         />
         <KpiCard
           icon={ShoppingCart}
           label="الأوردرات"
           value={fmt(totals.purchases)}
-          sub={totals.lpv > 0 ? `من ${fmt(totals.lpv)} زيارة` : undefined}
+          sub={totals.lpv > 0 ? <><Num>{fmt(totals.lpv)}</Num> زيارة</> : undefined}
           tone={totals.purchases > 0 ? "good" : "bad"}
           trend={totals.purchases > 0 ? undefined : { dir: "down", text: "لا يوجد طلبات", good: false }}
         />
@@ -849,14 +849,14 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
           icon={Target}
           label="تكلفة الأوردر (CPA)"
           value={totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—"}
-          sub={cpaTarget > 0 ? `الهدف: تحت ${cpaTarget} EGP` : ""}
+          sub={cpaTarget > 0 ? <>الهدف: تحت <Num>{cpaTarget} EGP</Num></> : ""}
           tone={totals.cpa === 0 ? "bad" : totals.cpa < 80 ? "good" : totals.cpa < 150 ? "warn" : "bad"}
         />
         <KpiCard
           icon={MousePointerClick}
           label="CTR (Link)"
           value={fmtPct(totals.ctr)}
-          sub={`CPC ${fmt(totals.cpc, 0)} EGP · ${fmt(totals.link_clicks)} كليك`}
+          sub={<><Num>CPC {fmt(totals.cpc, 0)} EGP</Num> · <Num>{fmt(totals.link_clicks)}</Num> كليك</>}
           tone={totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad"}
           trend={totals.ctr >= 2 ? { dir: "up", text: "CTR صحي", good: true } : { dir: "down", text: "CTR منخفض", good: false }}
         />
@@ -864,7 +864,7 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
           icon={Eye}
           label="CPM"
           value={`${fmt(totals.cpm, 0)} EGP`}
-          sub={`${fmt(totals.impressions)} ظهور`}
+          sub={<><Num>{fmt(totals.impressions)}</Num> ظهور</>}
           tone={totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"}
         />
         <KpiCard

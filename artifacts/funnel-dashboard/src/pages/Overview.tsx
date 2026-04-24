@@ -64,7 +64,7 @@ function fmt(n: number, d = 0): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 function fmtPct(n: number): string { return `${n.toFixed(2)}%`; }
-function Num({ children }: { children: React.ReactNode }) { return <span className="num">{children}</span>; }
+function Num({ children }: { children: React.ReactNode }) { return <span dir="ltr" className="num">{children}</span>; }
 
 const CHART_COLORS = {
   primary: "hsl(244 75% 57%)",
@@ -163,7 +163,7 @@ function KpiCard({
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
-  sub?: string;
+  sub?: React.ReactNode;
   current?: number;
   prev?: number;
   lowerIsBetter?: boolean;
@@ -182,7 +182,7 @@ function KpiCard({
           <div className="space-y-1 min-w-0">
             <div className="text-xs text-muted-foreground font-medium">{label}</div>
             <div className="text-xl font-bold tracking-tight"><Num>{value}</Num></div>
-            {sub && <div className="text-[11px] text-muted-foreground"><Num>{sub}</Num></div>}
+            {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
             {current !== undefined && prev !== undefined && (
               <Delta current={current} prev={prev} lowerIsBetter={lowerIsBetter} />
             )}
@@ -366,7 +366,7 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
           {winnerOrders > 0 && (
             <div className="rounded-xl bg-emerald-500/8 ring-1 ring-emerald-500/20 p-3.5">
               <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mb-1">📈 أداء رابحين</div>
-              <div className="text-2xl font-bold"><Num>{winnerOrders} طلب</Num></div>
+              <div className="text-2xl font-bold"><Num>{winnerOrders}</Num> طلب</div>
               <div className="text-xs text-muted-foreground mt-0.5">من الحملات الرابحة — زيادة ميزانيتها تزيد النتائج</div>
             </div>
           )}
@@ -385,7 +385,7 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold truncate">{c.name}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    <Num>CPA {fmt(c.cpa, 0)} EGP · {c.purchases} طلب · {fmt(c.spend, 0)} EGP · CTR {fmtPct(c.ctr)}</Num>
+                    <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">CPA <Num>{fmt(c.cpa, 0)} EGP</Num> · <Num>{c.purchases}</Num> طلب · <Num>{fmt(c.spend, 0)} EGP</Num> · CTR <Num>{fmtPct(c.ctr)}</Num></span>
                   </div>
                 </div>
                 <span className="shrink-0 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">رابح</span>
@@ -407,7 +407,7 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold truncate">{c.name}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    <Num>إنفاق {fmt(c.spend, 0)} EGP · {c.purchases} طلب · {c.purchases === 0 ? "لا أوردرات" : `CPA ${fmt(c.cpa, 0)} EGP`}</Num>
+                    <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">إنفاق <Num>{fmt(c.spend, 0)} EGP</Num> · <Num>{c.purchases}</Num> طلب{c.purchases > 0 && <> · CPA <Num>{fmt(c.cpa, 0)} EGP</Num></>}</span>
                   </div>
                 </div>
                 <span className="shrink-0 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full">أوقف</span>
@@ -527,7 +527,7 @@ function AccountTabContent({
           icon={CircleDollarSign}
           label="إجمالي الإنفاق"
           value={`${fmt(totals.spend, 0)} EGP`}
-          sub={`CPM ${fmt(totals.cpm, 0)} EGP`}
+          sub={<Num>CPM {fmt(totals.cpm, 0)} EGP</Num>}
           current={totals.spend}
           prev={prev_totals.spend}
           tone="neutral"
@@ -536,7 +536,7 @@ function AccountTabContent({
           icon={ShoppingCart}
           label="الأوردرات"
           value={fmt(totals.purchases)}
-          sub={totals.lpv > 0 ? `من ${fmt(totals.lpv)} زيارة` : undefined}
+          sub={totals.lpv > 0 ? <><Num>{fmt(totals.lpv)}</Num> زيارة</> : undefined}
           current={totals.purchases}
           prev={prev_totals.purchases}
           tone={totals.purchases > 0 ? "good" : "bad"}
@@ -554,7 +554,7 @@ function AccountTabContent({
           icon={MousePointerClick}
           label="CTR"
           value={fmtPct(totals.ctr)}
-          sub={`CPC ${fmt(totals.cpc, 0)} EGP`}
+          sub={<Num>CPC {fmt(totals.cpc, 0)} EGP</Num>}
           current={totals.ctr}
           prev={prev_totals.ctr}
           tone={totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad"}
@@ -563,7 +563,7 @@ function AccountTabContent({
           icon={Eye}
           label="CPM"
           value={`${fmt(totals.cpm, 0)} EGP`}
-          sub={`${fmt(totals.impressions)} ظهور`}
+          sub={<><Num>{fmt(totals.impressions)}</Num> ظهور</>}
           current={totals.cpm}
           prev={prev_totals.cpm}
           lowerIsBetter

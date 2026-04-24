@@ -273,7 +273,7 @@
     font-feature-settings: "tnum" 1, "lnum" 1;
     font-variant-numeric: tabular-nums lining-nums;
     direction: ltr;
-    unicode-bidi: isolate;
+    unicode-bidi: embed;
     display: inline-block;
   }
 }
