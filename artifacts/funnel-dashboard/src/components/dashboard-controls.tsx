@@ -105,9 +105,7 @@ export function DashboardControls({
                 <SelectItem key={account.id} value={account.id}>
                   <div className="flex items-center justify-between gap-3 w-full">
                     <span className="truncate max-w-[280px]">{account.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {account.id}
-                    </span>
+                    <span className="sr-only">{account.id}</span>
                   </div>
                 </SelectItem>
               ))}
