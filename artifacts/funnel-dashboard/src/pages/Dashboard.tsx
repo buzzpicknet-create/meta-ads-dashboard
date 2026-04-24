@@ -227,10 +227,7 @@ function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEn
 // Priority Engine — أهم 3 قرارات
 // ──────────────────────────────────────────────────────────────
 function PriorityEngine({ totals, byAd, byAdset }: { totals: DerivedMetrics; byAd: SegmentEntry[]; byAdset: SegmentEntry[] }) {
-  const actions: { priority: number; icon: React.ComponentType<{ className?: string }>; label: string; sub: string; tone: "kill" | "scale" | "fix" }[] = [];
-
-  const cpas = byAd.filter((a) => a.purchases > 0).map((a) => a.cpa);
-  const minCpa = cpas.length > 0 ? Math.min(...cpas) : 0;
+  const actions: { priority: number; icon: React.ComponentType<{ className?: string }>; label: string; sub: string; tone: "kill" | "scale" | "fix" | "watch" }[] = [];
 
   const worstAd = [...byAd].filter((a) => a.spend >= 50).sort((a, b) => {
     if (a.purchases === 0 && b.purchases > 0) return -1;
@@ -238,20 +235,28 @@ function PriorityEngine({ totals, byAd, byAdset }: { totals: DerivedMetrics; byA
     return b.cpa - a.cpa;
   })[0];
 
-  if (worstAd && (worstAd.purchases === 0 || worstAd.cpa > CPA_STOP)) {
+  if (worstAd && worstAd.purchases === 0) {
     actions.push({
       priority: 1,
       icon: PauseCircle,
       label: `أوقف: ${worstAd.label.slice(0, 45)}`,
-      sub: `إنفاق ${fmt(worstAd.spend, 0)} EGP · ${worstAd.purchases} طلب فقط`,
+      sub: `إنفاق ${fmt(worstAd.spend, 0)} EGP · لا طلبات — وقّفه فوراً`,
       tone: "kill",
+    });
+  } else if (worstAd && worstAd.cpa > CPA_STOP) {
+    actions.push({
+      priority: 1,
+      icon: PauseCircle,
+      label: `راقب: ${worstAd.label.slice(0, 45)}`,
+      sub: `CPA ${fmt(worstAd.cpa, 0)} EGP · ${worstAd.purchases} طلب — حسّن قبل ما توقف`,
+      tone: "watch",
     });
   } else if (worstAd && worstAd.cpa > CPA_IMPROVE) {
     actions.push({
       priority: 1,
       icon: PauseCircle,
       label: `حسّن: ${worstAd.label.slice(0, 45)}`,
-      sub: `CPA ${fmt(worstAd.cpa, 0)} EGP — فوق ${CPA_IMPROVE} EGP`,
+      sub: `CPA ${fmt(worstAd.cpa, 0)} EGP · ${worstAd.purchases} طلب — فوق هدف ${CPA_IMPROVE} EGP`,
       tone: "fix",
     });
   }
@@ -301,9 +306,10 @@ function PriorityEngine({ totals, byAd, byAdset }: { totals: DerivedMetrics; byA
   }
 
   const toneConfig = {
-    kill: { bg: "bg-rose-500/10 ring-rose-500/30 text-rose-700 dark:text-rose-400", iconBg: "bg-rose-500/15", label: "أوقف" },
-    scale: { bg: "bg-emerald-500/10 ring-emerald-500/30 text-emerald-700 dark:text-emerald-400", iconBg: "bg-emerald-500/15", label: "ضاعف" },
-    fix: { bg: "bg-amber-500/10 ring-amber-500/30 text-amber-700 dark:text-amber-400", iconBg: "bg-amber-500/15", label: "صلّح" },
+    kill:  { bg: "bg-rose-500/10 ring-rose-500/30 text-rose-700 dark:text-rose-400",         iconBg: "bg-rose-500/15",   label: "أوقف"       },
+    scale: { bg: "bg-emerald-500/10 ring-emerald-500/30 text-emerald-700 dark:text-emerald-400", iconBg: "bg-emerald-500/15", label: "ضاعف"    },
+    fix:   { bg: "bg-amber-500/10 ring-amber-500/30 text-amber-700 dark:text-amber-400",      iconBg: "bg-amber-500/15",  label: "قم بتحسين" },
+    watch: { bg: "bg-orange-500/10 ring-orange-500/30 text-orange-700 dark:text-orange-400",  iconBg: "bg-orange-500/15", label: "راقب"       },
   };
 
   if (actions.length === 0) return null;
@@ -434,17 +440,24 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
               <XCircle className="h-4 w-4" /> الخاسرين — أوقف أو صلّح
             </div>
             <div className="space-y-2">
-              {losers.map((s) => (
-                <div key={s.key} className="rounded-xl bg-rose-500/8 ring-1 ring-rose-500/20 p-3">
+              {losers.map((s) => {
+                const lv = verdictFor(s, segs);
+                const isKill = lv === "kill";
+                const rowCls = isKill ? "rounded-xl bg-rose-500/8 ring-1 ring-rose-500/20 p-3" : "rounded-xl bg-amber-500/8 ring-1 ring-amber-500/20 p-3";
+                const iconCls = isKill ? "h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" : "h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5";
+                return (
+                <div key={s.key} className={rowCls}>
                   <div className="flex items-start gap-3">
-                    <XCircle className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                    {isKill
+                      ? <XCircle className={iconCls} />
+                      : <TrendingDown className={iconCls} />}
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate">{s.label}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">
                         <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">Spend <Num>{fmt(s.spend, 0)} EGP</Num> · <Num>{fmt(s.purchases)}</Num> طلب · CTR <Num>{fmtPct(s.ctr)}</Num></span>
                       </div>
                     </div>
-                    <VerdictBadge type="kill" />
+                    <VerdictBadge type={lv} />
                   </div>
                   <div className="mt-2 mr-7 grid grid-cols-3 gap-2 text-xs">
                     <div className="rounded-lg bg-rose-500/10 p-2">
@@ -461,7 +474,8 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
