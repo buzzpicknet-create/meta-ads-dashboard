@@ -199,19 +199,54 @@ export function nDaysAgoIso(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export type DatePreset = "7d" | "14d" | "30d" | "yesterday";
+export type DatePreset =
+  | "today"
+  | "yesterday"
+  | "7d"
+  | "14d"
+  | "28d"
+  | "current_month"
+  | "prev_month"
+  | "custom";
 
 export function rangeFromPreset(preset: DatePreset): {
   since: string;
   until: string;
 } {
-  const until = nDaysAgoIso(1); // yesterday (full-day data)
-  let days = 7;
-  if (preset === "14d") days = 14;
-  else if (preset === "30d") days = 30;
-  else if (preset === "yesterday") days = 1;
-  const since = nDaysAgoIso(days);
-  return { since, until };
+  const todayIso = todayCairoIso();
+  const yesterdayIso = nDaysAgoIso(1);
+
+  if (preset === "today") {
+    return { since: todayIso, until: todayIso };
+  }
+  if (preset === "yesterday") {
+    return { since: yesterdayIso, until: yesterdayIso };
+  }
+  if (preset === "7d") {
+    return { since: nDaysAgoIso(7), until: yesterdayIso };
+  }
+  if (preset === "14d") {
+    return { since: nDaysAgoIso(14), until: yesterdayIso };
+  }
+  if (preset === "28d") {
+    return { since: nDaysAgoIso(28), until: yesterdayIso };
+  }
+  if (preset === "current_month") {
+    const now = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const since = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    return { since, until: todayIso };
+  }
+  if (preset === "prev_month") {
+    const now = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const year = now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+    const month = now.getUTCMonth() === 0 ? 12 : now.getUTCMonth();
+    const since = `${year}-${String(month).padStart(2, "0")}-01`;
+    const lastDay = new Date(Date.UTC(year, month, 0));
+    const until = lastDay.toISOString().slice(0, 10);
+    return { since, until };
+  }
+  // custom — caller supplies the range; return yesterday as fallback
+  return { since: nDaysAgoIso(7), until: yesterdayIso };
 }
 
 export function formatRange(since: string, until: string): string {

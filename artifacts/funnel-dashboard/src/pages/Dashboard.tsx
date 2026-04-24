@@ -987,7 +987,13 @@ export default function Dashboard() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
-  const range = useMemo(() => rangeFromPreset(preset), [preset]);
+  const defaultCustom = useMemo(() => rangeFromPreset("7d"), []);
+  const [customRange, setCustomRange] = useState<{ since: string; until: string }>(defaultCustom);
+
+  const range = useMemo(
+    () => (preset === "custom" ? customRange : rangeFromPreset(preset)),
+    [preset, customRange],
+  );
 
   const account = useAccount();
   const accounts = useAccounts();
@@ -1061,6 +1067,8 @@ export default function Dashboard() {
           preset={preset}
           onPresetChange={setPreset}
           range={range}
+          customRange={customRange}
+          onCustomRangeChange={setCustomRange}
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
           lastUpdated={insights.data?.fetched_at}
