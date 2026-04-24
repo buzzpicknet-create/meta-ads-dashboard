@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { dailyData, funnelTotals, HEADLINE_B } from "@/lib/data";
+import type { DerivedMetrics, SegmentEntry } from "@/lib/meta-api";
 
 function fmt(n: number, digits = 0): string {
   return n.toLocaleString("en-US", {
@@ -43,6 +43,8 @@ function MetricBlock({
     ? "text-emerald-600 dark:text-emerald-400"
     : "text-rose-600 dark:text-rose-400";
 
+  const isCpa = label === "CPA";
+
   return (
     <div
       className={`rounded-lg p-3 ${
@@ -56,10 +58,16 @@ function MetricBlock({
       </div>
       <div className="mt-1.5 flex items-baseline gap-2">
         <div className="text-xs text-muted-foreground line-through tabular-nums">
-          <Num>{fmt(before, label === "CPA" ? 2 : 0)}{unit}</Num>
+          <Num>
+            {fmt(before, isCpa ? 2 : 0)}
+            {unit}
+          </Num>
         </div>
         <div className="text-2xl font-bold tabular-nums">
-          <Num>{fmt(after, label === "CPA" ? 2 : 0)}{unit}</Num>
+          <Num>
+            {fmt(after, isCpa ? 2 : 0)}
+            {unit}
+          </Num>
         </div>
       </div>
       <div className={`text-xs font-medium mt-0.5 flex items-center gap-1 ${toneCls}`}>
@@ -73,7 +81,11 @@ function MetricBlock({
           "بدون تغيير"
         ) : (
           <>
-            <Num>{delta > 0 ? "+" : ""}{fmt(delta, label === "CPA" ? 2 : 0)}{unit}</Num>
+            <Num>
+              {delta > 0 ? "+" : ""}
+              {fmt(delta, isCpa ? 2 : 0)}
+              {unit}
+            </Num>
             <span className="text-muted-foreground/70">
               (<Num>{pct > 0 ? "+" : ""}{fmt(pct, 0)}%</Num>)
             </span>
@@ -84,81 +96,85 @@ function MetricBlock({
   );
 }
 
-export function ImpactCalculator() {
-  const [killBroad2, setKillBroad2] = useState(false);
-  const [killAd2, setKillAd2] = useState(false);
-  const [killHeadlineB, setKillHeadlineB] = useState(false);
-  const [hookBoost, setHookBoost] = useState([0]); // extra % above 20.07
+interface Props {
+  totals: DerivedMetrics;
+  byAd: SegmentEntry[];
+}
+
+export function ImpactCalculator({ totals, byAd }: Props) {
+  // Pick top 3 worst-performing ads with significant spend as kill candidates
+  const killCandidates = useMemo(() => {
+    const cpas = byAd.filter((a) => a.purchases > 0).map((a) => a.cpa);
+    const minCpa = cpas.length > 0 ? Math.min(...cpas) : totals.cpa || 1;
+    return [...byAd]
+      .filter((a) => a.spend >= 50)
+      .filter((a) => a.purchases === 0 || a.cpa > minCpa * 1.6)
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 3);
+  }, [byAd, totals.cpa]);
+
+  const [killed, setKilled] = useState<Set<string>>(new Set());
+  const [hookBoost, setHookBoost] = useState([0]); // extra % above current
   const [budgetMult, setBudgetMult] = useState([1]); // 1.0 - 2.0
-  const [formFix, setFormFix] = useState([0]); // 0-100% of recovery
+  const [crBoost, setCrBoost] = useState([0]); // 0-100% recovery on funnel leakage
 
   function reset() {
-    setKillBroad2(false);
-    setKillAd2(false);
-    setKillHeadlineB(false);
+    setKilled(new Set());
     setHookBoost([0]);
     setBudgetMult([1]);
-    setFormFix([0]);
+    setCrBoost([0]);
+  }
+
+  function toggleKill(id: string) {
+    setKilled((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   const result = useMemo(() => {
-    // Step 1: Compute the DELTA to subtract from the official totals.
-    // (The official totals include some rows not broken out in dailyData,
-    // so we anchor on totals and only subtract what the user kills.)
-    const killedRows = dailyData.filter(r => {
-      return (
-        (killBroad2 && r.adSet === "Broad - 2 images") ||
-        (killAd2 && r.ad === "ad2") ||
-        (killHeadlineB && r.headline === HEADLINE_B)
-      );
-    });
+    // Step 1: subtract killed ads' spend & orders
+    const killedSpend = killCandidates
+      .filter((a) => killed.has(a.id))
+      .reduce((s, a) => s + a.spend, 0);
+    const killedOrders = killCandidates
+      .filter((a) => killed.has(a.id))
+      .reduce((s, a) => s + a.purchases, 0);
 
-    const killedSpend = killedRows.reduce((s, r) => s + r.spend, 0);
-    const killedOrders = killedRows.reduce((s, r) => s + r.purchases, 0);
+    let spend = totals.spend - killedSpend;
+    let orders = totals.purchases - killedOrders;
 
-    let spend = funnelTotals.spend - killedSpend;
-    let orders = funnelTotals.purchases - killedOrders;
-
-    // Step 2: Hook rate boost — proportional uplift on orders only
-    // (more attention = more clicks = more LPV = more orders, holding spend constant)
-    const newHookRate = 20.07 + hookBoost[0];
-    const hookMult = newHookRate / 20.07;
+    // Step 2: hook rate boost — proportional uplift on orders only
+    const baseHook = totals.hookRate || 1;
+    const hookMult = (baseHook + hookBoost[0]) / baseHook;
     orders = orders * hookMult;
 
-    // Step 3: Budget multiplier on remaining (winners)
-    // With diminishing returns above 1.5x (audience saturation)
+    // Step 3: budget multiplier on remaining (winners), with diminishing returns >1.5x
     const m = budgetMult[0];
     const orderMult = m <= 1.5 ? m : 1.5 + (m - 1.5) * 0.7;
     spend = spend * m;
     orders = orders * orderMult;
 
-    // Step 4: Form fix recovery
-    // Assumption: form fix can recover up to ~15 additional orders (high CR boost)
-    // because Clarity shows tons of users reached the form and didn't complete
-    const recovered = (formFix[0] / 100) * 15;
+    // Step 4: CR boost recovery — recovers up to (LPV - Purchases) * 5% as new orders at full
+    const recoverable = Math.max(0, totals.lpv - totals.purchases) * 0.05;
+    const recovered = (crBoost[0] / 100) * recoverable;
     orders = orders + recovered;
 
     const cpa = orders > 0 ? spend / orders : 0;
-
-    return {
-      spend,
-      orders,
-      cpa,
-      newHookRate,
-      budgetX: m,
-      recovered,
-    };
-  }, [killBroad2, killAd2, killHeadlineB, hookBoost, budgetMult, formFix]);
+    return { spend, orders, cpa, recovered };
+  }, [killed, killCandidates, hookBoost, budgetMult, crBoost, totals]);
 
   const verdict = useMemo(() => {
-    const before = funnelTotals.costPerPurchase;
+    const before = totals.cpa;
     const after = result.cpa;
-    if (after === 0) return null;
+    if (after === 0 || before === 0) return null;
     if (after < before * 0.7) return { tone: "good" as const, text: "تحسّن قوي — نفّذي" };
     if (after < before * 0.95) return { tone: "good" as const, text: "تحسّن ملحوظ" };
     if (after < before * 1.05) return { tone: "neutral" as const, text: "تأثير محدود" };
     return { tone: "bad" as const, text: "هتخسري — راجعي القرار" };
-  }, [result.cpa]);
+  }, [result.cpa, totals.cpa]);
 
   return (
     <Card className="border-primary/30">
@@ -184,14 +200,14 @@ export function ImpactCalculator() {
         <div className="grid grid-cols-3 gap-3">
           <MetricBlock
             label="الأوردرات"
-            before={funnelTotals.purchases}
+            before={totals.purchases}
             after={result.orders}
             betterDir="up"
             highlight
           />
           <MetricBlock
             label="CPA"
-            before={funnelTotals.costPerPurchase}
+            before={totals.cpa}
             after={result.cpa}
             unit=" EGP"
             betterDir="down"
@@ -199,7 +215,7 @@ export function ImpactCalculator() {
           />
           <MetricBlock
             label="Spend"
-            before={funnelTotals.spend}
+            before={totals.spend}
             after={result.spend}
             unit=" EGP"
             betterDir="down"
@@ -222,48 +238,43 @@ export function ImpactCalculator() {
 
         {/* Controls */}
         <div className="grid md:grid-cols-2 gap-x-6 gap-y-5">
-          {/* KILL toggles */}
-          <div className="md:col-span-2 space-y-3">
-            <div className="text-sm font-semibold text-foreground">قرارات الإيقاف</div>
-            <div className="grid sm:grid-cols-3 gap-3">
-              <ToggleCard
-                label='أوقفي "Broad - 2 images"'
-                sub="-143 EGP، -2 طلب"
-                checked={killBroad2}
-                onChange={setKillBroad2}
-              />
-              <ToggleCard
-                label="أوقفي Creative ad2"
-                sub="-120 EGP، -2 طلب"
-                checked={killAd2}
-                onChange={setKillAd2}
-              />
-              <ToggleCard
-                label="أوقفي Headline B"
-                sub="-135 EGP، -3 طلب"
-                checked={killHeadlineB}
-                onChange={setKillHeadlineB}
-              />
+          {/* KILL toggles - dynamic from worst ads */}
+          {killCandidates.length > 0 && (
+            <div className="md:col-span-2 space-y-3">
+              <div className="text-sm font-semibold text-foreground">
+                قرارات الإيقاف — أسوأ الإعلانات في الفترة دي
+              </div>
+              <div className="grid sm:grid-cols-3 gap-3">
+                {killCandidates.map((a) => (
+                  <ToggleCard
+                    key={a.id}
+                    label={`أوقفي: ${a.label}`}
+                    sub={`-${fmt(a.spend, 0)} EGP، -${fmt(a.purchases, 0)} طلب`}
+                    checked={killed.has(a.id)}
+                    onChange={() => toggleKill(a.id)}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Hook Rate */}
           <SliderRow
             label="ارفعي Hook Rate"
             value={hookBoost[0]}
-            onChange={v => setHookBoost([v])}
+            onChange={(v) => setHookBoost([v])}
             min={0}
             max={20}
             step={1}
-            display={`من ${fmt(20.07, 0)}% لـ ${fmt(20.07 + hookBoost[0], 0)}%`}
-            help="كل +1% Hook = +5% أوردرات تقريباً"
+            display={`من ${fmt(totals.hookRate, 0)}% لـ ${fmt(totals.hookRate + hookBoost[0], 0)}%`}
+            help="كل +1% Hook = +زيادة نسبية في الأوردرات"
           />
 
           {/* Budget Multiplier */}
           <SliderRow
             label="ضاعفي ميزانية الفائز"
             value={budgetMult[0]}
-            onChange={v => setBudgetMult([v])}
+            onChange={(v) => setBudgetMult([v])}
             min={1}
             max={2}
             step={0.1}
@@ -271,16 +282,16 @@ export function ImpactCalculator() {
             help="فوق ×1.5 الفعالية بتقل (Audience Saturation)"
           />
 
-          {/* Form Fix */}
+          {/* CR Boost / Form Fix */}
           <SliderRow
-            label="إصلاح الفورم — % تعافي"
-            value={formFix[0]}
-            onChange={v => setFormFix([v])}
+            label="إصلاح صفحة المنتج / الفورم — % تعافي"
+            value={crBoost[0]}
+            onChange={(v) => setCrBoost([v])}
             min={0}
             max={100}
             step={10}
-            display={`${formFix[0]}% (+${(formFix[0] / 100 * 15).toFixed(0)} طلب)`}
-            help="الإصلاح الكامل ممكن يرجّع 15 طلب اتفقدوا عند الفورم"
+            display={`${crBoost[0]}% (+${fmt(((crBoost[0] / 100) * Math.max(0, totals.lpv - totals.purchases) * 0.05), 0)} طلب)`}
+            help={`بافتراض إن إصلاح الفورم يكسب 5% من الـ LPV اللي ما اشترتش (${fmt(Math.max(0, totals.lpv - totals.purchases))} مستخدم)`}
             wide
           />
         </div>
@@ -307,7 +318,7 @@ function ToggleCard({
       }`}
     >
       <div className="space-y-0.5 min-w-0">
-        <div className="text-sm font-medium leading-snug">{label}</div>
+        <div className="text-sm font-medium leading-snug truncate">{label}</div>
         <div className="text-xs text-muted-foreground tabular-nums">
           <Num>{sub}</Num>
         </div>
@@ -348,7 +359,7 @@ function SliderRow({
       </div>
       <Slider
         value={[value]}
-        onValueChange={v => onChange(v[0])}
+        onValueChange={(v) => onChange(v[0])}
         min={min}
         max={max}
         step={step}

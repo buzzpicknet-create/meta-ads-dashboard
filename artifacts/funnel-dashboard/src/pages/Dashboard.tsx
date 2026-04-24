@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import {
   Activity,
+  AlertCircle,
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
@@ -29,22 +30,24 @@ import {
   TrendingUp,
   XCircle,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ExecutiveSummary } from "@/components/executive-summary";
 import { ImpactCalculator } from "@/components/impact-calculator";
 import { ActionChecklist } from "@/components/action-checklist";
+import { DashboardControls } from "@/components/dashboard-controls";
+import { useCampaigns, useInsights, useAccount } from "@/hooks/use-meta";
 import {
-  funnelTotals,
-  adSetSegments,
-  adSegments,
-  headlineSegments,
-  dailyTrend,
-  clarityInsights,
-  type Segment,
-  type ClarityInsight,
-} from "@/lib/data";
+  type DatePreset,
+  type SegmentEntry,
+  type CampaignInsights,
+  rangeFromPreset,
+} from "@/lib/meta-api";
+import { clarityInsights, type ClarityInsight } from "@/lib/data";
 
 const CHART_COLORS = {
   primary: "hsl(244 75% 57%)",
@@ -166,7 +169,7 @@ function FunnelStep({
         <div
           className="absolute inset-y-0 right-0 flex items-center justify-start pr-3 text-xs font-semibold text-white"
           style={{
-            width: `${pctOfTop}%`,
+            width: `${Math.max(pctOfTop, 4)}%`,
             backgroundColor: color,
             transition: "width .6s ease",
           }}
@@ -193,11 +196,7 @@ function FunnelStep({
 }
 
 // ---------- Verdict ----------
-function Verdict({
-  type,
-}: {
-  type: "winner" | "kill" | "okay" | "weak";
-}) {
+function Verdict({ type }: { type: "winner" | "kill" | "okay" | "weak" }) {
   const config = {
     winner: { icon: Sparkles, text: "Winner", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30" },
     kill: { icon: XCircle, text: "Kill", cls: "bg-rose-500/15 text-rose-700 dark:text-rose-400 ring-rose-500/30" },
@@ -215,18 +214,25 @@ function Verdict({
   );
 }
 
-function verdictFor(s: Segment, all: Segment[]): "winner" | "kill" | "okay" | "weak" {
-  const cpas = all.filter(x => x.purchases > 0).map(x => x.cpa);
-  const minCpa = Math.min(...cpas);
+function verdictFor(s: SegmentEntry, all: SegmentEntry[]): "winner" | "kill" | "okay" | "weak" {
+  const cpas = all.filter((x) => x.purchases > 0).map((x) => x.cpa);
+  const minCpa = cpas.length > 0 ? Math.min(...cpas) : 0;
   const noPurchases = s.purchases === 0;
-  if (noPurchases || s.cpa > minCpa * 2.5) return "kill";
-  if (s.cpa <= minCpa * 1.15) return "winner";
-  if (s.cpa <= minCpa * 1.6) return "okay";
+  if (noPurchases || (minCpa > 0 && s.cpa > minCpa * 2.5)) return "kill";
+  if (minCpa > 0 && s.cpa <= minCpa * 1.15) return "winner";
+  if (minCpa > 0 && s.cpa <= minCpa * 1.6) return "okay";
   return "weak";
 }
 
 // ---------- Segment Table ----------
-function SegmentTable({ segments, label }: { segments: Segment[]; label: string }) {
+function SegmentTable({ segments, label }: { segments: SegmentEntry[]; label: string }) {
+  if (segments.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground italic text-center py-8">
+        لا توجد بيانات على مستوى {label} في الفترة دي
+      </div>
+    );
+  }
   return (
     <div className="overflow-x-auto -mx-1">
       <table className="w-full text-sm" dir="rtl">
@@ -243,7 +249,7 @@ function SegmentTable({ segments, label }: { segments: Segment[]; label: string 
           </tr>
         </thead>
         <tbody>
-          {segments.map(s => {
+          {segments.map((s) => {
             const v = verdictFor(s, segments);
             return (
               <tr key={s.key} className="border-t border-border hover:bg-muted/30 transition-colors">
@@ -320,9 +326,7 @@ function ClarityCard({ insight }: { insight: ClarityInsight }) {
           </div>
         </div>
 
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          {insight.arabicSummary}
-        </p>
+        <p className="text-sm text-muted-foreground leading-relaxed">{insight.arabicSummary}</p>
 
         <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3.5">
           <div>
@@ -349,43 +353,57 @@ function ClarityCard({ insight }: { insight: ClarityInsight }) {
   );
 }
 
-// ---------- Main Dashboard ----------
-export default function Dashboard() {
-  const [segView, setSegView] = useState<"adset" | "ad" | "headline">("adset");
+// ---------- Loading skeleton ----------
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-8">
+      <Skeleton className="h-32 rounded-2xl" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-32 rounded-xl" />
+        ))}
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Skeleton className="h-80 rounded-xl" />
+        <Skeleton className="h-80 rounded-xl" />
+      </div>
+      <Skeleton className="h-72 rounded-xl" />
+    </div>
+  );
+}
 
-  const segments = useMemo(() => {
-    if (segView === "adset") return adSetSegments;
-    if (segView === "ad") return adSegments;
-    return headlineSegments;
-  }, [segView]);
-
-  const segLabel = segView === "adset" ? "Ad Set" : segView === "ad" ? "Creative" : "Headline";
+// ---------- Insights body ----------
+function InsightsBody({ insights }: { insights: CampaignInsights }) {
+  const [segView, setSegView] = useState<"adset" | "ad">("adset");
+  const totals = insights.totals;
+  const segments = segView === "adset" ? insights.by_adset : insights.by_ad;
+  const segLabel = segView === "adset" ? "Ad Set" : "Creative";
 
   // Funnel data
   const funnelSteps = [
     {
       label: "Impressions",
-      value: funnelTotals.impressions,
+      value: totals.impressions,
       color: "hsl(220 15% 50%)",
       good: true,
     },
     {
       label: "Link Clicks",
-      value: funnelTotals.linkClicks,
+      value: totals.link_clicks,
       color: CHART_COLORS.info,
-      good: funnelTotals.ctr > 2.5,
+      good: totals.ctr > 2.5,
     },
     {
       label: "Landing Page Views",
-      value: funnelTotals.lpv,
+      value: totals.lpv,
       color: CHART_COLORS.primary,
-      good: funnelTotals.lpvRate > 75,
+      good: totals.lpvRate > 75,
     },
     {
       label: "Purchases",
-      value: funnelTotals.purchases,
+      value: totals.purchases,
       color: CHART_COLORS.good,
-      good: funnelTotals.crLpv > 5,
+      good: totals.crLpv > 5,
     },
   ];
 
@@ -402,179 +420,187 @@ export default function Dashboard() {
 
   // Video retention
   const videoData = [
-    { stage: "Hook (3s)", views: Math.round(funnelTotals.impressions * funnelTotals.hookRate / 100) },
-    { stage: "25%", views: funnelTotals.v25 },
-    { stage: "50%", views: funnelTotals.v50 },
-    { stage: "75%", views: funnelTotals.v75 },
-    { stage: "95%", views: funnelTotals.v95 },
-    { stage: "100%", views: funnelTotals.v100 },
+    { stage: "Hook (Plays)", views: totals.video_plays },
+    { stage: "25%", views: totals.v25 },
+    { stage: "50%", views: totals.v50 },
+    { stage: "75%", views: totals.v75 },
+    { stage: "95%", views: totals.v95 },
+    { stage: "100%", views: totals.v100 },
   ];
+  const hasVideo = videoData.some((v) => v.views > 0);
+  const v25to100Pct =
+    totals.v25 > 0 ? (totals.v100 / totals.v25) * 100 : 0;
 
   // Daily trend with CPA
-  const trendData = dailyTrend.map(d => ({
+  const trendData = insights.daily.map((d) => ({
     ...d,
     cpa: d.purchases ? d.spend / d.purchases : null,
     day: d.day.slice(5),
   }));
 
+  // CPA target heuristic
+  const cpaTarget = Math.round(totals.cpa * 0.8);
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* HEADER */}
-        <header className="space-y-3">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            تقرير تحليلي · فترة <Num>17 → 23 أبريل 2026</Num>
-          </div>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
-                تحليل الفانل الكامل
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Meta Ads × Microsoft Clarity — تشخيص وقرارات مباشرة
-              </p>
+    <div className="space-y-8">
+      {/* EXECUTIVE SUMMARY */}
+      <ExecutiveSummary totals={totals} byAd={insights.by_ad} byAdset={insights.by_adset} />
+
+      {/* KPI CARDS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          icon={CircleDollarSign}
+          label="إجمالي الإنفاق"
+          value={`${fmt(totals.spend, 2)} EGP`}
+          sub={`CPM ${fmt(totals.cpm, 2)} EGP`}
+          tone="neutral"
+        />
+        <KpiCard
+          icon={ShoppingCart}
+          label="الأوردرات"
+          value={fmt(totals.purchases)}
+          sub={
+            totals.lpv > 0
+              ? `من ${fmt(totals.lpv)} LPV — CR ${fmtPct(totals.crLpv)}`
+              : "لا توجد بيانات LPV"
+          }
+          tone={totals.crLpv >= 5 ? "good" : "warn"}
+          trend={
+            totals.crLpv >= 5
+              ? { dir: "up", text: "CR صحي", good: true }
+              : totals.purchases > 0
+              ? { dir: "down", text: "CR منخفض", good: false }
+              : undefined
+          }
+        />
+        <KpiCard
+          icon={CircleDollarSign}
+          label="تكلفة الأوردر (CPA)"
+          value={totals.cpa > 0 ? `${fmt(totals.cpa, 2)} EGP` : "—"}
+          sub={cpaTarget > 0 ? `الهدف: تحت ${cpaTarget} EGP` : ""}
+          tone={
+            totals.cpa === 0 ? "bad" : totals.cpa < 30 ? "good" : totals.cpa < 60 ? "warn" : "bad"
+          }
+        />
+        <KpiCard
+          icon={MousePointerClick}
+          label="CTR (Link)"
+          value={fmtPct(totals.ctr)}
+          sub={`CPC ${fmt(totals.cpc, 2)} EGP · ${fmt(totals.link_clicks)} كليك`}
+          tone={totals.ctr >= 2 ? "good" : "warn"}
+        />
+      </div>
+
+      {/* FUNNEL + VIDEO RETENTION */}
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ArrowDownRight className="h-4 w-4 text-primary" />
+              الفانل من الإعلان للأوردر
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5 pt-2">
+            {funnelStepsEnriched.map((s) => (
+              <FunnelStep key={s.label} {...s} />
+            ))}
+            <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border">
+              <div>
+                <div className="text-xs text-muted-foreground">CTR</div>
+                <div className="text-lg font-bold">
+                  <Num>{fmtPct(totals.ctr)}</Num>
+                </div>
+                <div className={`text-[10px] ${totals.ctr >= 2 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                  {totals.ctr >= 2 ? "صحي ✓" : "محتاج تحسين"}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Click → LPV</div>
+                <div className="text-lg font-bold">
+                  <Num>{fmtPct(totals.lpvRate)}</Num>
+                </div>
+                <div className={`text-[10px] ${totals.lpvRate >= 75 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                  {totals.lpvRate >= 75 ? "ممتاز ✓" : "صفحة بطيئة"}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">LPV → Buy</div>
+                <div className="text-lg font-bold">
+                  <Num>{fmtPct(totals.crLpv)}</Num>
+                </div>
+                <div className={`text-[10px] ${totals.crLpv >= 5 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                  {totals.crLpv >= 5 ? "جيد ✓" : "محتاج تحسين"}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="bg-card">
-                <Activity className="h-3 w-3 ml-1" />
-                Active
-              </Badge>
-              <Badge variant="outline" className="bg-card">
-                <Num>16</Num> صف بيانات يومية
-              </Badge>
-            </div>
-          </div>
-        </header>
+          </CardContent>
+        </Card>
 
-        {/* EXECUTIVE SUMMARY — TL;DR في 30 ثانية */}
-        <ExecutiveSummary />
-
-        {/* KPI CARDS */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard
-            icon={CircleDollarSign}
-            label="إجمالي الإنفاق"
-            value={`${fmt(funnelTotals.spend, 2)} EGP`}
-            sub={`CPM ${fmt(funnelTotals.cpm, 2)} EGP`}
-            tone="neutral"
-          />
-          <KpiCard
-            icon={ShoppingCart}
-            label="الأوردرات"
-            value={fmt(funnelTotals.purchases)}
-            sub={`من ${fmt(funnelTotals.lpv)} LPV — CR ${fmtPct(funnelTotals.crLpv)}`}
-            tone="good"
-            trend={{ dir: "up", text: "CR صحي", good: true }}
-          />
-          <KpiCard
-            icon={CircleDollarSign}
-            label="تكلفة الأوردر (CPA)"
-            value={`${fmt(funnelTotals.costPerPurchase, 2)} EGP`}
-            sub={`الهدف: تحت 35 EGP`}
-            tone="warn"
-            trend={{ dir: "down", text: "ممكن ينزل لـ 28", good: true }}
-          />
-          <KpiCard
-            icon={MousePointerClick}
-            label="CTR (Link)"
-            value={fmtPct(funnelTotals.ctr)}
-            sub={`CPC ${fmt(funnelTotals.cpc, 2)} EGP · ${fmt(funnelTotals.linkClicks)} كليك`}
-            tone="good"
-          />
-        </div>
-
-        {/* FUNNEL + VIDEO RETENTION */}
-        <div className="grid lg:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ArrowDownRight className="h-4 w-4 text-primary" />
-                الفانل من الإعلان للأوردر
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5 pt-2">
-              {funnelStepsEnriched.map(s => (
-                <FunnelStep key={s.label} {...s} />
-              ))}
-              <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border">
-                <div>
-                  <div className="text-xs text-muted-foreground">CTR</div>
-                  <div className="text-lg font-bold">
-                    <Num>{fmtPct(funnelTotals.ctr)}</Num>
-                  </div>
-                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400">صحي ✓</div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Eye className="h-4 w-4 text-primary" />
+              Retention الفيديو — هنا الفلوس بتتحرق
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {hasVideo ? (
+              <>
+                <div className="h-[260px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={videoData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis
+                        dataKey="stage"
+                        tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <RTooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: "8px",
+                          fontSize: "12px",
+                        }}
+                      />
+                      <Bar dataKey="views" radius={[6, 6, 0, 0]}>
+                        {videoData.map((d, i) => (
+                          <Cell
+                            key={i}
+                            fill={i === 0 ? CHART_COLORS.bad : i < 2 ? CHART_COLORS.warn : CHART_COLORS.primary}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Click → LPV</div>
-                  <div className="text-lg font-bold">
-                    <Num>{fmtPct(funnelTotals.lpvRate)}</Num>
-                  </div>
-                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400">ممتاز ✓</div>
+                <div className="mt-3 p-3 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20 text-xs leading-relaxed">
+                  <strong className="text-amber-700 dark:text-amber-400">تشخيص:</strong>{" "}
+                  من اللي وصلوا 25% من الفيديو، <Num>{fmt(v25to100Pct, 0)}%</Num> أكملوا للنهاية.
+                  {totals.hookRate < 30 && (
+                    <>
+                      {" "}الـ Hook Rate (<Num>{fmt(totals.hookRate, 1)}%</Num>) منخفض — أول 3 ثواني محتاجة قوة.
+                    </>
+                  )}
                 </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">LPV → Buy</div>
-                  <div className="text-lg font-bold">
-                    <Num>{fmtPct(funnelTotals.crLpv)}</Num>
-                  </div>
-                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400">جيد ✓</div>
-                </div>
+              </>
+            ) : (
+              <div className="h-[260px] flex items-center justify-center text-muted-foreground text-sm italic">
+                لا توجد بيانات فيديو لهذه الحملة
               </div>
-            </CardContent>
-          </Card>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Eye className="h-4 w-4 text-primary" />
-                Retention الفيديو — هنا الفلوس بتتحرق
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[260px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={videoData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis
-                      dataKey="stage"
-                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <RTooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                        fontSize: "12px",
-                      }}
-                    />
-                    <Bar dataKey="views" radius={[6, 6, 0, 0]}>
-                      {videoData.map((d, i) => (
-                        <Cell
-                          key={i}
-                          fill={i === 0 ? CHART_COLORS.bad : i < 2 ? CHART_COLORS.warn : CHART_COLORS.primary}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-3 p-3 rounded-lg bg-amber-500/10 ring-1 ring-amber-500/20 text-xs leading-relaxed">
-                <strong className="text-amber-700 dark:text-amber-400">تشخيص:</strong>{" "}
-                <Num>80%</Num> من الناس بتعدّي أول 3 ثواني. اللي بيكمّل أول 3 بيكمّل لآخر الفيديو ({" "}
-                <Num>{fmt((funnelTotals.v100 / funnelTotals.v25) * 100, 0)}%</Num> retention من 25% لـ 100%). الـ Hook هو البلوك الوحيد.
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* DAILY TREND */}
+      {/* DAILY TREND */}
+      {trendData.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -653,33 +679,34 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+      )}
 
-        {/* IMPACT CALCULATOR */}
-        <ImpactCalculator />
+      {/* IMPACT CALCULATOR */}
+      <ImpactCalculator totals={totals} byAd={insights.by_ad} />
 
-        {/* SEGMENTS */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="h-4 w-4 text-primary" />
-              مقارنة الأداء — اشطبي الخاسر، ضاعفي على الفائز
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Tabs value={segView} onValueChange={v => setSegView(v as typeof segView)} dir="rtl">
-              <TabsList className="mb-4">
-                <TabsTrigger value="adset">Ad Set</TabsTrigger>
-                <TabsTrigger value="ad">Creative</TabsTrigger>
-                <TabsTrigger value="headline">Headline</TabsTrigger>
-              </TabsList>
-              <TabsContent value={segView} className="m-0">
-                <SegmentTable segments={segments} label={segLabel} />
+      {/* SEGMENTS */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Activity className="h-4 w-4 text-primary" />
+            مقارنة الأداء — اشطبي الخاسر، ضاعفي على الفائز
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={segView} onValueChange={(v) => setSegView(v as typeof segView)} dir="rtl">
+            <TabsList className="mb-4">
+              <TabsTrigger value="adset">Ad Set ({insights.by_adset.length})</TabsTrigger>
+              <TabsTrigger value="ad">Creative ({insights.by_ad.length})</TabsTrigger>
+            </TabsList>
+            <TabsContent value={segView} className="m-0">
+              <SegmentTable segments={segments} label={segLabel} />
 
-                {/* CPA Bar Chart */}
+              {/* CPA Bar Chart */}
+              {segments.length > 0 && (
                 <div className="mt-6 h-[200px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={segments.map(s => ({
+                      data={segments.map((s) => ({
                         name: s.label.length > 30 ? s.label.slice(0, 30) + "…" : s.label,
                         cpa: s.cpa || 0,
                         purchases: s.purchases,
@@ -710,49 +737,172 @@ export default function Dashboard() {
                         {segments.map((s, i) => {
                           const v = verdictFor(s, segments);
                           const color =
-                            v === "winner" ? CHART_COLORS.good :
-                            v === "kill" ? CHART_COLORS.bad :
-                            v === "okay" ? CHART_COLORS.info : CHART_COLORS.warn;
+                            v === "winner"
+                              ? CHART_COLORS.good
+                              : v === "kill"
+                              ? CHART_COLORS.bad
+                              : v === "okay"
+                              ? CHART_COLORS.info
+                              : CHART_COLORS.warn;
                           return <Cell key={i} fill={color} />;
                         })}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
 
-        {/* CLARITY INSIGHTS */}
-        <section className="space-y-4">
-          <div className="flex items-end justify-between gap-3 flex-wrap">
+      {/* CLARITY INSIGHTS */}
+      <section className="space-y-4">
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              رؤى Microsoft Clarity — سلوك المستخدم
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              <Num>{clarityInsights.length}</Num> مشاكل سلوكية مرصودة، مرتّبة من الأخطر للأقل خطورة
+            </p>
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          {clarityInsights.map((i) => (
+            <ClarityCard key={i.id} insight={i} />
+          ))}
+        </div>
+      </section>
+
+      {/* ACTION CHECKLIST */}
+      <ActionChecklist />
+    </div>
+  );
+}
+
+// ---------- Main Dashboard ----------
+export default function Dashboard() {
+  const queryClient = useQueryClient();
+  const [preset, setPreset] = useState<DatePreset>("7d");
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+
+  const range = useMemo(() => rangeFromPreset(preset), [preset]);
+
+  const account = useAccount();
+  const campaigns = useCampaigns(range);
+  const insights = useInsights({
+    campaign_id: selectedCampaignId,
+    since: range.since,
+    until: range.until,
+  });
+
+  // Auto-select the top-spending campaign when campaigns load
+  useEffect(() => {
+    if (campaigns.data && !selectedCampaignId) {
+      const top = [...campaigns.data.campaigns]
+        .filter((c) => c.spend > 0)
+        .sort((a, b) => b.spend - a.spend)[0];
+      if (top) setSelectedCampaignId(top.id);
+    }
+  }, [campaigns.data, selectedCampaignId]);
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["meta"] });
+  };
+
+  const isRefreshing = campaigns.isFetching || insights.isFetching;
+
+  const accountLine = account.data
+    ? `${account.data.name} · ${account.data.currency} · ${account.data.timezone_name}`
+    : "Meta Ads";
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        {/* HEADER */}
+        <header className="space-y-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            مباشر من Meta Ads · {accountLine}
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-amber-500" />
-                رؤى Microsoft Clarity — سلوك المستخدم
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                <Num>4</Num> مشاكل سلوكية مرصودة، مرتّبة من الأخطر للأقل خطورة
+              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
+                تحليل الفانل الكامل
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Meta Ads × Microsoft Clarity — تشخيص وقرارات مباشرة
               </p>
             </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-card">
+                <Activity className="h-3 w-3 ml-1" />
+                Live API
+              </Badge>
+              {insights.data && (
+                <Badge variant="outline" className="bg-card">
+                  <Num>{insights.data.period.days}</Num> يوم
+                </Badge>
+              )}
+            </div>
           </div>
-          <div className="grid md:grid-cols-2 gap-4">
-            {clarityInsights.map(i => (
-              <ClarityCard key={i.id} insight={i} />
-            ))}
-          </div>
-        </section>
+        </header>
 
-        {/* ACTION CHECKLIST */}
-        <ActionChecklist />
+        {/* CONTROLS */}
+        <DashboardControls
+          campaigns={campaigns.data?.campaigns}
+          isLoadingCampaigns={campaigns.isLoading}
+          selectedCampaignId={selectedCampaignId}
+          onSelectCampaign={setSelectedCampaignId}
+          preset={preset}
+          onPresetChange={setPreset}
+          range={range}
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
+          lastUpdated={insights.data?.fetched_at}
+        />
+
+        {/* Errors */}
+        {(campaigns.error || insights.error) && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>تعذّر تحميل البيانات من Meta</AlertTitle>
+            <AlertDescription className="mt-1 text-xs">
+              {(campaigns.error as Error)?.message ||
+                (insights.error as Error)?.message}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Content */}
+        {insights.isLoading || (campaigns.isLoading && !insights.data) ? (
+          <DashboardSkeleton />
+        ) : insights.data ? (
+          <InsightsBody insights={insights.data} />
+        ) : !selectedCampaignId && campaigns.data?.campaigns.length === 0 ? (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>لا توجد حملات في الفترة المحددة</AlertTitle>
+            <AlertDescription>
+              جرّبي فترة أطول أو افتحي Meta Ads Manager للتأكد.
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {/* FOOTER */}
         <footer className="pt-6 mt-6 border-t border-border">
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
             <div>
-              تم التحليل من <Num>16</Num> صف بيانات يومية + <Num>4</Num> رؤى Clarity على{" "}
-              <Num>{fmt(clarityInsights.reduce((s, i) => s + i.affectedSessions, 0))}</Num> سيشن
+              البيانات مباشرة من Meta Marketing API ·{" "}
+              {insights.data && (
+                <>
+                  <Num>{insights.data.daily.length}</Num> يوم ·{" "}
+                  <Num>{insights.data.by_ad.length}</Num> creative ·{" "}
+                  <Num>{insights.data.by_adset.length}</Num> ad set
+                </>
+              )}
             </div>
             <div>كل الأرقام بالـ EGP</div>
           </div>
