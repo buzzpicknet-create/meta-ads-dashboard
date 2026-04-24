@@ -36,7 +36,6 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ExecutiveSummary } from "@/components/executive-summary";
 import { ImpactCalculator } from "@/components/impact-calculator";
 import { DashboardControls } from "@/components/dashboard-controls";
 import { useCampaigns, useInsights, useAccount, useAccounts } from "@/hooks/use-meta";
@@ -374,17 +373,6 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
   return (
     <div className="space-y-8">
-      {/* EXECUTIVE SUMMARY */}
-      <ExecutiveSummary
-        totals={totals}
-        byAd={insights.by_ad}
-        byAdset={insights.by_adset}
-        campaignName={insights.campaign.name}
-        headlineWinner={insights.by_ad.length ? [...insights.by_ad].sort((a, b) => a.cpa - b.cpa)[0] : null}
-        adsetWinner={insights.by_adset.length ? [...insights.by_adset].sort((a, b) => a.cpa - b.cpa)[0] : null}
-        mediaWinner={insights.by_ad.length ? [...insights.by_ad].sort((a, b) => a.cpa - b.cpa)[0] : null}
-      />
-
       {/* KPI CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
