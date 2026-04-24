@@ -56,7 +56,7 @@ export function useCampaigns(opts: {
           })
         : fetchCampaigns(opts),
     staleTime: ONE_HOUR,
-    enabled: Boolean(opts.since && opts.until),
+    enabled: Boolean(opts.since && opts.until && opts.ad_account_id),
   });
 }
 
@@ -83,6 +83,8 @@ export function useInsights(opts: {
         until: opts.until,
       }),
     staleTime: ONE_HOUR,
-    enabled: Boolean(opts.campaign_id && opts.since && opts.until),
+    enabled: Boolean(
+      opts.campaign_id && opts.since && opts.until && opts.ad_account_id,
+    ),
   });
 }
