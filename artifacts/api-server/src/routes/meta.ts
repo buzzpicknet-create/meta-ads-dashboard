@@ -3,6 +3,7 @@ import {
   listCampaigns,
   getCampaignInsights,
   getAccountInfo,
+  listAdAccounts,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -74,6 +75,18 @@ router.get("/meta/account", async (_req, res) => {
     res.json(data);
   } catch (err) {
     logger.error({ err }, "Account fetch failed");
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get("/meta/accounts", async (_req, res) => {
+  try {
+    const accounts = await listAdAccounts();
+    res.json({ accounts });
+  } catch (err) {
+    logger.error({ err }, "Accounts fetch failed");
     res
       .status(500)
       .json({ error: err instanceof Error ? err.message : String(err) });

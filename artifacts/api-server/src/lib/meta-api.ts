@@ -1,4 +1,4 @@
-import { getAccessToken, getAdAccountId } from "./meta-token";
+import { getAccessToken, getAdAccountId, getAdAccountIds } from "./meta-token";
 import { logger } from "./logger";
 
 const API_VERSION = "v21.0";
@@ -225,6 +225,14 @@ export interface CampaignSummary {
   impressions: number;
   link_clicks: number;
   ctr: number;
+}
+
+export interface AdAccountSummary {
+  id: string;
+  name: string;
+  currency: string;
+  timezone_name: string;
+  account_status: number;
 }
 
 export async function listCampaigns(opts: {
@@ -541,4 +549,23 @@ export async function getAccountInfo() {
     throw new Error(`Meta API error: ${data.error.message}`);
   }
   return data;
+}
+
+export async function listAdAccounts(): Promise<AdAccountSummary[]> {
+  const ids = getAdAccountIds();
+  const accounts = await Promise.all(
+    ids.map(async (id) => {
+      const url = new URL(`${BASE_URL}/act_${id}`);
+      url.searchParams.set("access_token", getAccessToken());
+      url.searchParams.set("fields", "id,name,currency,timezone_name,account_status");
+      const res = await fetch(url.toString());
+      const data = (await res.json()) as AdAccountSummary & {
+        error?: FbApiError;
+      };
+      if (data.error) throw new Error(`Meta API error: ${data.error.message}`);
+      return data;
+    }),
+  );
+
+  return accounts.filter((a) => Boolean(a.id));
 }

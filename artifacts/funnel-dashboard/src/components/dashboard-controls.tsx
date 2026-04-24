@@ -12,12 +12,16 @@ import {
 } from "@/components/ui/select";
 import {
   type CampaignSummary,
+  type AdAccountSummary,
   type DatePreset,
   formatRange,
 } from "@/lib/meta-api";
 
 interface Props {
   campaigns: CampaignSummary[] | undefined;
+  accounts: AdAccountSummary[] | undefined;
+  selectedAccountId: string | null;
+  onSelectAccount: (id: string) => void;
   isLoadingCampaigns: boolean;
   selectedCampaignId: string | null;
   onSelectCampaign: (id: string) => void;
@@ -38,6 +42,9 @@ const presetLabels: Record<DatePreset, string> = {
 
 export function DashboardControls({
   campaigns,
+  accounts,
+  selectedAccountId,
+  onSelectAccount,
   isLoadingCampaigns,
   selectedCampaignId,
   onSelectCampaign,
@@ -80,6 +87,29 @@ export function DashboardControls({
   return (
     <div className="rounded-2xl border border-border bg-card/50 p-4 sm:p-5 space-y-3">
       <div className="flex flex-wrap items-end gap-3 sm:gap-4">
+        <div className="flex-1 min-w-[240px] space-y-1.5">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            الحساب
+          </label>
+          <Select value={selectedAccountId ?? undefined} onValueChange={onSelectAccount} dir="rtl">
+            <SelectTrigger className="w-full h-11 text-right">
+              <SelectValue placeholder="اختر حساب" />
+            </SelectTrigger>
+            <SelectContent>
+              {accounts?.map((account) => (
+                <SelectItem key={account.id} value={account.id}>
+                  <div className="flex items-center justify-between gap-3 w-full">
+                    <span className="truncate max-w-[280px]">{account.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {account.id}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Campaign Selector */}
         <div className="flex-1 min-w-[260px] space-y-1.5">
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">

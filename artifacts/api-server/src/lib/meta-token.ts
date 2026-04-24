@@ -10,6 +10,7 @@ interface TokenCache {
   issued_at: string;
   app_id: string;
   ad_account_id: string;
+  ad_account_ids?: string[];
 }
 
 function findWorkspaceRoot(start: string): string {
@@ -54,6 +55,13 @@ export function getAccessToken(): string {
 
 export function getAdAccountId(): string {
   return getToken().ad_account_id;
+}
+
+export function getAdAccountIds(): string[] {
+  const token = getToken();
+  return [token.ad_account_id, ...(token.ad_account_ids || [])].filter(
+    (value, index, arr) => arr.indexOf(value) === index,
+  );
 }
 
 export function getAppId(): string {

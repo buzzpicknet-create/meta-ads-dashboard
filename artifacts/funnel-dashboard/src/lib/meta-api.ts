@@ -95,6 +95,18 @@ export interface AccountInfo {
   account_status: number;
 }
 
+export interface AdAccountSummary {
+  id: string;
+  name: string;
+  currency: string;
+  timezone_name: string;
+  account_status: number;
+}
+
+export interface AccountsResponse {
+  accounts: AdAccountSummary[];
+}
+
 export interface TokenHealth {
   ok: boolean;
   token: {
@@ -129,6 +141,10 @@ async function jsonFetch<T>(url: string): Promise<T> {
 
 export function fetchAccount(): Promise<AccountInfo> {
   return jsonFetch<AccountInfo>(`${API_BASE}/meta/account`);
+}
+
+export function fetchAccounts(): Promise<AccountsResponse> {
+  return jsonFetch<AccountsResponse>(`${API_BASE}/meta/accounts`);
 }
 
 export function fetchTokenHealth(): Promise<TokenHealth> {

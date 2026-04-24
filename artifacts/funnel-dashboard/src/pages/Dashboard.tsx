@@ -40,7 +40,7 @@ import { ExecutiveSummary } from "@/components/executive-summary";
 import { ImpactCalculator } from "@/components/impact-calculator";
 import { ActionChecklist } from "@/components/action-checklist";
 import { DashboardControls } from "@/components/dashboard-controls";
-import { useCampaigns, useInsights, useAccount } from "@/hooks/use-meta";
+import { useCampaigns, useInsights, useAccount, useAccounts } from "@/hooks/use-meta";
 import {
   type DatePreset,
   type SegmentEntry,
@@ -698,11 +698,13 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const [preset, setPreset] = useState<DatePreset>("7d");
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
   const range = useMemo(() => rangeFromPreset(preset), [preset]);
 
   const account = useAccount();
+  const accounts = useAccounts();
   const campaigns = useCampaigns(range);
   const insights = useInsights({
     campaign_id: selectedCampaignId,
@@ -719,6 +721,13 @@ export default function Dashboard() {
       if (top) setSelectedCampaignId(top.id);
     }
   }, [campaigns.data, selectedCampaignId]);
+
+  useEffect(() => {
+    const available = accounts.data?.accounts || [];
+    if (!selectedAccountId && available.length > 0) {
+      setSelectedAccountId(available[0].id);
+    }
+  }, [accounts.data, selectedAccountId]);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["meta"] });
@@ -765,6 +774,9 @@ export default function Dashboard() {
         {/* CONTROLS */}
         <DashboardControls
           campaigns={campaigns.data?.campaigns}
+          accounts={accounts.data?.accounts}
+          selectedAccountId={selectedAccountId}
+          onSelectAccount={setSelectedAccountId}
           isLoadingCampaigns={campaigns.isLoading}
           selectedCampaignId={selectedCampaignId}
           onSelectCampaign={setSelectedCampaignId}

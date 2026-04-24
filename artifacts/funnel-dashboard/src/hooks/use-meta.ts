@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  fetchAccounts,
   fetchAccount,
   fetchCampaigns,
   fetchInsights,
@@ -12,6 +13,14 @@ export function useAccount() {
   return useQuery({
     queryKey: ["meta", "account"],
     queryFn: fetchAccount,
+    staleTime: ONE_HOUR,
+  });
+}
+
+export function useAccounts() {
+  return useQuery({
+    queryKey: ["meta", "accounts"],
+    queryFn: fetchAccounts,
     staleTime: ONE_HOUR,
   });
 }
