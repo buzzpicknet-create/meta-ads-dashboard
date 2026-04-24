@@ -697,10 +697,6 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
         </CardContent>
       </Card>
 
-      {/* ACTION CHECKLIST */}
-      <ActionChecklist
-        items={getActionPlanForCampaign(insights.campaign.id, actionPlan)}
-      />
     </div>
   );
 }
