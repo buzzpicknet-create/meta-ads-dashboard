@@ -43,7 +43,7 @@ const priorityConfig = {
   },
 };
 
-export function ActionChecklist({ items }: { items: ActionItem[] }) {
+export function ActionChecklist({ items = [] }: { items?: ActionItem[] }) {
   const [done, setDone] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
