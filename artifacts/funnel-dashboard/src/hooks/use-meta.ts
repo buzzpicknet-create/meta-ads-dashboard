@@ -47,14 +47,16 @@ export function useCampaigns(opts: {
       opts.until,
       opts.ad_account_id || "",
     ],
-    queryFn: () =>
-      opts.ad_account_id
-        ? fetchCampaignsForAccount({
-            ad_account_id: opts.ad_account_id,
-            since: opts.since,
-            until: opts.until,
-          })
-        : fetchCampaigns(opts),
+    queryFn: () => {
+      if (!opts.ad_account_id) {
+        throw new Error("ad_account_id is required");
+      }
+      return fetchCampaignsForAccount({
+        ad_account_id: opts.ad_account_id,
+        since: opts.since,
+        until: opts.until,
+      });
+    },
     staleTime: ONE_HOUR,
     enabled: Boolean(opts.since && opts.until && opts.ad_account_id),
   });

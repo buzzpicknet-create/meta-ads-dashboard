@@ -716,15 +716,18 @@ export default function Dashboard() {
     until: range.until,
   });
 
-  // Auto-select the top-spending campaign when campaigns load
+  const accountCampaigns = useMemo(
+    () => campaigns.data?.campaigns ?? [],
+    [campaigns.data?.campaigns],
+  );
+
   useEffect(() => {
-    if (campaigns.data && !selectedCampaignId) {
-      const top = [...campaigns.data.campaigns]
-        .filter((c) => c.spend > 0)
-        .sort((a, b) => b.spend - a.spend)[0];
-      if (top) setSelectedCampaignId(top.id);
-    }
-  }, [campaigns.data, selectedCampaignId]);
+    if (!selectedAccountId) return;
+    const top = [...accountCampaigns]
+      .filter((c) => c.spend > 0)
+      .sort((a, b) => b.spend - a.spend)[0];
+    setSelectedCampaignId(top?.id || null);
+  }, [accountCampaigns, selectedAccountId]);
 
   useEffect(() => {
     const available = accounts.data?.accounts || [];
@@ -732,10 +735,6 @@ export default function Dashboard() {
       setSelectedAccountId(available[0].id);
     }
   }, [accounts.data, selectedAccountId]);
-
-  useEffect(() => {
-    setSelectedCampaignId(null);
-  }, [selectedAccountId]);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["meta"] });
@@ -781,7 +780,7 @@ export default function Dashboard() {
 
         {/* CONTROLS */}
         <DashboardControls
-          campaigns={campaigns.data?.campaigns}
+          campaigns={accountCampaigns}
           accounts={accounts.data?.accounts}
           selectedAccountId={selectedAccountId}
           onSelectAccount={setSelectedAccountId}
