@@ -91,12 +91,12 @@ export function DashboardControls({
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             الحساب
           </label>
-          <Select value={selectedAccountId ?? undefined} onValueChange={onSelectAccount} dir="rtl">
+          <Select value={selectedAccountId ?? ""} onValueChange={onSelectAccount} dir="rtl">
             <SelectTrigger className="w-full h-11 text-right">
               <SelectValue placeholder="اختر حساب" />
             </SelectTrigger>
             <SelectContent>
-              {accounts?.map((account) => (
+              {(accounts ?? []).map((account) => (
                 <SelectItem key={account.id} value={account.id}>
                   <div className="flex items-center justify-between gap-3 w-full">
                     <span className="truncate max-w-[280px]">{account.name}</span>

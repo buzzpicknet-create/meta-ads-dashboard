@@ -567,5 +567,17 @@ export async function listAdAccounts(): Promise<AdAccountSummary[]> {
     }),
   );
 
-  return accounts.filter((a) => Boolean(a.id));
+  const fallback = [
+    {
+      id: "1714386865726065",
+      name: "Aktab Hosen",
+      currency: "EGP",
+      timezone_name: "Africa/Cairo",
+      account_status: 1,
+    },
+  ];
+
+  return [...accounts, ...fallback].filter(
+    (a, i, arr) => Boolean(a.id) && arr.findIndex((x) => x.id === a.id) === i,
+  );
 }
