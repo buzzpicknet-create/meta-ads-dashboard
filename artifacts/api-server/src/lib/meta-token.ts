@@ -54,14 +54,11 @@ export function getAccessToken(): string {
 }
 
 export function getAdAccountId(): string {
-  return getToken().ad_account_id;
+  return "1714386865726065";
 }
 
 export function getAdAccountIds(): string[] {
-  const token = getToken();
-  return ["1714386865726065", "838054421405431", token.ad_account_id, ...(token.ad_account_ids || [])].filter(
-    (value, index, arr) => arr.indexOf(value) === index,
-  );
+  return ["1714386865726065", "838054421405431"];
 }
 
 export function getAppId(): string {
