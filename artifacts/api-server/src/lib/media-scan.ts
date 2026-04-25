@@ -253,13 +253,23 @@ export async function runMediaScan(): Promise<ScanResult> {
     const notes = `3 ميديا بزوايا مختلفة\n\nالأسباب:\n${reasons.map((r) => `• ${r}`).join("\n")}`;
 
     try {
-      await query(
+      const inserted = await query<{ id: number }>(
         `INSERT INTO media_requests (campaign_id, campaign_name, landing_url, status, priority, notes)
-         VALUES ($1, $2, $3, 'needs_review', $4, $5)`,
+         VALUES ($1, $2, $3, 'needs_review', $4, $5)
+         ON CONFLICT (campaign_id)
+         WHERE campaign_id IS NOT NULL
+           AND deleted_at IS NULL
+           AND status IN ('needs_review', 'pending', 'in_progress')
+         DO NOTHING
+         RETURNING id`,
         [campaign_id, campaign_name, landingUrl, priority, notes]
       );
-      requestsCreated++;
-      logger.info({ campaign_name, reasons, priority }, "Auto media request queued for review");
+      if (inserted.length > 0) {
+        requestsCreated++;
+        logger.info({ campaign_name, reasons, priority }, "Auto media request queued for review");
+      } else {
+        logger.info({ campaign_name }, "Scan skipped — active request already exists (conflict guard)");
+      }
     } catch (err) {
       logger.error({ err, campaign_name }, "Failed to insert auto media request");
     }

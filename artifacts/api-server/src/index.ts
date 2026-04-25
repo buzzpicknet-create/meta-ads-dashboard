@@ -62,6 +62,14 @@ async function runMigrations() {
   // Soft delete support
   await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
   await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS deleted_reason TEXT`);
+  // Prevent duplicate active requests for the same campaign_id (race-condition safe)
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS media_requests_campaign_active
+    ON media_requests (campaign_id)
+    WHERE campaign_id IS NOT NULL
+      AND deleted_at IS NULL
+      AND status IN ('needs_review', 'pending', 'in_progress')
+  `);
   // needs_review status for auto-scanned requests
   await query(`
     CREATE TABLE IF NOT EXISTS media_delete_log (
