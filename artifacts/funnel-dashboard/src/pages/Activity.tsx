@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, CheckCircle2, Clock, Bell, XCircle, RefreshCw,
@@ -26,7 +26,7 @@ interface MetaActivity {
   object_id?: string;
   event_type?: string;
   translated_event_type?: string;
-  event_time?: number;
+  event_time?: string | number;
   extra_data?: string;
 }
 
@@ -62,17 +62,27 @@ const PRESET_LABELS: Record<PresetKey, string> = {
 };
 
 // ── Formatting helpers ────────────────────────────────────────
-function safeTs(event_time?: number): number | null {
-  if (!event_time || isNaN(event_time) || event_time <= 0) return null;
-  return event_time;
+
+// event_time from Meta is an ISO string like "2026-04-25T14:14:46+0000"
+// (sometimes a Unix number — handle both)
+function toDate(event_time?: string | number): Date | null {
+  if (!event_time) return null;
+  let d: Date;
+  if (typeof event_time === "number") {
+    if (event_time <= 0 || isNaN(event_time)) return null;
+    d = new Date(event_time * 1000);
+  } else {
+    d = new Date(event_time);
+  }
+  return isNaN(d.getTime()) ? null : d;
 }
 
-function timeAgo(dateStr: string | number): string {
-  const ts = typeof dateStr === "number" ? dateStr * 1000 : new Date(dateStr).getTime();
-  if (!ts || isNaN(ts)) return "";
-  const diff = Date.now() - ts;
+function timeAgo(event_time?: string | number): string {
+  const d = toDate(event_time);
+  if (!d) return "";
+  const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60000);
-  const hrs = Math.floor(mins / 60);
+  const hrs  = Math.floor(mins / 60);
   const days = Math.floor(hrs / 24);
   if (days > 0) return `منذ ${days} ${days === 1 ? "يوم" : "أيام"}`;
   if (hrs > 0)  return `منذ ${hrs} ${hrs === 1 ? "ساعة" : "ساعات"}`;
@@ -80,9 +90,11 @@ function timeAgo(dateStr: string | number): string {
   return "الآن";
 }
 
-function formatDateShort(ts: number): string {
+function formatDateShort(event_time?: string | number): string {
+  const d = toDate(event_time);
+  if (!d) return "";
   try {
-    return new Date(ts * 1000).toLocaleString("ar-EG", {
+    return d.toLocaleString("ar-EG", {
       day: "2-digit", month: "2-digit",
       hour: "2-digit", minute: "2-digit",
     });
@@ -91,9 +103,11 @@ function formatDateShort(ts: number): string {
   }
 }
 
-function dayLabel(ts: number): string {
+function dayLabel(event_time?: string | number): string {
+  const d = toDate(event_time);
+  if (!d) return "";
   try {
-    return new Date(ts * 1000).toLocaleDateString("ar-EG", {
+    return d.toLocaleDateString("ar-EG", {
       weekday: "long", day: "2-digit", month: "long", year: "numeric",
     });
   } catch {
@@ -140,8 +154,8 @@ function MetaActivityCard({ act }: { act: MetaActivity }) {
   const [open, setOpen] = useState(false);
   const { label, icon: Icon, color } = translateEvent(act.event_type);
   const level  = objectLevel(act.event_type);
-  const extra  = parseExtra(act.extra_data);
-  const ts     = safeTs(act.event_time);
+  const extra   = parseExtra(act.extra_data);
+  const hasTime = !!toDate(act.event_time);
 
   return (
     <div className="rounded-xl border border-border bg-card px-4 py-3">
@@ -167,14 +181,14 @@ function MetaActivityCard({ act }: { act: MetaActivity }) {
             {act.actor_name && (
               <span className="font-semibold text-foreground">{act.actor_name}</span>
             )}
-            {ts && (
+            {hasTime && (
               <>
                 <span>·</span>
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  {timeAgo(ts)}
+                  {timeAgo(act.event_time)}
                 </span>
-                <span className="hidden sm:inline">{formatDateShort(ts)}</span>
+                <span className="hidden sm:inline">{formatDateShort(act.event_time)}</span>
               </>
             )}
           </div>
@@ -369,16 +383,15 @@ export default function ActivityPage() {
 
   // Group by day (only entries with valid event_time)
   const byDay = metaList.reduce<Record<string, MetaActivity[]>>((acc, act) => {
-    const ts = safeTs(act.event_time);
-    if (!ts) return acc;
-    const label = dayLabel(ts);
+    if (!toDate(act.event_time)) return acc;
+    const label = dayLabel(act.event_time);
     if (!label) return acc;
     if (!acc[label]) acc[label] = [];
     acc[label].push(act);
     return acc;
   }, {});
 
-  const validCount = metaList.filter((a) => safeTs(a.event_time) !== null).length;
+  const validCount = metaList.filter((a) => !!toDate(a.event_time)).length;
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-8 space-y-8" dir="rtl">
