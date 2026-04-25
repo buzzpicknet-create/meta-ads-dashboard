@@ -628,24 +628,52 @@ function MediaCard({ req }: { req: MediaRequest }) {
             </button>
           </div>
 
-          {/* Details toggle */}
-          {(hasBrief || hasDelivery || req.notes) && (
-            <button onClick={() => setShowDetails((p) => !p)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
+          {/* ── Delivery links — always visible when set ── */}
+          {(req.output_link || req.upload_link) && (
+            <div className="mt-2 mb-1 space-y-1.5">
+              {req.output_link && (
+                <a
+                  href={req.output_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 w-full px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                >
+                  <Film className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  <span className="text-xs font-medium text-emerald-700 truncate">الميديا النهائية</span>
+                  <ExternalLink className="h-3 w-3 text-emerald-500 mr-auto shrink-0" />
+                </a>
+              )}
+              {req.upload_link && (
+                <a
+                  href={req.upload_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 w-full px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+                >
+                  <Upload className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                  <span className="text-xs font-medium text-blue-700 truncate">درايف ممدوح</span>
+                  <ExternalLink className="h-3 w-3 text-blue-500 mr-auto shrink-0" />
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* ── Brief details — collapsible ── */}
+          {(hasBrief || req.notes) && (
+            <button onClick={() => setShowDetails((p) => !p)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2">
               <ChevRight className={`h-3 w-3 transition-transform ${showDetails ? "rotate-90" : ""}`} />
-              {showDetails ? "إخفاء التفاصيل" : "عرض التفاصيل"}
+              {showDetails ? "إخفاء البريف" : "عرض البريف"}
             </button>
           )}
 
           {showDetails && (
-            <div className="rounded-xl bg-muted/40 border border-border/50 p-3 mb-3 space-y-2.5">
+            <div className="rounded-xl bg-muted/40 border border-border/50 p-3 mt-2 mb-1 space-y-2.5">
               {req.notes && <BriefRow icon={<FileText className="h-2.5 w-2.5" />} label="ملاحظات" value={req.notes.split("\n")[0]} />}
               {req.drive_link && <BriefRow icon={<Link2 className="h-2.5 w-2.5" />} label="درايف الماتيريل" value={req.drive_link} isUrl />}
               {req.product_description && <BriefRow icon={<FileText className="h-2.5 w-2.5" />} label="المنتج" value={req.product_description} />}
               {req.angles && <BriefRow icon={<Layers className="h-2.5 w-2.5" />} label="الزوايا" value={req.angles} />}
               {req.scripts && <BriefRow icon={<BookOpen className="h-2.5 w-2.5" />} label="السكريبت" value={req.scripts} />}
               {req.reference_links && <BriefRow icon={<Video className="h-2.5 w-2.5" />} label="الريفيرنس" value={req.reference_links} />}
-              {req.output_link && <BriefRow icon={<Film className="h-2.5 w-2.5" />} label="الميديا النهائية" value={req.output_link} isUrl />}
-              {req.upload_link && <BriefRow icon={<Upload className="h-2.5 w-2.5" />} label="درايف ممدوح" value={req.upload_link} isUrl />}
             </div>
           )}
         </div>
