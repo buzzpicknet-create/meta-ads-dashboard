@@ -175,11 +175,41 @@ function KpiCard({
 // ──────────────────────────────────────────────────────────────
 // Alert System
 // ──────────────────────────────────────────────────────────────
-function HowToBtn({ problem }: { problem: string }) {
+interface HowToMetrics {
+  name?: string;
+  cpa?: number;
+  ctr?: number;
+  cpc?: number;
+  cr?: number;
+  freq?: number;
+  spend?: number;
+  purchases?: number;
+  lpvRate?: number;
+  hookRate?: number;
+}
+
+function howToHref(problem: string, metrics?: HowToMetrics): string {
   const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  const p = new URLSearchParams({ problem });
+  if (metrics) {
+    if (metrics.name) p.set("name", metrics.name);
+    if (metrics.cpa !== undefined) p.set("cpa", String(Math.round(metrics.cpa * 100) / 100));
+    if (metrics.ctr !== undefined) p.set("ctr", String(Math.round(metrics.ctr * 100) / 100));
+    if (metrics.cpc !== undefined) p.set("cpc", String(Math.round(metrics.cpc * 100) / 100));
+    if (metrics.cr !== undefined) p.set("cr", String(Math.round(metrics.cr * 100) / 100));
+    if (metrics.freq !== undefined) p.set("freq", String(Math.round(metrics.freq * 100) / 100));
+    if (metrics.spend !== undefined) p.set("spend", String(Math.round(metrics.spend)));
+    if (metrics.purchases !== undefined) p.set("purchases", String(metrics.purchases));
+    if (metrics.lpvRate !== undefined) p.set("lpvRate", String(Math.round(metrics.lpvRate * 10) / 10));
+    if (metrics.hookRate !== undefined) p.set("hookRate", String(Math.round(metrics.hookRate * 10) / 10));
+  }
+  return `${base}/how-to?${p.toString()}`;
+}
+
+function HowToBtn({ problem, metrics }: { problem: string; metrics?: HowToMetrics }) {
   return (
     <a
-      href={`${base}/how-to?problem=${problem}`}
+      href={howToHref(problem, metrics)}
       className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-background/60 hover:bg-background border border-border/60 text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
       onClick={(e) => e.stopPropagation()}
     >
@@ -189,28 +219,36 @@ function HowToBtn({ problem }: { problem: string }) {
 }
 
 function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEntry[] }) {
-  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string }[] = [];
+  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string; metrics?: HowToMetrics }[] = [];
 
-  // Drain ads
+  // Drain ads — pass per-ad metrics
   const drainAds = byAd.filter((a) => a.spend >= 100 && (a.purchases === 0 || a.cpa > CPA_STOP));
   drainAds.forEach((a) => {
     alerts.push({
       type: "danger",
       msg: `"${a.label.slice(0, 40)}" يستهلك ${fmt(a.spend, 0)} EGP بدون نتائج كافية — أوقفه فوراً`,
       problem: "no-conversions",
+      metrics: { name: a.label, spend: a.spend, purchases: a.purchases, cpa: a.purchases > 0 ? a.cpa : undefined },
     });
   });
 
-  if (totals.ctr < 1) alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الكريتف مش بيوقف أحد`, problem: "ctr-low" });
-  else if (totals.ctr < 1.5) alerts.push({ type: "warn", msg: `CTR (${fmtPct(totals.ctr)}) أقل من المعدل الصحي — حسّن الـ Creative`, problem: "ctr-low" });
+  if (totals.ctr < 1)
+    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الكريتف مش بيوقف أحد`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend } });
+  else if (totals.ctr < 1.5)
+    alerts.push({ type: "warn", msg: `CTR (${fmtPct(totals.ctr)}) أقل من المعدل الصحي — حسّن الـ Creative`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend } });
 
-  if (totals.lpv > 0 && totals.lpvRate < 60) alerts.push({ type: "danger", msg: `${fmt(totals.lpvRate, 0)}% فقط من الكليكات وصلت الصفحة — الصفحة بطيئة أو متكسرة`, problem: "slow-landing" });
-  else if (totals.lpv > 0 && totals.lpvRate < 75) alerts.push({ type: "warn", msg: `${fmt(totals.lpvRate, 0)}% من الكليكات وصلت الصفحة — سرعة التحميل تحتاج مراجعة`, problem: "slow-landing" });
+  if (totals.lpv > 0 && totals.lpvRate < 60)
+    alerts.push({ type: "danger", msg: `${fmt(totals.lpvRate, 0)}% فقط من الكليكات وصلت الصفحة — الصفحة بطيئة أو متكسرة`, problem: "slow-landing", metrics: { lpvRate: totals.lpvRate, spend: totals.spend } });
+  else if (totals.lpv > 0 && totals.lpvRate < 75)
+    alerts.push({ type: "warn", msg: `${fmt(totals.lpvRate, 0)}% من الكليكات وصلت الصفحة — سرعة التحميل تحتاج مراجعة`, problem: "slow-landing", metrics: { lpvRate: totals.lpvRate, spend: totals.spend } });
 
-  if (totals.lpv > 0 && totals.crLpv < 2) alerts.push({ type: "danger", msg: `CR (${fmtPct(totals.crLpv)}) منخفض جداً — مشكلة في الفورم أو التسعير`, problem: "low-cr" });
-  else if (totals.lpv > 0 && totals.crLpv < 5) alerts.push({ type: "warn", msg: `CR (${fmtPct(totals.crLpv)}) أقل من 5% — راجعي صفحة الـ Checkout`, problem: "low-cr" });
+  if (totals.lpv > 0 && totals.crLpv < 2)
+    alerts.push({ type: "danger", msg: `CR (${fmtPct(totals.crLpv)}) منخفض جداً — مشكلة في الفورم أو التسعير`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  else if (totals.lpv > 0 && totals.crLpv < 5)
+    alerts.push({ type: "warn", msg: `CR (${fmtPct(totals.crLpv)}) أقل من 5% — راجعي صفحة الـ Checkout`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
 
-  if (totals.hookRate > 0 && totals.hookRate < 20) alerts.push({ type: "warn", msg: `Hook Rate (${fmt(totals.hookRate, 0)}%) ضعيف — أول 3 ثواني في الفيديو مش بتمسك الناس`, problem: "low-hook" });
+  if (totals.hookRate > 0 && totals.hookRate < 20)
+    alerts.push({ type: "warn", msg: `Hook Rate (${fmt(totals.hookRate, 0)}%) ضعيف — أول 3 ثواني في الفيديو مش بتمسك الناس`, problem: "low-hook", metrics: { hookRate: totals.hookRate, spend: totals.spend } });
 
   // Winner scaling alert
   const winners = byAd.filter((a) => a.purchases > 0 && a.cpa <= CPA_IMPROVE);
@@ -241,7 +279,7 @@ function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEn
             <Bell className="h-4 w-4 shrink-0 mt-0.5" />
           )}
           <span className="flex-1">{a.msg}</span>
-          {a.problem && <HowToBtn problem={a.problem} />}
+          {a.problem && <HowToBtn problem={a.problem} metrics={a.metrics} />}
         </div>
       ))}
     </div>

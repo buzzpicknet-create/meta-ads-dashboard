@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
   ChevronLeft,
   CircleDollarSign,
@@ -10,13 +11,48 @@ import {
   MousePointerClick,
   RefreshCw,
   ShoppingCart,
+  Sliders,
   Target,
   TrendingDown,
+  TrendingUp,
   Wrench,
   Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "wouter";
+
+// ──────────────────────────────────────────────────────────────
+// Metric snapshot — parsed from URL params
+// ──────────────────────────────────────────────────────────────
+export interface MetricSnapshot {
+  name?: string;
+  cpa?: number;
+  ctr?: number;
+  cpc?: number;
+  cr?: number;
+  freq?: number;
+  spend?: number;
+  purchases?: number;
+  lpvRate?: number;
+  hookRate?: number;
+}
+
+function parseMetrics(): MetricSnapshot {
+  const p = new URLSearchParams(window.location.search);
+  const n = (k: string) => (p.get(k) !== null && p.get(k) !== "" ? Number(p.get(k)) : undefined);
+  return {
+    name: p.get("name") ?? undefined,
+    cpa: n("cpa"),
+    ctr: n("ctr"),
+    cpc: n("cpc"),
+    cr: n("cr"),
+    freq: n("freq"),
+    spend: n("spend"),
+    purchases: n("purchases"),
+    lpvRate: n("lpvRate"),
+    hookRate: n("hookRate"),
+  };
+}
 
 // ──────────────────────────────────────────────────────────────
 // Problem data
@@ -233,48 +269,377 @@ export const PROBLEMS: Problem[] = [
 // ──────────────────────────────────────────────────────────────
 
 const COLOR: Record<string, { badge: string; card: string; step: string; sidebar: string; tipBg: string }> = {
-  rose: {
-    badge:   "bg-rose-500/15 text-rose-700 dark:text-rose-400 ring-1 ring-rose-500/30",
-    card:    "border-rose-500/20",
-    step:    "bg-rose-500/10 text-rose-700 dark:text-rose-400",
-    sidebar: "bg-rose-500/10 text-rose-700 dark:text-rose-400",
-    tipBg:   "bg-rose-500/6 border-rose-500/20",
-  },
-  amber: {
-    badge:   "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/30",
-    card:    "border-amber-500/20",
-    step:    "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-    sidebar: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-    tipBg:   "bg-amber-500/6 border-amber-500/20",
-  },
-  orange: {
-    badge:   "bg-orange-500/15 text-orange-700 dark:text-orange-400 ring-1 ring-orange-500/30",
-    card:    "border-orange-500/20",
-    step:    "bg-orange-500/10 text-orange-700 dark:text-orange-400",
-    sidebar: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
-    tipBg:   "bg-orange-500/6 border-orange-500/20",
-  },
-  purple: {
-    badge:   "bg-purple-500/15 text-purple-700 dark:text-purple-400 ring-1 ring-purple-500/30",
-    card:    "border-purple-500/20",
-    step:    "bg-purple-500/10 text-purple-700 dark:text-purple-400",
-    sidebar: "bg-purple-500/10 text-purple-700 dark:text-purple-400",
-    tipBg:   "bg-purple-500/6 border-purple-500/20",
-  },
-  sky: {
-    badge:   "bg-sky-500/15 text-sky-700 dark:text-sky-400 ring-1 ring-sky-500/30",
-    card:    "border-sky-500/20",
-    step:    "bg-sky-500/10 text-sky-700 dark:text-sky-400",
-    sidebar: "bg-sky-500/10 text-sky-700 dark:text-sky-400",
-    tipBg:   "bg-sky-500/6 border-sky-500/20",
-  },
+  rose:   { badge: "bg-rose-500/15 text-rose-700 dark:text-rose-400 ring-1 ring-rose-500/30", card: "border-rose-500/20", step: "bg-rose-500/10 text-rose-700 dark:text-rose-400", sidebar: "bg-rose-500/10 text-rose-700 dark:text-rose-400", tipBg: "bg-rose-500/6 border-rose-500/20" },
+  amber:  { badge: "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/30", card: "border-amber-500/20", step: "bg-amber-500/10 text-amber-700 dark:text-amber-400", sidebar: "bg-amber-500/10 text-amber-700 dark:text-amber-400", tipBg: "bg-amber-500/6 border-amber-500/20" },
+  orange: { badge: "bg-orange-500/15 text-orange-700 dark:text-orange-400 ring-1 ring-orange-500/30", card: "border-orange-500/20", step: "bg-orange-500/10 text-orange-700 dark:text-orange-400", sidebar: "bg-orange-500/10 text-orange-700 dark:text-orange-400", tipBg: "bg-orange-500/6 border-orange-500/20" },
+  purple: { badge: "bg-purple-500/15 text-purple-700 dark:text-purple-400 ring-1 ring-purple-500/30", card: "border-purple-500/20", step: "bg-purple-500/10 text-purple-700 dark:text-purple-400", sidebar: "bg-purple-500/10 text-purple-700 dark:text-purple-400", tipBg: "bg-purple-500/6 border-purple-500/20" },
+  sky:    { badge: "bg-sky-500/15 text-sky-700 dark:text-sky-400 ring-1 ring-sky-500/30", card: "border-sky-500/20", step: "bg-sky-500/10 text-sky-700 dark:text-sky-400", sidebar: "bg-sky-500/10 text-sky-700 dark:text-sky-400", tipBg: "bg-sky-500/6 border-sky-500/20" },
 };
 
 // ──────────────────────────────────────────────────────────────
-// Problem detail card
+// Helpers
 // ──────────────────────────────────────────────────────────────
 
-function ProblemCard({ p, highlight }: { p: Problem; highlight: boolean }) {
+function fmt(n: number, d = 0) {
+  return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+// ──────────────────────────────────────────────────────────────
+// What-If Calculator
+// ──────────────────────────────────────────────────────────────
+
+function SliderRow({
+  label,
+  value,
+  onChange,
+  max,
+  color,
+  unit = "%",
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  max: number;
+  color: string;
+  unit?: string;
+}) {
+  const trackColor: Record<string, string> = {
+    emerald: "#10b981",
+    sky: "#0ea5e9",
+    violet: "#8b5cf6",
+  };
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-bold tabular-nums" style={{ color: trackColor[color] }}>
+          {value > 0 ? "+" : ""}{value}{unit}
+        </span>
+      </div>
+      <div className="relative">
+        <input
+          type="range"
+          min={0}
+          max={max}
+          step={5}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-muted"
+          style={{ accentColor: trackColor[color] }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CalcResultCard({
+  label,
+  current,
+  projected,
+  unit = "",
+  lowerIsBetter = false,
+}: {
+  label: string;
+  current: number | null;
+  projected: number;
+  unit?: string;
+  lowerIsBetter?: boolean;
+}) {
+  const isImproved = current !== null
+    ? lowerIsBetter ? projected < current : projected > current
+    : false;
+  const changePct = current !== null && current !== 0
+    ? ((projected - current) / current) * 100
+    : null;
+
+  return (
+    <div className="rounded-xl bg-muted/50 ring-1 ring-border/60 p-3 space-y-1.5">
+      <div className="text-[10px] text-muted-foreground font-medium">{label}</div>
+      {current !== null && (
+        <div className="text-[11px] text-muted-foreground line-through">
+          {fmt(current, current < 10 ? 1 : 0)}{unit}
+        </div>
+      )}
+      <div className={`text-lg font-bold ${isImproved ? "text-emerald-600 dark:text-emerald-400" : current !== null ? "text-rose-600 dark:text-rose-400" : "text-foreground"}`}>
+        {fmt(projected, projected < 10 ? 1 : 0)}{unit}
+      </div>
+      {changePct !== null && (
+        <div className={`flex items-center gap-1 text-[10px] font-bold ${isImproved ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+          {isImproved ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+          {isImproved ? "" : ""}{Math.abs(changePct).toFixed(0)}% {lowerIsBetter ? (isImproved ? "انخفاض" : "ارتفاع") : (isImproved ? "زيادة" : "انخفاض")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WhatIfCalculator({ metrics }: { metrics: MetricSnapshot }) {
+  const [aov, setAov] = useState(metrics.cpa ? String(Math.round(metrics.cpa * 3.5)) : "");
+  const [dailySpend, setDailySpend] = useState(metrics.spend ? String(Math.round(metrics.spend)) : "");
+  const [ctrImprove, setCtrImprove] = useState(0);
+  const [crImprove, setCrImprove] = useState(0);
+  const [cpcReduce, setCpcReduce] = useState(0);
+
+  const currentCpa = metrics.cpa ?? 0;
+  const aovNum = parseFloat(aov) || 0;
+  const spendNum = (parseFloat(dailySpend) || 0) * 30;
+
+  const newCpa =
+    currentCpa > 0
+      ? (currentCpa * (1 - cpcReduce / 100)) / ((1 + ctrImprove / 100) * (1 + crImprove / 100))
+      : 0;
+
+  const currentRoas = aovNum > 0 && currentCpa > 0 ? aovNum / currentCpa : null;
+  const newRoas = aovNum > 0 && newCpa > 0 ? aovNum / newCpa : 0;
+
+  const currentMonthlyPurchases = spendNum > 0 && currentCpa > 0 ? spendNum / currentCpa : null;
+  const newMonthlyPurchases = spendNum > 0 && newCpa > 0 ? spendNum / newCpa : 0;
+  const additionalRevenue =
+    currentMonthlyPurchases !== null && aovNum > 0
+      ? (newMonthlyPurchases - currentMonthlyPurchases) * aovNum
+      : 0;
+
+  const hasAnyChange = ctrImprove > 0 || crImprove > 0 || cpcReduce > 0;
+
+  return (
+    <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sliders className="h-5 w-5 text-primary" />
+          حاسبة التوقعات — ماذا لو حسّنت الأداء؟
+        </CardTitle>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          حرّك الأشرطة لترى تأثير التحسينات على CPA وROAS والإيراد
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Inputs row */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-muted-foreground mb-1">
+              CPA الحالي (EGP)
+            </label>
+            <input
+              type="number"
+              placeholder={currentCpa > 0 ? fmt(currentCpa, 0) : "أدخل CPA"}
+              defaultValue={currentCpa > 0 ? undefined : undefined}
+              value={currentCpa > 0 ? fmt(currentCpa, 0) : undefined}
+              readOnly={currentCpa > 0}
+              className={`w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm font-mono text-left ${currentCpa > 0 ? "opacity-60 cursor-not-allowed" : ""}`}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-muted-foreground mb-1">
+              متوسط قيمة الطلب AOV (EGP)
+            </label>
+            <input
+              type="number"
+              placeholder="مثال: 300"
+              value={aov}
+              onChange={(e) => setAov(e.target.value)}
+              className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-[11px] font-medium text-muted-foreground mb-1">
+              الإنفاق اليومي (EGP/يوم) — لحساب الإيراد الشهري
+            </label>
+            <input
+              type="number"
+              placeholder="مثال: 500"
+              value={dailySpend}
+              onChange={(e) => setDailySpend(e.target.value)}
+              className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm font-mono"
+            />
+          </div>
+        </div>
+
+        {/* Sliders */}
+        <div className="rounded-xl bg-muted/40 p-4 space-y-4">
+          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">نسب التحسين المتوقعة</p>
+          <SliderRow label="تحسين CTR (نسبة النقر)" value={ctrImprove} onChange={setCtrImprove} max={100} color="emerald" />
+          <SliderRow label="تحسين معدل التحويل CR" value={crImprove} onChange={setCrImprove} max={100} color="sky" />
+          <SliderRow label="تقليل تكلفة النقرة CPC" value={cpcReduce} onChange={setCpcReduce} max={50} color="violet" />
+        </div>
+
+        {/* Results */}
+        {currentCpa > 0 && (
+          <div>
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-3">
+              {hasAnyChange ? "النتائج المتوقعة" : "حرّك الأشرطة لترى التوقعات"}
+            </p>
+            {hasAnyChange ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                <CalcResultCard label="CPA المتوقع" current={currentCpa} projected={newCpa} unit=" EGP" lowerIsBetter />
+                {aovNum > 0 && currentRoas !== null && (
+                  <CalcResultCard label="ROAS المتوقع" current={currentRoas} projected={newRoas} unit="×" />
+                )}
+                {spendNum > 0 && currentMonthlyPurchases !== null && (
+                  <CalcResultCard label="أوردرات شهرية" current={currentMonthlyPurchases} projected={newMonthlyPurchases} unit=" طلب" />
+                )}
+                {spendNum > 0 && aovNum > 0 && currentMonthlyPurchases !== null && (
+                  <div className="rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/25 p-3 space-y-1.5">
+                    <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">إيراد شهري إضافي</div>
+                    <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                      +{fmt(Math.max(0, additionalRevenue), 0)} EGP
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">من نفس الميزانية</div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-xl bg-muted/30 ring-1 ring-border/40 p-4 text-center text-xs text-muted-foreground">
+                حرّك أي شريط من الأشرطة أعلاه لترى التأثير المتوقع على أرقامك
+              </div>
+            )}
+          </div>
+        )}
+
+        {currentCpa <= 0 && (
+          <div className="rounded-xl bg-muted/30 ring-1 ring-border/40 p-4 text-center text-xs text-muted-foreground">
+            الحاسبة تعمل بشكل أفضل عند فتحها من زر "كيف أحلها؟" بجانب أي تنبيه لديك — حيث تُملأ الأرقام تلقائياً
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Dynamic status panel — shown at top of highlighted problem card
+// ──────────────────────────────────────────────────────────────
+
+interface StatusRow {
+  label: string;
+  value: number | undefined;
+  benchmark: number;
+  unit: string;
+  lowerIsBetter: boolean;
+  benchmarkLabel?: string;
+}
+
+function getStatusRows(key: ProblemKey, m: MetricSnapshot): StatusRow[] {
+  switch (key) {
+    case "cpa-high":
+      return [
+        { label: "CPA الحالي", value: m.cpa, benchmark: 40, unit: " EGP", lowerIsBetter: true, benchmarkLabel: "الهدف ≤ 40 EGP" },
+        ...(m.cpc !== undefined ? [{ label: "CPC", value: m.cpc, benchmark: 5, unit: " EGP", lowerIsBetter: true, benchmarkLabel: "المقبول ≤ 5 EGP" }] : []),
+        ...(m.ctr !== undefined ? [{ label: "CTR", value: m.ctr, benchmark: 1.5, unit: "%", lowerIsBetter: false, benchmarkLabel: "الهدف ≥ 1.5%" }] : []),
+      ];
+    case "ctr-low":
+      return [
+        { label: "CTR الحالي", value: m.ctr, benchmark: 1.5, unit: "%", lowerIsBetter: false, benchmarkLabel: "الهدف ≥ 1.5%" },
+        ...(m.cpc !== undefined ? [{ label: "CPC", value: m.cpc, benchmark: 5, unit: " EGP", lowerIsBetter: true, benchmarkLabel: "المقبول ≤ 5 EGP" }] : []),
+      ];
+    case "cpc-high":
+      return [
+        { label: "CPC الحالي", value: m.cpc, benchmark: 5, unit: " EGP", lowerIsBetter: true, benchmarkLabel: "المقبول ≤ 5 EGP" },
+        ...(m.ctr !== undefined ? [{ label: "CTR", value: m.ctr, benchmark: 1.5, unit: "%", lowerIsBetter: false, benchmarkLabel: "الهدف ≥ 1.5%" }] : []),
+      ];
+    case "high-frequency":
+      return [
+        { label: "التكرار الحالي", value: m.freq, benchmark: 2.5, unit: "×", lowerIsBetter: true, benchmarkLabel: "المقبول ≤ 2.5×" },
+      ];
+    case "no-conversions":
+      return [
+        { label: "الإنفاق المحترق", value: m.spend, benchmark: 0, unit: " EGP", lowerIsBetter: false, benchmarkLabel: "أوردرات: " + (m.purchases ?? 0) },
+      ];
+    case "low-cr":
+      return [
+        { label: "معدل التحويل CR", value: m.cr, benchmark: 2, unit: "%", lowerIsBetter: false, benchmarkLabel: "الهدف ≥ 2%" },
+        ...(m.lpvRate !== undefined ? [{ label: "وصول الصفحة", value: m.lpvRate, benchmark: 75, unit: "%", lowerIsBetter: false, benchmarkLabel: "الهدف ≥ 75%" }] : []),
+      ];
+    case "slow-landing":
+      return [
+        { label: "معدل وصول الصفحة", value: m.lpvRate, benchmark: 75, unit: "%", lowerIsBetter: false, benchmarkLabel: "الهدف ≥ 75%" },
+      ];
+    case "low-hook":
+      return [
+        { label: "Hook Rate", value: m.hookRate, benchmark: 25, unit: "%", lowerIsBetter: false, benchmarkLabel: "الهدف ≥ 25%" },
+      ];
+  }
+}
+
+function DynamicStatusPanel({ problemKey, metrics }: { problemKey: ProblemKey; metrics: MetricSnapshot }) {
+  const rows = getStatusRows(problemKey, metrics).filter((r) => r.value !== undefined);
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="rounded-xl bg-background/80 ring-1 ring-border/60 p-4 space-y-3 mt-4">
+      <div className="flex items-center gap-2">
+        <BarChart3 className="h-3.5 w-3.5 text-primary" />
+        <span className="text-[11px] font-bold uppercase tracking-wide text-primary">
+          أرقام حملتك الآن
+          {metrics.name ? ` — ${metrics.name.slice(0, 50)}` : ""}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
+        {rows.map((r) => {
+          if (r.value === undefined) return null;
+          const isGood = r.lowerIsBetter ? r.value <= r.benchmark : r.value >= r.benchmark;
+          const deviation = r.benchmark !== 0 ? ((r.value - r.benchmark) / r.benchmark) * 100 : 0;
+          const deviationAbs = Math.abs(deviation);
+          const deviationLabel =
+            isGood
+              ? `✓ ضمن الحد المقبول`
+              : r.lowerIsBetter
+              ? `أعلى بـ ${deviationAbs.toFixed(0)}% من الحد`
+              : `أقل بـ ${deviationAbs.toFixed(0)}% من الهدف`;
+
+          return (
+            <div
+              key={r.label}
+              className={`rounded-lg p-3 ring-1 ${
+                isGood
+                  ? "bg-emerald-500/8 ring-emerald-500/20"
+                  : deviationAbs > 50
+                  ? "bg-rose-500/10 ring-rose-500/25"
+                  : "bg-amber-500/10 ring-amber-500/25"
+              }`}
+            >
+              <div className="text-[10px] text-muted-foreground mb-1">{r.label}</div>
+              <div
+                className={`text-xl font-bold font-mono ${
+                  isGood
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : deviationAbs > 50
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-amber-600 dark:text-amber-400"
+                }`}
+              >
+                {r.value < 100 ? r.value.toFixed(r.value < 10 ? 2 : 1) : fmt(r.value, 0)}{r.unit}
+              </div>
+              <div className={`text-[9px] font-medium mt-1 ${isGood ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                {deviationLabel}
+              </div>
+              {r.benchmarkLabel && (
+                <div className="text-[9px] text-muted-foreground/70 mt-0.5">{r.benchmarkLabel}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Spend/Purchases summary if available */}
+      {(metrics.spend !== undefined || metrics.purchases !== undefined) && problemKey !== "no-conversions" && (
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground pt-1 border-t border-border/40">
+          {metrics.spend !== undefined && (
+            <span>الإنفاق: <span className="font-bold text-foreground">{fmt(metrics.spend, 0)} EGP</span></span>
+          )}
+          {metrics.purchases !== undefined && (
+            <span>الأوردرات: <span className="font-bold text-foreground">{metrics.purchases}</span></span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Problem card
+// ──────────────────────────────────────────────────────────────
+
+function ProblemCard({ p, highlight, metrics }: { p: Problem; highlight: boolean; metrics: MetricSnapshot }) {
   const ref = useRef<HTMLDivElement>(null);
   const c = COLOR[p.color];
   const Icon = p.icon;
@@ -284,6 +649,16 @@ function ProblemCard({ p, highlight }: { p: Problem; highlight: boolean }) {
       ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [highlight]);
+
+  const hasDynamicData =
+    highlight &&
+    (metrics.cpa !== undefined ||
+      metrics.ctr !== undefined ||
+      metrics.cpc !== undefined ||
+      metrics.cr !== undefined ||
+      metrics.freq !== undefined ||
+      metrics.lpvRate !== undefined ||
+      metrics.hookRate !== undefined);
 
   return (
     <div
@@ -302,7 +677,7 @@ function ProblemCard({ p, highlight }: { p: Problem; highlight: boolean }) {
               <h2 className="text-lg font-bold">{p.title}</h2>
               {highlight && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary ring-1 ring-primary/30">
-                  أهم مشكلة لديك الآن
+                  المشكلة المحددة
                 </span>
               )}
             </div>
@@ -315,6 +690,9 @@ function ProblemCard({ p, highlight }: { p: Problem; highlight: boolean }) {
           <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
           <span>{p.problem}</span>
         </div>
+
+        {/* Dynamic status — only when metrics are passed and card is highlighted */}
+        {hasDynamicData && <DynamicStatusPanel problemKey={p.key} metrics={metrics} />}
       </div>
 
       <div className="px-5 pb-5 space-y-4">
@@ -376,8 +754,8 @@ function ProblemCard({ p, highlight }: { p: Problem; highlight: boolean }) {
 export default function HowTo() {
   const search = new URLSearchParams(window.location.search);
   const activeProblem = (search.get("problem") ?? "") as ProblemKey | "";
+  const metrics = parseMetrics();
 
-  // Sort: highlighted problem first
   const ordered = activeProblem
     ? [
         ...PROBLEMS.filter((p) => p.key === activeProblem),
@@ -401,10 +779,12 @@ export default function HowTo() {
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <CheckCircle2 className="h-6 w-6 text-primary" />
-                دليل الحلول
+                دليل التشخيص والحلول
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                المشكلة → السبب → الحل — كل ما تحتاجه لتحسين أداء إعلاناتك
+                {metrics.name
+                  ? `تحليل مخصص لـ: ${metrics.name.slice(0, 60)}`
+                  : "المشكلة → السبب → الحل + حاسبة التوقعات"}
               </p>
             </div>
             {activeProblem && (
@@ -438,6 +818,9 @@ export default function HowTo() {
           })}
         </div>
 
+        {/* What-if Calculator */}
+        <WhatIfCalculator metrics={metrics} />
+
         {/* Problem cards */}
         <div className="space-y-6">
           {ordered.map((p) => (
@@ -445,6 +828,7 @@ export default function HowTo() {
               key={p.key}
               p={p}
               highlight={p.key === activeProblem}
+              metrics={metrics}
             />
           ))}
         </div>

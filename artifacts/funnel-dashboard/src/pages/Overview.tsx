@@ -80,11 +80,44 @@ import {
 // ──────────────────────────────────────────────────────────────
 // How-To Link button — used throughout this page
 // ──────────────────────────────────────────────────────────────
-function HowToBtn({ problem, size = "sm" }: { problem: string; size?: "sm" | "xs" }) {
-  const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+interface OvHowToMetrics {
+  name?: string;
+  cpa?: number;
+  ctr?: number;
+  cpc?: number;
+  cr?: number;
+  freq?: number;
+  spend?: number;
+  purchases?: number;
+  lpvRate?: number;
+  hookRate?: number;
+}
+
+function buildHowToHref(problem: string, metrics?: OvHowToMetrics): string {
+  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  const p = new URLSearchParams({ problem });
+  if (metrics) {
+    const add = (k: string, v: number | string | undefined) => {
+      if (v !== undefined && v !== "") p.set(k, String(v));
+    };
+    add("name", metrics.name);
+    if (metrics.cpa !== undefined) add("cpa", Math.round(metrics.cpa * 100) / 100);
+    if (metrics.ctr !== undefined) add("ctr", Math.round(metrics.ctr * 100) / 100);
+    if (metrics.cpc !== undefined) add("cpc", Math.round(metrics.cpc * 100) / 100);
+    if (metrics.cr !== undefined) add("cr", Math.round(metrics.cr * 100) / 100);
+    if (metrics.freq !== undefined) add("freq", Math.round(metrics.freq * 100) / 100);
+    if (metrics.spend !== undefined) add("spend", Math.round(metrics.spend));
+    if (metrics.purchases !== undefined) add("purchases", metrics.purchases);
+    if (metrics.lpvRate !== undefined) add("lpvRate", Math.round(metrics.lpvRate * 10) / 10);
+    if (metrics.hookRate !== undefined) add("hookRate", Math.round(metrics.hookRate * 10) / 10);
+  }
+  return `${base}/how-to?${p.toString()}`;
+}
+
+function HowToBtn({ problem, metrics, size = "sm" }: { problem: string; metrics?: OvHowToMetrics; size?: "sm" | "xs" }) {
   return (
     <a
-      href={`${base}/how-to?problem=${problem}`}
+      href={buildHowToHref(problem, metrics)}
       className={`shrink-0 inline-flex items-center gap-1 font-bold rounded-lg bg-background/60 hover:bg-background border border-border/60 text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap ${
         size === "xs" ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-2 py-1"
       }`}
@@ -272,7 +305,11 @@ function CpaWarningCard({ w }: { w: CpaWarning }) {
               <AlertTriangle className="h-3 w-3" /> راقب CPA — {w.purchases === 0 ? "بدون أوردر" : `${fmt(w.cpa, 0)} EGP`}
             </span>
             <span className="text-[10px] text-muted-foreground">{w.purchases} أوردر · {fmt(w.spend, 0)} EGP</span>
-            <HowToBtn problem={w.purchases === 0 ? "no-conversions" : "cpa-high"} size="xs" />
+            <HowToBtn
+              problem={w.purchases === 0 ? "no-conversions" : "cpa-high"}
+              metrics={{ name: w.name, cpa: w.purchases > 0 ? w.cpa : undefined, spend: w.spend, purchases: w.purchases }}
+              size="xs"
+            />
           </div>
           <div className="text-sm font-semibold mt-1.5 truncate">{w.name}</div>
         </div>
@@ -547,7 +584,17 @@ function OvMetricAlertCard({ trend, campaigns }: { trend: MetricTrend; campaigns
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badgeCls}`}>{trend.label}</span>
           <span className="text-sm font-bold leading-tight">{content.alert}</span>
-          {isWorse && problemKey && <HowToBtn problem={problemKey} size="xs" />}
+          {isWorse && problemKey && (
+            <HowToBtn
+              problem={problemKey}
+              size="xs"
+              metrics={{
+                cpa: trend.metric === "cpa" ? trend.current : undefined,
+                ctr: trend.metric === "ctr" ? trend.current : undefined,
+                cpc: trend.metric === "cpc" ? trend.current : undefined,
+              }}
+            />
+          )}
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
           <span>الحالي: <span className="num font-semibold text-foreground">{curFmt}</span></span>
@@ -596,7 +643,7 @@ function OvFrequencyCard({ alert }: { alert: FrequencyAlert }) {
         {alert.trend === "rising" && alert.consecutiveRising >= 2 && (
           <span className="text-[10px] font-bold">↑ {alert.consecutiveRising} أيام</span>
         )}
-        <HowToBtn problem="high-frequency" size="xs" />
+        <HowToBtn problem="high-frequency" size="xs" metrics={{ freq: alert.frequency }} />
       </div>
       <div className="text-xs font-medium">{alert.headline}</div>
       <div className="text-[11px] text-muted-foreground">{alert.action}</div>
@@ -637,7 +684,7 @@ function FrequencyDangerPanel({ campaigns }: { campaigns: CampaignSummaryFull[] 
         <CardTitle className="flex items-center gap-2 text-sm text-rose-700 dark:text-rose-400">
           <Bell className="h-4 w-4 shrink-0" />
           تنبيه تشبع الجمهور — {danger.length} {danger.length === 1 ? "حملة" : "حملات"} دخلت نطاق الخطر (Frequency ≥ 1.5x)
-          <HowToBtn problem="high-frequency" size="xs" />
+          <HowToBtn problem="high-frequency" size="xs" metrics={{ freq: Math.max(...danger.map((c) => c.frequency ?? 0)) }} />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -798,7 +845,7 @@ function OvDailyInsightCard({ daily, totals, campaigns }: { daily: DailyPoint[];
 // ──────────────────────────────────────────────────────────────
 function AccountAlerts({ overview }: { overview: AccountOverview }) {
   const { totals, campaigns } = overview;
-  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string }[] = [];
+  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string; metrics?: OvHowToMetrics }[] = [];
 
   const activeCampaigns = campaigns.filter((c) => c.spend > 0);
   const cpas = activeCampaigns.filter((c) => c.purchases > 0).map((c) => c.cpa);
@@ -806,11 +853,18 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
 
   const drainers = activeCampaigns.filter((c) => c.spend >= 100 && (c.purchases === 0 || (minCpa > 0 && c.cpa > minCpa * 3)));
   drainers.forEach((c) => {
-    alerts.push({ type: "danger", msg: `"${c.name.slice(0, 45)}" يستهلك ${fmt(c.spend, 0)} EGP بدون نتائج كافية`, problem: "no-conversions" });
+    alerts.push({
+      type: "danger",
+      msg: `"${c.name.slice(0, 45)}" يستهلك ${fmt(c.spend, 0)} EGP بدون نتائج كافية`,
+      problem: "no-conversions",
+      metrics: { name: c.name, spend: c.spend, purchases: c.purchases, cpa: c.purchases > 0 ? c.cpa : undefined },
+    });
   });
 
-  if (totals.ctr < 1) alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) على مستوى الحساب`, problem: "ctr-low" });
-  if (totals.crLpv < 2 && totals.lpv > 0) alerts.push({ type: "warn", msg: `CR ضعيف (${fmtPct(totals.crLpv)}) — صفحة المنتج تحتاج مراجعة`, problem: "low-cr" });
+  if (totals.ctr < 1)
+    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) على مستوى الحساب`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend } });
+  if (totals.crLpv < 2 && totals.lpv > 0)
+    alerts.push({ type: "warn", msg: `CR ضعيف (${fmtPct(totals.crLpv)}) — صفحة المنتج تحتاج مراجعة`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
 
   const winners = activeCampaigns.filter((c) => minCpa > 0 && c.cpa <= minCpa * 1.15 && c.purchases > 0);
   if (winners.length > 0) {
@@ -819,7 +873,12 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
 
   // CPA increase compared to prev
   if (overview.prev_totals.cpa > 0 && totals.cpa > overview.prev_totals.cpa * 1.2) {
-    alerts.push({ type: "warn", msg: `CPA زاد ${fmt(((totals.cpa - overview.prev_totals.cpa) / overview.prev_totals.cpa) * 100, 0)}% مقارنة بالفترة السابقة`, problem: "cpa-high" });
+    alerts.push({
+      type: "warn",
+      msg: `CPA زاد ${fmt(((totals.cpa - overview.prev_totals.cpa) / overview.prev_totals.cpa) * 100, 0)}% مقارنة بالفترة السابقة`,
+      problem: "cpa-high",
+      metrics: { cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases, ctr: totals.ctr, cpc: totals.cpc },
+    });
   }
 
   if (alerts.length === 0) return null;
@@ -835,7 +894,7 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
            a.type === "warn" ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> :
            <Bell className="h-4 w-4 shrink-0 mt-0.5" />}
           <span className="flex-1">{a.msg}</span>
-          {a.problem && <HowToBtn problem={a.problem} />}
+          {a.problem && <HowToBtn problem={a.problem} metrics={a.metrics} />}
         </div>
       ))}
     </div>
