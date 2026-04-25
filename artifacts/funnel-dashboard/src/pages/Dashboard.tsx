@@ -175,8 +175,21 @@ function KpiCard({
 // ──────────────────────────────────────────────────────────────
 // Alert System
 // ──────────────────────────────────────────────────────────────
+function HowToBtn({ problem }: { problem: string }) {
+  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  return (
+    <a
+      href={`${base}/how-to?problem=${problem}`}
+      className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-background/60 hover:bg-background border border-border/60 text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+      onClick={(e) => e.stopPropagation()}
+    >
+      كيف أحلها؟ ↗
+    </a>
+  );
+}
+
 function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEntry[] }) {
-  const alerts: { type: "danger" | "warn" | "info"; msg: string }[] = [];
+  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string }[] = [];
 
   // Drain ads
   const drainAds = byAd.filter((a) => a.spend >= 100 && (a.purchases === 0 || a.cpa > CPA_STOP));
@@ -184,19 +197,20 @@ function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEn
     alerts.push({
       type: "danger",
       msg: `"${a.label.slice(0, 40)}" يستهلك ${fmt(a.spend, 0)} EGP بدون نتائج كافية — أوقفه فوراً`,
+      problem: "no-conversions",
     });
   });
 
-  if (totals.ctr < 1) alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الكريتف مش بيوقف أحد` });
-  else if (totals.ctr < 1.5) alerts.push({ type: "warn", msg: `CTR (${fmtPct(totals.ctr)}) أقل من المعدل الصحي — حسّن الـ Creative` });
+  if (totals.ctr < 1) alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الكريتف مش بيوقف أحد`, problem: "ctr-low" });
+  else if (totals.ctr < 1.5) alerts.push({ type: "warn", msg: `CTR (${fmtPct(totals.ctr)}) أقل من المعدل الصحي — حسّن الـ Creative`, problem: "ctr-low" });
 
-  if (totals.lpv > 0 && totals.lpvRate < 60) alerts.push({ type: "danger", msg: `${fmt(totals.lpvRate, 0)}% فقط من الكليكات وصلت الصفحة — الصفحة بطيئة أو متكسرة` });
-  else if (totals.lpv > 0 && totals.lpvRate < 75) alerts.push({ type: "warn", msg: `${fmt(totals.lpvRate, 0)}% من الكليكات وصلت الصفحة — سرعة التحميل تحتاج مراجعة` });
+  if (totals.lpv > 0 && totals.lpvRate < 60) alerts.push({ type: "danger", msg: `${fmt(totals.lpvRate, 0)}% فقط من الكليكات وصلت الصفحة — الصفحة بطيئة أو متكسرة`, problem: "slow-landing" });
+  else if (totals.lpv > 0 && totals.lpvRate < 75) alerts.push({ type: "warn", msg: `${fmt(totals.lpvRate, 0)}% من الكليكات وصلت الصفحة — سرعة التحميل تحتاج مراجعة`, problem: "slow-landing" });
 
-  if (totals.lpv > 0 && totals.crLpv < 2) alerts.push({ type: "danger", msg: `CR (${fmtPct(totals.crLpv)}) منخفض جداً — مشكلة في الفورم أو التسعير` });
-  else if (totals.lpv > 0 && totals.crLpv < 5) alerts.push({ type: "warn", msg: `CR (${fmtPct(totals.crLpv)}) أقل من 5% — راجعي صفحة الـ Checkout` });
+  if (totals.lpv > 0 && totals.crLpv < 2) alerts.push({ type: "danger", msg: `CR (${fmtPct(totals.crLpv)}) منخفض جداً — مشكلة في الفورم أو التسعير`, problem: "low-cr" });
+  else if (totals.lpv > 0 && totals.crLpv < 5) alerts.push({ type: "warn", msg: `CR (${fmtPct(totals.crLpv)}) أقل من 5% — راجعي صفحة الـ Checkout`, problem: "low-cr" });
 
-  if (totals.hookRate > 0 && totals.hookRate < 20) alerts.push({ type: "warn", msg: `Hook Rate (${fmt(totals.hookRate, 0)}%) ضعيف — أول 3 ثواني في الفيديو مش بتمسك الناس` });
+  if (totals.hookRate > 0 && totals.hookRate < 20) alerts.push({ type: "warn", msg: `Hook Rate (${fmt(totals.hookRate, 0)}%) ضعيف — أول 3 ثواني في الفيديو مش بتمسك الناس`, problem: "low-hook" });
 
   // Winner scaling alert
   const winners = byAd.filter((a) => a.purchases > 0 && a.cpa <= CPA_IMPROVE);
@@ -226,7 +240,8 @@ function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEn
           ) : (
             <Bell className="h-4 w-4 shrink-0 mt-0.5" />
           )}
-          {a.msg}
+          <span className="flex-1">{a.msg}</span>
+          {a.problem && <HowToBtn problem={a.problem} />}
         </div>
       ))}
     </div>

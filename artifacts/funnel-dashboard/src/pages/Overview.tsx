@@ -78,6 +78,24 @@ import {
 } from "@/lib/meta-api";
 
 // ──────────────────────────────────────────────────────────────
+// How-To Link button — used throughout this page
+// ──────────────────────────────────────────────────────────────
+function HowToBtn({ problem, size = "sm" }: { problem: string; size?: "sm" | "xs" }) {
+  const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+  return (
+    <a
+      href={`${base}/how-to?problem=${problem}`}
+      className={`shrink-0 inline-flex items-center gap-1 font-bold rounded-lg bg-background/60 hover:bg-background border border-border/60 text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap ${
+        size === "xs" ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-2 py-1"
+      }`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      كيف أحلها؟ ↗
+    </a>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────
 function fmt(n: number, d = 0): string {
@@ -254,6 +272,7 @@ function CpaWarningCard({ w }: { w: CpaWarning }) {
               <AlertTriangle className="h-3 w-3" /> راقب CPA — {w.purchases === 0 ? "بدون أوردر" : `${fmt(w.cpa, 0)} EGP`}
             </span>
             <span className="text-[10px] text-muted-foreground">{w.purchases} أوردر · {fmt(w.spend, 0)} EGP</span>
+            <HowToBtn problem={w.purchases === 0 ? "no-conversions" : "cpa-high"} size="xs" />
           </div>
           <div className="text-sm font-semibold mt-1.5 truncate">{w.name}</div>
         </div>
@@ -514,6 +533,13 @@ function OvMetricAlertCard({ trend, campaigns }: { trend: MetricTrend; campaigns
 
   const relatedCampaigns = getRelevantCampaigns(campaigns, trend.metric, trend.direction as "worsening" | "improving");
 
+  const metricProblemKey: Record<string, string> = {
+    cpa: "cpa-high",
+    ctr: "ctr-low",
+    cpc: "cpc-high",
+  };
+  const problemKey = isWorse ? (metricProblemKey[trend.metric] ?? "") : "";
+
   return (
     <div className={`rounded-xl ring-1 px-4 py-3 flex items-start gap-3 ${bgCls}`}>
       <TIcon className={`h-4 w-4 shrink-0 mt-0.5 ${iconCls}`} />
@@ -521,6 +547,7 @@ function OvMetricAlertCard({ trend, campaigns }: { trend: MetricTrend; campaigns
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badgeCls}`}>{trend.label}</span>
           <span className="text-sm font-bold leading-tight">{content.alert}</span>
+          {isWorse && problemKey && <HowToBtn problem={problemKey} size="xs" />}
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
           <span>الحالي: <span className="num font-semibold text-foreground">{curFmt}</span></span>
@@ -569,6 +596,7 @@ function OvFrequencyCard({ alert }: { alert: FrequencyAlert }) {
         {alert.trend === "rising" && alert.consecutiveRising >= 2 && (
           <span className="text-[10px] font-bold">↑ {alert.consecutiveRising} أيام</span>
         )}
+        <HowToBtn problem="high-frequency" size="xs" />
       </div>
       <div className="text-xs font-medium">{alert.headline}</div>
       <div className="text-[11px] text-muted-foreground">{alert.action}</div>
@@ -609,6 +637,7 @@ function FrequencyDangerPanel({ campaigns }: { campaigns: CampaignSummaryFull[] 
         <CardTitle className="flex items-center gap-2 text-sm text-rose-700 dark:text-rose-400">
           <Bell className="h-4 w-4 shrink-0" />
           تنبيه تشبع الجمهور — {danger.length} {danger.length === 1 ? "حملة" : "حملات"} دخلت نطاق الخطر (Frequency ≥ 1.5x)
+          <HowToBtn problem="high-frequency" size="xs" />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -769,7 +798,7 @@ function OvDailyInsightCard({ daily, totals, campaigns }: { daily: DailyPoint[];
 // ──────────────────────────────────────────────────────────────
 function AccountAlerts({ overview }: { overview: AccountOverview }) {
   const { totals, campaigns } = overview;
-  const alerts: { type: "danger" | "warn" | "info"; msg: string }[] = [];
+  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string }[] = [];
 
   const activeCampaigns = campaigns.filter((c) => c.spend > 0);
   const cpas = activeCampaigns.filter((c) => c.purchases > 0).map((c) => c.cpa);
@@ -777,11 +806,11 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
 
   const drainers = activeCampaigns.filter((c) => c.spend >= 100 && (c.purchases === 0 || (minCpa > 0 && c.cpa > minCpa * 3)));
   drainers.forEach((c) => {
-    alerts.push({ type: "danger", msg: `"${c.name.slice(0, 45)}" يستهلك ${fmt(c.spend, 0)} EGP بدون نتائج كافية` });
+    alerts.push({ type: "danger", msg: `"${c.name.slice(0, 45)}" يستهلك ${fmt(c.spend, 0)} EGP بدون نتائج كافية`, problem: "no-conversions" });
   });
 
-  if (totals.ctr < 1) alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) على مستوى الحساب` });
-  if (totals.crLpv < 2 && totals.lpv > 0) alerts.push({ type: "warn", msg: `CR ضعيف (${fmtPct(totals.crLpv)}) — صفحة المنتج تحتاج مراجعة` });
+  if (totals.ctr < 1) alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) على مستوى الحساب`, problem: "ctr-low" });
+  if (totals.crLpv < 2 && totals.lpv > 0) alerts.push({ type: "warn", msg: `CR ضعيف (${fmtPct(totals.crLpv)}) — صفحة المنتج تحتاج مراجعة`, problem: "low-cr" });
 
   const winners = activeCampaigns.filter((c) => minCpa > 0 && c.cpa <= minCpa * 1.15 && c.purchases > 0);
   if (winners.length > 0) {
@@ -790,7 +819,7 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
 
   // CPA increase compared to prev
   if (overview.prev_totals.cpa > 0 && totals.cpa > overview.prev_totals.cpa * 1.2) {
-    alerts.push({ type: "warn", msg: `CPA زاد ${fmt(((totals.cpa - overview.prev_totals.cpa) / overview.prev_totals.cpa) * 100, 0)}% مقارنة بالفترة السابقة` });
+    alerts.push({ type: "warn", msg: `CPA زاد ${fmt(((totals.cpa - overview.prev_totals.cpa) / overview.prev_totals.cpa) * 100, 0)}% مقارنة بالفترة السابقة`, problem: "cpa-high" });
   }
 
   if (alerts.length === 0) return null;
@@ -805,7 +834,8 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
           {a.type === "danger" ? <XCircle className="h-4 w-4 shrink-0 mt-0.5" /> :
            a.type === "warn" ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /> :
            <Bell className="h-4 w-4 shrink-0 mt-0.5" />}
-          {a.msg}
+          <span className="flex-1">{a.msg}</span>
+          {a.problem && <HowToBtn problem={a.problem} />}
         </div>
       ))}
     </div>

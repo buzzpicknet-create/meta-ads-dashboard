@@ -5,13 +5,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import Overview from "@/pages/Overview";
-import { Activity, LayoutDashboard } from "lucide-react";
+import HowTo from "@/pages/HowTo";
+import { Activity, BookOpen, LayoutDashboard } from "lucide-react";
 
 const queryClient = new QueryClient();
 
 function NavBar() {
-  const [isOverview] = useRoute("/overview");
+  const [isOverview]  = useRoute("/overview");
   const [isDashboard] = useRoute("/");
+  const [isHowTo]     = useRoute("/how-to");
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -44,6 +46,17 @@ function NavBar() {
               <Activity className="h-4 w-4" />
               تحليل الحملة
             </Link>
+            <Link
+              href="/how-to"
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                isHowTo
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <BookOpen className="h-4 w-4" />
+              دليل الحلول
+            </Link>
           </div>
         </div>
       </div>
@@ -58,6 +71,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/overview" component={Overview} />
+        <Route path="/how-to" component={HowTo} />
         <Route component={NotFound} />
       </Switch>
     </>
