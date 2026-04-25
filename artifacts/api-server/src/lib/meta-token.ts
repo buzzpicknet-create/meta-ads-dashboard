@@ -27,14 +27,14 @@ const TOKEN_FILE = path.join(WORKSPACE_ROOT, ".local/meta/token-cache.json");
 
 let cached: TokenCache | null = null;
 
-function loadFromDisk(): TokenCache {
-  if (!fs.existsSync(TOKEN_FILE)) {
-    throw new Error(
-      `Meta token cache not found at ${TOKEN_FILE}. Run setup first.`,
-    );
+function loadFromDisk(): TokenCache | null {
+  if (!fs.existsSync(TOKEN_FILE)) return null;
+  try {
+    const raw = fs.readFileSync(TOKEN_FILE, "utf-8");
+    return JSON.parse(raw) as TokenCache;
+  } catch {
+    return null;
   }
-  const raw = fs.readFileSync(TOKEN_FILE, "utf-8");
-  return JSON.parse(raw) as TokenCache;
 }
 
 function writeToDisk(token: TokenCache): void {
@@ -42,9 +42,27 @@ function writeToDisk(token: TokenCache): void {
   fs.writeFileSync(TOKEN_FILE, JSON.stringify(token, null, 2), { mode: 0o600 });
 }
 
+function buildFromEnv(): TokenCache {
+  const token = process.env["META_ACCESS_TOKEN"];
+  if (!token) {
+    throw new Error(
+      "No Meta token available. Set META_ACCESS_TOKEN environment variable or run setup first.",
+    );
+  }
+  return {
+    access_token: token,
+    token_type: "bearer",
+    expires_in: 0,
+    expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+    issued_at: new Date().toISOString(),
+    app_id: process.env["META_APP_ID"] ?? "",
+    ad_account_id: "1714386865726065",
+  };
+}
+
 export function getToken(): TokenCache {
   if (!cached) {
-    cached = loadFromDisk();
+    cached = loadFromDisk() ?? buildFromEnv();
   }
   return cached;
 }
