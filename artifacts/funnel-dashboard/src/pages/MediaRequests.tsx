@@ -693,7 +693,7 @@ function MediaCard({ req }: { req: MediaRequest }) {
               {req.status === "in_progress" ? "تسليم الشغل" : statusCfg.nextLabel}
             </button>
           ) : (
-            <button onClick={() => updateMutation.mutate({ status: "pending" })} className="text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1">
+            <button onClick={() => updateMutation.mutate({ status: "pending", output_link: null, upload_link: null })} className="text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1">
               إعادة تفعيل
             </button>
           )}
