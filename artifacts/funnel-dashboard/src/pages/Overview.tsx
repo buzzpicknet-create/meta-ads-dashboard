@@ -589,9 +589,9 @@ function OvMetricAlertCard({ trend, campaigns }: { trend: MetricTrend; campaigns
               problem={problemKey}
               size="xs"
               metrics={{
-                cpa: trend.metric === "cpa" ? trend.current : undefined,
-                ctr: trend.metric === "ctr" ? trend.current : undefined,
-                cpc: trend.metric === "cpc" ? trend.current : undefined,
+                cpa: trend.metric === "cpa" ? trend.currentValue : undefined,
+                ctr: trend.metric === "ctr" ? trend.currentValue : undefined,
+                cpc: trend.metric === "cpc" ? trend.currentValue : undefined,
               }}
             />
           )}
@@ -862,7 +862,13 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
   });
 
   if (totals.ctr < 1)
-    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) على مستوى الحساب`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend } });
+    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الإعلان لا يجذب النقرات`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  else if (totals.ctr < 1.5)
+    alerts.push({ type: "warn", msg: `CTR منخفض (${fmtPct(totals.ctr)}) — الهدف ≥ 1.5% لخفض CPC`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  if (totals.cpc > 8)
+    alerts.push({ type: "danger", msg: `CPC مرتفع جداً (${fmt(totals.cpc, 2)} EGP) — كل نقرة تكلّف كثيراً`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  else if (totals.cpc > 5)
+    alerts.push({ type: "warn", msg: `CPC مرتفع (${fmt(totals.cpc, 2)} EGP) — الهدف ≤ 5 EGP لتحسين الربحية`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
   if (totals.crLpv < 2 && totals.lpv > 0)
     alerts.push({ type: "warn", msg: `CR ضعيف (${fmtPct(totals.crLpv)}) — صفحة المنتج تحتاج مراجعة`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
 
@@ -898,6 +904,168 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Account Health Panel — always-visible diagnostic for all key metrics
+// ──────────────────────────────────────────────────────────────
+type HealthStatus = "good" | "warn" | "danger";
+
+interface MetricHealth {
+  key: string;
+  label: string;
+  value: string;
+  bench: string;
+  status: HealthStatus;
+  statusLabel: string;
+  problem?: string;
+  metrics?: OvHowToMetrics;
+}
+
+function AccountHealthPanel({ totals, campaigns }: { totals: DerivedMetrics; campaigns: CampaignSummaryFull[] }) {
+  const activeCampaigns = campaigns.filter((c) => c.spend > 0);
+  const freqValues = activeCampaigns.map((c) => c.frequency ?? 0).filter((f) => f > 0);
+  const maxFreq = freqValues.length > 0 ? Math.max(...freqValues) : 0;
+  const cr = totals.lpv > 0 ? totals.crLpv : totals.crClick;
+
+  const rows: MetricHealth[] = [
+    {
+      key: "ctr",
+      label: "CTR — نسبة النقر",
+      value: fmtPct(totals.ctr),
+      bench: "الهدف ≥ 1.5%",
+      status: totals.ctr >= 1.5 ? "good" : totals.ctr >= 1.0 ? "warn" : "danger",
+      statusLabel: totals.ctr >= 1.5 ? "جيد ✓" : totals.ctr >= 1.0 ? "منخفض — مراقبة" : "خطر — منخفض جداً",
+      problem: totals.ctr < 1.5 ? "ctr-low" : undefined,
+      metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases },
+    },
+    {
+      key: "cpc",
+      label: "CPC — تكلفة النقرة",
+      value: `${fmt(totals.cpc, 2)} EGP`,
+      bench: "الهدف ≤ 5 EGP",
+      status: totals.cpc <= 5 ? "good" : totals.cpc <= 8 ? "warn" : "danger",
+      statusLabel: totals.cpc <= 5 ? "جيد ✓" : totals.cpc <= 8 ? "مرتفع — مراقبة" : "خطر — مرتفع جداً",
+      problem: totals.cpc > 5 ? "cpc-high" : undefined,
+      metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases },
+    },
+    {
+      key: "cpa",
+      label: "CPA — تكلفة الأوردر",
+      value: totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—",
+      bench: "الهدف ≤ 40 EGP",
+      status: totals.cpa === 0 ? "danger" : totals.cpa <= 40 ? "good" : totals.cpa <= 100 ? "warn" : "danger",
+      statusLabel: totals.cpa === 0 ? "لا أوردرات" : totals.cpa <= 40 ? "جيد ✓" : totals.cpa <= 100 ? "مرتفع — مراقبة" : "خطر — مرتفع جداً",
+      problem: totals.cpa === 0 || totals.cpa > 40 ? "cpa-high" : undefined,
+      metrics: { cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases, ctr: totals.ctr, cpc: totals.cpc },
+    },
+    {
+      key: "cr",
+      label: "CR — معدل التحويل",
+      value: cr > 0 ? fmtPct(cr) : "—",
+      bench: "الهدف ≥ 2%",
+      status: cr >= 3 ? "good" : cr >= 1.5 ? "warn" : "danger",
+      statusLabel: cr >= 3 ? "جيد ✓" : cr >= 1.5 ? "ضعيف — مراقبة" : "خطر — منخفض جداً",
+      problem: cr < 3 ? "low-cr" : undefined,
+      metrics: { cr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases },
+    },
+    {
+      key: "cpm",
+      label: "CPM — تكلفة الألف ظهور",
+      value: `${fmt(totals.cpm, 0)} EGP`,
+      bench: "الهدف ≤ 50 EGP",
+      status: totals.cpm <= 50 ? "good" : totals.cpm <= 80 ? "warn" : "danger",
+      statusLabel: totals.cpm <= 50 ? "جيد ✓" : totals.cpm <= 80 ? "مرتفع — مراقبة" : "خطر — منافسة عالية",
+      problem: totals.cpm > 50 ? "cpc-high" : undefined,
+      metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend },
+    },
+    ...(maxFreq > 0
+      ? [
+          {
+            key: "freq",
+            label: "Frequency — تكرار الإعلان",
+            value: `${fmt(maxFreq, 2)}x`,
+            bench: "الهدف ≤ 2x",
+            status: (maxFreq <= 2 ? "good" : maxFreq <= 3.5 ? "warn" : "danger") as HealthStatus,
+            statusLabel: maxFreq <= 2 ? "جيد ✓" : maxFreq <= 3.5 ? "مرتفع — غيّر الكريتف" : "خطر — تشبع الجمهور",
+            problem: maxFreq > 2 ? "high-frequency" : undefined,
+            metrics: { freq: maxFreq } as OvHowToMetrics,
+          },
+        ]
+      : []),
+  ];
+
+  const problemCount = rows.filter((r) => r.status !== "good").length;
+
+  return (
+    <Card className="border-primary/10">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Activity className="h-4 w-4 text-primary" />
+          صحة الأداء — تشخيص شامل
+          <span
+            className={`mr-auto text-[11px] font-bold px-2.5 py-0.5 rounded-full ring-1 ${
+              problemCount === 0
+                ? "bg-emerald-500/10 ring-emerald-500/30 text-emerald-700 dark:text-emerald-400"
+                : problemCount <= 2
+                  ? "bg-amber-500/10 ring-amber-500/30 text-amber-700 dark:text-amber-400"
+                  : "bg-rose-500/10 ring-rose-500/30 text-rose-700 dark:text-rose-400"
+            }`}
+          >
+            {problemCount === 0
+              ? "✅ كل المؤشرات جيدة"
+              : `⚠ ${problemCount} مؤشر${problemCount === 1 ? "" : "ات"} تحتاج مراجعة`}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y divide-border/50">
+          {rows.map((r) => (
+            <div key={r.key} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+              <div
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  r.status === "good" ? "bg-emerald-500" : r.status === "warn" ? "bg-amber-500" : "bg-rose-500"
+                }`}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-foreground leading-tight">{r.label}</div>
+                <div className="text-[11px] text-muted-foreground">{r.bench}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div
+                  className={`num text-sm font-bold ${
+                    r.status === "good"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : r.status === "warn"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {r.value}
+                </div>
+                <div
+                  className={`text-[10px] font-medium ${
+                    r.status === "good"
+                      ? "text-emerald-600/70 dark:text-emerald-400/70"
+                      : r.status === "warn"
+                        ? "text-amber-600/70 dark:text-amber-400/70"
+                        : "text-rose-600/70 dark:text-rose-400/70"
+                  }`}
+                >
+                  {r.statusLabel}
+                </div>
+              </div>
+              {r.problem && r.status !== "good" ? (
+                <HowToBtn problem={r.problem} metrics={r.metrics} size="xs" />
+              ) : (
+                <div className="w-16 shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1842,6 +2010,9 @@ function AccountTabContent({
           tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
         />
       </div>
+
+      {/* HEALTH PANEL — always-visible diagnostic for all key metrics */}
+      <AccountHealthPanel totals={totals} campaigns={campaigns} />
 
       {/* CPA ALERTS — 72h scale / warning */}
       <CpaAlertsPanel accountId={accountId} />
