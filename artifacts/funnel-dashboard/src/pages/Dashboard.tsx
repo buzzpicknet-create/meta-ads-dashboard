@@ -48,6 +48,7 @@ import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { DashboardControls } from "@/components/dashboard-controls";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
 import {
   analyzeTrends,
   buildInsight,
@@ -1870,177 +1871,203 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* ALERT SYSTEM */}
-      <AlertSystem totals={totals} byAd={insights.by_ad} />
+      <CollapsibleSection title="التنبيهات">
+        <AlertSystem totals={totals} byAd={insights.by_ad} />
+      </CollapsibleSection>
 
       {/* DELIVERY WARNINGS — only for actively running campaigns */}
       {insights.campaign.effective_status === "ACTIVE" && (
-        <DeliveryWarnings byAd={insights.by_ad} />
+        <CollapsibleSection title="تحذيرات التسليم">
+          <DeliveryWarnings byAd={insights.by_ad} />
+        </CollapsibleSection>
       )}
 
       {/* PRIORITY ENGINE */}
-      <PriorityEngine totals={totals} byAd={insights.by_ad} byAdset={insights.by_adset} />
+      <CollapsibleSection title="محرك الأولويات">
+        <PriorityEngine totals={totals} byAd={insights.by_ad} byAdset={insights.by_adset} />
+      </CollapsibleSection>
 
       {/* FUNNEL DIAGNOSTIC */}
-      <FunnelDiagnostic totals={totals} />
+      <CollapsibleSection title="تشخيص القمع">
+        <FunnelDiagnostic totals={totals} />
+      </CollapsibleSection>
 
       {/* KPI CARDS — 6 */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <KpiCard
-          icon={CircleDollarSign}
-          label="إجمالي الإنفاق"
-          value={`${fmt(totals.spend, 0)} EGP`}
-          sub={<Num>CPM {fmt(totals.cpm, 0)} EGP</Num>}
-          tone="neutral"
-        />
-        <KpiCard
-          icon={ShoppingCart}
-          label="الأوردرات"
-          value={fmt(totals.purchases)}
-          sub={totals.lpv > 0 ? <><Num>{fmt(totals.lpv)}</Num> زيارة</> : undefined}
-          tone={totals.purchases > 0 ? "good" : "bad"}
-          trend={totals.purchases > 0 ? undefined : { dir: "down", text: "لا يوجد طلبات", good: false }}
-        />
-        <KpiCard
-          icon={Target}
-          label="تكلفة الأوردر (CPA)"
-          value={totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—"}
-          sub={cpaTarget > 0 ? <>الهدف: تحت <Num>{cpaTarget} EGP</Num></> : ""}
-          tone={totals.cpa === 0 ? "bad" : totals.cpa < 80 ? "good" : totals.cpa < 150 ? "warn" : "bad"}
-        />
-        <KpiCard
-          icon={MousePointerClick}
-          label="CTR (Link)"
-          value={fmtPct(totals.ctr)}
-          sub={<><Num>CPC {fmt(totals.cpc, 0)} EGP</Num> · <Num>{fmt(totals.link_clicks)}</Num> كليك</>}
-          tone={totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad"}
-          trend={totals.ctr >= 2 ? { dir: "up", text: "CTR صحي", good: true } : { dir: "down", text: "CTR منخفض", good: false }}
-        />
-        <KpiCard
-          icon={Eye}
-          label="CPM"
-          value={`${fmt(totals.cpm, 0)} EGP`}
-          sub={<><Num>{fmt(totals.impressions)}</Num> ظهور</>}
-          tone={totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"}
-        />
-        <KpiCard
-          icon={TrendingUp}
-          label="Conversion Rate"
-          value={totals.lpv > 0 ? fmtPct(totals.crLpv) : fmtPct(totals.crClick)}
-          sub={totals.lpv > 0 ? "من LPV للأوردر" : "من Click للأوردر"}
-          tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
-          trend={totals.crLpv >= 5 ? { dir: "up", text: "CR صحي", good: true } : { dir: "down", text: "CR منخفض", good: false }}
-        />
-      </div>
+      <CollapsibleSection title="مؤشرات الأداء">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <KpiCard
+            icon={CircleDollarSign}
+            label="إجمالي الإنفاق"
+            value={`${fmt(totals.spend, 0)} EGP`}
+            sub={<Num>CPM {fmt(totals.cpm, 0)} EGP</Num>}
+            tone="neutral"
+          />
+          <KpiCard
+            icon={ShoppingCart}
+            label="الأوردرات"
+            value={fmt(totals.purchases)}
+            sub={totals.lpv > 0 ? <><Num>{fmt(totals.lpv)}</Num> زيارة</> : undefined}
+            tone={totals.purchases > 0 ? "good" : "bad"}
+            trend={totals.purchases > 0 ? undefined : { dir: "down", text: "لا يوجد طلبات", good: false }}
+          />
+          <KpiCard
+            icon={Target}
+            label="تكلفة الأوردر (CPA)"
+            value={totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—"}
+            sub={cpaTarget > 0 ? <>الهدف: تحت <Num>{cpaTarget} EGP</Num></> : ""}
+            tone={totals.cpa === 0 ? "bad" : totals.cpa < 80 ? "good" : totals.cpa < 150 ? "warn" : "bad"}
+          />
+          <KpiCard
+            icon={MousePointerClick}
+            label="CTR (Link)"
+            value={fmtPct(totals.ctr)}
+            sub={<><Num>CPC {fmt(totals.cpc, 0)} EGP</Num> · <Num>{fmt(totals.link_clicks)}</Num> كليك</>}
+            tone={totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad"}
+            trend={totals.ctr >= 2 ? { dir: "up", text: "CTR صحي", good: true } : { dir: "down", text: "CTR منخفض", good: false }}
+          />
+          <KpiCard
+            icon={Eye}
+            label="CPM"
+            value={`${fmt(totals.cpm, 0)} EGP`}
+            sub={<><Num>{fmt(totals.impressions)}</Num> ظهور</>}
+            tone={totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"}
+          />
+          <KpiCard
+            icon={TrendingUp}
+            label="Conversion Rate"
+            value={totals.lpv > 0 ? fmtPct(totals.crLpv) : fmtPct(totals.crClick)}
+            sub={totals.lpv > 0 ? "من LPV للأوردر" : "من Click للأوردر"}
+            tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
+            trend={totals.crLpv >= 5 ? { dir: "up", text: "CR صحي", good: true } : { dir: "down", text: "CR منخفض", good: false }}
+          />
+        </div>
+      </CollapsibleSection>
 
       {/* TREND ALERTS + DAILY INSIGHT */}
-      <TrendAlertsPanel daily={insights.daily} totals={totals} />
-      <DailyInsightCard daily={insights.daily} totals={totals} />
+      <CollapsibleSection title="تنبيهات الاتجاه">
+        <div className="space-y-4">
+          <TrendAlertsPanel daily={insights.daily} totals={totals} />
+          <DailyInsightCard daily={insights.daily} totals={totals} />
+        </div>
+      </CollapsibleSection>
 
       {/* BREAKDOWN: who's hurting / helping */}
-      <BreakdownByAdsetAd byAdset={insights.by_adset} byAd={insights.by_ad} totals={totals} />
+      <CollapsibleSection title="مقارنة الأداء">
+        <BreakdownByAdsetAd byAdset={insights.by_adset} byAd={insights.by_ad} totals={totals} />
+      </CollapsibleSection>
 
       {/* PERFORMANCE ANALYSIS */}
-      <PerformanceAnalysis byAd={insights.by_ad} byAdset={insights.by_adset} />
+      <CollapsibleSection title="تحليل الأداء">
+        <PerformanceAnalysis byAd={insights.by_ad} byAdset={insights.by_adset} />
+      </CollapsibleSection>
 
       {/* EXPERT TIPS */}
-      <ExpertTips totals={totals} byAd={insights.by_ad} />
+      <CollapsibleSection title="نصائح الخبراء" defaultOpen={false}>
+        <ExpertTips totals={totals} byAd={insights.by_ad} />
+      </CollapsibleSection>
 
       {/* WHAT-IF SIMULATOR */}
-      <WhatIfSimulator totals={totals} byAd={insights.by_ad} />
+      <CollapsibleSection title="محاكي الميزانية" defaultOpen={false}>
+        <WhatIfSimulator totals={totals} byAd={insights.by_ad} />
+      </CollapsibleSection>
 
       {/* DAILY TREND */}
       {trendData.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <TrendingUp className="h-4 w-4 text-primary" />
-              الأداء اليومي — Spend vs Purchases vs CPA
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[260px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={trendData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART_COLORS.primary} stopOpacity={0.3} />
-                      <stop offset="100%" stopColor={CHART_COLORS.primary} stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <RTooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
-                  <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
-                  <Area yAxisId="left" type="monotone" dataKey="spend" name="Spend (EGP)" stroke={CHART_COLORS.primary} fill="url(#spendGrad)" strokeWidth={2} />
-                  <Bar yAxisId="right" dataKey="purchases" name="Purchases" fill={CHART_COLORS.good} radius={[4, 4, 0, 0]} barSize={20} />
-                  <Line yAxisId="left" type="monotone" dataKey="cpa" name="CPA (EGP)" stroke={CHART_COLORS.bad} strokeWidth={2.5} dot={{ fill: CHART_COLORS.bad, r: 3 }} connectNulls />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <CollapsibleSection title="الأداء اليومي">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                الأداء اليومي — Spend vs Purchases vs CPA
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[260px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={trendData} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                    <defs>
+                      <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART_COLORS.primary} stopOpacity={0.3} />
+                        <stop offset="100%" stopColor={CHART_COLORS.primary} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="left" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                    <RTooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
+                    <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
+                    <Area yAxisId="left" type="monotone" dataKey="spend" name="Spend (EGP)" stroke={CHART_COLORS.primary} fill="url(#spendGrad)" strokeWidth={2} />
+                    <Bar yAxisId="right" dataKey="purchases" name="Purchases" fill={CHART_COLORS.good} radius={[4, 4, 0, 0]} barSize={20} />
+                    <Line yAxisId="left" type="monotone" dataKey="cpa" name="CPA (EGP)" stroke={CHART_COLORS.bad} strokeWidth={2.5} dot={{ fill: CHART_COLORS.bad, r: 3 }} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </CollapsibleSection>
       )}
 
       {/* BREAKDOWN ANALYSIS */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="h-4 w-4 text-primary" />
-              Breakdown Analysis — تفصيل كامل
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={breakView} onValueChange={(v) => setBreakView(v as typeof breakView)} dir="rtl">
-            <TabsList className="mb-4">
-              <TabsTrigger value="adset">Ad Set ({insights.by_adset.length})</TabsTrigger>
-              <TabsTrigger value="ad">Ads / Creative ({insights.by_ad.length})</TabsTrigger>
-            </TabsList>
-            <TabsContent value={breakView} className="m-0">
-              <BreakdownTable
-                segments={breakView === "adset" ? insights.by_adset : insights.by_ad}
-                label={breakView === "adset" ? "Ad Set" : "Creative"}
-              />
-              {(breakView === "adset" ? insights.by_adset : insights.by_ad).length > 0 && (
-                <div className="mt-6 h-[180px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={(breakView === "adset" ? insights.by_adset : insights.by_ad).map((s) => ({
-                        name: s.label.length > 25 ? s.label.slice(0, 25) + "…" : s.label,
-                        cpa: s.cpa || 0,
-                        purchases: s.purchases,
-                        _verdict: verdictFor(s, breakView === "adset" ? insights.by_adset : insights.by_ad),
-                      }))}
-                      margin={{ top: 10, right: 20, bottom: 0, left: 0 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                      <RTooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
-                      <Bar dataKey="cpa" name="CPA (EGP)" radius={[6, 6, 0, 0]}>
-                        {(breakView === "adset" ? insights.by_adset : insights.by_ad).map((s, i) => {
-                          const v = verdictFor(s, breakView === "adset" ? insights.by_adset : insights.by_ad);
-                          return (
-                            <Cell
-                              key={i}
-                              fill={v === "winner" ? CHART_COLORS.good : v === "kill" ? CHART_COLORS.bad : v === "okay" ? CHART_COLORS.info : CHART_COLORS.warn}
-                            />
-                          );
-                        })}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+      <CollapsibleSection title="Breakdown — تفصيل كامل" defaultOpen={false}>
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Activity className="h-4 w-4 text-primary" />
+                Breakdown Analysis — تفصيل كامل
+              </CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={breakView} onValueChange={(v) => setBreakView(v as typeof breakView)} dir="rtl">
+              <TabsList className="mb-4">
+                <TabsTrigger value="adset">Ad Set ({insights.by_adset.length})</TabsTrigger>
+                <TabsTrigger value="ad">Ads / Creative ({insights.by_ad.length})</TabsTrigger>
+              </TabsList>
+              <TabsContent value={breakView} className="m-0">
+                <BreakdownTable
+                  segments={breakView === "adset" ? insights.by_adset : insights.by_ad}
+                  label={breakView === "adset" ? "Ad Set" : "Creative"}
+                />
+                {(breakView === "adset" ? insights.by_adset : insights.by_ad).length > 0 && (
+                  <div className="mt-6 h-[180px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={(breakView === "adset" ? insights.by_adset : insights.by_ad).map((s) => ({
+                          name: s.label.length > 25 ? s.label.slice(0, 25) + "…" : s.label,
+                          cpa: s.cpa || 0,
+                          purchases: s.purchases,
+                          _verdict: verdictFor(s, breakView === "adset" ? insights.by_adset : insights.by_ad),
+                        }))}
+                        margin={{ top: 10, right: 20, bottom: 0, left: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                        <RTooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
+                        <Bar dataKey="cpa" name="CPA (EGP)" radius={[6, 6, 0, 0]}>
+                          {(breakView === "adset" ? insights.by_adset : insights.by_ad).map((s, i) => {
+                            const v = verdictFor(s, breakView === "adset" ? insights.by_adset : insights.by_ad);
+                            return (
+                              <Cell
+                                key={i}
+                                fill={v === "winner" ? CHART_COLORS.good : v === "kill" ? CHART_COLORS.bad : v === "okay" ? CHART_COLORS.info : CHART_COLORS.warn}
+                              />
+                            );
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </CollapsibleSection>
     </div>
   );
 }

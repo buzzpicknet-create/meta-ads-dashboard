@@ -77,6 +77,7 @@ import {
   formatRange,
 } from "@/lib/meta-api";
 import { snapshotAlerts, type AlertSnapshotInput } from "@/lib/alerts-api";
+import { CollapsibleSection } from "@/components/CollapsibleSection";
 
 // ──────────────────────────────────────────────────────────────
 // How-To Link button — used throughout this page
@@ -1996,8 +1997,8 @@ function AccountTabContent({
   const activeCampaigns = campaigns.filter((c) => c.spend > 0);
 
   return (
-    <div className="space-y-6">
-      {/* Health + summary row */}
+    <div className="space-y-5">
+      {/* Health + summary row — always visible */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <HealthBadge status={health} />
         <div className="text-xs text-muted-foreground">
@@ -2007,159 +2008,185 @@ function AccountTabContent({
       </div>
 
       {/* Alerts */}
-      <AccountAlerts overview={overview.data} />
+      <CollapsibleSection title="التنبيهات">
+        <AccountAlerts overview={overview.data} />
+      </CollapsibleSection>
 
       {/* Delivery Warnings Panel */}
       {ad_issues && ad_issues.length > 0 && (
-        <Card className="border-rose-500/20 bg-rose-500/3">
-          <CardContent className="pt-5 pb-4 px-5">
-            <DeliveryWarningsPanel adIssues={ad_issues} />
-          </CardContent>
-        </Card>
+        <CollapsibleSection title="تحذيرات التسليم">
+          <Card className="border-rose-500/20 bg-rose-500/3">
+            <CardContent className="pt-5 pb-4 px-5">
+              <DeliveryWarningsPanel adIssues={ad_issues} />
+            </CardContent>
+          </Card>
+        </CollapsibleSection>
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <KpiCard
-          icon={CircleDollarSign}
-          label="إجمالي الإنفاق"
-          value={`${fmt(totals.spend, 0)} EGP`}
-          sub={<Num>CPM {fmt(totals.cpm, 0)} EGP</Num>}
-          current={totals.spend}
-          prev={prev_totals.spend}
-          tone="neutral"
-        />
-        <KpiCard
-          icon={ShoppingCart}
-          label="الأوردرات"
-          value={fmt(totals.purchases)}
-          sub={totals.lpv > 0 ? <><Num>{fmt(totals.lpv)}</Num> زيارة</> : undefined}
-          current={totals.purchases}
-          prev={prev_totals.purchases}
-          tone={totals.purchases > 0 ? "good" : "bad"}
-        />
-        <KpiCard
-          icon={Target}
-          label="CPA"
-          value={totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—"}
-          current={totals.cpa}
-          prev={prev_totals.cpa}
-          lowerIsBetter
-          tone={totals.cpa === 0 ? "bad" : totals.cpa < 80 ? "good" : totals.cpa < 150 ? "warn" : "bad"}
-        />
-        <KpiCard
-          icon={MousePointerClick}
-          label="CTR"
-          value={fmtPct(totals.ctr)}
-          sub={<Num>CPC {fmt(totals.cpc, 0)} EGP</Num>}
-          current={totals.ctr}
-          prev={prev_totals.ctr}
-          tone={totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad"}
-        />
-        <KpiCard
-          icon={Eye}
-          label="CPM"
-          value={`${fmt(totals.cpm, 0)} EGP`}
-          sub={<><Num>{fmt(totals.impressions)}</Num> ظهور</>}
-          current={totals.cpm}
-          prev={prev_totals.cpm}
-          lowerIsBetter
-          tone={totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"}
-        />
-        <KpiCard
-          icon={TrendingUp}
-          label="Conversion Rate"
-          value={totals.lpv > 0 ? fmtPct(totals.crLpv) : fmtPct(totals.crClick)}
-          sub={totals.lpv > 0 ? "LPV → أوردر" : "Click → أوردر"}
-          current={totals.crLpv || totals.crClick}
-          prev={prev_totals.crLpv || prev_totals.crClick}
-          tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
-        />
-      </div>
+      <CollapsibleSection title="مؤشرات الأداء">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <KpiCard
+            icon={CircleDollarSign}
+            label="إجمالي الإنفاق"
+            value={`${fmt(totals.spend, 0)} EGP`}
+            sub={<Num>CPM {fmt(totals.cpm, 0)} EGP</Num>}
+            current={totals.spend}
+            prev={prev_totals.spend}
+            tone="neutral"
+          />
+          <KpiCard
+            icon={ShoppingCart}
+            label="الأوردرات"
+            value={fmt(totals.purchases)}
+            sub={totals.lpv > 0 ? <><Num>{fmt(totals.lpv)}</Num> زيارة</> : undefined}
+            current={totals.purchases}
+            prev={prev_totals.purchases}
+            tone={totals.purchases > 0 ? "good" : "bad"}
+          />
+          <KpiCard
+            icon={Target}
+            label="CPA"
+            value={totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—"}
+            current={totals.cpa}
+            prev={prev_totals.cpa}
+            lowerIsBetter
+            tone={totals.cpa === 0 ? "bad" : totals.cpa < 80 ? "good" : totals.cpa < 150 ? "warn" : "bad"}
+          />
+          <KpiCard
+            icon={MousePointerClick}
+            label="CTR"
+            value={fmtPct(totals.ctr)}
+            sub={<Num>CPC {fmt(totals.cpc, 0)} EGP</Num>}
+            current={totals.ctr}
+            prev={prev_totals.ctr}
+            tone={totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad"}
+          />
+          <KpiCard
+            icon={Eye}
+            label="CPM"
+            value={`${fmt(totals.cpm, 0)} EGP`}
+            sub={<><Num>{fmt(totals.impressions)}</Num> ظهور</>}
+            current={totals.cpm}
+            prev={prev_totals.cpm}
+            lowerIsBetter
+            tone={totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"}
+          />
+          <KpiCard
+            icon={TrendingUp}
+            label="Conversion Rate"
+            value={totals.lpv > 0 ? fmtPct(totals.crLpv) : fmtPct(totals.crClick)}
+            sub={totals.lpv > 0 ? "LPV → أوردر" : "Click → أوردر"}
+            current={totals.crLpv || totals.crClick}
+            prev={prev_totals.crLpv || prev_totals.crClick}
+            tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
+          />
+        </div>
+      </CollapsibleSection>
 
-      {/* HEALTH PANEL — always-visible diagnostic for all key metrics */}
-      <AccountHealthPanel totals={totals} campaigns={campaigns} />
+      {/* HEALTH PANEL */}
+      <CollapsibleSection title="صحة الحساب">
+        <AccountHealthPanel totals={totals} campaigns={campaigns} />
+      </CollapsibleSection>
 
-      {/* CPA ALERTS — 72h scale / warning */}
-      <CpaAlertsPanel accountId={accountId} />
+      {/* CPA ALERTS */}
+      <CollapsibleSection title="تنبيهات CPA">
+        <CpaAlertsPanel accountId={accountId} />
+      </CollapsibleSection>
 
       {/* FREQUENCY DANGER ALERT */}
-      <FrequencyDangerPanel campaigns={campaigns} />
+      <CollapsibleSection title="خطر التكرار (Frequency)">
+        <FrequencyDangerPanel campaigns={campaigns} />
+      </CollapsibleSection>
 
       {/* TREND ALERTS + DAILY INSIGHT */}
-      <OvTrendAlertsPanel daily={daily} totals={totals} campaigns={campaigns} />
-      <OvDailyInsightCard daily={daily} totals={totals} campaigns={campaigns} />
+      <CollapsibleSection title="تنبيهات الاتجاه">
+        <div className="space-y-4">
+          <OvTrendAlertsPanel daily={daily} totals={totals} campaigns={campaigns} />
+          <OvDailyInsightCard daily={daily} totals={totals} campaigns={campaigns} />
+        </div>
+      </CollapsibleSection>
 
-      {/* CAMPAIGN BREAKDOWN: who's hurting / helping */}
-      <CampaignBreakdown campaigns={campaigns} totals={totals} />
+      {/* CAMPAIGN BREAKDOWN */}
+      <CollapsibleSection title="تفصيل الحملات">
+        <CampaignBreakdown campaigns={campaigns} totals={totals} />
+      </CollapsibleSection>
 
       {/* Priority Engine */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Target className="h-4 w-4 text-primary" />
-            أهم القرارات لهذا الحساب
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <AccountPriorityEngine overview={overview.data} />
-        </CardContent>
-      </Card>
+      <CollapsibleSection title="أهم القرارات">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Target className="h-4 w-4 text-primary" />
+              أهم القرارات لهذا الحساب
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AccountPriorityEngine overview={overview.data} />
+          </CardContent>
+        </Card>
+      </CollapsibleSection>
 
       {/* Trend */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Activity className="h-4 w-4 text-primary" />
-            الأداء اليومي
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <TrendChart daily={daily} />
-        </CardContent>
-      </Card>
+      <CollapsibleSection title="الأداء اليومي">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Activity className="h-4 w-4 text-primary" />
+              الأداء اليومي
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrendChart daily={daily} />
+          </CardContent>
+        </Card>
+      </CollapsibleSection>
 
       {/* Top & Worst Campaigns */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <TrendingUp className="h-4 w-4 text-primary" />
-            أفضل وأسوأ الحملات
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <CampaignTable campaigns={campaigns} />
-        </CardContent>
-      </Card>
+      <CollapsibleSection title="أفضل وأسوأ الحملات">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              أفضل وأسوأ الحملات
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CampaignTable campaigns={campaigns} />
+          </CardContent>
+        </Card>
+      </CollapsibleSection>
 
       {/* Quick Actions */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Zap className="h-4 w-4 text-primary" />
-            إجراءات سريعة
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid sm:grid-cols-3 gap-3">
-            <div className="rounded-xl bg-emerald-500/8 ring-1 ring-emerald-500/20 p-4 text-center space-y-2">
-              <Rocket className="h-5 w-5 text-emerald-600 dark:text-emerald-400 mx-auto" />
-              <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Scale Winners</div>
-              <div className="text-xs text-muted-foreground">ضاعف ميزانية الرابحين</div>
+      <CollapsibleSection title="إجراءات سريعة" defaultOpen={false}>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Zap className="h-4 w-4 text-primary" />
+              إجراءات سريعة
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div className="rounded-xl bg-emerald-500/8 ring-1 ring-emerald-500/20 p-4 text-center space-y-2">
+                <Rocket className="h-5 w-5 text-emerald-600 dark:text-emerald-400 mx-auto" />
+                <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400">Scale Winners</div>
+                <div className="text-xs text-muted-foreground">ضاعف ميزانية الرابحين</div>
+              </div>
+              <div className="rounded-xl bg-rose-500/8 ring-1 ring-rose-500/20 p-4 text-center space-y-2">
+                <XCircle className="h-5 w-5 text-rose-600 dark:text-rose-400 mx-auto" />
+                <div className="text-sm font-bold text-rose-700 dark:text-rose-400">Kill Losers</div>
+                <div className="text-xs text-muted-foreground">أوقف الحملات الخاسرة</div>
+              </div>
+              <div className="rounded-xl bg-amber-500/8 ring-1 ring-amber-500/20 p-4 text-center space-y-2">
+                <Target className="h-5 w-5 text-amber-600 dark:text-amber-400 mx-auto" />
+                <div className="text-sm font-bold text-amber-700 dark:text-amber-400">Optimize CPA</div>
+                <div className="text-xs text-muted-foreground">راجع الـ Creative والـ Landing Page</div>
+              </div>
             </div>
-            <div className="rounded-xl bg-rose-500/8 ring-1 ring-rose-500/20 p-4 text-center space-y-2">
-              <XCircle className="h-5 w-5 text-rose-600 dark:text-rose-400 mx-auto" />
-              <div className="text-sm font-bold text-rose-700 dark:text-rose-400">Kill Losers</div>
-              <div className="text-xs text-muted-foreground">أوقف الحملات الخاسرة</div>
-            </div>
-            <div className="rounded-xl bg-amber-500/8 ring-1 ring-amber-500/20 p-4 text-center space-y-2">
-              <Target className="h-5 w-5 text-amber-600 dark:text-amber-400 mx-auto" />
-              <div className="text-sm font-bold text-amber-700 dark:text-amber-400">Optimize CPA</div>
-              <div className="text-xs text-muted-foreground">راجع الـ Creative والـ Landing Page</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </CollapsibleSection>
 
       {/* Footer */}
       <div className="text-xs text-muted-foreground">
