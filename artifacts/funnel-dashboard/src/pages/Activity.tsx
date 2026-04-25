@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, CheckCircle2, Clock, Bell, XCircle, RefreshCw,
@@ -294,13 +294,52 @@ function parseSummary(act: MetaActivity): ActivitySummary | null {
   return null;
 }
 
+// ── Campaign ID extractor from extra_data ─────────────────────
+function extractCampaignId(extra?: Record<string, unknown> | null): string | null {
+  if (!extra) return null;
+  const cid = extra.campaign_id;
+  if (typeof cid === "number") return String(cid);
+  if (typeof cid === "string") return cid;
+  if (cid && typeof cid === "object") {
+    const o = cid as Record<string, unknown>;
+    const v = o.new ?? o.mutation_input;
+    if (typeof v === "number" || typeof v === "string") return String(v);
+  }
+  return null;
+}
+
+// ── Is this action on ad or adset level? ─────────────────────
+function isSubCampaignLevel(eventType?: string): boolean {
+  const t = (eventType ?? "").toLowerCase();
+  return (
+    t.includes("_ad_") || t.startsWith("ad_") ||
+    t === "create_ad" || t === "create_ad_set" ||
+    t.includes("adset") || t.includes("ad_set") ||
+    t.includes("creative")
+  );
+}
+
 // ── Meta Activity Card ────────────────────────────────────────
-function MetaActivityCard({ act }: { act: MetaActivity }) {
+function MetaActivityCard({
+  act,
+  campaignNameMap = {},
+}: {
+  act: MetaActivity;
+  campaignNameMap?: Record<string, string>;
+}) {
   const extra   = parseExtra(act.extra_data);
   const { label, icon: Icon, color } = translateEvent(act.event_type, extra);
   const level   = objectLevel(act.event_type);
   const hasTime = !!toDate(act.event_time);
   const summary = parseSummary(act);
+
+  // Parent campaign lookup for ad/adset level actions
+  const parentCampaignName = useMemo(() => {
+    if (!isSubCampaignLevel(act.event_type)) return null;
+    const cid = extractCampaignId(extra);
+    if (!cid) return null;
+    return campaignNameMap[cid] ?? null;
+  }, [act.event_type, extra, campaignNameMap]);
 
   const summaryColor =
     summary?.direction === "up"   ? "text-emerald-600 dark:text-emerald-400" :
@@ -323,11 +362,21 @@ function MetaActivityCard({ act }: { act: MetaActivity }) {
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{level}</span>
             )}
             {act.object_name && (
-              <span className="text-xs font-semibold text-foreground/80 truncate max-w-[260px]">
+              <span className="text-xs font-semibold text-foreground/80 truncate max-w-[220px]">
                 {act.object_name}
               </span>
             )}
           </div>
+
+          {/* Parent campaign breadcrumb — for ad/adset level actions */}
+          {parentCampaignName && (
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-[10px] text-muted-foreground">في حملة:</span>
+              <span className="text-[11px] font-semibold text-primary/80 truncate max-w-[260px]">
+                {parentCampaignName}
+              </span>
+            </div>
+          )}
 
           {/* Human-readable summary — the main value */}
           {summary && (
@@ -523,6 +572,21 @@ export default function ActivityPage() {
     return acc;
   }, {});
 
+  // Build campaign id → name lookup from all activities in the list
+  const campaignNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    metaList.forEach((act) => {
+      const t = (act.event_type ?? "").toLowerCase();
+      if (
+        (t.includes("campaign") || t === "first_delivery_event") &&
+        act.object_id && act.object_name
+      ) {
+        map[String(act.object_id)] = act.object_name;
+      }
+    });
+    return map;
+  }, [metaList]);
+
   const validCount = metaList.filter((a) => !!toDate(a.event_time)).length;
 
   return (
@@ -654,7 +718,7 @@ export default function ActivityPage() {
                   <div className="h-px flex-1 bg-border" />
                 </div>
                 <div className="space-y-2">
-                  {acts.map((act, i) => <MetaActivityCard key={act.id ?? i} act={act} />)}
+                  {acts.map((act, i) => <MetaActivityCard key={act.id ?? i} act={act} campaignNameMap={campaignNameMap} />)}
                 </div>
               </div>
             ))}
