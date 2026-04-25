@@ -143,6 +143,15 @@ export interface CampaignSummaryFull {
   cr: number;
 }
 
+export interface AdWithIssues {
+  id: string;
+  name: string;
+  campaign_id: string;
+  campaign_name?: string;
+  effective_status?: string;
+  issues: AdIssue[];
+}
+
 export interface AccountOverview {
   account_id: string;
   period: { since: string; until: string; days: number };
@@ -150,6 +159,7 @@ export interface AccountOverview {
   prev_totals: DerivedMetrics;
   daily: DailyPoint[];
   campaigns: CampaignSummaryFull[];
+  ad_issues: AdWithIssues[];
   fetched_at: string;
 }
 

@@ -608,6 +608,15 @@ export interface CampaignSummaryFull {
   cr: number;
 }
 
+export interface AdWithIssues {
+  id: string;
+  name: string;
+  campaign_id: string;
+  campaign_name?: string;
+  effective_status?: string;
+  issues: AdIssue[];
+}
+
 export interface AccountOverview {
   account_id: string;
   period: { since: string; until: string; days: number };
@@ -615,6 +624,7 @@ export interface AccountOverview {
   prev_totals: DerivedMetrics;
   daily: DailyPoint[];
   campaigns: CampaignSummaryFull[];
+  ad_issues: AdWithIssues[];
   fetched_at: string;
 }
 
@@ -756,6 +766,35 @@ export async function getAccountOverview(opts: {
       };
     });
 
+  // Fetch all ads with problematic status or issues_info
+  const allAds = await fbGet<{
+    id: string;
+    name: string;
+    effective_status?: string;
+    issues_info?: AdIssue[];
+    campaign_id?: string;
+  }>(`/act_${adAccount}/ads`, {
+    fields: "id,name,effective_status,issues_info,campaign_id",
+    limit: "500",
+  });
+
+  const campaignNameMap = new Map(campaigns.map((c) => [c.id, c.name]));
+  const PROBLEMATIC = new Set(["WITH_ISSUES", "DISAPPROVED", "PENDING_REVIEW", "IN_PROCESS"]);
+
+  const ad_issues: AdWithIssues[] = allAds
+    .filter((ad) =>
+      (ad.issues_info && ad.issues_info.length > 0) ||
+      (ad.effective_status && PROBLEMATIC.has(ad.effective_status))
+    )
+    .map((ad) => ({
+      id: ad.id,
+      name: ad.name,
+      campaign_id: ad.campaign_id ?? "",
+      campaign_name: ad.campaign_id ? campaignNameMap.get(ad.campaign_id) : undefined,
+      effective_status: ad.effective_status,
+      issues: ad.issues_info ?? [],
+    }));
+
   return {
     account_id: `act_${adAccount}`,
     period: { since: opts.since, until: opts.until, days },
@@ -763,6 +802,7 @@ export async function getAccountOverview(opts: {
     prev_totals,
     daily,
     campaigns: campaignsFull.sort((a, b) => b.spend - a.spend),
+    ad_issues,
     fetched_at: new Date().toISOString(),
   };
 }

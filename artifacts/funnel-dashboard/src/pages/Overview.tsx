@@ -19,8 +19,11 @@ import {
   ArrowUpRight,
   Bell,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CircleDollarSign,
   Eye,
+  Info,
   MousePointerClick,
   PauseCircle,
   RefreshCw,
@@ -29,6 +32,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  Wrench,
   XCircle,
   Zap,
 } from "lucide-react";
@@ -50,6 +54,8 @@ import { CalendarRange } from "lucide-react";
 import { useAccounts, useAccountOverview } from "@/hooks/use-meta";
 import {
   type AccountOverview,
+  type AdWithIssues,
+  type AdIssue,
   type CampaignSummaryFull,
   type DatePreset,
   type AdAccountSummary,
@@ -425,6 +431,359 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Delivery Warnings Panel (with fix suggestions)
+// ──────────────────────────────────────────────────────────────
+
+interface FixSuggestion {
+  title: string;
+  steps: string[];
+  urgency: "critical" | "high" | "medium";
+}
+
+function getFixSuggestion(issue: AdIssue): FixSuggestion {
+  const code = issue.error_code ?? 0;
+  const summary = (issue.summary ?? "").toLowerCase();
+  const msg = (issue.error_message ?? "").toLowerCase();
+  const combined = summary + " " + msg;
+
+  // ── DISAPPROVAL / POLICY VIOLATION (codes 1000–1999) ──
+  if (code >= 1000 && code < 2000) {
+    if (combined.includes("image") || combined.includes("صورة")) {
+      return {
+        title: "صورة الإعلان مخالفة لسياسات Meta",
+        steps: [
+          "اذهب لـ Ads Manager وافتح إعدادات الإعلان",
+          "استبدل الصورة بأخرى تتوافق مع سياسات Meta (لا نص يزيد عن 20%، لا محتوى مضلل)",
+          "تجنب الصور التي تُظهر قبل/بعد أو تعد بنتائج مضمونة",
+          "أعد تشغيل الإعلان بعد تعديل الصورة",
+        ],
+        urgency: "critical",
+      };
+    }
+    if (combined.includes("video") || combined.includes("فيديو")) {
+      return {
+        title: "فيديو الإعلان مخالف لسياسات Meta",
+        steps: [
+          "راجع محتوى الفيديو وتأكد أنه لا يحتوي على ادعاءات صحية أو مالية مبالغ فيها",
+          "تأكد أن الفيديو لا يحتوي على موسيقى محمية بحقوق ملكية",
+          "أعد رفع الفيديو بعد التعديل أو استخدم فيديو بديل",
+          "راجع Meta Advertising Policies لقائمة المحتوى المحظور",
+        ],
+        urgency: "critical",
+      };
+    }
+    if (combined.includes("text") || combined.includes("نص") || combined.includes("copy")) {
+      return {
+        title: "نص الإعلان مخالف لسياسات Meta",
+        steps: [
+          "احذف أي ادعاءات غير مدعومة بدليل (\"أسرع\"، \"الأفضل\", \"مضمون\")",
+          "تجنب المقارنات المضللة مع منافسين",
+          "لا تستخدم لغة تخلق إحساساً زائفاً بالإلحاح",
+          "راجع وأعد صياغة النص الإعلاني ثم أعد تشغيل الإعلان",
+        ],
+        urgency: "critical",
+      };
+    }
+    if (combined.includes("landing page") || combined.includes("الصفحة") || combined.includes("url")) {
+      return {
+        title: "الـ Landing Page مخالف لسياسات Meta",
+        steps: [
+          "تأكد أن الصفحة المقصودة تعمل بشكل صحيح ولا تُعيد التوجيه",
+          "تأكد أن محتوى الصفحة يتطابق مع محتوى الإعلان",
+          "أضف صفحة Privacy Policy واضحة على الموقع",
+          "احذف أي Pop-ups مزعجة تظهر فور دخول الصفحة",
+          "تأكد أن الصفحة تعمل على الموبايل",
+        ],
+        urgency: "critical",
+      };
+    }
+    if (combined.includes("targeting") || combined.includes("استهداف")) {
+      return {
+        title: "مشكلة في إعدادات الاستهداف",
+        steps: [
+          "افتح إعدادات Ad Set وراجع خيارات الاستهداف",
+          "تأكد أن الفئة العمرية والموقع الجغرافي لا يخالفان سياسات الإعلانات",
+          "إذا كانت المنتجات حساسة (مالية، صحة، سياسة)، راجع متطلبات الاستهداف الخاصة",
+        ],
+        urgency: "critical",
+      };
+    }
+    return {
+      title: "الإعلان مرفوض بسبب مخالفة السياسات",
+      steps: [
+        `كود الخطأ: ${code} — راجع Meta Advertising Policies لمعرفة السبب بالتفصيل`,
+        "افتح Ads Manager وانقر على \"اعرف السبب\" بجانب الإعلان المرفوض",
+        "راجع محتوى الإعلان (نص، صورة، فيديو، وجهة الرابط) وعدّل ما يخالف السياسات",
+        "إذا اعتقدت أن القرار خاطئ، اضغط على \"طعن في القرار\" من Ads Manager",
+      ],
+      urgency: "critical",
+    };
+  }
+
+  // ── AUDIENCE / DELIVERY ISSUES ──
+  if (combined.includes("audience") || combined.includes("أوديانس") || combined.includes("reach") || combined.includes("وصول")) {
+    return {
+      title: "الأوديانس ضيق جداً — تعذّر التسليم",
+      steps: [
+        "افتح Ad Set ووسّع الاستهداف (رفع الحد العمري، إضافة مناطق جغرافية أكثر)",
+        "فعّل خاصية Advantage+ Audience لتترك لـ Meta حرية العثور على المهتمين",
+        "أضف Interests بديلة أو وسّع Lookalike من 1% إلى 3–5%",
+        "احذف القيود الزائدة (behavioral exclusions) إذا وُجدت",
+        "الهدف: أوديانس لا يقل عن 500,000 شخص",
+      ],
+      urgency: "high",
+    };
+  }
+
+  if (combined.includes("pixel") || combined.includes("بيكسل") || combined.includes("event") || combined.includes("conversion api")) {
+    return {
+      title: "البيكسل لا يستقبل بيانات كافية",
+      steps: [
+        "افتح Events Manager وتأكد أن البيكسل نشط ويستقبل أحداثاً",
+        "فعّل Conversions API (CAPI) بجانب البيكسل لتجنب مشاكل iOS",
+        "اختبر الأحداث باستخدام Test Events في Events Manager",
+        "تأكد أن حدث Purchase/Lead يُطلق بشكل صحيح على صفحة الشكر",
+        "إذا كانت البيانات شحيحة، غيّر optimization event لحدث أعلى في الفانل (AddToCart أو ViewContent)",
+      ],
+      urgency: "high",
+    };
+  }
+
+  if (combined.includes("learning") || combined.includes("تعلم") || combined.includes("learning limited")) {
+    return {
+      title: "الإعلان في وضع 'Learning Limited'",
+      steps: [
+        "زِد الميزانية اليومية — القاعدة: الميزانية = CPA المستهدف × 5 على الأقل",
+        "ادمج Ad Sets المتشابهة في ad set واحد لتجميع التحويلات",
+        "إذا كان الحدث المحسَّن نادر (Purchase)، حوّل لـ AddToCart مؤقتاً حتى تتجمع بيانات كافية",
+        "قلّل التعديلات اليدوية على الإعلانات — كل تعديل يُعيد التعلم من الصفر",
+        "أعط الإعلان 7 أيام على الأقل قبل الحكم عليه",
+      ],
+      urgency: "high",
+    };
+  }
+
+  if (combined.includes("budget") || combined.includes("ميزانية") || combined.includes("minimum")) {
+    return {
+      title: "الميزانية أقل من الحد الأدنى للتسليم",
+      steps: [
+        "ارفع الميزانية اليومية فوق الحد الأدنى المطلوب (عادةً 5–10 دولار/يوم)",
+        "تحقق من أن ميزانية الحملة (Campaign Budget) لم تنته",
+        "إذا كانت ميزانية الحساب محدودة، ارفع Account Spending Limit في إعدادات الدفع",
+      ],
+      urgency: "high",
+    };
+  }
+
+  if (combined.includes("payment") || combined.includes("billing") || combined.includes("دفع") || combined.includes("فاتورة")) {
+    return {
+      title: "مشكلة في طريقة الدفع",
+      steps: [
+        "افتح إعدادات Billing في Business Manager",
+        "تأكد من صحة بيانات البطاقة وأن لها رصيد كافٍ",
+        "أضف طريقة دفع احتياطية إذا لم تكن موجودة",
+        "إذا كان الحساب مُوقَفاً بسبب الدفع، ادفع الرصيد المستحق أولاً",
+      ],
+      urgency: "critical",
+    };
+  }
+
+  if (combined.includes("account") || combined.includes("حساب") || combined.includes("disabled") || combined.includes("suspended")) {
+    return {
+      title: "مشكلة على مستوى حساب الإعلانات",
+      steps: [
+        "تحقق من حالة حساب الإعلانات في Account Quality (facebook.com/accountquality)",
+        "إذا كان الحساب موقوفاً، قدّم طعناً عبر زر \"طلب مراجعة\"",
+        "تأكد أن Business Manager مرتبط بصفحة نشطة وموثّقة",
+        "تواصل مع دعم Meta إذا لم تُفلح الخطوات السابقة",
+      ],
+      urgency: "critical",
+    };
+  }
+
+  if (combined.includes("pending") || combined.includes("review") || combined.includes("مراجعة")) {
+    return {
+      title: "الإعلان قيد المراجعة من Meta",
+      steps: [
+        "المراجعة عادةً تستغرق من 30 دقيقة إلى 24 ساعة",
+        "لا تجري أي تعديلات على الإعلان أثناء المراجعة — هذا يُعيد العملية من الأول",
+        "إذا تأخرت المراجعة أكثر من 24 ساعة، تواصل مع دعم Meta",
+      ],
+      urgency: "medium",
+    };
+  }
+
+  if (combined.includes("paused") || combined.includes("متوقف")) {
+    return {
+      title: "الإعلان متوقف",
+      steps: [
+        "تحقق إذا كانت الحملة أو الـ Ad Set هي المتوقفة وليس الإعلان فقط",
+        "تأكد من تواريخ تشغيل الحملة — ربما انتهت مدتها",
+        "إذا كان التوقف مقصوداً، لا حاجة لأي إجراء",
+      ],
+      urgency: "medium",
+    };
+  }
+
+  // Default
+  return {
+    title: issue.summary || "مشكلة في تسليم الإعلان",
+    steps: [
+      "افتح Ads Manager واطلع على تفاصيل المشكلة بجانب الإعلان",
+      "راجع معلومات الإعلان (creative, targeting, budget) وابحث عن سبب المشكلة",
+      "إذا كانت المشكلة غير واضحة، تواصل مع دعم Meta مع ذكر كود الخطأ",
+    ],
+    urgency: "medium",
+  };
+}
+
+const STATUS_AR: Record<string, { label: string; color: string }> = {
+  WITH_ISSUES:      { label: "بها مشاكل",        color: "text-rose-600 dark:text-rose-400" },
+  DISAPPROVED:      { label: "مرفوض",             color: "text-rose-700 dark:text-rose-500" },
+  PENDING_REVIEW:   { label: "قيد المراجعة",      color: "text-amber-600 dark:text-amber-400" },
+  IN_PROCESS:       { label: "قيد المعالجة",      color: "text-amber-500 dark:text-amber-300" },
+  PAUSED:           { label: "متوقف",             color: "text-slate-500" },
+  CAMPAIGN_PAUSED:  { label: "الحملة متوقفة",     color: "text-slate-500" },
+  ADSET_PAUSED:     { label: "المجموعة متوقفة",   color: "text-slate-500" },
+};
+
+function urgencyBadge(u: FixSuggestion["urgency"]) {
+  if (u === "critical") return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-400">عاجل</span>;
+  if (u === "high")     return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400">مهم</span>;
+  return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-400">تنبيه</span>;
+}
+
+function AdIssueCard({ ad }: { ad: AdWithIssues }) {
+  const [open, setOpen] = useState(false);
+  const statusCfg = STATUS_AR[ad.effective_status ?? ""] ?? { label: ad.effective_status ?? "غير معروف", color: "text-slate-500" };
+  const isCritical = ad.effective_status === "DISAPPROVED" || ad.effective_status === "WITH_ISSUES";
+  const borderCls = isCritical
+    ? "border-rose-500/30 bg-rose-500/5"
+    : "border-amber-500/25 bg-amber-500/5";
+
+  const fixes = ad.issues.length > 0
+    ? ad.issues.map((iss) => ({ issue: iss, fix: getFixSuggestion(iss) }))
+    : [{ issue: { summary: ad.effective_status, error_message: "", error_code: 0, level: "" } as AdIssue, fix: getFixSuggestion({ summary: ad.effective_status, error_message: ad.effective_status, error_code: 0, level: "" } as AdIssue) }];
+
+  return (
+    <div className={`rounded-xl border ${borderCls} overflow-hidden`}>
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 text-right hover:bg-white/5 transition-colors"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ring-1 ring-current/20 ${statusCfg.color}`}>
+          {statusCfg.label}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold truncate">{ad.name}</div>
+          {ad.campaign_name && (
+            <div className="text-xs text-muted-foreground truncate">حملة: {ad.campaign_name}</div>
+          )}
+        </div>
+        <div className="shrink-0 flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{ad.issues.length > 0 ? `${ad.issues.length} مشكلة` : "تحذير"}</span>
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-border/50 px-4 py-3 space-y-4">
+          {fixes.map(({ issue, fix }, i) => (
+            <div key={i} className="space-y-2">
+              {/* Issue header */}
+              <div className="flex items-start gap-2">
+                {urgencyBadge(fix.urgency)}
+                <span className="text-sm font-bold">{fix.title}</span>
+                {(issue.error_code ?? 0) > 0 && (
+                  <span className="text-[10px] text-muted-foreground font-mono ml-auto shrink-0">
+                    #{issue.error_code}
+                  </span>
+                )}
+              </div>
+
+              {/* Original Meta message */}
+              {issue.error_message && (
+                <div className="flex items-start gap-1.5 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{issue.error_message}</span>
+                </div>
+              )}
+
+              {/* Fix steps */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                  <Wrench className="h-3.5 w-3.5" />
+                  خطوات الإصلاح
+                </div>
+                <ol className="space-y-1 pr-4">
+                  {fix.steps.map((step, si) => (
+                    <li key={si} className="text-xs text-muted-foreground list-decimal">
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeliveryWarningsPanel({ adIssues }: { adIssues: AdWithIssues[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (!adIssues || adIssues.length === 0) return null;
+
+  const criticalCount = adIssues.filter(
+    (a) => a.effective_status === "DISAPPROVED" || a.effective_status === "WITH_ISSUES"
+  ).length;
+  const warnCount = adIssues.length - criticalCount;
+
+  return (
+    <div className="space-y-3">
+      <button
+        className="w-full flex items-center gap-2 text-right"
+        onClick={() => setCollapsed((c) => !c)}
+      >
+        <AlertTriangle className={`h-4 w-4 shrink-0 ${criticalCount > 0 ? "text-rose-500" : "text-amber-500"}`} />
+        <span className={`text-sm font-bold ${criticalCount > 0 ? "text-rose-700 dark:text-rose-400" : "text-amber-700 dark:text-amber-400"}`}>
+          تحذيرات التسليم
+        </span>
+        <div className="flex items-center gap-2 mr-1">
+          {criticalCount > 0 && (
+            <span className="text-[11px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-400 px-2 py-0.5 rounded-full">
+              {criticalCount} حرج
+            </span>
+          )}
+          {warnCount > 0 && (
+            <span className="text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full">
+              {warnCount} تنبيه
+            </span>
+          )}
+        </div>
+        <div className="mr-auto shrink-0 text-muted-foreground">
+          {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        </div>
+      </button>
+
+      {!collapsed && (
+        <div className="space-y-2">
+          {adIssues
+            .sort((a, b) => {
+              const order = ["DISAPPROVED", "WITH_ISSUES", "PENDING_REVIEW", "IN_PROCESS", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED"];
+              return (order.indexOf(a.effective_status ?? "") - order.indexOf(b.effective_status ?? ""));
+            })
+            .map((ad) => (
+              <AdIssueCard key={ad.id} ad={ad} />
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Trend chart
 // ──────────────────────────────────────────────────────────────
 function TrendChart({ daily }: { daily: AccountOverview["daily"] }) {
@@ -503,7 +862,7 @@ function AccountTabContent({
   }
 
   if (!overview.data) return null;
-  const { totals, prev_totals, campaigns, daily } = overview.data;
+  const { totals, prev_totals, campaigns, daily, ad_issues } = overview.data;
   const health = healthScore(overview.data);
   const activeCampaigns = campaigns.filter((c) => c.spend > 0);
 
@@ -520,6 +879,15 @@ function AccountTabContent({
 
       {/* Alerts */}
       <AccountAlerts overview={overview.data} />
+
+      {/* Delivery Warnings Panel */}
+      {ad_issues && ad_issues.length > 0 && (
+        <Card className="border-rose-500/20 bg-rose-500/3">
+          <CardContent className="pt-5 pb-4 px-5">
+            <DeliveryWarningsPanel adIssues={ad_issues} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
