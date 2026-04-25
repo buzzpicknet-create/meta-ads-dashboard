@@ -860,6 +860,41 @@ function OvDevBadge({ value, lowerIsBetter }: { value: number; lowerIsBetter: bo
   );
 }
 
+type SortKey = "score" | "frequency" | "cpa" | "ctr" | "cpc" | "purchases" | "spend";
+type SortDir = "asc" | "desc";
+
+function SortBtn({
+  label,
+  sortKey,
+  active,
+  dir,
+  onClick,
+  className = "",
+}: {
+  label: string;
+  sortKey: SortKey;
+  active: boolean;
+  dir: SortDir;
+  onClick: (k: SortKey) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={() => onClick(sortKey)}
+      className={`flex items-center justify-center gap-0.5 hover:text-foreground transition-colors ${active ? "text-primary font-bold" : ""} ${className}`}
+    >
+      {label}
+      {active ? (
+        dir === "asc"
+          ? <ChevronUp className="h-2.5 w-2.5" />
+          : <ChevronDown className="h-2.5 w-2.5" />
+      ) : (
+        <span className="h-2.5 w-2.5 opacity-30">↕</span>
+      )}
+    </button>
+  );
+}
+
 function CampaignBreakdown({
   campaigns,
   totals,
@@ -867,15 +902,37 @@ function CampaignBreakdown({
   campaigns: CampaignSummaryFull[];
   totals: DerivedMetrics;
 }) {
-  const rows = useMemo(
+  const baseRows = useMemo(
     () => buildCampaignRows(campaigns, totals.cpa, totals.ctr, totals.cpc),
     [campaigns, totals]
   );
 
+  const [sortKey, setSortKey] = useState<SortKey>("score");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // "lower is better" keys default asc so worst shows first, rest desc
+      setSortDir(key === "cpa" || key === "cpc" || key === "frequency" ? "desc" : "desc");
+    }
+  };
+
+  const rows = useMemo(() => {
+    const sorted = [...baseRows].sort((a, b) => {
+      const av = a[sortKey as keyof CampaignBreakdownRow] as number;
+      const bv = b[sortKey as keyof CampaignBreakdownRow] as number;
+      return sortDir === "asc" ? av - bv : bv - av;
+    });
+    return sorted;
+  }, [baseRows, sortKey, sortDir]);
+
   if (rows.length === 0) return null;
 
-  const worstCount = rows.filter((r) => r.score > 10).length;
-  const bestCount  = rows.filter((r) => r.score < -10).length;
+  const worstCount = baseRows.filter((r) => r.score > 10).length;
+  const bestCount  = baseRows.filter((r) => r.score < -10).length;
 
   return (
     <Card>
@@ -905,17 +962,24 @@ function CampaignBreakdown({
       <CardContent>
         <div className="space-y-2">
           {/* Desktop header */}
-          <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
-            <span>الحملة</span>
-            <span className="text-center w-12">Freq</span>
-            <span className="text-center w-16">CPA</span>
-            <span className="text-center w-16">CTR</span>
-            <span className="text-center w-16">CPC</span>
-            <span className="text-center w-14">أوردر</span>
+          <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
+            <button
+              onClick={() => handleSort("score")}
+              className={`flex items-center gap-0.5 hover:text-foreground transition-colors text-start ${sortKey === "score" ? "text-primary font-bold" : "font-bold"}`}
+            >
+              الحملة
+              {sortKey === "score" && (sortDir === "asc" ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />)}
+              {sortKey !== "score" && <span className="opacity-30">↕</span>}
+            </button>
+            <SortBtn label="FREQ" sortKey="frequency" active={sortKey === "frequency"} dir={sortDir} onClick={handleSort} className="w-12" />
+            <SortBtn label="CPA"  sortKey="cpa"       active={sortKey === "cpa"}       dir={sortDir} onClick={handleSort} className="w-16" />
+            <SortBtn label="CTR"  sortKey="ctr"       active={sortKey === "ctr"}       dir={sortDir} onClick={handleSort} className="w-16" />
+            <SortBtn label="CPC"  sortKey="cpc"       active={sortKey === "cpc"}       dir={sortDir} onClick={handleSort} className="w-16" />
+            <SortBtn label="أوردر" sortKey="purchases" active={sortKey === "purchases"} dir={sortDir} onClick={handleSort} className="w-14" />
           </div>
-          {rows.map((r, i) => {
-            const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
-            const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
+          {rows.map((r) => {
+            const isWorst = r.score > 10;
+            const isBest  = r.score < -10;
             const rowBg = isWorst ? "bg-rose-500/5 ring-1 ring-rose-500/10" : isBest ? "bg-emerald-500/5 ring-1 ring-emerald-500/10" : "bg-muted/20";
             return (
               <div key={r.id}>
