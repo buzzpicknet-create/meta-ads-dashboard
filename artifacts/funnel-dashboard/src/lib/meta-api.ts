@@ -51,12 +51,15 @@ export interface DerivedMetrics {
   crLpv: number;
   crClick: number;
   hookRate: number;
+  frequency: number;
 }
 
 export interface DailyPoint {
   day: string;
   spend: number;
   impressions: number;
+  reach: number;
+  frequency: number;
   link_clicks: number;
   lpv: number;
   purchases: number;
@@ -77,6 +80,8 @@ export interface SegmentEntry {
   label: string;
   spend: number;
   impressions: number;
+  reach: number;
+  frequency: number;
   link_clicks: number;
   lpv: number;
   purchases: number;
@@ -135,6 +140,8 @@ export interface CampaignSummaryFull {
   purchases: number;
   cpa: number;
   impressions: number;
+  reach: number;
+  frequency: number;
   link_clicks: number;
   lpv: number;
   ctr: number;

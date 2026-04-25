@@ -57,7 +57,9 @@ import {
   analyzeTrends,
   buildInsight,
   buildPrediction,
+  buildFrequencyAlert,
   type MetricTrend,
+  type FrequencyAlert,
 } from "@/lib/trend-analysis";
 import {
   type AccountOverview,
@@ -263,10 +265,56 @@ function OvMetricAlertCard({ trend }: { trend: MetricTrend }) {
   );
 }
 
+function OvFreqBadge({ freq }: { freq: number | undefined }) {
+  if (!freq || freq <= 0) return <span className="text-[10px] text-muted-foreground">—</span>;
+  const cls =
+    freq < 2    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+    freq < 3.5  ? "bg-sky-500/15 text-sky-700 dark:text-sky-400" :
+    freq < 5    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+    freq < 7    ? "bg-orange-500/15 text-orange-700 dark:text-orange-400" :
+                  "bg-rose-500/15 text-rose-700 dark:text-rose-400";
+  return (
+    <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${cls}`}>
+      {freq.toFixed(1)}x
+    </span>
+  );
+}
+
+function OvFrequencyCard({ alert }: { alert: FrequencyAlert }) {
+  const levelCls: Record<string, string> = {
+    fresh:     "bg-emerald-500/8 ring-emerald-500/20 text-emerald-700 dark:text-emerald-400",
+    normal:    "bg-sky-500/8 ring-sky-500/20 text-sky-700 dark:text-sky-400",
+    warning:   "bg-amber-500/8 ring-amber-500/20 text-amber-700 dark:text-amber-400",
+    danger:    "bg-orange-500/8 ring-orange-500/20 text-orange-700 dark:text-orange-400",
+    saturated: "bg-rose-500/8 ring-rose-500/20 text-rose-700 dark:text-rose-400",
+  };
+  const TrendIcon = alert.trend === "rising" ? TrendingUp : alert.trend === "falling" ? TrendingDown : Activity;
+  return (
+    <div className={`rounded-xl ring-1 px-4 py-3 space-y-1.5 ${levelCls[alert.level]}`}>
+      <div className="flex items-center gap-2">
+        <TrendIcon className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-xs font-bold">تشبع الجمهور (Frequency)</span>
+        <span className="mr-auto text-[10px] font-bold">{alert.frequency.toFixed(2)}x</span>
+        {alert.trend === "rising" && alert.consecutiveRising >= 2 && (
+          <span className="text-[10px] font-bold">↑ {alert.consecutiveRising} أيام</span>
+        )}
+      </div>
+      <div className="text-xs font-medium">{alert.headline}</div>
+      <div className="text-[11px] text-muted-foreground">{alert.action}</div>
+      {alert.trend === "rising" && alert.predictedIn3Days > alert.frequency && (
+        <div className="text-[10px] font-medium">
+          التوقع بعد 3 أيام: <span className="font-bold">{alert.predictedIn3Days.toFixed(1)}x</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OvTrendAlertsPanel({ daily, totals }: { daily: DailyPoint[]; totals: DerivedMetrics }) {
-  const trends   = useMemo(() => analyzeTrends(daily), [daily]);
+  const trends    = useMemo(() => analyzeTrends(daily), [daily]);
+  const freqAlert = useMemo(() => buildFrequencyAlert(daily), [daily]);
   const prediction = useMemo(() => buildPrediction(daily, trends), [daily, trends]);
-  const active   = trends.filter((t) => t.direction !== "stable");
+  const active    = trends.filter((t) => t.direction !== "stable");
   if (daily.length < 3) return null;
 
   const verdictCfg = {
@@ -299,6 +347,12 @@ function OvTrendAlertsPanel({ daily, totals }: { daily: DailyPoint[]; totals: De
             جميع المؤشرات مستقرة — لا توجد اتجاهات سلبية
           </div>
         )}
+
+        {/* Frequency / Audience Saturation */}
+        {freqAlert && (freqAlert.level !== "fresh" || freqAlert.trend === "rising") && (
+          <OvFrequencyCard alert={freqAlert} />
+        )}
+
         {prediction && prediction.predictedCpa3d > 0 && (
           <div className={`rounded-xl ring-1 px-4 py-3 space-y-1.5 ${prediction.verdict === "danger" ? "bg-rose-500/5 ring-rose-500/20" : prediction.verdict === "scale" ? "bg-emerald-500/5 ring-emerald-500/20" : "bg-muted/40 ring-border"}`}>
             <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">توقع الأداء خلال 3 أيام</div>
@@ -429,6 +483,7 @@ interface CampaignBreakdownRow {
   cpa: number;
   ctr: number;
   cpc: number;
+  frequency: number;
   cpaDev: number;
   ctrDev: number;
   cpcDev: number;
@@ -448,7 +503,7 @@ function buildCampaignRows(
       const ctrDev = avgCtr > 0 && c.ctr > 0 ? ((c.ctr - avgCtr) / avgCtr) * 100 : 0;
       const cpcDev = avgCpc > 0 && c.cpc > 0 ? ((c.cpc - avgCpc) / avgCpc) * 100 : 0;
       const score = cpaDev * 0.5 - ctrDev * 0.3 + cpcDev * 0.2;
-      return { id: c.id, name: c.name, spend: c.spend, purchases: c.purchases, cpa: c.cpa, ctr: c.ctr, cpc: c.cpc, cpaDev, ctrDev, cpcDev, score };
+      return { id: c.id, name: c.name, spend: c.spend, purchases: c.purchases, cpa: c.cpa, ctr: c.ctr, cpc: c.cpc, frequency: c.frequency ?? 0, cpaDev, ctrDev, cpcDev, score };
     })
     .sort((a, b) => b.score - a.score);
 }
@@ -508,8 +563,9 @@ function CampaignBreakdown({
       </CardHeader>
       <CardContent>
         <div className="space-y-1.5">
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
             <span>الحملة</span>
+            <span className="text-center w-12">Freq</span>
             <span className="text-center w-16">CPA</span>
             <span className="text-center w-16">CTR</span>
             <span className="text-center w-16">CPC</span>
@@ -520,7 +576,7 @@ function CampaignBreakdown({
             const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
             const rowBg = isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : "";
             return (
-              <div key={r.id} className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
+              <div key={r.id} className={`grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
@@ -528,6 +584,9 @@ function CampaignBreakdown({
                     <span className="text-xs font-medium truncate">{r.name}</span>
                   </div>
                   <span className="text-[10px] text-muted-foreground">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP</span>
+                </div>
+                <div className="flex justify-center w-12">
+                  <OvFreqBadge freq={r.frequency} />
                 </div>
                 <div className="flex flex-col items-center gap-0.5 w-16">
                   <span className="text-xs font-bold">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>

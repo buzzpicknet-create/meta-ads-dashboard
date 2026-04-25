@@ -52,7 +52,9 @@ import {
   analyzeTrends,
   buildInsight,
   buildPrediction,
+  buildFrequencyAlert,
   type MetricTrend,
+  type FrequencyAlert,
 } from "@/lib/trend-analysis";
 import { useCampaigns, useInsights, useAccount, useAccounts } from "@/hooks/use-meta";
 import {
@@ -1415,8 +1417,54 @@ function MetricAlertCard({ trend }: { trend: MetricTrend }) {
   );
 }
 
+function FreqBadge({ freq }: { freq: number | undefined }) {
+  if (!freq || freq <= 0) return <span className="text-[10px] text-muted-foreground">—</span>;
+  const cls =
+    freq < 2    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+    freq < 3.5  ? "bg-sky-500/15 text-sky-700 dark:text-sky-400" :
+    freq < 5    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+    freq < 7    ? "bg-orange-500/15 text-orange-700 dark:text-orange-400" :
+                  "bg-rose-500/15 text-rose-700 dark:text-rose-400";
+  return (
+    <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${cls}`}>
+      {freq.toFixed(1)}x
+    </span>
+  );
+}
+
+function FrequencyCard({ alert }: { alert: FrequencyAlert }) {
+  const levelCls: Record<string, string> = {
+    fresh:     "bg-emerald-500/8 ring-emerald-500/20 text-emerald-700 dark:text-emerald-400",
+    normal:    "bg-sky-500/8 ring-sky-500/20 text-sky-700 dark:text-sky-400",
+    warning:   "bg-amber-500/8 ring-amber-500/20 text-amber-700 dark:text-amber-400",
+    danger:    "bg-orange-500/8 ring-orange-500/20 text-orange-700 dark:text-orange-400",
+    saturated: "bg-rose-500/8 ring-rose-500/20 text-rose-700 dark:text-rose-400",
+  };
+  const TrendIcon = alert.trend === "rising" ? TrendingUp : alert.trend === "falling" ? TrendingDown : Activity;
+  return (
+    <div className={`rounded-xl ring-1 px-4 py-3 space-y-1.5 ${levelCls[alert.level]}`}>
+      <div className="flex items-center gap-2">
+        <TrendIcon className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-xs font-bold">تشبع الجمهور (Frequency)</span>
+        <span className="mr-auto text-[10px] font-bold num">{alert.frequency.toFixed(2)}x</span>
+        {alert.trend === "rising" && alert.consecutiveRising >= 2 && (
+          <span className="text-[10px] font-bold">↑ {alert.consecutiveRising} أيام</span>
+        )}
+      </div>
+      <div className="text-xs font-medium">{alert.headline}</div>
+      <div className="text-[11px] text-muted-foreground">{alert.action}</div>
+      {alert.trend === "rising" && alert.predictedIn3Days > alert.frequency && (
+        <div className="text-[10px] font-medium">
+          التوقع بعد 3 أيام: <span className="num font-bold">{alert.predictedIn3Days.toFixed(1)}x</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrendAlertsPanel({ daily, totals }: { daily: CampaignInsights["daily"]; totals: DerivedMetrics }) {
-  const trends = useMemo(() => analyzeTrends(daily), [daily]);
+  const trends    = useMemo(() => analyzeTrends(daily), [daily]);
+  const freqAlert = useMemo(() => buildFrequencyAlert(daily), [daily]);
   const prediction = useMemo(() => buildPrediction(daily, trends), [daily, trends]);
 
   const active = trends.filter((t) => t.direction !== "stable");
@@ -1452,6 +1500,11 @@ function TrendAlertsPanel({ daily, totals }: { daily: CampaignInsights["daily"];
             <CheckCircle2 className="h-4 w-4 shrink-0" />
             جميع المؤشرات مستقرة — لا توجد اتجاهات سلبية
           </div>
+        )}
+
+        {/* Frequency / Audience Saturation */}
+        {freqAlert && (freqAlert.level !== "fresh" || freqAlert.trend === "rising") && (
+          <FrequencyCard alert={freqAlert} />
         )}
 
         {/* Prediction Row */}
@@ -1574,13 +1627,15 @@ function DevBadge({ value, lowerIsBetter }: { value: number; lowerIsBetter: bool
   );
 }
 
-function DevBreakdownTable({ rows, label }: { rows: BreakdownRow[]; label: string }) {
+function DevBreakdownTable({ rows, label, segments }: { rows: BreakdownRow[]; label: string; segments: SegmentEntry[] }) {
   if (rows.length === 0) return <div className="text-sm text-muted-foreground text-center py-4">لا توجد بيانات لـ {label}</div>;
+  const freqMap = new Map(segments.map((s) => [s.key, s.frequency ?? 0]));
   return (
     <div className="space-y-1.5">
       {/* Header */}
-      <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
+      <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
         <span>{label}</span>
+        <span className="text-center w-12">Freq</span>
         <span className="text-center w-16">CPA</span>
         <span className="text-center w-16">CTR</span>
         <span className="text-center w-16">CPC</span>
@@ -1590,8 +1645,9 @@ function DevBreakdownTable({ rows, label }: { rows: BreakdownRow[]; label: strin
         const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
         const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
         const rowBg = isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : "";
+        const freq = freqMap.get(r.key) ?? 0;
         return (
-          <div key={r.key} className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
+          <div key={r.key} className={`grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
@@ -1599,6 +1655,9 @@ function DevBreakdownTable({ rows, label }: { rows: BreakdownRow[]; label: strin
                 <span className="text-xs font-medium truncate">{r.label}</span>
               </div>
               <span className="text-[10px] text-muted-foreground num">{fmt(r.spend, 0)} EGP</span>
+            </div>
+            <div className="flex justify-center w-12">
+              <FreqBadge freq={freq} />
             </div>
             <div className="flex flex-col items-center gap-0.5 w-16">
               <span className="text-xs font-bold num">{r.cpa > 0 ? fmt(r.cpa, 0) : "—"}</span>
@@ -1680,7 +1739,7 @@ function BreakdownByAdsetAd({
         </div>
       </CardHeader>
       <CardContent>
-        <DevBreakdownTable rows={activeRows} label={view === "adset" ? "المجموعة الإعلانية" : "الإعلان"} />
+        <DevBreakdownTable rows={activeRows} label={view === "adset" ? "المجموعة الإعلانية" : "الإعلان"} segments={view === "adset" ? byAdset : byAd} />
       </CardContent>
     </Card>
   );

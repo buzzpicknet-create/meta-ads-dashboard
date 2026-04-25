@@ -184,6 +184,7 @@ export interface DerivedMetrics extends AggregatedMetrics {
   crLpv: number;
   crClick: number;
   hookRate: number;
+  frequency: number;
 }
 
 export function derive(m: AggregatedMetrics): DerivedMetrics {
@@ -196,8 +197,8 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
     lpvRate: m.link_clicks ? (m.lpv / m.link_clicks) * 100 : 0,
     crLpv: m.lpv ? (m.purchases / m.lpv) * 100 : 0,
     crClick: m.link_clicks ? (m.purchases / m.link_clicks) * 100 : 0,
-    // Hook rate proxy: video_play_actions / impressions (people who started watching)
     hookRate: m.impressions ? (m.video_plays / m.impressions) * 100 : 0,
+    frequency: m.reach > 0 ? m.impressions / m.reach : 0,
   };
 }
 
@@ -316,6 +317,8 @@ export interface DailyPoint {
   day: string;
   spend: number;
   impressions: number;
+  reach: number;
+  frequency: number;
   link_clicks: number;
   lpv: number;
   purchases: number;
@@ -336,6 +339,8 @@ export interface SegmentEntry {
   label: string;
   spend: number;
   impressions: number;
+  reach: number;
+  frequency: number;
   link_clicks: number;
   lpv: number;
   purchases: number;
@@ -477,6 +482,8 @@ export async function getCampaignInsights(opts: {
         day: r.date_start!,
         spend: acc.spend,
         impressions: acc.impressions,
+        reach: acc.reach,
+        frequency: d.frequency,
         link_clicks: acc.link_clicks,
         lpv: acc.lpv,
         purchases: acc.purchases,
@@ -507,6 +514,8 @@ export async function getCampaignInsights(opts: {
         label: v.name,
         spend: v.metrics.spend,
         impressions: v.metrics.impressions,
+        reach: v.metrics.reach,
+        frequency: d.frequency,
         link_clicks: v.metrics.link_clicks,
         lpv: v.metrics.lpv,
         purchases: v.metrics.purchases,
@@ -540,6 +549,8 @@ export async function getCampaignInsights(opts: {
         label: v.name,
         spend: v.metrics.spend,
         impressions: v.metrics.impressions,
+        reach: v.metrics.reach,
+        frequency: d.frequency,
         link_clicks: v.metrics.link_clicks,
         lpv: v.metrics.lpv,
         purchases: v.metrics.purchases,
@@ -600,6 +611,8 @@ export interface CampaignSummaryFull {
   purchases: number;
   cpa: number;
   impressions: number;
+  reach: number;
+  frequency: number;
   link_clicks: number;
   lpv: number;
   ctr: number;
@@ -738,6 +751,8 @@ export async function getAccountOverview(opts: {
       purchases: m.purchases,
       cpa: d.cpa,
       impressions: m.impressions,
+      reach: m.reach,
+      frequency: d.frequency,
       link_clicks: m.link_clicks,
       lpv: m.lpv,
       ctr: d.ctr,
@@ -759,6 +774,8 @@ export async function getAccountOverview(opts: {
         day: r.date_start!,
         spend: acc.spend,
         impressions: acc.impressions,
+        reach: acc.reach,
+        frequency: d.frequency,
         link_clicks: acc.link_clicks,
         lpv: acc.lpv,
         purchases: acc.purchases,

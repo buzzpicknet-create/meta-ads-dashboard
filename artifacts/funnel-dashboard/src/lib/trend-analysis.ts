@@ -7,6 +7,99 @@ export interface DailyCalc {
   cpc: number;
   spend: number;
   purchases: number;
+  frequency: number;
+}
+
+// ── Frequency / Audience Saturation ─────────────────────────────────────────
+
+export type FrequencyLevel = "fresh" | "normal" | "warning" | "danger" | "saturated";
+
+export interface FrequencyAlert {
+  level: FrequencyLevel;
+  frequency: number;
+  trend: "rising" | "stable" | "falling";
+  trendPerDay: number;       // slope (how much freq grows per day)
+  consecutiveRising: number; // consecutive days frequency increased
+  predictedIn3Days: number;
+  headline: string;
+  action: string;
+}
+
+function freqLevel(f: number): FrequencyLevel {
+  if (f < 2.0)  return "fresh";
+  if (f < 3.5)  return "normal";
+  if (f < 5.0)  return "warning";
+  if (f < 7.0)  return "danger";
+  return "saturated";
+}
+
+function freqLevelLabel(l: FrequencyLevel): string {
+  switch (l) {
+    case "fresh":     return "جمهور طازج";
+    case "normal":    return "تعرّض صحي";
+    case "warning":   return "بدأ التشبع";
+    case "danger":    return "تشبع عالٍ";
+    case "saturated": return "جمهور مشبع";
+  }
+}
+
+export function buildFrequencyAlert(daily: DailyPoint[]): FrequencyAlert | null {
+  const active = daily
+    .filter((d) => d.spend > 0 && d.frequency > 0)
+    .slice(-7);
+  if (active.length < 2) return null;
+
+  const freqVals = active.map((d) => d.frequency);
+  const current = freqVals[freqVals.length - 1];
+  const slope = linSlope(freqVals);
+  const predicted = Math.max(0, current + slope * 3);
+
+  let consecutiveRising = 0;
+  for (let i = freqVals.length - 1; i > 0; i--) {
+    if (freqVals[i] > freqVals[i - 1]) consecutiveRising++;
+    else break;
+  }
+
+  const trend: FrequencyAlert["trend"] =
+    slope > 0.1 ? "rising" : slope < -0.1 ? "falling" : "stable";
+
+  const level = freqLevel(current);
+  const predictedLevel = freqLevel(predicted);
+
+  let headline = "";
+  let action = "";
+
+  switch (level) {
+    case "fresh":
+      headline = `التكرار ${current.toFixed(1)}x — الجمهور طازج ولم يشبع بعد`;
+      action = "حافظ على الزخم الحالي — يمكن توسيع الميزانية بأمان";
+      break;
+    case "normal":
+      headline = `التكرار ${current.toFixed(1)}x — تعرّض طبيعي`;
+      action = trend === "rising"
+        ? "التكرار يرتفع تدريجياً — ابدأ في تحضير كريتف احتياطي"
+        : "الوضع مستقر — تابع الأرقام يومياً";
+      break;
+    case "warning":
+      headline = `التكرار ${current.toFixed(1)}x — بدأ التشبع${consecutiveRising >= 2 ? ` (${consecutiveRising} أيام متصاعدة)` : ""}`;
+      action = "جدّد الكريتف الآن — جرّب Look-alike Audience جديد";
+      break;
+    case "danger":
+      headline = `⚠️ التكرار ${current.toFixed(1)}x — تشبع عالٍ${consecutiveRising >= 2 ? ` (${consecutiveRising} أيام متصاعدة)` : ""}`;
+      action = "غيّر الكريتف فوراً — وسّع الاستهداف — أو أوقف الحملة مؤقتاً";
+      break;
+    case "saturated":
+      headline = `🚨 التكرار ${current.toFixed(1)}x — الجمهور مشبع تماماً`;
+      action = "أوقف الإعلان الحالي — غيّر الكريتف والأوديانس بشكل كامل";
+      break;
+  }
+
+  // Upgrade urgency if predicted level is worse
+  if (trend === "rising" && predictedLevel !== level && ["warning","danger","saturated"].includes(predictedLevel)) {
+    action += ` (التكرار سيصل ${predicted.toFixed(1)}x خلال 3 أيام)`;
+  }
+
+  return { level, frequency: current, trend, trendPerDay: slope, consecutiveRising, predictedIn3Days: predicted, headline, action };
 }
 
 export type TrendDir = "worsening" | "improving" | "stable";
@@ -77,6 +170,7 @@ export function calcDailyMetrics(daily: DailyPoint[]): DailyCalc[] {
       cpc: d.link_clicks > 0 ? d.spend / d.link_clicks : 0,
       spend: d.spend,
       purchases: d.purchases,
+      frequency: d.frequency ?? (d.reach > 0 ? d.impressions / d.reach : 0),
     }));
 }
 
