@@ -633,19 +633,13 @@ export default function ActivityPage() {
       if (campaignName) map[String(as.id)] = campaignName;
     });
 
-    // 3. From campaign-level activities (catches very recent / just-created campaigns)
-    metaList.forEach((act) => {
-      const t = (act.event_type ?? "").toLowerCase();
-      if (
-        (t.includes("campaign") || t === "first_delivery_event") &&
-        act.object_id && act.object_name
-      ) {
-        map[String(act.object_id)] = act.object_name;
-      }
-    });
+    // NOTE: We intentionally do NOT use activities as a source here.
+    // Some adset events (e.g. update_campaign_budget_scheduling_state) contain
+    // "campaign" in their event_type but carry the adset name (like "Broad"),
+    // which would overwrite the correct campaign name in the map.
 
     return map;
-  }, [campaignsQuery.data, adsetsQuery.data, metaList]);
+  }, [campaignsQuery.data, adsetsQuery.data]);
 
   const validCount = metaList.filter((a) => !!toDate(a.event_time)).length;
 
