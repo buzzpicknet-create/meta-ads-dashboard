@@ -12,6 +12,13 @@ interface MediaRequest {
   status: string;
   priority: string;
   notes: string | null;
+  drive_link: string | null;
+  product_description: string | null;
+  angles: string | null;
+  scripts: string | null;
+  reference_links: string | null;
+  output_link: string | null;
+  upload_link: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -39,7 +46,9 @@ interface AuditLogEntry {
 router.get("/media-requests", async (_req, res) => {
   try {
     const rows = await query<MediaRequest>(
-      `SELECT id, campaign_id, campaign_name, landing_url, status, priority, notes, created_at, updated_at
+      `SELECT id, campaign_id, campaign_name, landing_url, status, priority, notes,
+              drive_link, product_description, angles, scripts, reference_links,
+              output_link, upload_link, created_at, updated_at
        FROM media_requests
        WHERE deleted_at IS NULL
        ORDER BY
@@ -55,12 +64,18 @@ router.get("/media-requests", async (_req, res) => {
 
 // POST /api/media-requests
 router.post("/media-requests", async (req, res) => {
-  const { campaign_id, campaign_name, landing_url, priority, notes } = req.body as {
+  const { campaign_id, campaign_name, landing_url, priority, notes,
+          drive_link, product_description, angles, scripts, reference_links } = req.body as {
     campaign_id?: string;
     campaign_name: string;
     landing_url?: string;
     priority?: string;
     notes?: string;
+    drive_link?: string;
+    product_description?: string;
+    angles?: string;
+    scripts?: string;
+    reference_links?: string;
   };
 
   if (!campaign_name) {
@@ -69,10 +84,13 @@ router.post("/media-requests", async (req, res) => {
 
   try {
     const rows = await query<MediaRequest>(
-      `INSERT INTO media_requests (campaign_id, campaign_name, landing_url, status, priority, notes)
-       VALUES ($1, $2, $3, 'pending', $4, $5)
+      `INSERT INTO media_requests
+         (campaign_id, campaign_name, landing_url, status, priority, notes,
+          drive_link, product_description, angles, scripts, reference_links)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [campaign_id ?? null, campaign_name, landing_url ?? null, priority ?? "normal", notes ?? null]
+      [campaign_id ?? null, campaign_name, landing_url ?? null, priority ?? "normal", notes ?? null,
+       drive_link ?? null, product_description ?? null, angles ?? null, scripts ?? null, reference_links ?? null]
     );
     res.status(201).json({ request: rows[0] });
   } catch (err) {
@@ -83,12 +101,21 @@ router.post("/media-requests", async (req, res) => {
 // PATCH /api/media-requests/:id
 router.patch("/media-requests/:id", async (req, res) => {
   const id = Number(req.params["id"]);
-  const { status, priority, landing_url, notes, campaign_name } = req.body as {
+  const { status, priority, landing_url, notes, campaign_name,
+          drive_link, product_description, angles, scripts, reference_links,
+          output_link, upload_link } = req.body as {
     status?: string;
     priority?: string;
     landing_url?: string;
     notes?: string;
     campaign_name?: string;
+    drive_link?: string;
+    product_description?: string;
+    angles?: string;
+    scripts?: string;
+    reference_links?: string;
+    output_link?: string;
+    upload_link?: string;
   };
 
   const updates: string[] = [];
@@ -100,6 +127,13 @@ router.patch("/media-requests/:id", async (req, res) => {
   if (landing_url !== undefined) { updates.push(`landing_url = $${idx++}`); params.push(landing_url); }
   if (notes !== undefined) { updates.push(`notes = $${idx++}`); params.push(notes); }
   if (campaign_name !== undefined) { updates.push(`campaign_name = $${idx++}`); params.push(campaign_name); }
+  if (drive_link !== undefined) { updates.push(`drive_link = $${idx++}`); params.push(drive_link); }
+  if (product_description !== undefined) { updates.push(`product_description = $${idx++}`); params.push(product_description); }
+  if (angles !== undefined) { updates.push(`angles = $${idx++}`); params.push(angles); }
+  if (scripts !== undefined) { updates.push(`scripts = $${idx++}`); params.push(scripts); }
+  if (reference_links !== undefined) { updates.push(`reference_links = $${idx++}`); params.push(reference_links); }
+  if (output_link !== undefined) { updates.push(`output_link = $${idx++}`); params.push(output_link); }
+  if (upload_link !== undefined) { updates.push(`upload_link = $${idx++}`); params.push(upload_link); }
 
   if (updates.length === 0) {
     return res.status(400).json({ error: "No fields to update" });

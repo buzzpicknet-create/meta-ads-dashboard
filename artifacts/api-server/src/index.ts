@@ -62,6 +62,15 @@ async function runMigrations() {
   // Soft delete support
   await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
   await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS deleted_reason TEXT`);
+  // Rich brief fields
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS drive_link TEXT`);
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS product_description TEXT`);
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS angles TEXT`);
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS scripts TEXT`);
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS reference_links TEXT`);
+  // Delivery fields
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS output_link TEXT`);
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS upload_link TEXT`);
   // Prevent duplicate active requests for the same campaign_id (race-condition safe)
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS media_requests_campaign_active

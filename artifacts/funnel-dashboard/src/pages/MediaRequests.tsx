@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Clapperboard, Plus, ExternalLink, ChevronDown, Check, Loader2, AlertCircle,
   ScanSearch, RefreshCw, Clock, ThumbsUp, ThumbsDown, ChevronDown as ChevDown,
-  Trash2, History,
+  Trash2, History, Film, Link2, FileText, Layers, BookOpen, Video, Upload,
+  Pencil, X, ChevronRight as ChevRight,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -17,6 +18,13 @@ interface MediaRequest {
   status: string;
   priority: string;
   notes: string | null;
+  drive_link: string | null;
+  product_description: string | null;
+  angles: string | null;
+  scripts: string | null;
+  reference_links: string | null;
+  output_link: string | null;
+  upload_link: string | null;
   created_at: string;
 }
 
@@ -127,6 +135,28 @@ function formatDate(isoString: string): string {
   }).format(new Date(isoString));
 }
 
+// ─── Shared field input helpers ───────────────────────────────────────────────
+function FieldInput({ label, icon, value, onChange, placeholder, type = "text", rows }: {
+  label: string; icon: ReactNode; value: string; onChange: (v: string) => void;
+  placeholder?: string; type?: string; rows?: number;
+}) {
+  return (
+    <div>
+      <label className="flex items-center gap-1.5 text-xs font-medium mb-1.5 text-muted-foreground">
+        {icon}{label}
+      </label>
+      {rows ? (
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={rows}
+          className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
+      ) : (
+        <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+          dir={type === "url" ? "ltr" : undefined}
+          className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary" />
+      )}
+    </div>
+  );
+}
+
 // ─── Add Request Modal ────────────────────────────────────────────────────────
 function AddRequestModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -141,6 +171,12 @@ function AddRequestModal({ onClose }: { onClose: () => void }) {
   const [priority, setPriority] = useState("normal");
   const [notes, setNotes] = useState("");
   const [useCustom, setUseCustom] = useState(false);
+  const [showBrief, setShowBrief] = useState(false);
+  const [driveLink, setDriveLink] = useState("");
+  const [productDesc, setProductDesc] = useState("");
+  const [angles, setAngles] = useState("");
+  const [scripts, setScripts] = useState("");
+  const [referenceLinks, setReferenceLinks] = useState("");
 
   const mutation = useMutation({
     mutationFn: (body: object) =>
@@ -164,13 +200,24 @@ function AddRequestModal({ onClose }: { onClose: () => void }) {
   const handleSubmit = () => {
     const name = useCustom ? campaignName : campaigns.find((c) => c.id === campaignId)?.name ?? campaignName;
     if (!name) return;
-    mutation.mutate({ campaign_id: useCustom ? null : campaignId || null, campaign_name: name, landing_url: landingUrl || null, priority, notes: notes || null });
+    mutation.mutate({
+      campaign_id: useCustom ? null : campaignId || null,
+      campaign_name: name,
+      landing_url: landingUrl || null,
+      priority,
+      notes: notes || null,
+      drive_link: driveLink || null,
+      product_description: productDesc || null,
+      angles: angles || null,
+      scripts: scripts || null,
+      reference_links: referenceLinks || null,
+    });
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-background border border-border shadow-2xl" dir="rtl">
-        <div className="flex items-center justify-between border-b border-border p-5">
+      <div className="w-full max-w-xl rounded-2xl bg-background border border-border shadow-2xl max-h-[90vh] flex flex-col" dir="rtl">
+        <div className="flex items-center justify-between border-b border-border p-5 shrink-0">
           <div className="flex items-center gap-2">
             <Clapperboard className="h-5 w-5 text-primary" />
             <h2 className="text-lg font-bold">طلب ميديا جديدة</h2>
@@ -178,7 +225,7 @@ function AddRequestModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">✕</button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
           <div className="flex items-center gap-2 text-sm">
             <button onClick={() => setUseCustom(false)} className={`px-3 py-1.5 rounded-lg transition-colors ${!useCustom ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}>من الحملات النشطة</button>
             <button onClick={() => setUseCustom(true)} className={`px-3 py-1.5 rounded-lg transition-colors ${useCustom ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}>إدخال يدوي</button>
@@ -202,10 +249,7 @@ function AddRequestModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5">لينك اللاندينج بيدج</label>
-            <input type="url" value={landingUrl} onChange={(e) => setLandingUrl(e.target.value)} placeholder="https://..." className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm" dir="ltr" />
-          </div>
+          <FieldInput label="لينك اللاندينج بيدج" icon={<Link2 className="h-3 w-3" />} value={landingUrl} onChange={setLandingUrl} placeholder="https://..." type="url" />
 
           <div>
             <label className="block text-sm font-medium mb-1.5">الأولوية</label>
@@ -219,17 +263,181 @@ function AddRequestModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1.5">ملاحظات للفريق</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="أي تعليمات أو ملاحظات مهمة للفريق..." rows={3} className="w-full rounded-xl border border-border bg-muted/30 px-4 py-2.5 text-sm resize-none" />
+          <FieldInput label="ملاحظات للفريق" icon={<FileText className="h-3 w-3" />} value={notes} onChange={setNotes} placeholder="أي تعليمات أو ملاحظات مهمة للفريق..." rows={2} />
+
+          {/* Brief section */}
+          <div className="border border-dashed border-border rounded-xl overflow-hidden">
+            <button onClick={() => setShowBrief((p) => !p)} className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-muted-foreground hover:bg-muted/50 transition-colors">
+              <Film className="h-4 w-4 text-primary" />
+              تفاصيل البريف
+              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full mr-1">اختياري</span>
+              <ChevDown className={`h-4 w-4 mr-auto transition-transform ${showBrief ? "rotate-180" : ""}`} />
+            </button>
+            {showBrief && (
+              <div className="p-4 pt-0 space-y-3 border-t border-border/50">
+                <FieldInput label="لينك درايف الماتيريل" icon={<Link2 className="h-3 w-3" />} value={driveLink} onChange={setDriveLink} placeholder="https://drive.google.com/..." type="url" />
+                <FieldInput label="تعريف المنتج" icon={<FileText className="h-3 w-3" />} value={productDesc} onChange={setProductDesc} placeholder="اكتب تعريفاً مختصراً عن المنتج..." rows={2} />
+                <FieldInput label="الزوايا (Angles)" icon={<Layers className="h-3 w-3" />} value={angles} onChange={setAngles} placeholder="مثلاً: زاوية المشكلة، زاوية الفائدة، زاوية السعر..." rows={3} />
+                <FieldInput label="السكريبتات" icon={<BookOpen className="h-3 w-3" />} value={scripts} onChange={setScripts} placeholder="أكتب السكريبت أو الخطوط الرئيسية..." rows={4} />
+                <FieldInput label="الريفيرنس (نماذج ناجحة)" icon={<Video className="h-3 w-3" />} value={referenceLinks} onChange={setReferenceLinks} placeholder="روابط فيديوهات أو أوصاف لحملات ناجحة..." rows={2} />
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border p-5">
+        <div className="flex items-center justify-end gap-2 border-t border-border p-5 shrink-0">
           <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-muted-foreground hover:bg-muted">إلغاء</button>
           <button onClick={handleSubmit} disabled={mutation.isPending || (!campaignId && !campaignName)} className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50">
             {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             إضافة الطلب
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Request Modal ───────────────────────────────────────────────────────
+function EditRequestModal({ req, onClose }: { req: MediaRequest; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [landingUrl, setLandingUrl] = useState(req.landing_url ?? "");
+  const [priority, setPriority] = useState(req.priority);
+  const [notes, setNotes] = useState(req.notes ?? "");
+  const [driveLink, setDriveLink] = useState(req.drive_link ?? "");
+  const [productDesc, setProductDesc] = useState(req.product_description ?? "");
+  const [angles, setAngles] = useState(req.angles ?? "");
+  const [scripts, setScripts] = useState(req.scripts ?? "");
+  const [referenceLinks, setReferenceLinks] = useState(req.reference_links ?? "");
+
+  const mutation = useMutation({
+    mutationFn: (body: object) =>
+      fetch(`${API}/media-requests/${req.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["media-requests"] });
+      onClose();
+    },
+  });
+
+  const handleSave = () => {
+    mutation.mutate({
+      landing_url: landingUrl || null,
+      priority,
+      notes: notes || null,
+      drive_link: driveLink || null,
+      product_description: productDesc || null,
+      angles: angles || null,
+      scripts: scripts || null,
+      reference_links: referenceLinks || null,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-background border border-border shadow-2xl max-h-[90vh] flex flex-col" dir="rtl">
+        <div className="flex items-center justify-between border-b border-border p-5 shrink-0">
+          <div className="flex items-center gap-2">
+            <Pencil className="h-5 w-5 text-primary" />
+            <div>
+              <h2 className="text-base font-bold">تعديل الطلب</h2>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{req.campaign_name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">✕</button>
+        </div>
+
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
+          <FieldInput label="لينك اللاندينج بيدج" icon={<Link2 className="h-3 w-3" />} value={landingUrl} onChange={setLandingUrl} placeholder="https://..." type="url" />
+
+          <div>
+            <label className="block text-sm font-medium mb-1.5">الأولوية</label>
+            <div className="flex gap-2">
+              {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
+                <button key={key} onClick={() => setPriority(key)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors ${priority === key ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:bg-muted"}`}>
+                  <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
+                  {cfg.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <FieldInput label="ملاحظات للفريق" icon={<FileText className="h-3 w-3" />} value={notes} onChange={setNotes} placeholder="أي تعليمات أو ملاحظات..." rows={2} />
+
+          <div className="border-t border-border pt-4">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">
+              <Film className="h-3.5 w-3.5 text-primary" />البريف
+            </p>
+            <div className="space-y-3">
+              <FieldInput label="لينك درايف الماتيريل" icon={<Link2 className="h-3 w-3" />} value={driveLink} onChange={setDriveLink} placeholder="https://drive.google.com/..." type="url" />
+              <FieldInput label="تعريف المنتج" icon={<FileText className="h-3 w-3" />} value={productDesc} onChange={setProductDesc} placeholder="تعريف مختصر عن المنتج..." rows={2} />
+              <FieldInput label="الزوايا (Angles)" icon={<Layers className="h-3 w-3" />} value={angles} onChange={setAngles} placeholder="الزوايا المختلفة للإعلان..." rows={3} />
+              <FieldInput label="السكريبتات" icon={<BookOpen className="h-3 w-3" />} value={scripts} onChange={setScripts} placeholder="السكريبت أو الخطوط الرئيسية..." rows={4} />
+              <FieldInput label="الريفيرنس (نماذج ناجحة)" icon={<Video className="h-3 w-3" />} value={referenceLinks} onChange={setReferenceLinks} placeholder="روابط أو أوصاف لنماذج ناجحة..." rows={2} />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border p-5 shrink-0">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-muted-foreground hover:bg-muted">إلغاء</button>
+          <button onClick={handleSave} disabled={mutation.isPending} className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50">
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            حفظ التعديلات
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Complete Work Modal (in_progress → done) ─────────────────────────────────
+function CompleteWorkModal({ req, onClose }: { req: MediaRequest; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [outputLink, setOutputLink] = useState(req.output_link ?? "");
+  const [uploadLink, setUploadLink] = useState(req.upload_link ?? "");
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      fetch(`${API}/media-requests/${req.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "done", output_link: outputLink || null, upload_link: uploadLink || null }),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["media-requests"] });
+      onClose();
+    },
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-2xl bg-background border border-border shadow-2xl" dir="rtl">
+        <div className="flex items-center justify-between border-b border-border p-5">
+          <div className="flex items-center gap-2">
+            <Check className="h-5 w-5 text-emerald-600" />
+            <div>
+              <h2 className="text-base font-bold">تسليم الشغل</h2>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{req.campaign_name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">✕</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-700">
+            قبل ما تحرك الطلب لـ "مكتمل" — سجّل روابط الشغل للرجوع إليها في أي وقت.
+          </div>
+          <FieldInput label="لينك الميديا النهائية" icon={<Film className="h-3 w-3" />} value={outputLink} onChange={setOutputLink} placeholder="https://drive.google.com/..." type="url" />
+          <FieldInput label="لينك درايف ممدوح (رفع الشغل)" icon={<Upload className="h-3 w-3" />} value={uploadLink} onChange={setUploadLink} placeholder="https://drive.google.com/..." type="url" />
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border p-5">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm text-muted-foreground hover:bg-muted">إلغاء</button>
+          <button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            تم الإنجاز
           </button>
         </div>
       </div>
@@ -346,11 +554,28 @@ function ReviewCard({ req }: { req: MediaRequest }) {
   );
 }
 
+// ─── Brief field row (read-only display) ─────────────────────────────────────
+function BriefRow({ icon, label, value, isUrl }: { icon: ReactNode; label: string; value: string; isUrl?: boolean }) {
+  return (
+    <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 items-start">
+      <span className="flex items-center gap-1 text-xs text-muted-foreground pt-0.5 whitespace-nowrap">{icon}{label}</span>
+      {isUrl ? (
+        <a href={value} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate" dir="ltr">{value}</a>
+      ) : (
+        <p className="text-xs text-foreground whitespace-pre-line">{value}</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Kanban Card ──────────────────────────────────────────────────────────────
 function MediaCard({ req }: { req: MediaRequest }) {
   const qc = useQueryClient();
   const statusCfg = STATUS_CONFIG[req.status] ?? STATUS_CONFIG["pending"]!;
   const priorityCfg = PRIORITY_CONFIG[req.priority] ?? PRIORITY_CONFIG["normal"]!;
+  const [showDetails, setShowDetails] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showComplete, setShowComplete] = useState(false);
 
   const updateMutation = useMutation({
     mutationFn: (body: object) =>
@@ -358,58 +583,95 @@ function MediaCard({ req }: { req: MediaRequest }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["media-requests"] }),
   });
 
-  const advanceStatus = () => {
-    if (statusCfg.next) updateMutation.mutate({ status: statusCfg.next });
+  const hasBrief = !!(req.drive_link || req.product_description || req.angles || req.scripts || req.reference_links);
+  const hasDelivery = !!(req.output_link || req.upload_link);
+
+  const handleAdvance = () => {
+    if (req.status === "in_progress") {
+      setShowComplete(true);
+    } else if (statusCfg.next) {
+      updateMutation.mutate({ status: statusCfg.next });
+    }
   };
 
   return (
-    <div className={`rounded-2xl border bg-card p-5 shadow-sm transition-all hover:shadow-md ${req.status === "done" ? "opacity-60" : ""}`}>
-      <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${priorityCfg.badge}`}>
-              <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
-              {priorityCfg.label}
-            </span>
-            <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${statusCfg.color}`}>
-              {statusCfg.label}
-            </span>
+    <>
+      {showEdit && <EditRequestModal req={req} onClose={() => setShowEdit(false)} />}
+      {showComplete && <CompleteWorkModal req={req} onClose={() => setShowComplete(false)} />}
+
+      <div className={`rounded-2xl border bg-card shadow-sm transition-all hover:shadow-md ${req.status === "done" ? "opacity-60" : ""}`}>
+        <div className="p-4">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${priorityCfg.badge}`}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+                  {priorityCfg.label}
+                </span>
+                {hasBrief && (
+                  <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                    <Film className="h-2.5 w-2.5" />بريف
+                  </span>
+                )}
+              </div>
+              <h3 className="font-semibold text-sm leading-snug">{req.campaign_name}</h3>
+              {req.landing_url && (
+                <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5" dir="ltr">
+                  <ExternalLink className="h-3 w-3" />
+                  {(() => { try { return new URL(req.landing_url).hostname; } catch { return req.landing_url; } })()}
+                </a>
+              )}
+            </div>
+            <button onClick={() => setShowEdit(true)} className="text-muted-foreground hover:text-primary transition-colors p-1 rounded-lg hover:bg-muted shrink-0">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <h3 className="font-semibold text-base leading-snug">{req.campaign_name}</h3>
-          {req.landing_url && (
-            <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1" dir="ltr">
-              <ExternalLink className="h-3 w-3" />
-              {(() => { try { return new URL(req.landing_url).hostname; } catch { return req.landing_url; } })()}
-            </a>
+
+          {/* Details toggle */}
+          {(hasBrief || hasDelivery || req.notes) && (
+            <button onClick={() => setShowDetails((p) => !p)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2">
+              <ChevRight className={`h-3 w-3 transition-transform ${showDetails ? "rotate-90" : ""}`} />
+              {showDetails ? "إخفاء التفاصيل" : "عرض التفاصيل"}
+            </button>
           )}
-          {req.notes && (
-            <p className="text-xs text-muted-foreground mt-2 bg-muted/50 rounded-lg px-3 py-1.5 leading-relaxed line-clamp-3">
-              {req.notes.split("\n")[0]}
-            </p>
+
+          {showDetails && (
+            <div className="rounded-xl bg-muted/40 border border-border/50 p-3 mb-3 space-y-2.5">
+              {req.notes && <BriefRow icon={<FileText className="h-2.5 w-2.5" />} label="ملاحظات" value={req.notes.split("\n")[0]} />}
+              {req.drive_link && <BriefRow icon={<Link2 className="h-2.5 w-2.5" />} label="درايف الماتيريل" value={req.drive_link} isUrl />}
+              {req.product_description && <BriefRow icon={<FileText className="h-2.5 w-2.5" />} label="المنتج" value={req.product_description} />}
+              {req.angles && <BriefRow icon={<Layers className="h-2.5 w-2.5" />} label="الزوايا" value={req.angles} />}
+              {req.scripts && <BriefRow icon={<BookOpen className="h-2.5 w-2.5" />} label="السكريبت" value={req.scripts} />}
+              {req.reference_links && <BriefRow icon={<Video className="h-2.5 w-2.5" />} label="الريفيرنس" value={req.reference_links} />}
+              {req.output_link && <BriefRow icon={<Film className="h-2.5 w-2.5" />} label="الميديا النهائية" value={req.output_link} isUrl />}
+              {req.upload_link && <BriefRow icon={<Upload className="h-2.5 w-2.5" />} label="درايف ممدوح" value={req.upload_link} isUrl />}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+          <span className="text-xs text-muted-foreground">
+            {new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short" }).format(new Date(req.created_at))}
+          </span>
+          {req.status !== "done" ? (
+            <button
+              onClick={handleAdvance}
+              disabled={updateMutation.isPending}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${req.status === "in_progress" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-primary/10 text-primary hover:bg-primary/20"}`}
+            >
+              {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              {req.status === "in_progress" ? "تسليم الشغل" : statusCfg.nextLabel}
+            </button>
+          ) : (
+            <button onClick={() => updateMutation.mutate({ status: "pending" })} className="text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1">
+              إعادة تفعيل
+            </button>
           )}
         </div>
       </div>
-
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-        <span className="text-xs text-muted-foreground">
-          {new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", year: "numeric" }).format(new Date(req.created_at))}
-        </span>
-        {statusCfg.next ? (
-          <button
-            onClick={advanceStatus}
-            disabled={updateMutation.isPending}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-          >
-            {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-            {statusCfg.nextLabel}
-          </button>
-        ) : (
-          <button onClick={advanceStatus} className="text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1">
-            إعادة تفعيل
-          </button>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
 
