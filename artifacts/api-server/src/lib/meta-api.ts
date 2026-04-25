@@ -83,21 +83,30 @@ async function fbGet<T>(
   return allRows;
 }
 
+// Default: reads the "value" field (Meta's default attribution window for the account)
 function actionVal(actions: FbActionEntry[] | undefined, type: string): number {
   if (!actions) return 0;
   const e = actions.find((a) => a.action_type === type);
   if (!e) return 0;
-  // When action_attribution_windows=["1d_click"] is requested, Meta returns
-  // the breakdown in a separate "1d_click" field. Prefer that over "value"
-  // which reflects the ad account's default attribution window.
-  return Number(e["1d_click"] ?? e.value) || 0;
+  return Number(e.value) || 0;
+}
+
+// 1d_click only: reads the "1d_click" field returned when ATTRIBUTION_WINDOW includes multiple windows.
+// If the field is absent, Meta means 0 conversions for that window — do NOT fall back to "value".
+function actionVal1dClick(actions: FbActionEntry[] | undefined, type: string): number {
+  if (!actions) return 0;
+  const e = actions.find((a) => a.action_type === type);
+  if (!e) return 0;
+  if (e["1d_click"] === undefined) return 0; // absent = 0 for 1d_click window
+  return Number(e["1d_click"]) || 0;
 }
 
 function purchaseCount(row: FbInsightRow): number {
+  // Use 1d_click attribution for all purchase-type conversions
   return (
-    actionVal(row.actions, "purchase") ||
-    actionVal(row.actions, "omni_purchase") ||
-    actionVal(row.actions, "offsite_conversion.fb_pixel_purchase") ||
+    actionVal1dClick(row.actions, "purchase") ||
+    actionVal1dClick(row.actions, "omni_purchase") ||
+    actionVal1dClick(row.actions, "offsite_conversion.fb_pixel_purchase") ||
     0
   );
 }
@@ -192,7 +201,9 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
   };
 }
 
-const ATTRIBUTION_WINDOW = '["1d_click"]';
+// Request all 3 windows so Meta returns per-window breakdown fields (1d_click, 7d_click, 1d_view).
+// When a window's field is absent from the response, Meta means its value is 0.
+const ATTRIBUTION_WINDOW = '["1d_click","7d_click","1d_view"]';
 
 const INSIGHT_FIELDS = [
   "campaign_id",
