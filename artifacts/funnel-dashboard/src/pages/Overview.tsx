@@ -418,6 +418,144 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Campaign Breakdown — who's hurting / helping the account
+// ──────────────────────────────────────────────────────────────
+
+interface CampaignBreakdownRow {
+  id: string;
+  name: string;
+  spend: number;
+  purchases: number;
+  cpa: number;
+  ctr: number;
+  cpc: number;
+  cpaDev: number;
+  ctrDev: number;
+  cpcDev: number;
+  score: number;
+}
+
+function buildCampaignRows(
+  campaigns: CampaignSummaryFull[],
+  avgCpa: number,
+  avgCtr: number,
+  avgCpc: number
+): CampaignBreakdownRow[] {
+  return campaigns
+    .filter((c) => c.spend > 0)
+    .map((c) => {
+      const cpaDev = avgCpa > 0 && c.cpa > 0 ? ((c.cpa - avgCpa) / avgCpa) * 100 : 0;
+      const ctrDev = avgCtr > 0 && c.ctr > 0 ? ((c.ctr - avgCtr) / avgCtr) * 100 : 0;
+      const cpcDev = avgCpc > 0 && c.cpc > 0 ? ((c.cpc - avgCpc) / avgCpc) * 100 : 0;
+      const score = cpaDev * 0.5 - ctrDev * 0.3 + cpcDev * 0.2;
+      return { id: c.id, name: c.name, spend: c.spend, purchases: c.purchases, cpa: c.cpa, ctr: c.ctr, cpc: c.cpc, cpaDev, ctrDev, cpcDev, score };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+function OvDevBadge({ value, lowerIsBetter }: { value: number; lowerIsBetter: boolean }) {
+  if (Math.abs(value) < 5) return <span className="text-[10px] text-muted-foreground">~</span>;
+  const isGood = lowerIsBetter ? value < 0 : value > 0;
+  const sign = value > 0 ? "+" : "";
+  return (
+    <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${isGood ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-rose-500/15 text-rose-700 dark:text-rose-400"}`}>
+      {sign}{value.toFixed(0)}%
+    </span>
+  );
+}
+
+function CampaignBreakdown({
+  campaigns,
+  totals,
+}: {
+  campaigns: CampaignSummaryFull[];
+  totals: DerivedMetrics;
+}) {
+  const rows = useMemo(
+    () => buildCampaignRows(campaigns, totals.cpa, totals.ctr, totals.cpc),
+    [campaigns, totals]
+  );
+
+  if (rows.length === 0) return null;
+
+  const worstCount = rows.filter((r) => r.score > 10).length;
+  const bestCount  = rows.filter((r) => r.score < -10).length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Target className="h-4 w-4 text-primary" />
+            مقارنة الحملات — من يرفع ومن يخفض؟
+          </CardTitle>
+          <div className="flex items-center gap-1.5 mr-auto">
+            {worstCount > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-400">
+                {worstCount} خاسر
+              </span>
+            )}
+            {bestCount > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                {bestCount} رابح
+              </span>
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          مقارنة كل حملة بمتوسط الحساب — الانحراف بالـ% عن CPA و CTR و CPC
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-1.5">
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
+            <span>الحملة</span>
+            <span className="text-center w-16">CPA</span>
+            <span className="text-center w-16">CTR</span>
+            <span className="text-center w-16">CPC</span>
+            <span className="text-center w-14">أوردر</span>
+          </div>
+          {rows.map((r, i) => {
+            const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
+            const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
+            const rowBg = isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : "";
+            return (
+              <div key={r.id} className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
+                    {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
+                    <span className="text-xs font-medium truncate">{r.name}</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5 w-16">
+                  <span className="text-xs font-bold">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                  <OvDevBadge value={r.cpaDev} lowerIsBetter />
+                </div>
+                <div className="flex flex-col items-center gap-0.5 w-16">
+                  <span className="text-xs font-bold">{r.ctr.toFixed(2)}%</span>
+                  <OvDevBadge value={r.ctrDev} lowerIsBetter={false} />
+                </div>
+                <div className="flex flex-col items-center gap-0.5 w-16">
+                  <span className="text-xs font-bold">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                  <OvDevBadge value={r.cpcDev} lowerIsBetter />
+                </div>
+                <div className="text-center w-14">
+                  <span className={`text-xs font-bold ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                    {r.purchases > 0 ? r.purchases : "—"}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Priority Engine
 // ──────────────────────────────────────────────────────────────
 function AccountPriorityEngine({ overview }: { overview: AccountOverview }) {
@@ -1118,6 +1256,9 @@ function AccountTabContent({
       {/* TREND ALERTS + DAILY INSIGHT */}
       <OvTrendAlertsPanel daily={daily} totals={totals} />
       <OvDailyInsightCard daily={daily} totals={totals} />
+
+      {/* CAMPAIGN BREAKDOWN: who's hurting / helping */}
+      <CampaignBreakdown campaigns={campaigns} totals={totals} />
 
       {/* Priority Engine */}
       <Card>

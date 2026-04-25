@@ -1532,6 +1532,161 @@ function DailyInsightCard({ daily, totals }: { daily: CampaignInsights["daily"];
 }
 
 // ──────────────────────────────────────────────────────────────
+// Adset / Ad breakdown — who's hurting / helping performance
+// ──────────────────────────────────────────────────────────────
+
+interface BreakdownRow {
+  key: string;
+  label: string;
+  spend: number;
+  purchases: number;
+  cpa: number;
+  ctr: number;
+  cpc: number;
+  cpaDev: number;   // % vs avg (positive = worse for CPA)
+  ctrDev: number;   // % vs avg (positive = better for CTR)
+  cpcDev: number;   // % vs avg (positive = worse for CPC)
+  score: number;    // combined health: higher = worse
+}
+
+function buildRows(entries: SegmentEntry[], avgCpa: number, avgCtr: number, avgCpc: number): BreakdownRow[] {
+  return entries
+    .filter((e) => e.spend > 0)
+    .map((e) => {
+      const cpaDev = avgCpa > 0 && e.cpa > 0 ? ((e.cpa - avgCpa) / avgCpa) * 100 : 0;
+      const ctrDev = avgCtr > 0 && e.ctr > 0 ? ((e.ctr - avgCtr) / avgCtr) * 100 : 0;
+      const cpcDev = avgCpc > 0 && e.cpc > 0 ? ((e.cpc - avgCpc) / avgCpc) * 100 : 0;
+      // Higher score = worse performer
+      const score = cpaDev * 0.5 - ctrDev * 0.3 + cpcDev * 0.2;
+      return { key: e.key, label: e.label, spend: e.spend, purchases: e.purchases, cpa: e.cpa, ctr: e.ctr, cpc: e.cpc, cpaDev, ctrDev, cpcDev, score };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+function DevBadge({ value, lowerIsBetter }: { value: number; lowerIsBetter: boolean }) {
+  if (Math.abs(value) < 5) return <span className="text-[10px] text-muted-foreground font-mono">~</span>;
+  const isGood = lowerIsBetter ? value < 0 : value > 0;
+  const sign = value > 0 ? "+" : "";
+  return (
+    <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${isGood ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-rose-500/15 text-rose-700 dark:text-rose-400"}`}>
+      {sign}{value.toFixed(0)}%
+    </span>
+  );
+}
+
+function DevBreakdownTable({ rows, label }: { rows: BreakdownRow[]; label: string }) {
+  if (rows.length === 0) return <div className="text-sm text-muted-foreground text-center py-4">لا توجد بيانات لـ {label}</div>;
+  return (
+    <div className="space-y-1.5">
+      {/* Header */}
+      <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
+        <span>{label}</span>
+        <span className="text-center w-16">CPA</span>
+        <span className="text-center w-16">CTR</span>
+        <span className="text-center w-16">CPC</span>
+        <span className="text-center w-14">أوردر</span>
+      </div>
+      {rows.map((r, i) => {
+        const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
+        const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
+        const rowBg = isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : "";
+        return (
+          <div key={r.key} className={`grid grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
+                {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
+                <span className="text-xs font-medium truncate">{r.label}</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground num">{fmt(r.spend, 0)} EGP</span>
+            </div>
+            <div className="flex flex-col items-center gap-0.5 w-16">
+              <span className="text-xs font-bold num">{r.cpa > 0 ? fmt(r.cpa, 0) : "—"}</span>
+              <DevBadge value={r.cpaDev} lowerIsBetter />
+            </div>
+            <div className="flex flex-col items-center gap-0.5 w-16">
+              <span className="text-xs font-bold num">{fmtPct(r.ctr)}</span>
+              <DevBadge value={r.ctrDev} lowerIsBetter={false} />
+            </div>
+            <div className="flex flex-col items-center gap-0.5 w-16">
+              <span className="text-xs font-bold num">{r.cpc > 0 ? fmt(r.cpc, 0) : "—"}</span>
+              <DevBadge value={r.cpcDev} lowerIsBetter />
+            </div>
+            <div className="text-center w-14">
+              <span className={`text-xs font-bold num ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                {r.purchases > 0 ? r.purchases : "—"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BreakdownByAdsetAd({
+  byAdset,
+  byAd,
+  totals,
+}: {
+  byAdset: SegmentEntry[];
+  byAd: SegmentEntry[];
+  totals: DerivedMetrics;
+}) {
+  const [view, setView] = useState<"adset" | "ad">("adset");
+
+  const adsetRows = useMemo(
+    () => buildRows(byAdset, totals.cpa, totals.ctr, totals.cpc),
+    [byAdset, totals]
+  );
+  const adRows = useMemo(
+    () => buildRows(byAd, totals.cpa, totals.ctr, totals.cpc),
+    [byAd, totals]
+  );
+
+  const activeRows = view === "adset" ? adsetRows : adRows;
+  if (adsetRows.length === 0 && adRows.length === 0) return null;
+
+  const worstCount = activeRows.filter((r) => r.score > 10).length;
+  const bestCount  = activeRows.filter((r) => r.score < -10).length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Target className="h-4 w-4 text-primary" />
+            مقارنة الأداء — من يرفع ومن يخفض؟
+          </CardTitle>
+          <div className="flex items-center gap-1.5 mr-auto">
+            {worstCount > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-400">{worstCount} خاسر</span>}
+            {bestCount  > 0 && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">{bestCount} رابح</span>}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          المقارنة بالنسبة لمتوسط الحملة — الانحراف بالـ% عن CPA و CTR و CPC
+        </p>
+        {/* Toggle */}
+        <div className="flex gap-1 mt-2">
+          {(["adset", "ad"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`text-xs px-3 py-1 rounded-full font-semibold transition-colors ${view === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+            >
+              {v === "adset" ? `مجموعات (${adsetRows.length})` : `إعلانات (${adRows.length})`}
+            </button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <DevBreakdownTable rows={activeRows} label={view === "adset" ? "المجموعة الإعلانية" : "الإعلان"} />
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Loading skeleton
 // ──────────────────────────────────────────────────────────────
 function DashboardSkeleton() {
@@ -1632,6 +1787,9 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
       {/* TREND ALERTS + DAILY INSIGHT */}
       <TrendAlertsPanel daily={insights.daily} totals={totals} />
       <DailyInsightCard daily={insights.daily} totals={totals} />
+
+      {/* BREAKDOWN: who's hurting / helping */}
+      <BreakdownByAdsetAd byAdset={insights.by_adset} byAd={insights.by_ad} totals={totals} />
 
       {/* PERFORMANCE ANALYSIS */}
       <PerformanceAnalysis byAd={insights.by_ad} byAdset={insights.by_adset} />
