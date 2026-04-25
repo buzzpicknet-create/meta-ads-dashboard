@@ -82,6 +82,17 @@ async function runMigrations() {
       deleted_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Unified audit log for approvals and rejections
+  await query(`
+    CREATE TABLE IF NOT EXISTS media_audit_log (
+      id SERIAL PRIMARY KEY,
+      request_id INT NOT NULL,
+      campaign_name VARCHAR(500) NOT NULL,
+      action VARCHAR(20) NOT NULL,
+      priority VARCHAR(10),
+      actioned_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
   logger.info("Database migrations complete");
 }
 

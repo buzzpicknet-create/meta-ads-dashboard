@@ -50,6 +50,15 @@ interface DeleteLogEntry {
   deleted_at: string;
 }
 
+interface AuditLogEntry {
+  id: number;
+  request_id: number;
+  campaign_name: string;
+  action: string;
+  priority: string | null;
+  actioned_at: string;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; next?: string; nextLabel?: string }> = {
   needs_review: { label: "قيد المراجعة", color: "bg-purple-100 text-purple-800 border-purple-200" },
   pending:      { label: "يحتاج ميديا", color: "bg-amber-100 text-amber-800 border-amber-200", next: "in_progress", nextLabel: "بدء التنفيذ" },
@@ -82,6 +91,14 @@ function useDeleteLog() {
   return useQuery<{ log: DeleteLogEntry[] }>({
     queryKey: ["media-delete-log"],
     queryFn: () => fetch(`${API}/media-requests/delete-log`).then((r) => r.json()),
+  });
+}
+
+function useAuditLog() {
+  return useQuery<{ log: AuditLogEntry[] }>({
+    queryKey: ["media-audit-log"],
+    queryFn: () => fetch(`${API}/media-requests/audit-log`).then((r) => r.json()),
+    refetchInterval: 30_000,
   });
 }
 
@@ -258,12 +275,12 @@ function ReviewCard({ req }: { req: MediaRequest }) {
 
   const approveMutation = useMutation({
     mutationFn: () => fetch(`${API}/media-requests/${req.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "pending" }) }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["media-requests"] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["media-requests"] }); qc.invalidateQueries({ queryKey: ["media-audit-log"] }); },
   });
 
   const rejectMutation = useMutation({
     mutationFn: () => fetch(`${API}/media-requests/${req.id}`, { method: "DELETE" }).then((r) => r.json()),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["media-requests"] }); qc.invalidateQueries({ queryKey: ["media-delete-log"] }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["media-requests"] }); qc.invalidateQueries({ queryKey: ["media-delete-log"] }); qc.invalidateQueries({ queryKey: ["media-audit-log"] }); },
   });
 
   const [expanded, setExpanded] = useState(false);
@@ -396,10 +413,10 @@ function MediaCard({ req }: { req: MediaRequest }) {
   );
 }
 
-// ─── Delete Log Section ───────────────────────────────────────────────────────
-function DeleteLogSection() {
+// ─── Audit Log Section ────────────────────────────────────────────────────────
+function AuditLogSection() {
   const [open, setOpen] = useState(false);
-  const { data } = useDeleteLog();
+  const { data } = useAuditLog();
   const log = data?.log ?? [];
 
   if (log.length === 0) return null;
@@ -411,7 +428,7 @@ function DeleteLogSection() {
         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium"
       >
         <History className="h-4 w-4" />
-        سجل الطلبات المرفوضة ({log.length})
+        سجل القرارات ({log.length})
         <ChevDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -420,26 +437,29 @@ function DeleteLogSection() {
           <table className="w-full text-sm" dir="rtl">
             <thead className="bg-muted/50 text-xs text-muted-foreground">
               <tr>
+                <th className="text-right px-4 py-3 font-medium">القرار</th>
                 <th className="text-right px-4 py-3 font-medium">الحملة</th>
-                <th className="text-right px-4 py-3 font-medium">الحالة عند الرفض</th>
                 <th className="text-right px-4 py-3 font-medium">الأولوية</th>
-                <th className="text-right px-4 py-3 font-medium">وقت الرفض</th>
+                <th className="text-right px-4 py-3 font-medium">التاريخ والوقت</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {log.map((entry) => {
-                const prCfg = PRIORITY_CONFIG[entry.priority_at_deletion] ?? PRIORITY_CONFIG["normal"]!;
-                const stCfg = STATUS_CONFIG[entry.status_at_deletion] ?? STATUS_CONFIG["pending"]!;
+                const prCfg = PRIORITY_CONFIG[entry.priority ?? "normal"] ?? PRIORITY_CONFIG["normal"]!;
+                const isApproved = entry.action === "approved";
                 return (
                   <tr key={entry.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 font-medium max-w-xs truncate">{entry.campaign_name}</td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${stCfg.color}`}>{stCfg.label}</span>
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${isApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                        {isApproved ? <ThumbsUp className="h-3 w-3" /> : <ThumbsDown className="h-3 w-3" />}
+                        {isApproved ? "موافقة" : "رفض"}
+                      </span>
                     </td>
+                    <td className="px-4 py-3 font-medium max-w-xs truncate">{entry.campaign_name}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${prCfg.badge}`}>{prCfg.label}</span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{formatDate(entry.deleted_at)}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs tabular-nums">{formatDate(entry.actioned_at)}</td>
                   </tr>
                 );
               })}
@@ -634,8 +654,8 @@ export default function MediaRequestsPage() {
           </div>
         )}
 
-        {/* ── Delete Log ── */}
-        <DeleteLogSection />
+        {/* ── Audit Log ── */}
+        <AuditLogSection />
 
       </div>
     </div>

@@ -26,6 +26,15 @@ interface DeleteLogEntry {
   deleted_at: string;
 }
 
+interface AuditLogEntry {
+  id: number;
+  request_id: number;
+  campaign_name: string;
+  action: string;
+  priority: string | null;
+  actioned_at: string;
+}
+
 // GET /api/media-requests — active (not deleted)
 router.get("/media-requests", async (_req, res) => {
   try {
@@ -100,12 +109,30 @@ router.patch("/media-requests/:id", async (req, res) => {
   params.push(id);
 
   try {
+    // Fetch current row before update to detect approval
+    const before = await query<MediaRequest>(
+      `SELECT * FROM media_requests WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    if (before.length === 0) return res.status(404).json({ error: "Not found" });
+
     const rows = await query<MediaRequest>(
       `UPDATE media_requests SET ${updates.join(", ")} WHERE id = $${idx} AND deleted_at IS NULL RETURNING *`,
       params
     );
     if (rows.length === 0) return res.status(404).json({ error: "Not found" });
-    res.json({ request: rows[0] });
+
+    // Log approval: needs_review → pending
+    const prev = before[0]!;
+    const updated = rows[0]!;
+    if (prev.status === "needs_review" && updated.status === "pending") {
+      await query(
+        `INSERT INTO media_audit_log (request_id, campaign_name, action, priority) VALUES ($1, $2, 'approved', $3)`,
+        [id, updated.campaign_name, updated.priority]
+      );
+    }
+
+    res.json({ request: updated });
   } catch (err) {
     res.status(500).json({ error: "Failed to update media request" });
   }
@@ -129,16 +156,34 @@ router.delete("/media-requests/:id", async (req, res) => {
       [id]
     );
 
-    // Audit log
+    // Audit log (delete log)
     await query(
       `INSERT INTO media_delete_log (request_id, campaign_name, status_at_deletion, priority_at_deletion, notes)
        VALUES ($1, $2, $3, $4, $5)`,
       [id, row.campaign_name, row.status, row.priority, row.notes]
     );
 
+    // Unified audit log — rejection
+    await query(
+      `INSERT INTO media_audit_log (request_id, campaign_name, action, priority) VALUES ($1, $2, 'rejected', $3)`,
+      [id, row.campaign_name, row.priority]
+    );
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Failed to delete media request" });
+  }
+});
+
+// GET /api/media-requests/audit-log — unified approvals + rejections
+router.get("/media-requests/audit-log", async (_req, res) => {
+  try {
+    const rows = await query<AuditLogEntry>(
+      `SELECT * FROM media_audit_log ORDER BY actioned_at DESC LIMIT 100`
+    );
+    res.json({ log: rows });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch audit log" });
   }
 });
 
