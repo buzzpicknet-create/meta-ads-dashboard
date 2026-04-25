@@ -250,6 +250,47 @@ export function fetchCampaignsForAccount(opts: {
   return fetchCampaigns(opts);
 }
 
+// ──────────────────────────────────────────────────────────────
+// CPA Alerts — 72-hour scale / warning types + fetch
+// ──────────────────────────────────────────────────────────────
+
+export interface CpaAlertUnit {
+  id: string;
+  name: string;
+  cpa: number;
+  spend: number;
+  purchases: number;
+  ctr: number;
+  cpc: number;
+  impressions: number;
+  frequency: number;
+}
+
+export interface CpaWinner extends CpaAlertUnit {
+  best_adset: { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  best_ad:    { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  reasons: string[];
+}
+
+export interface CpaWarning extends CpaAlertUnit {
+  worst_adset: { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  worst_ad:    { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  causes: string[];
+  solutions: string[];
+}
+
+export interface CpaAlertsResult {
+  winners: CpaWinner[];
+  warnings: CpaWarning[];
+  period: { since: string; until: string; days: number };
+  fetched_at: string;
+}
+
+export function fetchCpaAlerts(opts: { ad_account_id: string }): Promise<CpaAlertsResult> {
+  const params = new URLSearchParams({ ad_account_id: opts.ad_account_id });
+  return jsonFetch<CpaAlertsResult>(`${API_BASE}/meta/cpa-alerts?${params}`);
+}
+
 // ---- Date range helpers ----
 export function todayCairoIso(): string {
   // Cairo = UTC+2 (no DST). Get current Cairo date.

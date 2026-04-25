@@ -5,6 +5,7 @@ import {
   getAccountInfo,
   listAdAccounts,
   getAccountOverview,
+  getCpaAlerts,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -144,6 +145,21 @@ router.get("/meta/account-overview", async (req, res) => {
     res.json(data);
   } catch (err) {
     logger.error({ err }, "Account overview fetch failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get("/meta/cpa-alerts", async (req, res) => {
+  try {
+    const accountId = String(req.query["ad_account_id"] || "").trim();
+    if (!accountId) {
+      res.status(400).json({ error: "ad_account_id is required" });
+      return;
+    }
+    const data = await getCpaAlerts({ adAccountId: accountId });
+    res.json(data);
+  } catch (err) {
+    logger.error({ err }, "CPA alerts fetch failed");
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });

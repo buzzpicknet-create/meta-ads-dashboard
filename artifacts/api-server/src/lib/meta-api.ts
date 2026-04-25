@@ -831,6 +831,202 @@ export async function getAccountOverview(opts: {
   };
 }
 
+// ──────────────────────────────────────────────────────────────
+// CPA Alerts — 72-hour scale / warning signals
+// ──────────────────────────────────────────────────────────────
+
+export interface CpaAlertUnit {
+  id: string;
+  name: string;
+  cpa: number;
+  spend: number;
+  purchases: number;
+  ctr: number;
+  cpc: number;
+  impressions: number;
+  frequency: number;
+}
+
+export interface CpaWinner extends CpaAlertUnit {
+  best_adset: { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  best_ad:    { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  reasons: string[];
+}
+
+export interface CpaWarning extends CpaAlertUnit {
+  worst_adset: { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  worst_ad:    { id: string; name: string; cpa: number; spend: number; purchases: number } | null;
+  causes: string[];
+  solutions: string[];
+}
+
+export interface CpaAlertsResult {
+  winners: CpaWinner[];
+  warnings: CpaWarning[];
+  period: { since: string; until: string; days: number };
+  fetched_at: string;
+}
+
+const WINNER_CPA_THRESHOLD = 30;
+const WARNING_CPA_THRESHOLD = 40;
+
+function buildWinnerReasons(c: CpaAlertUnit): string[] {
+  const reasons: string[] = [];
+  const pctBelow = ((WINNER_CPA_THRESHOLD - c.cpa) / WINNER_CPA_THRESHOLD) * 100;
+  reasons.push(`CPA ${c.cpa.toFixed(1)} EGP — أقل بـ ${pctBelow.toFixed(0)}% من الحد المستهدف (${WINNER_CPA_THRESHOLD} EGP)`);
+  if (c.purchases >= 10) reasons.push(`حقق ${c.purchases} أوردر خلال 72 ساعة — كمية كافية للتوسع`);
+  else if (c.purchases >= 5) reasons.push(`حقق ${c.purchases} أوردرات — بداية واعدة للتوسع`);
+  if (c.ctr >= 3) reasons.push(`CTR مرتفع ${c.ctr.toFixed(2)}% — الإعلان يجذب النقرات بقوة`);
+  else if (c.ctr >= 2) reasons.push(`CTR جيد ${c.ctr.toFixed(2)}% — الإعلان يعمل بكفاءة`);
+  if (c.cpc > 0 && c.cpc < 5) reasons.push(`CPC منخفض ${c.cpc.toFixed(1)} EGP — تكلفة ترافيك ممتازة`);
+  if (c.frequency > 0 && c.frequency < 1.5) reasons.push(`التكرار ${c.frequency.toFixed(1)}x — الجمهور لم يشبع بعد، مناسب للتوسع`);
+  return reasons;
+}
+
+function buildWarningCauses(c: CpaAlertUnit): string[] {
+  const causes: string[] = [];
+  if (c.purchases === 0 && c.spend > 50) {
+    causes.push(`إنفاق ${c.spend.toFixed(0)} EGP بدون أي أوردر — الحملة تستنزف الميزانية`);
+  } else if (c.cpa > 0) {
+    const pctAbove = ((c.cpa - WARNING_CPA_THRESHOLD) / WARNING_CPA_THRESHOLD) * 100;
+    causes.push(`CPA ${c.cpa.toFixed(1)} EGP — أعلى بـ ${pctAbove.toFixed(0)}% من الحد المقبول (${WARNING_CPA_THRESHOLD} EGP)`);
+  }
+  if (c.ctr < 0.5) causes.push(`CTR منخفض جداً ${c.ctr.toFixed(2)}% — الجمهور لا ينقر على الإعلان (Ad Fatigue)`);
+  else if (c.ctr < 1) causes.push(`CTR ضعيف ${c.ctr.toFixed(2)}% — الكريتف لا يجذب بما يكفي`);
+  if (c.frequency > 3.5) causes.push(`تكرار مرتفع ${c.frequency.toFixed(1)}x — الجمهور مشبع ويتجاهل الإعلان`);
+  else if (c.frequency > 2.5) causes.push(`تكرار متصاعد ${c.frequency.toFixed(1)}x — يؤدي لارتفاع CPA تدريجياً`);
+  if (c.cpc > 15) causes.push(`CPC مرتفع ${c.cpc.toFixed(1)} EGP — المزاد تنافسي أو الاستهداف ضيق`);
+  return causes;
+}
+
+function buildWarningSolutions(c: CpaAlertUnit): string[] {
+  const solutions: string[] = [];
+  if (c.purchases === 0) {
+    solutions.push("تحقق من إعداد Meta Pixel وحدث Conversion Event");
+    solutions.push("راجع صفحة الهبوط — قد يكون بها مشكلة في التحميل أو التصميم");
+  }
+  if (c.ctr < 1) solutions.push("غيّر الكريتف فوراً — اختبر Hook مختلف في أول 3 ثواني");
+  if (c.frequency > 2.5) solutions.push("وسّع الأوديانس أو أنشئ Lookalike Audience جديد من قائمة عملائك");
+  if (c.cpa > WARNING_CPA_THRESHOLD * 2) solutions.push("قلّل الميزانية اليومية 40-50% وراقب CPA لمدة 48 ساعة");
+  solutions.push("جرّب استهداف Broad مع CBO بدلاً من Manual Adset Budget");
+  if (solutions.length < 3) solutions.push("اختبر صور/فيديوهات مختلفة للإعلان مع نفس النص");
+  return solutions;
+}
+
+export async function getCpaAlerts(opts: {
+  adAccountId: string;
+}): Promise<CpaAlertsResult> {
+  const rawAccount = opts.adAccountId;
+  const adAccount = rawAccount.startsWith("act_") ? rawAccount.slice(4) : rawAccount;
+
+  // 72 hours = last 3 days (Cairo = UTC+2)
+  const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const until = nowCairo.toISOString().slice(0, 10);
+  const since = new Date(nowCairo.getTime() - 3 * 86_400_000).toISOString().slice(0, 10);
+  const time_range = JSON.stringify({ since, until });
+  const days = 3;
+
+  // Fetch campaign-level insights for the 72h window
+  const campaignRows = await fbGet<FbInsightRow>(`/act_${adAccount}/insights`, {
+    level: "campaign",
+    time_range,
+    fields: INSIGHT_FIELDS,
+    action_attribution_windows: ATTRIBUTION_WINDOW,
+    limit: "200",
+  });
+
+  // Fetch ad-level insights (gives us adset_name, ad_name too)
+  const adRows = await fbGet<FbInsightRow>(`/act_${adAccount}/insights`, {
+    level: "ad",
+    time_range,
+    fields: [
+      "campaign_id","campaign_name","adset_id","adset_name","ad_id","ad_name",
+      "spend","impressions","reach","inline_link_clicks","ctr","frequency",
+      "actions","action_values",
+    ].join(","),
+    action_attribution_windows: ATTRIBUTION_WINDOW,
+    limit: "500",
+  });
+
+  // Aggregate campaign metrics
+  const campMap = new Map<string, { metrics: AggregatedMetrics; name: string; freq: number; impressions: number; reach: number }>();
+  for (const row of campaignRows) {
+    if (!row.campaign_id) continue;
+    const cur = campMap.get(row.campaign_id) ?? { metrics: emptyMetrics(), name: row.campaign_name ?? row.campaign_id, freq: 0, impressions: 0, reach: 0 };
+    addRow(cur.metrics, row);
+    cur.impressions += Number(row.impressions || 0);
+    cur.reach += Number(row.reach || 0);
+    if (!cur.name && row.campaign_name) cur.name = row.campaign_name;
+    campMap.set(row.campaign_id, cur);
+  }
+
+  // Aggregate ad-level metrics grouped by campaign → adset / ad
+  const adsetMap = new Map<string, { metrics: AggregatedMetrics; name: string; campaign_id: string }>();
+  const adMap    = new Map<string, { metrics: AggregatedMetrics; name: string; campaign_id: string; adset_id: string }>();
+
+  for (const row of adRows) {
+    if (!row.campaign_id) continue;
+    // adset
+    if (row.adset_id) {
+      const cur = adsetMap.get(row.adset_id) ?? { metrics: emptyMetrics(), name: row.adset_name ?? row.adset_id, campaign_id: row.campaign_id };
+      addRow(cur.metrics, row);
+      adsetMap.set(row.adset_id, cur);
+    }
+    // ad
+    if (row.ad_id) {
+      const cur = adMap.get(row.ad_id) ?? { metrics: emptyMetrics(), name: row.ad_name ?? row.ad_id, campaign_id: row.campaign_id, adset_id: row.adset_id ?? "" };
+      addRow(cur.metrics, row);
+      adMap.set(row.ad_id, cur);
+    }
+  }
+
+  const winners: CpaWinner[] = [];
+  const warnings: CpaWarning[] = [];
+
+  for (const [campId, camp] of campMap.entries()) {
+    if (camp.metrics.spend < 10) continue; // skip negligible spend
+    const d = derive(camp.metrics);
+    const freq = camp.reach > 0 ? camp.impressions / camp.reach : 0;
+
+    const unit: CpaAlertUnit = {
+      id: campId,
+      name: camp.name,
+      cpa: d.cpa,
+      spend: d.spend,
+      purchases: d.purchases,
+      ctr: d.ctr,
+      cpc: d.cpc,
+      impressions: d.impressions,
+      frequency: freq,
+    };
+
+    // Build best/worst adset for this campaign
+    const campAdsets = [...adsetMap.entries()]
+      .filter(([, a]) => a.campaign_id === campId)
+      .map(([id, a]) => { const dm = derive(a.metrics); return { id, name: a.name, cpa: dm.cpa, spend: dm.spend, purchases: dm.purchases }; });
+
+    const campAds = [...adMap.entries()]
+      .filter(([, a]) => a.campaign_id === campId)
+      .map(([id, a]) => { const dm = derive(a.metrics); return { id, name: a.name, cpa: dm.cpa, spend: dm.spend, purchases: dm.purchases }; });
+
+    const bestAdset = campAdsets.filter(a => a.purchases > 0).sort((a, b) => a.cpa - b.cpa)[0] ?? null;
+    const bestAd    = campAds.filter(a => a.purchases > 0).sort((a, b) => a.cpa - b.cpa)[0] ?? null;
+    const worstAdset = campAdsets.filter(a => a.spend > 10).sort((a, b) => b.cpa - a.cpa)[0] ?? null;
+    const worstAd    = campAds.filter(a => a.spend > 10).sort((a, b) => b.cpa - a.cpa)[0] ?? null;
+
+    if (d.purchases > 0 && d.cpa < WINNER_CPA_THRESHOLD) {
+      winners.push({ ...unit, best_adset: bestAdset, best_ad: bestAd, reasons: buildWinnerReasons(unit) });
+    } else if (d.purchases === 0 || d.cpa > WARNING_CPA_THRESHOLD) {
+      warnings.push({ ...unit, worst_adset: worstAdset, worst_ad: worstAd, causes: buildWarningCauses(unit), solutions: buildWarningSolutions(unit) });
+    }
+  }
+
+  winners.sort((a, b) => a.cpa - b.cpa);
+  warnings.sort((a, b) => b.cpa - a.cpa);
+
+  return { winners, warnings, period: { since, until, days }, fetched_at: new Date().toISOString() };
+}
+
 export async function getAccountInfo() {
   const rawAccount = getAdAccountId();
   const adAccount = rawAccount.startsWith("act_")

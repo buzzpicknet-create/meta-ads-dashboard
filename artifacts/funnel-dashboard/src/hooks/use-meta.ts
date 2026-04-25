@@ -7,6 +7,7 @@ import {
   fetchInsights,
   fetchTokenHealth,
   fetchAccountOverview,
+  fetchCpaAlerts,
 } from "@/lib/meta-api";
 
 const ONE_HOUR = 60 * 60 * 1000;
@@ -78,6 +79,15 @@ export function useAccountOverview(opts: {
       }),
     staleTime: ONE_HOUR,
     enabled: Boolean(opts.ad_account_id && opts.since && opts.until),
+  });
+}
+
+export function useCpaAlerts(opts: { ad_account_id: string | null }) {
+  return useQuery({
+    queryKey: ["meta", "cpa-alerts", opts.ad_account_id],
+    queryFn: () => fetchCpaAlerts({ ad_account_id: opts.ad_account_id! }),
+    staleTime: 15 * 60 * 1000, // 15 min — alerts are time-sensitive
+    enabled: Boolean(opts.ad_account_id),
   });
 }
 

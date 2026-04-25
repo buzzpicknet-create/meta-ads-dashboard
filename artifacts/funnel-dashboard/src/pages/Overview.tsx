@@ -52,7 +52,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CalendarRange } from "lucide-react";
-import { useAccounts, useAccountOverview } from "@/hooks/use-meta";
+import { useAccounts, useAccountOverview, useCpaAlerts } from "@/hooks/use-meta";
 import {
   analyzeTrends,
   buildInsight,
@@ -70,6 +70,9 @@ import {
   type AdAccountSummary,
   type DailyPoint,
   type DerivedMetrics,
+  type CpaWinner,
+  type CpaWarning,
+  type CpaAlertsResult,
   rangeFromPreset,
   formatRange,
 } from "@/lib/meta-api";
@@ -161,6 +164,229 @@ function HealthBadge({ status }: { status: "good" | "warn" | "danger" }) {
       <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
       {cfg.text}
     </span>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// CPA Alerts Panel — 72-hour scale / warning signals
+// ──────────────────────────────────────────────────────────────
+
+function CpaWinnerCard({ w }: { w: CpaWinner }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl bg-emerald-500/8 ring-1 ring-emerald-500/25 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-1 ring-emerald-500/30 text-[10px] font-bold px-2 py-0.5">
+              <Rocket className="h-3 w-3" /> فرصة توسع — CPA {fmt(w.cpa, 0)} EGP
+            </span>
+            <span className="text-[10px] text-muted-foreground">{w.purchases} أوردر · {fmt(w.spend, 0)} EGP</span>
+          </div>
+          <div className="text-sm font-semibold mt-1.5 truncate">{w.name}</div>
+        </div>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="shrink-0 p-1 rounded-lg hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+        >
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {/* Reasons */}
+          <div>
+            <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mb-1.5">لماذا هي رابحة؟</div>
+            <ul className="space-y-1">
+              {w.reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                  {r}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Best Ad/Adset */}
+          {(w.best_adset || w.best_ad) && (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {w.best_adset && (
+                <div className="rounded-lg bg-emerald-500/10 px-3 py-2.5">
+                  <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-1">أفضل Ad Set</div>
+                  <div className="text-xs font-semibold truncate">{w.best_adset.name}</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    CPA <span className="num font-bold text-emerald-600 dark:text-emerald-400">{fmt(w.best_adset.cpa, 0)}</span> EGP
+                    {" · "}{w.best_adset.purchases} أوردر
+                  </div>
+                </div>
+              )}
+              {w.best_ad && (
+                <div className="rounded-lg bg-emerald-500/10 px-3 py-2.5">
+                  <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-1">أفضل إعلان (Ad)</div>
+                  <div className="text-xs font-semibold truncate">{w.best_ad.name}</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    CPA <span className="num font-bold text-emerald-600 dark:text-emerald-400">{fmt(w.best_ad.cpa, 0)}</span> EGP
+                    {" · "}{w.best_ad.purchases} أوردر
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="rounded-lg bg-emerald-500/15 px-3 py-2 text-xs font-medium text-emerald-800 dark:text-emerald-300">
+            ✅ الإجراء المقترح: ضاعف ميزانية هذه الحملة بنسبة 30-50% واستغل الزخم الآن
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CpaWarningCard({ w }: { w: CpaWarning }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl bg-amber-500/8 ring-1 ring-amber-500/25 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/30 text-[10px] font-bold px-2 py-0.5">
+              <AlertTriangle className="h-3 w-3" /> راقب CPA — {w.purchases === 0 ? "بدون أوردر" : `${fmt(w.cpa, 0)} EGP`}
+            </span>
+            <span className="text-[10px] text-muted-foreground">{w.purchases} أوردر · {fmt(w.spend, 0)} EGP</span>
+          </div>
+          <div className="text-sm font-semibold mt-1.5 truncate">{w.name}</div>
+        </div>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="shrink-0 p-1 rounded-lg hover:bg-amber-500/10 text-amber-600 dark:text-amber-400"
+        >
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {/* Causes */}
+          <div>
+            <div className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-1.5">أسباب المشكلة</div>
+            <ul className="space-y-1">
+              {w.causes.map((c, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                  {c}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Worst Ad/Adset */}
+          {(w.worst_adset || w.worst_ad) && (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {w.worst_adset && (
+                <div className="rounded-lg bg-rose-500/8 px-3 py-2.5">
+                  <div className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wide mb-1">أضعف Ad Set</div>
+                  <div className="text-xs font-semibold truncate">{w.worst_adset.name}</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    {w.worst_adset.purchases > 0
+                      ? <>CPA <span className="num font-bold text-rose-600 dark:text-rose-400">{fmt(w.worst_adset.cpa, 0)}</span> EGP</>
+                      : <span className="text-rose-600 dark:text-rose-400 font-bold">بدون أوردر</span>}
+                    {" · "}{fmt(w.worst_adset.spend, 0)} EGP إنفاق
+                  </div>
+                </div>
+              )}
+              {w.worst_ad && (
+                <div className="rounded-lg bg-rose-500/8 px-3 py-2.5">
+                  <div className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wide mb-1">أضعف إعلان (Ad)</div>
+                  <div className="text-xs font-semibold truncate">{w.worst_ad.name}</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    {w.worst_ad.purchases > 0
+                      ? <>CPA <span className="num font-bold text-rose-600 dark:text-rose-400">{fmt(w.worst_ad.cpa, 0)}</span> EGP</>
+                      : <span className="text-rose-600 dark:text-rose-400 font-bold">بدون أوردر</span>}
+                    {" · "}{fmt(w.worst_ad.spend, 0)} EGP إنفاق
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Solutions */}
+          <div>
+            <div className="text-xs font-bold text-foreground mb-1.5">الحلول المقترحة</div>
+            <ul className="space-y-1">
+              {w.solutions.map((s, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Wrench className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CpaAlertsPanel({ accountId }: { accountId: string }) {
+  const alerts = useCpaAlerts({ ad_account_id: accountId });
+
+  if (alerts.isLoading) {
+    return (
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            جاري تحليل بيانات الـ 72 ساعة الأخيرة…
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (alerts.error || !alerts.data) return null;
+
+  const { winners, warnings, period } = alerts.data;
+  if (winners.length === 0 && warnings.length === 0) return null;
+
+  const fmt72 = (d: string) => {
+    const [, m, day] = d.split("-");
+    return `${Number(day)}/${Number(m)}`;
+  };
+
+  return (
+    <Card className="border-primary/20">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Zap className="h-4 w-4 text-primary" />
+          تنبيهات CPA — آخر 72 ساعة
+          <span className="text-xs font-normal text-muted-foreground mr-auto">
+            ({fmt72(period.since)} → {fmt72(period.until)})
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {winners.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+              <Rocket className="h-3.5 w-3.5" />
+              {winners.length === 1 ? "حملة رابحة" : `${winners.length} حملات رابحة`} — CPA أقل من 30 EGP
+            </div>
+            {winners.map((w) => <CpaWinnerCard key={w.id} w={w} />)}
+          </div>
+        )}
+
+        {warnings.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {warnings.length === 1 ? "حملة تحتاج مراقبة" : `${warnings.length} حملات تحتاج مراقبة`} — CPA أعلى من 40 EGP
+            </div>
+            {warnings.map((w) => <CpaWarningCard key={w.id} w={w} />)}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1463,6 +1689,9 @@ function AccountTabContent({
           tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
         />
       </div>
+
+      {/* CPA ALERTS — 72h scale / warning */}
+      <CpaAlertsPanel accountId={accountId} />
 
       {/* FREQUENCY DANGER ALERT */}
       <FrequencyDangerPanel campaigns={campaigns} />
