@@ -217,7 +217,49 @@ function KpiCard({
 // Trend Alerts + Prediction + Daily Insight (account level)
 // ──────────────────────────────────────────────────────────────
 
-function OvMetricAlertCard({ trend }: { trend: MetricTrend }) {
+function CampaignChips({ names, variant }: { names: string[]; variant: "warn" | "good" }) {
+  if (names.length === 0) return null;
+  const cls = variant === "warn"
+    ? "bg-rose-500/10 text-rose-700 dark:text-rose-400 ring-rose-500/20"
+    : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 ring-emerald-500/20";
+  return (
+    <div className="flex flex-wrap gap-1 pt-0.5">
+      <span className="text-[10px] text-muted-foreground self-center">الحملات:</span>
+      {names.map((n) => (
+        <span key={n} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ${cls}`}>
+          {n.length > 35 ? n.slice(0, 35) + "…" : n}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function getRelevantCampaigns(
+  campaigns: CampaignSummaryFull[] | undefined,
+  metric: "cpa" | "ctr" | "cpc",
+  direction: "worsening" | "improving"
+): string[] {
+  const active = (campaigns ?? []).filter((c) => c.spend > 0);
+  let sorted: CampaignSummaryFull[] = [];
+  if (metric === "cpa") {
+    const withPurchases = active.filter((c) => c.cpa > 0);
+    sorted = direction === "worsening"
+      ? [...withPurchases].sort((a, b) => b.cpa - a.cpa)
+      : [...withPurchases].sort((a, b) => a.cpa - b.cpa);
+  } else if (metric === "ctr") {
+    sorted = direction === "worsening"
+      ? [...active].sort((a, b) => a.ctr - b.ctr)
+      : [...active].sort((a, b) => b.ctr - a.ctr);
+  } else {
+    const withCpc = active.filter((c) => c.cpc > 0);
+    sorted = direction === "worsening"
+      ? [...withCpc].sort((a, b) => b.cpc - a.cpc)
+      : [...withCpc].sort((a, b) => a.cpc - b.cpc);
+  }
+  return sorted.slice(0, 3).map((c) => c.name);
+}
+
+function OvMetricAlertCard({ trend, campaigns }: { trend: MetricTrend; campaigns: CampaignSummaryFull[] | undefined }) {
   const isWorse = trend.direction === "worsening";
   const isBetter = trend.direction === "improving";
   if (trend.direction === "stable") return null;
@@ -244,6 +286,8 @@ function OvMetricAlertCard({ trend }: { trend: MetricTrend }) {
   const badgeCls = isWorse ? (trend.consecutiveWorse >= 3 ? "bg-rose-500/15 text-rose-700 dark:text-rose-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400") : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
   const TIcon = isWorse ? TrendingDown : TrendingUp;
 
+  const relatedCampaigns = getRelevantCampaigns(campaigns, trend.metric, trend.direction as "worsening" | "improving");
+
   return (
     <div className={`rounded-xl ring-1 px-4 py-3 flex items-start gap-3 ${bgCls}`}>
       <TIcon className={`h-4 w-4 shrink-0 mt-0.5 ${iconCls}`} />
@@ -260,6 +304,7 @@ function OvMetricAlertCard({ trend }: { trend: MetricTrend }) {
           <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
           <span className="text-muted-foreground">{content.rec}</span>
         </div>
+        <CampaignChips names={relatedCampaigns} variant={isWorse ? "warn" : "good"} />
       </div>
     </div>
   );
@@ -366,7 +411,7 @@ function FrequencyDangerPanel({ campaigns }: { campaigns: CampaignSummaryFull[] 
   );
 }
 
-function OvTrendAlertsPanel({ daily, totals }: { daily: DailyPoint[]; totals: DerivedMetrics }) {
+function OvTrendAlertsPanel({ daily, totals, campaigns }: { daily: DailyPoint[]; totals: DerivedMetrics; campaigns: CampaignSummaryFull[] | undefined }) {
   const trends    = useMemo(() => analyzeTrends(daily), [daily]);
   const freqAlert = useMemo(() => buildFrequencyAlert(daily), [daily]);
   const prediction = useMemo(() => buildPrediction(daily, trends), [daily, trends]);
@@ -395,7 +440,7 @@ function OvTrendAlertsPanel({ daily, totals }: { daily: DailyPoint[]; totals: De
       <CardContent className="space-y-3">
         {active.length > 0 ? (
           <div className="space-y-2">
-            {active.map((t) => <OvMetricAlertCard key={t.metric} trend={t} />)}
+            {active.map((t) => <OvMetricAlertCard key={t.metric} trend={t} campaigns={campaigns} />)}
           </div>
         ) : (
           <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400 bg-emerald-500/8 ring-1 ring-emerald-500/20 rounded-xl px-4 py-3">
@@ -434,10 +479,22 @@ function OvTrendAlertsPanel({ daily, totals }: { daily: DailyPoint[]; totals: De
   );
 }
 
-function OvDailyInsightCard({ daily, totals }: { daily: DailyPoint[]; totals: DerivedMetrics }) {
+function OvDailyInsightCard({ daily, totals, campaigns }: { daily: DailyPoint[]; totals: DerivedMetrics; campaigns: CampaignSummaryFull[] | undefined }) {
   const trends  = useMemo(() => analyzeTrends(daily), [daily]);
   const insight = useMemo(() => buildInsight(trends, totals.purchases), [trends, totals.purchases]);
   if (!insight.mainProblem && !insight.bestOpportunity) return null;
+
+  const problemCampaigns = useMemo(() => {
+    if (!insight.mainProblem) return [];
+    const m = insight.mainProblem.metric as "cpa" | "ctr" | "cpc";
+    return getRelevantCampaigns(campaigns, m, "worsening");
+  }, [insight.mainProblem, campaigns]);
+
+  const opportunityCampaigns = useMemo(() => {
+    if (!insight.bestOpportunity) return [];
+    const m = insight.bestOpportunity.metric as "cpa" | "ctr" | "cpc";
+    return getRelevantCampaigns(campaigns, m, "improving");
+  }, [insight.bestOpportunity, campaigns]);
 
   return (
     <Card className="border-primary/15 bg-primary/2">
@@ -459,6 +516,7 @@ function OvDailyInsightCard({ daily, totals }: { daily: DailyPoint[]; totals: De
               <Zap className="h-3 w-3 text-primary shrink-0 mt-0.5" />
               <span className="font-medium text-primary">{insight.mainProblem.action}</span>
             </div>
+            <CampaignChips names={problemCampaigns} variant="warn" />
           </div>
         )}
         {insight.bestOpportunity && (
@@ -472,6 +530,7 @@ function OvDailyInsightCard({ daily, totals }: { daily: DailyPoint[]; totals: De
               <Rocket className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <span className="font-medium text-emerald-700 dark:text-emerald-400">{insight.bestOpportunity.action}</span>
             </div>
+            <CampaignChips names={opportunityCampaigns} variant="good" />
           </div>
         )}
       </CardContent>
@@ -1372,8 +1431,8 @@ function AccountTabContent({
       <FrequencyDangerPanel campaigns={campaigns} />
 
       {/* TREND ALERTS + DAILY INSIGHT */}
-      <OvTrendAlertsPanel daily={daily} totals={totals} />
-      <OvDailyInsightCard daily={daily} totals={totals} />
+      <OvTrendAlertsPanel daily={daily} totals={totals} campaigns={campaigns} />
+      <OvDailyInsightCard daily={daily} totals={totals} campaigns={campaigns} />
 
       {/* CAMPAIGN BREAKDOWN: who's hurting / helping */}
       <CampaignBreakdown campaigns={campaigns} totals={totals} />
