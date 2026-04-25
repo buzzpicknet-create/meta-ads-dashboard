@@ -677,8 +677,9 @@ function CampaignBreakdown({
         </p>
       </CardHeader>
       <CardContent>
-        <div className="space-y-1.5">
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
+        <div className="space-y-2">
+          {/* Desktop header */}
+          <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
             <span>الحملة</span>
             <span className="text-center w-12">Freq</span>
             <span className="text-center w-16">CPA</span>
@@ -689,36 +690,72 @@ function CampaignBreakdown({
           {rows.map((r, i) => {
             const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
             const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
-            const rowBg = isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : "";
+            const rowBg = isWorst ? "bg-rose-500/5 ring-1 ring-rose-500/10" : isBest ? "bg-emerald-500/5 ring-1 ring-emerald-500/10" : "bg-muted/20";
             return (
-              <div key={r.id} className={`grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
-                    {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
-                    <span className="text-xs font-medium truncate">{r.name}</span>
+              <div key={r.id}>
+                {/* Mobile card */}
+                <div className={`sm:hidden rounded-xl px-3 py-3 space-y-2 ${rowBg}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      {isWorst && <TrendingDown className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
+                      {isBest  && <TrendingUp   className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
+                      <span className="text-sm font-semibold leading-snug line-clamp-2">{r.name}</span>
+                    </div>
+                    <OvFreqBadge freq={r.frequency} />
                   </div>
-                  <span className="text-[10px] text-muted-foreground">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP</span>
+                  <div className="text-[11px] text-muted-foreground num">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP إنفاق</div>
+                  <div className="grid grid-cols-4 gap-1 pt-1 border-t border-border/50">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CPA</span>
+                      <span className="text-sm font-bold num">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                      <OvDevBadge value={r.cpaDev} lowerIsBetter />
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CTR</span>
+                      <span className="text-sm font-bold num">{r.ctr.toFixed(2)}%</span>
+                      <OvDevBadge value={r.ctrDev} lowerIsBetter={false} />
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CPC</span>
+                      <span className="text-sm font-bold num">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                      <OvDevBadge value={r.cpcDev} lowerIsBetter />
+                    </div>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">أوردر</span>
+                      <span className={`text-sm font-bold num ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                        {r.purchases > 0 ? r.purchases : "—"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex justify-center w-12">
-                  <OvFreqBadge freq={r.frequency} />
-                </div>
-                <div className="flex flex-col items-center gap-0.5 w-16">
-                  <span className="text-xs font-bold">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
-                  <OvDevBadge value={r.cpaDev} lowerIsBetter />
-                </div>
-                <div className="flex flex-col items-center gap-0.5 w-16">
-                  <span className="text-xs font-bold">{r.ctr.toFixed(2)}%</span>
-                  <OvDevBadge value={r.ctrDev} lowerIsBetter={false} />
-                </div>
-                <div className="flex flex-col items-center gap-0.5 w-16">
-                  <span className="text-xs font-bold">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
-                  <OvDevBadge value={r.cpcDev} lowerIsBetter />
-                </div>
-                <div className="text-center w-14">
-                  <span className={`text-xs font-bold ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-                    {r.purchases > 0 ? r.purchases : "—"}
-                  </span>
+                {/* Desktop row */}
+                <div className={`hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
+                      {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
+                      <span className="text-xs font-medium truncate">{r.name}</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP</span>
+                  </div>
+                  <div className="flex justify-center w-12"><OvFreqBadge freq={r.frequency} /></div>
+                  <div className="flex flex-col items-center gap-0.5 w-16">
+                    <span className="text-xs font-bold">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                    <OvDevBadge value={r.cpaDev} lowerIsBetter />
+                  </div>
+                  <div className="flex flex-col items-center gap-0.5 w-16">
+                    <span className="text-xs font-bold">{r.ctr.toFixed(2)}%</span>
+                    <OvDevBadge value={r.ctrDev} lowerIsBetter={false} />
+                  </div>
+                  <div className="flex flex-col items-center gap-0.5 w-16">
+                    <span className="text-xs font-bold">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                    <OvDevBadge value={r.cpcDev} lowerIsBetter />
+                  </div>
+                  <div className="text-center w-14">
+                    <span className={`text-xs font-bold ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                      {r.purchases > 0 ? r.purchases : "—"}
+                    </span>
+                  </div>
                 </div>
               </div>
             );
