@@ -12,81 +12,86 @@ import { Activity, BookOpen, LayoutDashboard, ClipboardList, Clapperboard } from
 
 const queryClient = new QueryClient();
 
+const NAV_ITEMS = [
+  { href: "/overview",  label: "نظرة عامة",    Icon: LayoutDashboard, useRoute: "/overview" },
+  { href: "/",          label: "تحليل الحملة", Icon: Activity,         useRoute: "/" },
+  { href: "/activity",  label: "نشاط الفريق",  Icon: ClipboardList,   useRoute: "/activity" },
+  { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,    useRoute: "/media" },
+  { href: "/how-to",    label: "دليل الحلول",  Icon: BookOpen,        useRoute: "/how-to" },
+];
+
 function NavBar() {
-  const [isOverview]  = useRoute("/overview");
-  const [isDashboard] = useRoute("/");
-  const [isHowTo]     = useRoute("/how-to");
-  const [isActivity]  = useRoute("/activity");
-  const [isMedia]     = useRoute("/media");
+  const routes = NAV_ITEMS.map((item) => {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [active] = useRoute(item.useRoute);
+    return active;
+  });
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
-        <div className="flex h-14 items-center justify-between gap-4">
-          <div className="flex items-center gap-1.5 text-sm font-bold">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-            Meta Ads
-          </div>
-          <div className="flex items-center gap-1">
-            <Link
-              href="/overview"
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                isOverview
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-              نظرة عامة
-            </Link>
-            <Link
-              href="/"
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                isDashboard
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <Activity className="h-4 w-4" />
-              تحليل الحملة
-            </Link>
-            <Link
-              href="/activity"
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                isActivity
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <ClipboardList className="h-4 w-4" />
-              نشاط الفريق
-            </Link>
-            <Link
-              href="/media"
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                isMedia
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <Clapperboard className="h-4 w-4" />
-              طلبات الميديا
-            </Link>
-            <Link
-              href="/how-to"
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                isHowTo
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <BookOpen className="h-4 w-4" />
-              دليل الحلول
-            </Link>
+    <>
+      {/* ── Top bar (desktop) ── */}
+      <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
+          <div className="flex h-14 items-center justify-between gap-4">
+            {/* Logo */}
+            <div className="flex items-center gap-1.5 text-sm font-bold shrink-0">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              Meta Ads
+            </div>
+
+            {/* Desktop nav — hidden on mobile */}
+            <div className="hidden sm:flex items-center gap-1">
+              {NAV_ITEMS.map((item, i) => {
+                const active = routes[i];
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <item.Icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+
+      {/* ── Bottom tab bar (mobile only) ── */}
+      <nav
+        className="sm:hidden fixed bottom-0 inset-x-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+        dir="rtl"
+      >
+        <div className="flex items-center justify-around h-16 px-1">
+          {NAV_ITEMS.map((item, i) => {
+            const active = routes[i];
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full rounded-xl transition-colors ${
+                  active ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                <item.Icon className={`h-5 w-5 ${active ? "stroke-[2.5]" : ""}`} />
+                <span className="text-[10px] font-medium leading-tight text-center">
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Spacer so content doesn't hide behind bottom bar on mobile */}
+      <div className="sm:hidden h-16" />
+    </>
   );
 }
 
