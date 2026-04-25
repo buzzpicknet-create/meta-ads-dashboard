@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   listCampaigns,
+  listAdSetRefs,
   getCampaignInsights,
   getAccountInfo,
   listAdAccounts,
@@ -112,6 +113,18 @@ router.get("/meta/campaigns", async (req, res) => {
     res
       .status(500)
       .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.get("/meta/adsets", async (req, res) => {
+  try {
+    const accountId = String(req.query["ad_account_id"] || "").trim();
+    if (!accountId) return res.status(400).json({ error: "ad_account_id required" });
+    const adsets = await listAdSetRefs(accountId);
+    res.json({ ad_account_id: accountId, fetched_at: new Date().toISOString(), adsets });
+  } catch (err) {
+    logger.error({ err }, "Adsets fetch failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

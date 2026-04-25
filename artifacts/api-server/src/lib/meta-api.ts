@@ -264,7 +264,7 @@ export async function listCampaigns(opts: {
     ? rawAccount.slice(4)
     : rawAccount;
 
-  // 1) Fetch all campaigns metadata
+  // 1) Fetch all campaigns metadata (include archived/deleted for activity name-lookup)
   const campaigns = await fbGet<{
     id: string;
     name: string;
@@ -273,7 +273,8 @@ export async function listCampaigns(opts: {
     objective: string;
   }>(`/act_${adAccount}/campaigns`, {
     fields: "id,name,status,effective_status,objective",
-    limit: "200",
+    filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "ARCHIVED", "DELETED", "CAMPAIGN_PAUSED"] }]),
+    limit: "500",
   });
 
   // 2) Fetch insights at campaign level for the period
@@ -1048,6 +1049,31 @@ export async function getAccountInfo() {
     throw new Error(`Meta API error: ${data.error.message}`);
   }
   return data;
+}
+
+// ── Ad Sets (lightweight — id, name, parent campaign) ──────────
+export interface AdSetRef {
+  id: string;
+  name: string;
+  campaign_id: string;
+  campaign_name?: string;
+}
+
+export async function listAdSetRefs(adAccountId: string): Promise<AdSetRef[]> {
+  const rawAccount = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
+  const rows = await fbGet<{ id: string; name: string; campaign_id: string; campaign?: { id: string; name: string } }>(
+    `/act_${rawAccount}/adsets`,
+    {
+      fields: "id,name,campaign_id,campaign{id,name}",
+      limit: "500",
+    },
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    campaign_id: r.campaign_id ?? r.campaign?.id ?? "",
+    campaign_name: r.campaign?.name,
+  }));
 }
 
 // ── Account Activities ─────────────────────────────────────────

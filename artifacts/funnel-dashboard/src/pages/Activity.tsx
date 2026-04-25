@@ -294,17 +294,15 @@ function parseSummary(act: MetaActivity): ActivitySummary | null {
   return null;
 }
 
-// ── Campaign ID extractor from extra_data ─────────────────────
-function extractCampaignId(extra?: Record<string, unknown> | null): string | null {
-  if (!extra) return null;
-  const cid = extra.campaign_id;
-  if (typeof cid === "number") return String(cid);
-  if (typeof cid === "string") return cid;
-  if (cid && typeof cid === "object") {
-    const o = cid as Record<string, unknown>;
-    const v = o.new ?? o.mutation_input;
-    if (typeof v === "number" || typeof v === "string") return String(v);
-  }
+// ── Campaign ID extractor — regex on raw string to avoid JS 64-bit precision loss
+function extractCampaignIdRaw(extraRaw?: string): string | null {
+  if (!extraRaw) return null;
+  // Pattern A: "campaign_id":123456789012345678 (direct number in JSON)
+  let m = extraRaw.match(/"campaign_id"\s*:\s*(\d{10,})/);
+  if (m) return m[1];
+  // Pattern B: "campaign_id":{"new":123...} or {"mutation_input":123...}
+  m = extraRaw.match(/"campaign_id"\s*:\s*\{[^}]*?"(?:new|mutation_input)"\s*:\s*(\d{10,})/);
+  if (m) return m[1];
   return null;
 }
 
@@ -333,13 +331,25 @@ function MetaActivityCard({
   const hasTime = !!toDate(act.event_time);
   const summary = parseSummary(act);
 
-  // Parent campaign lookup for ad/adset level actions
+  // Parent campaign lookup for ad & adset level actions
+  // - Ad activities:   extra_data.campaign_id = adset_id → lookup adset → campaign_name
+  // - Adset activities: object_id = adset_id → lookup directly → campaign_name
   const parentCampaignName = useMemo(() => {
     if (!isSubCampaignLevel(act.event_type)) return null;
-    const cid = extractCampaignId(extra);
-    if (!cid) return null;
-    return campaignNameMap[cid] ?? null;
-  }, [act.event_type, extra, campaignNameMap]);
+    const t = (act.event_type ?? "").toLowerCase();
+    const isAdSet = t.includes("adset") || t.includes("ad_set") || t === "create_ad_set";
+
+    // For adset-level: the object_id IS the adset_id
+    if (isAdSet && act.object_id) {
+      const name = campaignNameMap[String(act.object_id)];
+      return name ?? null;
+    }
+
+    // For ad-level: extra_data.campaign_id is actually the adset_id (Meta's old naming)
+    const adsetId = extractCampaignIdRaw(act.extra_data);
+    if (!adsetId) return null;
+    return campaignNameMap[adsetId] ?? null;
+  }, [act.event_type, act.object_id, act.extra_data, campaignNameMap]);
 
   const summaryColor =
     summary?.direction === "up"   ? "text-emerald-600 dark:text-emerald-400" :
@@ -555,6 +565,31 @@ export default function ActivityPage() {
     refetchInterval: 60_000,
   });
 
+  // Campaigns list — for campaign-level activity name lookup
+  const campaignsQuery = useQuery({
+    queryKey: ["campaigns-all", accountId],
+    queryFn: async (): Promise<{ campaigns: Array<{ id: string; name: string }> }> => {
+      const res = await fetch(`${BASE}/api/meta/campaigns?ad_account_id=${accountId}`);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: !!accountId,
+    staleTime: 30 * 60_000,
+  });
+
+  // Adsets list — extra_data.campaign_id in ad activities is actually the adset_id (Meta's old naming)
+  // We need adset_id → parent campaign_name for correct breadcrumb display
+  const adsetsQuery = useQuery({
+    queryKey: ["adsets-refs", accountId],
+    queryFn: async (): Promise<{ adsets: Array<{ id: string; name: string; campaign_id: string; campaign_name?: string }> }> => {
+      const res = await fetch(`${BASE}/api/meta/adsets?ad_account_id=${accountId}`);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: !!accountId,
+    staleTime: 30 * 60_000,
+  });
+
   const metaList   = metaActivity.data?.activities ?? [];
   const unresolved = alertActivity.data?.unresolved ?? [];
   const urgentCount = unresolved.filter(
@@ -572,9 +607,33 @@ export default function ActivityPage() {
     return acc;
   }, {});
 
-  // Build campaign id → name lookup from all activities in the list
+  // Build unified lookup map used by MetaActivityCard for the breadcrumb:
+  //
+  // KEY INSIGHT: Meta's extra_data uses old naming — "campaign_id" in ad activities
+  // is actually the ADSET ID. So we need adset_id → parent campaign_name.
+  //
+  // Map entries:
+  //  campaign_id  → campaign_name   (for campaign-level events, keyed by object_id)
+  //  adset_id     → campaign_name   (for ad-level events, keyed by extra_data.campaign_id)
   const campaignNameMap = useMemo(() => {
     const map: Record<string, string> = {};
+
+    // 1. campaign_id → campaign_name (from campaigns API)
+    (campaignsQuery.data?.campaigns ?? []).forEach((c) => {
+      if (c.id && c.name) map[String(c.id)] = c.name;
+    });
+
+    // 2. adset_id → parent campaign_name (from adsets API — resolves the old naming)
+    const adsetList = adsetsQuery.data?.adsets ?? [];
+    adsetList.forEach((as) => {
+      if (!as.id) return;
+      const campaignName = as.campaign_name
+        // If adsets endpoint returned campaign.name directly
+        ?? (as.campaign_id ? campaignsQuery.data?.campaigns?.find((c) => c.id === as.campaign_id)?.name : undefined);
+      if (campaignName) map[String(as.id)] = campaignName;
+    });
+
+    // 3. From campaign-level activities (catches very recent / just-created campaigns)
     metaList.forEach((act) => {
       const t = (act.event_type ?? "").toLowerCase();
       if (
@@ -584,8 +643,9 @@ export default function ActivityPage() {
         map[String(act.object_id)] = act.object_name;
       }
     });
+
     return map;
-  }, [metaList]);
+  }, [campaignsQuery.data, adsetsQuery.data, metaList]);
 
   const validCount = metaList.filter((a) => !!toDate(a.event_time)).length;
 
