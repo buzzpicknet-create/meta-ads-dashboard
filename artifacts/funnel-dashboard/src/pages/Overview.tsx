@@ -861,14 +861,16 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
     });
   });
 
-  if (totals.ctr < 1)
-    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الإعلان لا يجذب النقرات`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
-  else if (totals.ctr < 1.5)
-    alerts.push({ type: "warn", msg: `CTR منخفض (${fmtPct(totals.ctr)}) — الهدف ≥ 1.5% لخفض CPC`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
-  if (totals.cpc > 8)
-    alerts.push({ type: "danger", msg: `CPC مرتفع جداً (${fmt(totals.cpc, 2)} EGP) — كل نقرة تكلّف كثيراً`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
-  else if (totals.cpc > 5)
-    alerts.push({ type: "warn", msg: `CPC مرتفع (${fmt(totals.cpc, 2)} EGP) — الهدف ≤ 5 EGP لتحسين الربحية`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  if (totals.ctr < 1.5)
+    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الهدف ≥ 2% لخفض CPC`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  else if (totals.ctr < 2)
+    alerts.push({ type: "warn", msg: `CTR منخفض (${fmtPct(totals.ctr)}) — الهدف ≥ 2% لتقليل تكلفة النقرة`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  if (totals.cpc > 5)
+    alerts.push({ type: "danger", msg: `CPC مرتفع جداً (${fmt(totals.cpc, 2)} EGP) — الهدف ≤ 3 EGP`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  else if (totals.cpc > 3)
+    alerts.push({ type: "warn", msg: `CPC مرتفع (${fmt(totals.cpc, 2)} EGP) — الهدف ≤ 3 EGP لتحسين الربحية`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+  if (totals.cpm > 70)
+    alerts.push({ type: "danger", msg: `CPM مرتفع جداً (${fmt(totals.cpm, 0)} EGP) — منافسة عالية في المزاد`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend } });
   if (totals.crLpv < 2 && totals.lpv > 0)
     alerts.push({ type: "warn", msg: `CR ضعيف (${fmtPct(totals.crLpv)}) — صفحة المنتج تحتاج مراجعة`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
 
@@ -921,79 +923,121 @@ interface MetricHealth {
   statusLabel: string;
   problem?: string;
   metrics?: OvHowToMetrics;
+  badCampaigns: { name: string; value: string }[];
+}
+
+function HealthDot({ status }: { status: HealthStatus }) {
+  return (
+    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${status === "good" ? "bg-emerald-500" : status === "warn" ? "bg-amber-500" : "bg-rose-500"}`} />
+  );
 }
 
 function AccountHealthPanel({ totals, campaigns }: { totals: DerivedMetrics; campaigns: CampaignSummaryFull[] }) {
-  const activeCampaigns = campaigns.filter((c) => c.spend > 0);
-  const freqValues = activeCampaigns.map((c) => c.frequency ?? 0).filter((f) => f > 0);
-  const maxFreq = freqValues.length > 0 ? Math.max(...freqValues) : 0;
+  const active = campaigns.filter((c) => c.spend > 0);
   const cr = totals.lpv > 0 ? totals.crLpv : totals.crClick;
+
+  const ctrStatus = (v: number): HealthStatus => v >= 2 ? "good" : v >= 1.5 ? "warn" : "danger";
+  const cpcStatus = (v: number): HealthStatus => v <= 3 ? "good" : v <= 5 ? "warn" : "danger";
+  const cpmStatus = (v: number): HealthStatus => v <= 50 ? "good" : v <= 70 ? "warn" : "danger";
+  const freqStatus = (v: number): HealthStatus => v <= 1.5 ? "good" : v <= 2.5 ? "warn" : "danger";
+  const cpaStatus = (v: number): HealthStatus => v === 0 ? "danger" : v <= 40 ? "good" : v <= 100 ? "warn" : "danger";
+  const crStatus  = (v: number): HealthStatus => v >= 3 ? "good" : v >= 1.5 ? "warn" : "danger";
+
+  const freqCampaigns = active
+    .filter((c) => (c.frequency ?? 0) > 1.5)
+    .sort((a, b) => (b.frequency ?? 0) - (a.frequency ?? 0))
+    .slice(0, 4)
+    .map((c) => ({ name: c.name, value: `${fmt(c.frequency ?? 0, 2)}x` }));
 
   const rows: MetricHealth[] = [
     {
       key: "ctr",
       label: "CTR — نسبة النقر",
       value: fmtPct(totals.ctr),
-      bench: "الهدف ≥ 1.5%",
-      status: totals.ctr >= 1.5 ? "good" : totals.ctr >= 1.0 ? "warn" : "danger",
-      statusLabel: totals.ctr >= 1.5 ? "جيد ✓" : totals.ctr >= 1.0 ? "منخفض — مراقبة" : "خطر — منخفض جداً",
-      problem: totals.ctr < 1.5 ? "ctr-low" : undefined,
+      bench: "الهدف ≥ 2%",
+      status: ctrStatus(totals.ctr),
+      statusLabel: totals.ctr >= 2 ? "جيد ✓" : totals.ctr >= 1.5 ? "منخفض — مراقبة" : "خطر — منخفض جداً",
+      problem: totals.ctr < 2 ? "ctr-low" : undefined,
       metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases },
+      badCampaigns: active
+        .filter((c) => c.ctr > 0 && c.ctr < 2)
+        .sort((a, b) => a.ctr - b.ctr)
+        .slice(0, 4)
+        .map((c) => ({ name: c.name, value: fmtPct(c.ctr) })),
     },
     {
       key: "cpc",
       label: "CPC — تكلفة النقرة",
       value: `${fmt(totals.cpc, 2)} EGP`,
-      bench: "الهدف ≤ 5 EGP",
-      status: totals.cpc <= 5 ? "good" : totals.cpc <= 8 ? "warn" : "danger",
-      statusLabel: totals.cpc <= 5 ? "جيد ✓" : totals.cpc <= 8 ? "مرتفع — مراقبة" : "خطر — مرتفع جداً",
-      problem: totals.cpc > 5 ? "cpc-high" : undefined,
+      bench: "الهدف ≤ 3 EGP",
+      status: cpcStatus(totals.cpc),
+      statusLabel: totals.cpc <= 3 ? "جيد ✓" : totals.cpc <= 5 ? "مرتفع — مراقبة" : "خطر — مرتفع جداً",
+      problem: totals.cpc > 3 ? "cpc-high" : undefined,
       metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases },
+      badCampaigns: active
+        .filter((c) => c.cpc > 3)
+        .sort((a, b) => b.cpc - a.cpc)
+        .slice(0, 4)
+        .map((c) => ({ name: c.name, value: `${fmt(c.cpc, 2)} EGP` })),
     },
     {
       key: "cpa",
       label: "CPA — تكلفة الأوردر",
       value: totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—",
       bench: "الهدف ≤ 40 EGP",
-      status: totals.cpa === 0 ? "danger" : totals.cpa <= 40 ? "good" : totals.cpa <= 100 ? "warn" : "danger",
+      status: cpaStatus(totals.cpa),
       statusLabel: totals.cpa === 0 ? "لا أوردرات" : totals.cpa <= 40 ? "جيد ✓" : totals.cpa <= 100 ? "مرتفع — مراقبة" : "خطر — مرتفع جداً",
       problem: totals.cpa === 0 || totals.cpa > 40 ? "cpa-high" : undefined,
       metrics: { cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases, ctr: totals.ctr, cpc: totals.cpc },
+      badCampaigns: active
+        .filter((c) => c.spend > 50 && (c.purchases === 0 || c.cpa > 40))
+        .sort((a, b) => (b.cpa || 9999) - (a.cpa || 9999))
+        .slice(0, 4)
+        .map((c) => ({ name: c.name, value: c.purchases === 0 ? "لا أوردرات" : `${fmt(c.cpa, 0)} EGP` })),
     },
     {
       key: "cr",
       label: "CR — معدل التحويل",
       value: cr > 0 ? fmtPct(cr) : "—",
-      bench: "الهدف ≥ 2%",
-      status: cr >= 3 ? "good" : cr >= 1.5 ? "warn" : "danger",
+      bench: "الهدف ≥ 3%",
+      status: crStatus(cr),
       statusLabel: cr >= 3 ? "جيد ✓" : cr >= 1.5 ? "ضعيف — مراقبة" : "خطر — منخفض جداً",
       problem: cr < 3 ? "low-cr" : undefined,
       metrics: { cr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases },
+      badCampaigns: active
+        .filter((c) => c.cr > 0 && c.cr < 3)
+        .sort((a, b) => a.cr - b.cr)
+        .slice(0, 4)
+        .map((c) => ({ name: c.name, value: fmtPct(c.cr) })),
     },
     {
       key: "cpm",
       label: "CPM — تكلفة الألف ظهور",
       value: `${fmt(totals.cpm, 0)} EGP`,
-      bench: "الهدف ≤ 50 EGP",
-      status: totals.cpm <= 50 ? "good" : totals.cpm <= 80 ? "warn" : "danger",
-      statusLabel: totals.cpm <= 50 ? "جيد ✓" : totals.cpm <= 80 ? "مرتفع — مراقبة" : "خطر — منافسة عالية",
-      problem: totals.cpm > 50 ? "cpc-high" : undefined,
+      bench: "الهدف ≤ 70 EGP",
+      status: cpmStatus(totals.cpm),
+      statusLabel: totals.cpm <= 50 ? "جيد ✓" : totals.cpm <= 70 ? "مرتفع — مراقبة" : "خطر — منافسة عالية",
+      problem: totals.cpm > 70 ? "cpc-high" : undefined,
       metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend },
+      badCampaigns: active
+        .filter((c) => c.cpm > 70)
+        .sort((a, b) => b.cpm - a.cpm)
+        .slice(0, 4)
+        .map((c) => ({ name: c.name, value: `${fmt(c.cpm, 0)} EGP` })),
     },
-    ...(maxFreq > 0
-      ? [
-          {
-            key: "freq",
-            label: "Frequency — تكرار الإعلان",
-            value: `${fmt(maxFreq, 2)}x`,
-            bench: "الهدف ≤ 2x",
-            status: (maxFreq <= 2 ? "good" : maxFreq <= 3.5 ? "warn" : "danger") as HealthStatus,
-            statusLabel: maxFreq <= 2 ? "جيد ✓" : maxFreq <= 3.5 ? "مرتفع — غيّر الكريتف" : "خطر — تشبع الجمهور",
-            problem: maxFreq > 2 ? "high-frequency" : undefined,
-            metrics: { freq: maxFreq } as OvHowToMetrics,
-          },
-        ]
-      : []),
+    {
+      key: "freq",
+      label: "Frequency — تكرار الإعلان",
+      value: active.filter((c) => (c.frequency ?? 0) > 0).length > 0
+        ? `${fmt(Math.max(...active.map((c) => c.frequency ?? 0)), 2)}x`
+        : "—",
+      bench: "الهدف ≤ 1.5x",
+      status: freqCampaigns.length === 0 ? "good" : freqStatus(Math.max(...active.map((c) => c.frequency ?? 0))),
+      statusLabel: freqCampaigns.length === 0 ? "جيد ✓" : Math.max(...active.map((c) => c.frequency ?? 0)) <= 2.5 ? "مرتفع — غيّر الكريتف" : "خطر — تشبع الجمهور",
+      problem: freqCampaigns.length > 0 ? "high-frequency" : undefined,
+      metrics: { freq: active.filter((c) => (c.frequency ?? 0) > 0).length > 0 ? Math.max(...active.map((c) => c.frequency ?? 0)) : 0 },
+      badCampaigns: freqCampaigns,
+    },
   ];
 
   const problemCount = rows.filter((r) => r.status !== "good").length;
@@ -1019,50 +1063,46 @@ function AccountHealthPanel({ totals, campaigns }: { totals: DerivedMetrics; cam
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-0">
         <div className="divide-y divide-border/50">
-          {rows.map((r) => (
-            <div key={r.key} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-              <div
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  r.status === "good" ? "bg-emerald-500" : r.status === "warn" ? "bg-amber-500" : "bg-rose-500"
-                }`}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-foreground leading-tight">{r.label}</div>
-                <div className="text-[11px] text-muted-foreground">{r.bench}</div>
-              </div>
-              <div className="text-right shrink-0">
-                <div
-                  className={`num text-sm font-bold ${
-                    r.status === "good"
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : r.status === "warn"
-                        ? "text-amber-600 dark:text-amber-400"
-                        : "text-rose-600 dark:text-rose-400"
-                  }`}
-                >
-                  {r.value}
+          {rows.map((r) => {
+            const isGood = r.status === "good";
+            const valueCls = isGood
+              ? "text-emerald-600 dark:text-emerald-400"
+              : r.status === "warn"
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-rose-600 dark:text-rose-400";
+            return (
+              <div key={r.key} className={`px-5 py-3 ${!isGood && r.badCampaigns.length > 0 ? "" : ""}`}>
+                <div className="flex items-center gap-3">
+                  <HealthDot status={r.status} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-foreground leading-tight">{r.label}</div>
+                    <div className="text-[11px] text-muted-foreground">{r.bench}</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className={`num text-sm font-bold ${valueCls}`}>{r.value}</div>
+                    <div className={`text-[10px] font-medium ${valueCls} opacity-75`}>{r.statusLabel}</div>
+                  </div>
+                  {r.problem && !isGood ? (
+                    <HowToBtn problem={r.problem} metrics={r.metrics} size="xs" />
+                  ) : (
+                    <div className="w-16 shrink-0" />
+                  )}
                 </div>
-                <div
-                  className={`text-[10px] font-medium ${
-                    r.status === "good"
-                      ? "text-emerald-600/70 dark:text-emerald-400/70"
-                      : r.status === "warn"
-                        ? "text-amber-600/70 dark:text-amber-400/70"
-                        : "text-rose-600/70 dark:text-rose-400/70"
-                  }`}
-                >
-                  {r.statusLabel}
-                </div>
+                {!isGood && r.badCampaigns.length > 0 && (
+                  <div className="mt-2 mr-5 space-y-1">
+                    {r.badCampaigns.map((c, i) => (
+                      <div key={i} className={`flex items-center justify-between gap-2 text-[11px] rounded-lg px-3 py-1.5 ${r.status === "danger" ? "bg-rose-500/8 text-rose-700 dark:text-rose-400" : "bg-amber-500/8 text-amber-700 dark:text-amber-400"}`}>
+                        <span className="truncate font-medium flex-1">{c.name}</span>
+                        <span className="num font-bold shrink-0">{c.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {r.problem && r.status !== "good" ? (
-                <HowToBtn problem={r.problem} metrics={r.metrics} size="xs" />
-              ) : (
-                <div className="w-16 shrink-0" />
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </CardContent>
     </Card>
