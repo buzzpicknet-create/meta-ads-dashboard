@@ -187,6 +187,8 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
   };
 }
 
+const ATTRIBUTION_WINDOW = '["1d_click"]';
+
 const INSIGHT_FIELDS = [
   "campaign_id",
   "campaign_name",
@@ -263,6 +265,7 @@ export async function listCampaigns(opts: {
     level: "campaign",
     time_range,
     fields: INSIGHT_FIELDS,
+    action_attribution_windows: ATTRIBUTION_WINDOW,
     limit: "200",
   });
 
@@ -400,6 +403,7 @@ export async function getCampaignInsights(opts: {
       time_range,
       time_increment: "1",
       fields: INSIGHT_FIELDS,
+      action_attribution_windows: ATTRIBUTION_WINDOW,
       limit: "200",
     },
   );
@@ -409,6 +413,7 @@ export async function getCampaignInsights(opts: {
     level: "ad",
     time_range,
     fields: INSIGHT_FIELDS,
+    action_attribution_windows: ATTRIBUTION_WINDOW,
     limit: "500",
   });
 
@@ -606,6 +611,7 @@ export async function getAccountOverview(opts: {
     level: "campaign",
     time_range,
     fields: INSIGHT_FIELDS,
+    action_attribution_windows: ATTRIBUTION_WINDOW,
     limit: "200",
   });
 
@@ -623,6 +629,7 @@ export async function getAccountOverview(opts: {
       "actions",
       "video_play_actions",
     ].join(","),
+    action_attribution_windows: ATTRIBUTION_WINDOW,
     limit: "200",
   });
 
@@ -639,6 +646,7 @@ export async function getAccountOverview(opts: {
       "actions",
       "video_play_actions",
     ].join(","),
+    action_attribution_windows: ATTRIBUTION_WINDOW,
     limit: "200",
   });
 
