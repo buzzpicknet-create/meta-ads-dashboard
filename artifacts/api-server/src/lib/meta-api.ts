@@ -1050,6 +1050,47 @@ export async function getAccountInfo() {
   return data;
 }
 
+// ── Account Activities ─────────────────────────────────────────
+// Meta's activity log — real actions made on campaigns/ad sets/ads
+export interface MetaActivity {
+  id?: string;
+  actor_name?: string;
+  actor_id?: string;
+  object_name?: string;
+  object_id?: string;
+  event_type?: string;
+  translated_event_type?: string;
+  event_time?: number;
+  extra_data?: string;
+}
+
+export async function getAccountActivities({
+  adAccountId,
+  since,
+  until,
+  limit = 100,
+}: {
+  adAccountId: string;
+  since: string; // YYYY-MM-DD
+  until: string; // YYYY-MM-DD
+  limit?: number;
+}): Promise<MetaActivity[]> {
+  const cleanId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
+
+  // Convert dates to Unix timestamps (Meta uses Unix for activities)
+  const sinceTs = Math.floor(new Date(since).getTime() / 1000);
+  const untilTs = Math.floor(new Date(until + "T23:59:59Z").getTime() / 1000);
+
+  const rows = await fbGet<MetaActivity>(`/act_${cleanId}/activities`, {
+    fields: "actor_name,actor_id,object_name,object_id,event_type,translated_event_type,event_time,extra_data",
+    since: String(sinceTs),
+    until: String(untilTs),
+    limit: String(Math.min(limit, 200)),
+  });
+
+  return rows;
+}
+
 export async function listAdAccounts(): Promise<AdAccountSummary[]> {
   const ids = getAdAccountIds();
   const accounts = await Promise.all(

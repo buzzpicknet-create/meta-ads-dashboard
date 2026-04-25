@@ -6,6 +6,7 @@ import {
   listAdAccounts,
   getAccountOverview,
   getCpaAlerts,
+  getAccountActivities,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -168,5 +169,35 @@ router.get("/meta/today", (_req, res) => {
   res.json({ today_cairo: todayInCairo() });
 });
 
+// ── GET /api/meta/activities ─────────────────────────────────
+// Real Media Buyer activity log from Meta — what actually happened on campaigns
+router.get("/meta/activities", async (req, res) => {
+  try {
+    const accountId = String(req.query["ad_account_id"] || "").trim();
+    if (!accountId) {
+      res.status(400).json({ error: "ad_account_id is required" });
+      return;
+    }
+    const { since, until } = parseRange({
+      since: req.query["since"] as string | undefined,
+      until: req.query["until"] as string | undefined,
+      days: (req.query["days"] as string | undefined) ?? "14",
+    });
+
+    const activities = await getAccountActivities({ adAccountId: accountId, since, until });
+
+    logger.info({ account_id: accountId, count: activities.length, since, until }, "Fetched account activities");
+
+    res.json({
+      account_id: accountId,
+      period: { since, until },
+      fetched_at: new Date().toISOString(),
+      activities,
+    });
+  } catch (err) {
+    logger.error({ err }, "Activities fetch failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
 
 export default router;
