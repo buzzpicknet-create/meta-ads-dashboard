@@ -115,27 +115,62 @@ function dayLabel(event_time?: string | number): string {
   }
 }
 
+// ── Status label translation ───────────────────────────────────
+const STATUS_AR: Record<string, string> = {
+  "Active":          "مفعّل",
+  "Inactive":        "موقوف",
+  "Paused":          "موقوف",
+  "Deleted":         "محذوف",
+  "Pending Review":  "قيد المراجعة",
+  "Pending Process": "قيد المعالجة",
+  "Disapproved":     "مرفوض",
+  "Preapproved":     "معتمد مسبقاً",
+  "Completed":       "مكتمل",
+};
+function statusAr(s?: unknown): string {
+  if (!s || typeof s !== "string") return "";
+  return STATUS_AR[s] ?? s;
+}
+
 // ── Event type translation ─────────────────────────────────────
-function translateEvent(eventType?: string): { label: string; icon: React.ElementType; color: string } {
+function translateEvent(
+  eventType?: string,
+  extra?: Record<string, unknown> | null,
+): { label: string; icon: React.ElementType; color: string } {
   const t = (eventType ?? "").toLowerCase();
-  if (t.includes("pause"))                      return { label: "إيقاف",              icon: Pause,       color: "text-rose-500" };
+
+  if (t.includes("run_status")) {
+    const nv = extra?.new_value;
+    if (nv === "Active")                return { label: "تفعيل",          icon: Play,       color: "text-emerald-500" };
+    if (nv === "Inactive" || nv === "Paused")
+                                        return { label: "إيقاف",          icon: Pause,      color: "text-rose-500" };
+    return { label: "تغيير الحالة",                                        icon: Edit3,      color: "text-primary" };
+  }
+  if (t.includes("budget_schedul") || t.includes("group_budget_schedul"))
+                                        return { label: "جدولة ميزانية",  icon: CalendarDays, color: "text-muted-foreground" };
+  if (t.includes("pause"))             return { label: "إيقاف",           icon: Pause,      color: "text-rose-500" };
   if (t.includes("resume") || t.includes("reactivat"))
-                                                return { label: "تفعيل / استكمال",    icon: Play,        color: "text-emerald-500" };
-  if (t.includes("create"))                     return { label: "إنشاء",              icon: Plus,        color: "text-blue-500" };
+                                        return { label: "تفعيل",           icon: Play,       color: "text-emerald-500" };
+  if (t === "first_delivery_event")    return { label: "بدء التوصيل",     icon: Play,       color: "text-emerald-600" };
+  if (t.includes("create"))            return { label: "إنشاء",            icon: Plus,       color: "text-blue-500" };
   if (t.includes("delete") || t.includes("archive"))
-                                                return { label: "حذف / أرشفة",        icon: Trash2,      color: "text-rose-600" };
-  if (t.includes("budget"))                     return { label: "تغيير الميزانية",    icon: DollarSign,  color: "text-amber-500" };
-  if (t.includes("bid"))                        return { label: "تعديل العطاء",       icon: Target,      color: "text-purple-500" };
-  if (t.includes("audience") || t.includes("target"))
-                                                return { label: "تعديل الجمهور",      icon: Eye,         color: "text-cyan-500" };
-  if (t.includes("creative"))                   return { label: "تغيير الكريتف",      icon: Zap,         color: "text-orange-500" };
+                                        return { label: "حذف / أرشفة",    icon: Trash2,     color: "text-rose-600" };
+  if (t.includes("budget"))            return { label: "تغيير الميزانية", icon: DollarSign, color: "text-amber-500" };
+  if (t.includes("bid"))               return { label: "تعديل العطاء",    icon: Target,     color: "text-purple-500" };
+  if (t.includes("target_spec") || t.includes("audience"))
+                                        return { label: "تعديل الاستهداف",icon: Eye,        color: "text-cyan-500" };
+  if (t.includes("creative"))          return { label: "تغيير الكريتف",   icon: Zap,        color: "text-orange-500" };
+  if (t.includes("billing") || t.includes("charge"))
+                                        return { label: "خصم رصيد",        icon: DollarSign, color: "text-rose-500" };
+  if (t.includes("funding"))           return { label: "شحن رصيد",         icon: DollarSign, color: "text-emerald-500" };
   if (t.includes("edit") || t.includes("update"))
-                                                return { label: "تعديل",              icon: Edit3,       color: "text-primary" };
+                                        return { label: "تعديل",            icon: Edit3,      color: "text-primary" };
   return { label: eventType ?? "إجراء", icon: Edit3, color: "text-muted-foreground" };
 }
 
 function objectLevel(eventType?: string): string {
   const t = (eventType ?? "").toLowerCase();
+  if (t.includes("campaign_group") || t === "create_campaign_group") return "حملة";
   if (t.includes("campaign"))                    return "حملة";
   if (t.includes("adset") || t.includes("ad_set")) return "مجموعة إعلانية";
   if (t.includes("creative"))                    return "كريتف";
@@ -149,79 +184,176 @@ function parseExtra(extra?: string): Record<string, unknown> | null {
   catch { return null; }
 }
 
+// ── Human-readable summary ─────────────────────────────────────
+interface ActivitySummary { text: string; direction: "up" | "down" | "neutral" }
+
+function parseSummary(act: MetaActivity): ActivitySummary | null {
+  const extra = parseExtra(act.extra_data);
+  const t = act.event_type ?? "";
+
+  // ── Budget change ──────────────────────────────────────────
+  if (t.includes("budget") && !t.includes("schedul") && extra?.type === "composite_data") {
+    const oldObj = extra.old_value as Record<string, unknown> | null;
+    const newObj = extra.new_value as Record<string, unknown> | null;
+    const oldRaw = typeof oldObj?.old_value === "number" ? oldObj.old_value : null;
+    const newRaw = typeof newObj?.new_value === "number" ? newObj.new_value : null;
+    if (oldRaw !== null && newRaw !== null) {
+      const oldEGP = Math.round(oldRaw / 100);
+      const newEGP = Math.round(newRaw / 100);
+      const dir: "up" | "down" | "neutral" = newEGP > oldEGP ? "up" : newEGP < oldEGP ? "down" : "neutral";
+      const arrow = dir === "up" ? "↑" : dir === "down" ? "↓" : "→";
+      return {
+        text: `${arrow} ${oldEGP.toLocaleString("ar-EG")} → ${newEGP.toLocaleString("ar-EG")} ج/يوم`,
+        direction: dir,
+      };
+    }
+    // Initial budget on create
+    if (newRaw !== null) {
+      return { text: `ميزانية ${Math.round(newRaw / 100).toLocaleString("ar-EG")} ج/يوم`, direction: "neutral" };
+    }
+  }
+
+  // ── Run status change ──────────────────────────────────────
+  if (t.includes("run_status") && extra) {
+    const oldS = statusAr(extra.old_value);
+    const newS = statusAr(extra.new_value);
+    if (oldS && newS) {
+      const dir: "up" | "down" | "neutral" =
+        extra.new_value === "Active" ? "up" :
+        (extra.new_value === "Inactive" || extra.new_value === "Paused") ? "down" : "neutral";
+      return { text: `${oldS} ← ${newS}`, direction: dir };
+    }
+  }
+
+  // ── Create campaign ────────────────────────────────────────
+  if (t === "create_campaign_group" && extra) {
+    const newObj = extra.new_value as Record<string, unknown> | null;
+    const budget = typeof newObj?.new_value === "number" ? Math.round(newObj.new_value / 100) : null;
+    return { text: budget ? `حملة جديدة · ${budget.toLocaleString("ar-EG")} ج/يوم` : "حملة جديدة", direction: "neutral" };
+  }
+
+  // ── Create ad set ──────────────────────────────────────────
+  if (t === "create_ad_set")
+    return { text: "مجموعة إعلانية جديدة", direction: "neutral" };
+
+  // ── Create ad ─────────────────────────────────────────────
+  if (t === "create_ad")
+    return { text: "إعلان جديد أُضيف للحملة", direction: "neutral" };
+
+  // ── First delivery ─────────────────────────────────────────
+  if (t === "first_delivery_event")
+    return { text: "الحملة بدأت التوصيل لأول مرة ✓", direction: "up" };
+
+  // ── Funding / billing ──────────────────────────────────────
+  if (t === "funding_event_successful" && extra) {
+    const amount  = typeof extra.amount === "number" ? Math.round(extra.amount / 100) : null;
+    const network = extra.network_id ? String(extra.network_id).split("/")[0].trim() : null;
+    return {
+      text: `شحن رصيد ${amount?.toLocaleString("ar-EG") ?? ""} ج${network ? ` عبر ${network}` : ""}`,
+      direction: "up",
+    };
+  }
+  if ((t === "ad_account_billing_charge") && extra) {
+    const amount = typeof extra.new_value === "number" ? Math.round(extra.new_value / 100) : null;
+    return { text: `خصم ${amount?.toLocaleString("ar-EG") ?? ""} ج من الرصيد`, direction: "down" };
+  }
+
+  // ── Targeting change ───────────────────────────────────────
+  if (t.includes("target_spec") && extra) {
+    const arr = extra.new_value as Array<{ content: string; children: string[] }> | null;
+    if (Array.isArray(arr)) {
+      const loc = arr.find(x => x.content?.includes("Location:"));
+      const age = arr.find(x => x.content?.startsWith("Age:"));
+      const parts: string[] = [];
+      if (loc?.children?.[0]) parts.push(loc.children[0].split(":")[0]);
+      if (age?.children?.[0]) parts.push(age.children[0]);
+      return { text: `استهداف جديد${parts.length ? ": " + parts.join(" · ") : ""}`, direction: "neutral" };
+    }
+  }
+
+  // ── Creative change ────────────────────────────────────────
+  if (t.includes("creative"))
+    return { text: "تغيير الصورة أو نص الإعلان", direction: "neutral" };
+
+  // ── Bid strategy ───────────────────────────────────────────
+  if (t.includes("bid_strategy") && extra) {
+    const STRAT: Record<string, string> = {
+      LOWEST_COST_BID_STRATEGY: "أقل تكلفة",
+      COST_CAP: "سقف التكلفة",
+      BID_CAP: "سقف العطاء",
+    };
+    const nv = extra.new_value as string | null;
+    return { text: `استراتيجية العطاء: ${nv ? (STRAT[nv] ?? nv) : ""}`, direction: "neutral" };
+  }
+
+  // ── Optimization goal ──────────────────────────────────────
+  if (t.includes("optimization_goal") && extra) {
+    return { text: `هدف التحسين: ${extra.new_value as string ?? ""}`, direction: "neutral" };
+  }
+
+  return null;
+}
+
 // ── Meta Activity Card ────────────────────────────────────────
 function MetaActivityCard({ act }: { act: MetaActivity }) {
-  const [open, setOpen] = useState(false);
-  const { label, icon: Icon, color } = translateEvent(act.event_type);
-  const level  = objectLevel(act.event_type);
   const extra   = parseExtra(act.extra_data);
+  const { label, icon: Icon, color } = translateEvent(act.event_type, extra);
+  const level   = objectLevel(act.event_type);
   const hasTime = !!toDate(act.event_time);
+  const summary = parseSummary(act);
+
+  const summaryColor =
+    summary?.direction === "up"   ? "text-emerald-600 dark:text-emerald-400" :
+    summary?.direction === "down" ? "text-rose-600 dark:text-rose-400"       :
+    "text-foreground";
 
   return (
     <div className="rounded-xl border border-border bg-card px-4 py-3">
       <div className="flex items-start gap-3">
-        {/* Icon circle */}
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${color} bg-current`}
-             style={{ backgroundColor: "transparent", outline: "1px solid currentColor", outlineOffset: "-1px", opacity: 1 }}>
-          <Icon className={`h-3.5 w-3.5 ${color}`} />
+        {/* Icon */}
+        <div className={`mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0 border ${color}`}>
+          <Icon className={`h-3 w-3 ${color}`} />
         </div>
 
         <div className="flex-1 min-w-0">
+          {/* Top row: label + level badge + object name */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={`text-sm font-bold ${color}`}>{label}</span>
             {level && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{level}</span>
             )}
             {act.object_name && (
-              <span className="text-xs text-muted-foreground truncate max-w-[240px]" dir="ltr">{act.object_name}</span>
+              <span className="text-xs font-semibold text-foreground/80 truncate max-w-[260px]">
+                {act.object_name}
+              </span>
             )}
           </div>
 
-          <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
+          {/* Human-readable summary — the main value */}
+          {summary && (
+            <p className={`text-sm font-bold mt-1 ${summaryColor}`}>
+              {summary.text}
+            </p>
+          )}
+
+          {/* Meta row: actor + time */}
+          <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground flex-wrap">
             {act.actor_name && (
-              <span className="font-semibold text-foreground">{act.actor_name}</span>
+              <span className="font-medium text-foreground/70">{act.actor_name}</span>
             )}
             {hasTime && (
               <>
-                <span>·</span>
+                {act.actor_name && <span>·</span>}
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
                   {timeAgo(act.event_time)}
                 </span>
-                <span className="hidden sm:inline">{formatDateShort(act.event_time)}</span>
+                <span className="hidden sm:inline opacity-70">{formatDateShort(act.event_time)}</span>
               </>
             )}
           </div>
-
-          {/* Extra data quick preview */}
-          {extra && Object.keys(extra).length > 0 && !open && (
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {Object.entries(extra).slice(0, 3).map(([k, v]) => (
-                <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground" dir="ltr">
-                  {k}: <span className="font-medium text-foreground">{String(v)}</span>
-                </span>
-              ))}
-            </div>
-          )}
         </div>
-
-        {extra && Object.keys(extra).length > 0 && (
-          <button onClick={() => setOpen(!open)} className="shrink-0 text-muted-foreground hover:text-foreground mt-0.5">
-            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-        )}
       </div>
-
-      {open && extra && (
-        <div className="mt-2 mr-11 text-[11px] bg-muted/40 rounded-lg p-3 border border-border" dir="ltr">
-          {Object.entries(extra).map(([k, v]) => (
-            <div key={k} className="flex gap-2 py-0.5">
-              <span className="text-muted-foreground min-w-[140px] shrink-0">{k}:</span>
-              <span className="text-foreground break-all">{String(v)}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
