@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Rocket,
   ShoppingCart,
+  Sparkles,
   Target,
   TrendingDown,
   TrendingUp,
@@ -53,12 +54,20 @@ import {
 import { CalendarRange } from "lucide-react";
 import { useAccounts, useAccountOverview } from "@/hooks/use-meta";
 import {
+  analyzeTrends,
+  buildInsight,
+  buildPrediction,
+  type MetricTrend,
+} from "@/lib/trend-analysis";
+import {
   type AccountOverview,
   type AdWithIssues,
   type AdIssue,
   type CampaignSummaryFull,
   type DatePreset,
   type AdAccountSummary,
+  type DailyPoint,
+  type DerivedMetrics,
   rangeFromPreset,
   formatRange,
 } from "@/lib/meta-api";
@@ -197,6 +206,164 @@ function KpiCard({
             <Icon className="h-4 w-4" />
           </div>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Trend Alerts + Prediction + Daily Insight (account level)
+// ──────────────────────────────────────────────────────────────
+
+function OvMetricAlertCard({ trend }: { trend: MetricTrend }) {
+  const isWorse = trend.direction === "worsening";
+  const isBetter = trend.direction === "improving";
+  if (trend.direction === "stable") return null;
+
+  const pct = Math.abs(trend.pctChange).toFixed(0);
+  const predFmt = trend.unit === "%" ? `${trend.predictedIn3Days.toFixed(2)}%` : `${Math.round(trend.predictedIn3Days)} ${trend.unit}`;
+  const curFmt  = trend.unit === "%" ? `${trend.currentValue.toFixed(2)}%`       : `${Math.round(trend.currentValue)} ${trend.unit}`;
+
+  const RECS: Record<string, { alert: string; rec: string }> = {
+    cpa_worse:  { alert: `CPA ارتفع ${pct}%${trend.consecutiveWorse >= 2 ? ` (${trend.consecutiveWorse} أيام متتالية)` : ""}`, rec: "راجع الكريتف · وسّع الاستهداف · قلّل الميزانية مؤقتاً لو استمر" },
+    cpa_better: { alert: `CPA تحسّن ${pct}% — فرصة Scale`, rec: "زوّد الميزانية 20–30% واستغل الزخم" },
+    ctr_worse:  { alert: `CTR انخفض ${pct}%${trend.consecutiveWorse >= 2 ? ` (${trend.consecutiveWorse} أيام)` : ""} — الكريتف يشبع`, rec: "غيّر الميديا فوراً · جرّب Hook جديد في أول 3 ثواني" },
+    ctr_better: { alert: `CTR تحسّن ${pct}% — الجمهور يتفاعل أكثر`, rec: "ثبّت الكريتف الحالي وزوّد الميزانية عليه" },
+    cpc_worse:  { alert: `CPC ارتفع ${pct}% — تكلفة المزاد تزيد`, rec: "جرّب Audience جديد · غيّر الكريتف لتقليل تكلفة المزاد" },
+    cpc_better: { alert: `CPC انخفض ${pct}% — تكلفة الترافيك تتحسن`, rec: "وسّع الأوديانس تدريجياً واستغل الكفاءة" },
+  };
+
+  const key = `${trend.metric}_${isWorse ? "worse" : isBetter ? "better" : "stable"}`;
+  const content = RECS[key];
+  if (!content) return null;
+
+  const bgCls   = isWorse ? (trend.consecutiveWorse >= 3 ? "bg-rose-500/8 ring-rose-500/30" : "bg-amber-500/8 ring-amber-500/25") : "bg-emerald-500/8 ring-emerald-500/25";
+  const iconCls  = isWorse ? (trend.consecutiveWorse >= 3 ? "text-rose-500" : "text-amber-500") : "text-emerald-500";
+  const badgeCls = isWorse ? (trend.consecutiveWorse >= 3 ? "bg-rose-500/15 text-rose-700 dark:text-rose-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400") : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+  const TIcon = isWorse ? TrendingDown : TrendingUp;
+
+  return (
+    <div className={`rounded-xl ring-1 px-4 py-3 flex items-start gap-3 ${bgCls}`}>
+      <TIcon className={`h-4 w-4 shrink-0 mt-0.5 ${iconCls}`} />
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badgeCls}`}>{trend.label}</span>
+          <span className="text-sm font-bold leading-tight">{content.alert}</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+          <span>الحالي: <span className="num font-semibold text-foreground">{curFmt}</span></span>
+          <span>التوقع خلال 3 أيام: <span className={`num font-semibold ${isWorse ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>{predFmt}</span></span>
+        </div>
+        <div className="flex items-start gap-1 text-xs">
+          <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
+          <span className="text-muted-foreground">{content.rec}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OvTrendAlertsPanel({ daily, totals }: { daily: DailyPoint[]; totals: DerivedMetrics }) {
+  const trends   = useMemo(() => analyzeTrends(daily), [daily]);
+  const prediction = useMemo(() => buildPrediction(daily, trends), [daily, trends]);
+  const active   = trends.filter((t) => t.direction !== "stable");
+  if (daily.length < 3) return null;
+
+  const verdictCfg = {
+    danger: "bg-rose-500/10 ring-rose-500/30 text-rose-700 dark:text-rose-400",
+    watch:  "bg-amber-500/10 ring-amber-500/25 text-amber-700 dark:text-amber-400",
+    scale:  "bg-emerald-500/10 ring-emerald-500/25 text-emerald-700 dark:text-emerald-400",
+  };
+
+  return (
+    <Card className="border-primary/10">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Activity className="h-4 w-4 text-primary" />
+          تحليل الاتجاهات — Trend Analysis
+          {prediction && (
+            <span className={`mr-auto text-[11px] font-bold px-2.5 py-0.5 rounded-full ring-1 ${verdictCfg[prediction.verdict]}`}>
+              {prediction.verdictText}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {active.length > 0 ? (
+          <div className="space-y-2">
+            {active.map((t) => <OvMetricAlertCard key={t.metric} trend={t} />)}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400 bg-emerald-500/8 ring-1 ring-emerald-500/20 rounded-xl px-4 py-3">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            جميع المؤشرات مستقرة — لا توجد اتجاهات سلبية
+          </div>
+        )}
+        {prediction && prediction.predictedCpa3d > 0 && (
+          <div className={`rounded-xl ring-1 px-4 py-3 space-y-1.5 ${prediction.verdict === "danger" ? "bg-rose-500/5 ring-rose-500/20" : prediction.verdict === "scale" ? "bg-emerald-500/5 ring-emerald-500/20" : "bg-muted/40 ring-border"}`}>
+            <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">توقع الأداء خلال 3 أيام</div>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              <span>CPA المتوقع: <span className={`num font-bold ${prediction.verdict === "danger" ? "text-rose-600 dark:text-rose-400" : prediction.verdict === "scale" ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>{Math.round(prediction.predictedCpa3d)} EGP</span></span>
+              <span>الأوردرات المتوقعة: <span className="num font-bold text-foreground">{prediction.predictedOrders3d}</span></span>
+              <span>الإنفاق المتوقع: <span className="num font-bold text-foreground">{Math.round(prediction.predictedSpend3d)} EGP</span></span>
+            </div>
+            {prediction.verdict === "danger" && (
+              <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+                🚨 لو استمر الوضع → تكلفة الأوردر ستزيد بشكل ملحوظ — تدخّل الآن
+              </div>
+            )}
+            {prediction.verdict === "scale" && (
+              <div className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                🔥 الأداء يتحسن — فرصة Scale واضحة خلال الأيام القادمة
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OvDailyInsightCard({ daily, totals }: { daily: DailyPoint[]; totals: DerivedMetrics }) {
+  const trends  = useMemo(() => analyzeTrends(daily), [daily]);
+  const insight = useMemo(() => buildInsight(trends, totals.purchases), [trends, totals.purchases]);
+  if (!insight.mainProblem && !insight.bestOpportunity) return null;
+
+  return (
+    <Card className="border-primary/15 bg-primary/2">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4 text-primary" />
+          Insight اليوم
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {insight.mainProblem && (
+          <div className={`rounded-xl ring-1 px-4 py-3 space-y-1.5 ${insight.mainProblem.severity === "critical" ? "bg-rose-500/8 ring-rose-500/25" : "bg-amber-500/8 ring-amber-500/20"}`}>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${insight.mainProblem.severity === "critical" ? "bg-rose-500/20 text-rose-700 dark:text-rose-400" : "bg-amber-500/20 text-amber-700 dark:text-amber-400"}`}>أهم مشكلة</span>
+              <span className="text-sm font-bold">{insight.mainProblem.headline}</span>
+            </div>
+            <div className="text-xs text-muted-foreground">السبب: {insight.mainProblem.reason}</div>
+            <div className="flex items-start gap-1 text-xs">
+              <Zap className="h-3 w-3 text-primary shrink-0 mt-0.5" />
+              <span className="font-medium text-primary">{insight.mainProblem.action}</span>
+            </div>
+          </div>
+        )}
+        {insight.bestOpportunity && (
+          <div className="rounded-xl ring-1 bg-emerald-500/8 ring-emerald-500/20 px-4 py-3 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">أفضل فرصة</span>
+              <span className="text-sm font-bold">{insight.bestOpportunity.headline}</span>
+            </div>
+            <div className="text-xs text-muted-foreground">السبب: {insight.bestOpportunity.reason}</div>
+            <div className="flex items-start gap-1 text-xs">
+              <Rocket className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <span className="font-medium text-emerald-700 dark:text-emerald-400">{insight.bestOpportunity.action}</span>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -947,6 +1114,10 @@ function AccountTabContent({
           tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
         />
       </div>
+
+      {/* TREND ALERTS + DAILY INSIGHT */}
+      <OvTrendAlertsPanel daily={daily} totals={totals} />
+      <OvDailyInsightCard daily={daily} totals={totals} />
 
       {/* Priority Engine */}
       <Card>
