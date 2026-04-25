@@ -7,6 +7,7 @@ const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 interface FbActionEntry {
   action_type: string;
   value: string;
+  "1d_click"?: string;
 }
 
 interface FbInsightRow {
@@ -85,7 +86,11 @@ async function fbGet<T>(
 function actionVal(actions: FbActionEntry[] | undefined, type: string): number {
   if (!actions) return 0;
   const e = actions.find((a) => a.action_type === type);
-  return e ? Number(e.value) || 0 : 0;
+  if (!e) return 0;
+  // When action_attribution_windows=["1d_click"] is requested, Meta returns
+  // the breakdown in a separate "1d_click" field. Prefer that over "value"
+  // which reflects the ad account's default attribution window.
+  return Number(e["1d_click"] ?? e.value) || 0;
 }
 
 function purchaseCount(row: FbInsightRow): number {
