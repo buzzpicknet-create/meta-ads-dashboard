@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Clapperboard, Plus, ExternalLink, ChevronDown, Check, Loader2, AlertCircle,
@@ -451,6 +451,53 @@ function DeleteLogSection() {
   );
 }
 
+// ─── Collapsible Section (for قيد المراجعة) ──────────────────────────────────
+function CollapsibleSection({
+  dot, label, count, hint, defaultOpen = true, children,
+}: {
+  dot: string; label: string; count: number; hint?: string; defaultOpen?: boolean; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="mb-10">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="flex items-center gap-2 mb-4 w-full text-right group"
+      >
+        <div className={`h-3 w-3 rounded-full ${dot} shrink-0`} />
+        <h2 className="font-bold text-base">{label}</h2>
+        <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">{count}</span>
+        {hint && <span className="text-xs text-muted-foreground mr-1 hidden sm:inline">— {hint}</span>}
+        <ChevDown className={`h-4 w-4 text-muted-foreground mr-auto transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+// ─── Collapsible Column (for Kanban columns) ──────────────────────────────────
+function CollapsibleColumn({
+  label, count, dot, badge, children,
+}: {
+  label: string; count: number; dot: string; badge: string; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="flex items-center gap-2 mb-4 w-full text-right group"
+      >
+        <div className={`h-3 w-3 rounded-full ${dot} shrink-0`} />
+        <h2 className="font-semibold">{label}</h2>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge}`}>{count}</span>
+        <ChevDown className={`h-4 w-4 text-muted-foreground mr-auto transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="space-y-3">{children}</div>}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function MediaRequestsPage() {
   const [showModal, setShowModal] = useState(false);
@@ -550,17 +597,17 @@ export default function MediaRequestsPage() {
 
         {/* ── قيد المراجعة section ── */}
         {needsReview.length > 0 && (
-          <div className="mb-10">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-3 w-3 rounded-full bg-purple-500" />
-              <h2 className="font-bold text-base">قيد المراجعة</h2>
-              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">{needsReview.length}</span>
-              <span className="text-xs text-muted-foreground mr-2">— طلبات كشفها الفحص التلقائي، وافق عليها لتنتقل للكانبان</span>
-            </div>
+          <CollapsibleSection
+            dot="bg-purple-500"
+            label="قيد المراجعة"
+            count={needsReview.length}
+            hint="طلبات كشفها الفحص التلقائي، وافق عليها لتنتقل للكانبان"
+            defaultOpen
+          >
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {needsReview.map((r) => <ReviewCard key={r.id} req={r} />)}
             </div>
-          </div>
+          </CollapsibleSection>
         )}
 
         {/* ── Kanban ── */}
@@ -571,19 +618,12 @@ export default function MediaRequestsPage() {
               { label: "جاري التنفيذ", items: inProgress, dot: "bg-blue-500",    badge: "bg-blue-100 text-blue-700" },
               { label: "مكتمل",        items: done,       dot: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-700" },
             ].map((col) => (
-              <div key={col.label}>
-                <div className="flex items-center gap-2 mb-4">
-                  <div className={`h-3 w-3 rounded-full ${col.dot}`} />
-                  <h2 className="font-semibold">{col.label}</h2>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${col.badge}`}>{col.items.length}</span>
-                </div>
-                <div className="space-y-3">
-                  {col.items.map((r) => <MediaCard key={r.id} req={r} />)}
-                  {col.items.length === 0 && (
-                    <div className="text-center py-8 text-muted-foreground text-sm border border-dashed border-border rounded-2xl">لا يوجد طلبات</div>
-                  )}
-                </div>
-              </div>
+              <CollapsibleColumn key={col.label} label={col.label} count={col.items.length} dot={col.dot} badge={col.badge}>
+                {col.items.map((r) => <MediaCard key={r.id} req={r} />)}
+                {col.items.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground text-sm border border-dashed border-border rounded-2xl">لا يوجد طلبات</div>
+                )}
+              </CollapsibleColumn>
             ))}
           </div>
         ) : !isLoading && needsReview.length === 0 && (
