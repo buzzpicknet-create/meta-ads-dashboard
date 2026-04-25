@@ -779,13 +779,20 @@ export async function getAccountOverview(opts: {
   });
 
   const campaignNameMap = new Map(campaigns.map((c) => [c.id, c.name]));
+  // Only show issues for campaigns that are actively running
+  const activeCampaignIds = new Set(
+    campaigns.filter((c) => c.effective_status === "ACTIVE").map((c) => c.id)
+  );
   const PROBLEMATIC = new Set(["WITH_ISSUES", "DISAPPROVED", "PENDING_REVIEW", "IN_PROCESS"]);
 
   const ad_issues: AdWithIssues[] = allAds
-    .filter((ad) =>
-      (ad.issues_info && ad.issues_info.length > 0) ||
-      (ad.effective_status && PROBLEMATIC.has(ad.effective_status))
-    )
+    .filter((ad) => {
+      if (!ad.campaign_id || !activeCampaignIds.has(ad.campaign_id)) return false;
+      return (
+        (ad.issues_info && ad.issues_info.length > 0) ||
+        (ad.effective_status && PROBLEMATIC.has(ad.effective_status))
+      );
+    })
     .map((ad) => ({
       id: ad.id,
       name: ad.name,
