@@ -7,7 +7,8 @@ import Dashboard from "@/pages/Dashboard";
 import Overview from "@/pages/Overview";
 import HowTo from "@/pages/HowTo";
 import ActivityPage from "@/pages/Activity";
-import { Activity, BookOpen, LayoutDashboard, ClipboardList } from "lucide-react";
+import MediaRequestsPage from "@/pages/MediaRequests";
+import { Activity, BookOpen, LayoutDashboard, ClipboardList, Clapperboard } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -16,6 +17,7 @@ function NavBar() {
   const [isDashboard] = useRoute("/");
   const [isHowTo]     = useRoute("/how-to");
   const [isActivity]  = useRoute("/activity");
+  const [isMedia]     = useRoute("/media");
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -60,6 +62,17 @@ function NavBar() {
               نشاط الفريق
             </Link>
             <Link
+              href="/media"
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                isMedia
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <Clapperboard className="h-4 w-4" />
+              طلبات الميديا
+            </Link>
+            <Link
               href="/how-to"
               className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                 isHowTo
@@ -85,6 +98,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/overview" component={Overview} />
         <Route path="/activity" component={ActivityPage} />
+        <Route path="/media" component={MediaRequestsPage} />
         <Route path="/how-to" component={HowTo} />
         <Route component={NotFound} />
       </Switch>
