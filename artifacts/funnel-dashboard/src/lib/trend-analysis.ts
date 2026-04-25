@@ -26,20 +26,20 @@ export interface FrequencyAlert {
 }
 
 function freqLevel(f: number): FrequencyLevel {
-  if (f < 2.0)  return "fresh";
-  if (f < 3.5)  return "normal";
-  if (f < 5.0)  return "warning";
-  if (f < 7.0)  return "danger";
+  if (f < 1.5)  return "fresh";
+  if (f < 2.5)  return "normal";
+  if (f < 3.5)  return "warning";
+  if (f < 5.0)  return "danger";
   return "saturated";
 }
 
 function freqLevelLabel(l: FrequencyLevel): string {
   switch (l) {
     case "fresh":     return "جمهور طازج";
-    case "normal":    return "تعرّض صحي";
-    case "warning":   return "بدأ التشبع";
-    case "danger":    return "تشبع عالٍ";
-    case "saturated": return "جمهور مشبع";
+    case "normal":    return "تنبه — حضّر بديل";
+    case "warning":   return "غيّر الكريتف أو الجمهور الآن";
+    case "danger":    return "تشبع عالٍ — تدخّل فوراً";
+    case "saturated": return "جمهور مشبع — أوقف";
   }
 }
 
@@ -71,25 +71,25 @@ export function buildFrequencyAlert(daily: DailyPoint[]): FrequencyAlert | null 
 
   switch (level) {
     case "fresh":
-      headline = `التكرار ${current.toFixed(1)}x — الجمهور طازج ولم يشبع بعد`;
-      action = "حافظ على الزخم الحالي — يمكن توسيع الميزانية بأمان";
+      headline = `التكرار ${current.toFixed(1)}x — الجمهور طازج`;
+      action = trend === "rising"
+        ? "التكرار يرتفع — راقب الوضع وابدأ تحضير كريتف احتياطي"
+        : "الأداء طبيعي — يمكن توسيع الميزانية بأمان";
       break;
     case "normal":
-      headline = `التكرار ${current.toFixed(1)}x — تعرّض طبيعي`;
-      action = trend === "rising"
-        ? "التكرار يرتفع تدريجياً — ابدأ في تحضير كريتف احتياطي"
-        : "الوضع مستقر — تابع الأرقام يومياً";
+      headline = `⚡ التكرار ${current.toFixed(1)}x — تنبه: وقت تحضير بديل${consecutiveRising >= 2 ? ` (${consecutiveRising} أيام متصاعدة)` : ""}`;
+      action = "ابدأ الآن في تحضير كريتف جديد أو جمهور مختلف أو زاوية إعلانية جديدة";
       break;
     case "warning":
-      headline = `التكرار ${current.toFixed(1)}x — بدأ التشبع${consecutiveRising >= 2 ? ` (${consecutiveRising} أيام متصاعدة)` : ""}`;
-      action = "جدّد الكريتف الآن — جرّب Look-alike Audience جديد";
+      headline = `⚠️ التكرار ${current.toFixed(1)}x — غيّر الكريتف أو الجمهور الآن${consecutiveRising >= 2 ? ` (${consecutiveRising} أيام متصاعدة)` : ""}`;
+      action = "جمهورك بدأ يتشبع — جرّب Look-alike Audience جديد أو كريتف من زاوية مختلفة تماماً";
       break;
     case "danger":
-      headline = `⚠️ التكرار ${current.toFixed(1)}x — تشبع عالٍ${consecutiveRising >= 2 ? ` (${consecutiveRising} أيام متصاعدة)` : ""}`;
-      action = "غيّر الكريتف فوراً — وسّع الاستهداف — أو أوقف الحملة مؤقتاً";
+      headline = `🚨 التكرار ${current.toFixed(1)}x — تشبع عالٍ${consecutiveRising >= 2 ? ` (${consecutiveRising} أيام متصاعدة)` : ""}`;
+      action = "غيّر الكريتف والأوديانس فوراً — أو أوقف الحملة مؤقتاً قبل ما تخسر أكتر";
       break;
     case "saturated":
-      headline = `🚨 التكرار ${current.toFixed(1)}x — الجمهور مشبع تماماً`;
+      headline = `🔴 التكرار ${current.toFixed(1)}x — جمهور مشبع تماماً`;
       action = "أوقف الإعلان الحالي — غيّر الكريتف والأوديانس بشكل كامل";
       break;
   }

@@ -268,11 +268,11 @@ function OvMetricAlertCard({ trend }: { trend: MetricTrend }) {
 function OvFreqBadge({ freq }: { freq: number | undefined }) {
   if (!freq || freq <= 0) return <span className="text-[10px] text-muted-foreground">—</span>;
   const cls =
-    freq < 2    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
-    freq < 3.5  ? "bg-sky-500/15 text-sky-700 dark:text-sky-400" :
-    freq < 5    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-    freq < 7    ? "bg-orange-500/15 text-orange-700 dark:text-orange-400" :
-                  "bg-rose-500/15 text-rose-700 dark:text-rose-400";
+    freq < 1.5  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
+    freq < 2.5  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+    freq < 3.5  ? "bg-orange-500/15 text-orange-700 dark:text-orange-400" :
+    freq < 5.0  ? "bg-rose-500/15 text-rose-700 dark:text-rose-400" :
+                  "bg-rose-700/20 text-rose-800 dark:text-rose-300";
   return (
     <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${cls}`}>
       {freq.toFixed(1)}x
@@ -307,6 +307,62 @@ function OvFrequencyCard({ alert }: { alert: FrequencyAlert }) {
         </div>
       )}
     </div>
+  );
+}
+
+function FrequencyDangerPanel({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
+  const danger = useMemo(
+    () =>
+      campaigns
+        .filter((c) => (c.frequency ?? 0) >= 1.5 && c.spend > 0)
+        .sort((a, b) => (b.frequency ?? 0) - (a.frequency ?? 0)),
+    [campaigns]
+  );
+  if (danger.length === 0) return null;
+
+  function freqLabel(f: number) {
+    if (f < 2.5) return "تنبه — حضّر بديل";
+    if (f < 3.5) return "غيّر الكريتف الآن";
+    if (f < 5.0) return "تشبع عالٍ";
+    return "جمهور مشبع";
+  }
+  function freqCls(f: number) {
+    if (f < 2.5) return { row: "bg-amber-500/8 border-amber-500/20 text-amber-700 dark:text-amber-400", badge: "bg-amber-500/20 text-amber-800 dark:text-amber-300" };
+    if (f < 3.5) return { row: "bg-orange-500/8 border-orange-500/20 text-orange-700 dark:text-orange-400", badge: "bg-orange-500/20 text-orange-800 dark:text-orange-300" };
+    return { row: "bg-rose-500/8 border-rose-500/20 text-rose-700 dark:text-rose-400", badge: "bg-rose-500/20 text-rose-800 dark:text-rose-300" };
+  }
+
+  return (
+    <Card className="border-rose-500/20 bg-rose-500/3">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm text-rose-700 dark:text-rose-400">
+          <Bell className="h-4 w-4 shrink-0" />
+          تنبيه تشبع الجمهور — {danger.length} {danger.length === 1 ? "حملة" : "حملات"} دخلت نطاق الخطر (Frequency ≥ 1.5x)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-[11px] text-muted-foreground mb-3">
+          كل حملة تجاوزت التكرار 1.5x تحتاج مراجعة فورية — غيّر الكريتف أو الجمهور أو الزاوية الإعلانية
+        </p>
+        {danger.map((c) => {
+          const f = c.frequency ?? 0;
+          const cls = freqCls(f);
+          return (
+            <div
+              key={c.id}
+              className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${cls.row}`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span className="flex-1 text-xs font-medium truncate">{c.name}</span>
+              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${cls.badge}`}>
+                {f.toFixed(2)}x
+              </span>
+              <span className="text-[10px] font-medium opacity-80 whitespace-nowrap">{freqLabel(f)}</span>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1311,6 +1367,9 @@ function AccountTabContent({
           tone={totals.crLpv >= 5 ? "good" : totals.crLpv >= 2 ? "warn" : "bad"}
         />
       </div>
+
+      {/* FREQUENCY DANGER ALERT */}
+      <FrequencyDangerPanel campaigns={campaigns} />
 
       {/* TREND ALERTS + DAILY INSIGHT */}
       <OvTrendAlertsPanel daily={daily} totals={totals} />
