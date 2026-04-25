@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, Plus, Trash2, ExternalLink, ChevronDown, Check, Loader2, AlertCircle } from "lucide-react";
+import { Clapperboard, Plus, Trash2, ExternalLink, ChevronDown, Check, Loader2, AlertCircle, ScanSearch, RefreshCw, Clock } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
@@ -23,6 +23,19 @@ interface Campaign {
   effective_status: string;
 }
 
+interface ScanStatus {
+  scanned_at: string;
+  campaigns_checked: number;
+  requests_created: number;
+}
+
+interface ScanResult {
+  campaigns_checked: number;
+  requests_created: number;
+  scanned_at: string;
+  triggered: Array<{ campaign_name: string; reasons: string[] }>;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; next: string; nextLabel: string }> = {
   pending:     { label: "يحتاج ميديا", color: "bg-amber-100 text-amber-800 border-amber-200", next: "in_progress", nextLabel: "بدء التنفيذ" },
   in_progress: { label: "جاري التنفيذ", color: "bg-blue-100 text-blue-800 border-blue-200", next: "done", nextLabel: "تم الإنجاز" },
@@ -39,6 +52,14 @@ function useMediaRequests() {
   return useQuery<{ requests: MediaRequest[] }>({
     queryKey: ["media-requests"],
     queryFn: () => fetch(`${API}/media-requests`).then((r) => r.json()),
+  });
+}
+
+function useScanStatus() {
+  return useQuery<{ last_scan: ScanStatus | null }>({
+    queryKey: ["media-scan-status"],
+    queryFn: () => fetch(`${API}/media-requests/scan-status`).then((r) => r.json()),
+    refetchInterval: 60_000,
   });
 }
 
@@ -307,21 +328,85 @@ function MediaCard({ req }: { req: MediaRequest }) {
   );
 }
 
+function ScanResultToast({
+  result,
+  onClose,
+}: {
+  result: ScanResult;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed bottom-6 left-6 z-50 w-80 rounded-2xl border border-border bg-card shadow-2xl p-4" dir="rtl">
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <ScanSearch className="h-5 w-5 text-primary shrink-0" />
+          <span className="font-semibold text-sm">نتيجة الفحص التلقائي</span>
+        </div>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">✕</button>
+      </div>
+      <div className="text-xs text-muted-foreground mb-3">
+        تم فحص <span className="font-medium text-foreground">{result.campaigns_checked}</span> حملة
+        {result.requests_created > 0 ? (
+          <> — تم إنشاء <span className="font-medium text-primary">{result.requests_created}</span> طلب جديد</>
+        ) : (
+          <> — لا توجد حملات تحتاج ميديا حالياً</>
+        )}
+      </div>
+      {result.triggered.length > 0 && (
+        <div className="space-y-1.5 max-h-40 overflow-y-auto">
+          {result.triggered.map((t, i) => (
+            <div key={i} className="rounded-lg bg-amber-50 border border-amber-200 p-2">
+              <div className="text-xs font-medium text-amber-800 truncate">{t.campaign_name}</div>
+              <div className="text-xs text-amber-600 mt-0.5">{t.reasons[0]}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MediaRequestsPage() {
   const [showModal, setShowModal] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const { data, isLoading, isError } = useMediaRequests();
+  const { data: scanStatusData } = useScanStatus();
+  const qc = useQueryClient();
+
+  const scanMutation = useMutation({
+    mutationFn: () =>
+      fetch(`${API}/media-requests/scan`, { method: "POST" }).then((r) => r.json()) as Promise<ScanResult>,
+    onSuccess: (result) => {
+      setScanResult(result);
+      qc.invalidateQueries({ queryKey: ["media-requests"] });
+      qc.invalidateQueries({ queryKey: ["media-scan-status"] });
+    },
+  });
+
+  const lastScan = scanStatusData?.last_scan ?? null;
 
   const requests = data?.requests ?? [];
   const pending = requests.filter((r) => r.status === "pending");
   const inProgress = requests.filter((r) => r.status === "in_progress");
   const done = requests.filter((r) => r.status === "done");
 
+  function formatRelativeTime(isoString: string): string {
+    const diff = Date.now() - new Date(isoString).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "منذ لحظات";
+    if (mins < 60) return `منذ ${mins} دقيقة`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `منذ ${hrs} ساعة`;
+    return `منذ ${Math.floor(hrs / 24)} يوم`;
+  }
+
   return (
     <div className="min-h-screen bg-background" dir="rtl">
       {showModal && <AddRequestModal onClose={() => setShowModal(false)} />}
+      {scanResult && <ScanResultToast result={scanResult} onClose={() => setScanResult(null)} />}
 
       <div className="mx-auto max-w-[1200px] px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-start justify-between mb-8 gap-4">
           <div>
             <div className="text-xs text-muted-foreground mb-1">إدارة الإنتاج الإعلاني</div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -331,14 +416,36 @@ export default function MediaRequestsPage() {
             <p className="text-muted-foreground mt-1 text-sm">
               الحملات المحتاجة ميديا جديدة مع لينكات اللاندينج بيدج
             </p>
+            {lastScan && (
+              <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                آخر فحص: {formatRelativeTime(lastScan.scanned_at)}
+                <span className="text-border">·</span>
+                {lastScan.campaigns_checked} حملة فُحصت
+              </div>
+            )}
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors shadow-sm"
-          >
-            <Plus className="h-4 w-4" />
-            طلب جديد
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => scanMutation.mutate()}
+              disabled={scanMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-medium hover:bg-muted transition-colors shadow-sm disabled:opacity-60"
+            >
+              {scanMutation.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <ScanSearch className="h-4 w-4" />
+              )}
+              {scanMutation.isPending ? "جاري الفحص..." : "فحص تلقائي"}
+            </button>
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              طلب جديد
+            </button>
+          </div>
         </div>
 
         {/* Stats row */}

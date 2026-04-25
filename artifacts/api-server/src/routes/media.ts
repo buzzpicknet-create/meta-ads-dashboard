@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { runMediaScan } from "../lib/media-scan";
 
 const router = Router();
 
@@ -104,6 +105,33 @@ router.delete("/media-requests/:id", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Failed to delete media request" });
+  }
+});
+
+// POST /api/media-requests/scan — manual trigger
+router.post("/media-requests/scan", async (_req, res) => {
+  try {
+    const result = await runMediaScan();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// GET /api/media-requests/scan-status — last scan info
+router.get("/media-requests/scan-status", async (_req, res) => {
+  try {
+    const rows = await query<{
+      scanned_at: string;
+      campaigns_checked: number;
+      requests_created: number;
+    }>(
+      `SELECT scanned_at, campaigns_checked, requests_created
+       FROM media_scan_log ORDER BY scanned_at DESC LIMIT 1`
+    );
+    res.json({ last_scan: rows[0] ?? null });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch scan status" });
   }
 });
 

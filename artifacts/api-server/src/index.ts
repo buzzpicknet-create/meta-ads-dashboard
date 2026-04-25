@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { query } from "./lib/db";
+import { runMediaScan } from "./lib/media-scan";
 
 async function runMigrations() {
   await query(`
@@ -49,7 +50,32 @@ async function runMigrations() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS media_scan_log (
+      id SERIAL PRIMARY KEY,
+      scanned_at TIMESTAMPTZ DEFAULT NOW(),
+      campaigns_checked INT DEFAULT 0,
+      requests_created INT DEFAULT 0,
+      error TEXT
+    )
+  `);
   logger.info("Database migrations complete");
+}
+
+const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+function startScanCron() {
+  const runScan = () => {
+    runMediaScan().catch((err) => logger.error({ err }, "Scheduled media scan failed"));
+  };
+  // First scan: 5 minutes after startup
+  setTimeout(() => {
+    logger.info("Running initial media scan");
+    runScan();
+    // Then every 6 hours
+    setInterval(runScan, SCAN_INTERVAL_MS);
+  }, 5 * 60 * 1000);
+  logger.info({ interval_hours: 6 }, "Media scan cron scheduled");
 }
 
 const rawPort = process.env["PORT"];
@@ -74,6 +100,7 @@ runMigrations()
         process.exit(1);
       }
       logger.info({ port }, "Server listening");
+      startScanCron();
     });
   })
   .catch((err) => {
