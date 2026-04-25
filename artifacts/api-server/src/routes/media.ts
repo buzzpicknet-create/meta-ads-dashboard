@@ -16,13 +16,27 @@ interface MediaRequest {
   updated_at: string;
 }
 
-// GET /api/media-requests
+interface DeleteLogEntry {
+  id: number;
+  request_id: number;
+  campaign_name: string;
+  status_at_deletion: string;
+  priority_at_deletion: string;
+  notes: string | null;
+  deleted_at: string;
+}
+
+// GET /api/media-requests — active (not deleted)
 router.get("/media-requests", async (_req, res) => {
   try {
     const rows = await query<MediaRequest>(
-      `SELECT * FROM media_requests ORDER BY
-        CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-        created_at DESC`
+      `SELECT id, campaign_id, campaign_name, landing_url, status, priority, notes, created_at, updated_at
+       FROM media_requests
+       WHERE deleted_at IS NULL
+       ORDER BY
+         CASE status WHEN 'needs_review' THEN 0 WHEN 'pending' THEN 1 WHEN 'in_progress' THEN 2 ELSE 3 END,
+         CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+         created_at DESC`
     );
     res.json({ requests: rows });
   } catch (err) {
@@ -46,8 +60,8 @@ router.post("/media-requests", async (req, res) => {
 
   try {
     const rows = await query<MediaRequest>(
-      `INSERT INTO media_requests (campaign_id, campaign_name, landing_url, priority, notes)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO media_requests (campaign_id, campaign_name, landing_url, status, priority, notes)
+       VALUES ($1, $2, $3, 'pending', $4, $5)
        RETURNING *`,
       [campaign_id ?? null, campaign_name, landing_url ?? null, priority ?? "normal", notes ?? null]
     );
@@ -87,7 +101,7 @@ router.patch("/media-requests/:id", async (req, res) => {
 
   try {
     const rows = await query<MediaRequest>(
-      `UPDATE media_requests SET ${updates.join(", ")} WHERE id = $${idx} RETURNING *`,
+      `UPDATE media_requests SET ${updates.join(", ")} WHERE id = $${idx} AND deleted_at IS NULL RETURNING *`,
       params
     );
     if (rows.length === 0) return res.status(404).json({ error: "Not found" });
@@ -97,14 +111,46 @@ router.patch("/media-requests/:id", async (req, res) => {
   }
 });
 
-// DELETE /api/media-requests/:id
+// DELETE /api/media-requests/:id — soft delete with audit log
 router.delete("/media-requests/:id", async (req, res) => {
   const id = Number(req.params["id"]);
   try {
-    await query(`DELETE FROM media_requests WHERE id = $1`, [id]);
+    const existing = await query<MediaRequest>(
+      `SELECT * FROM media_requests WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    if (existing.length === 0) return res.status(404).json({ error: "Not found" });
+
+    const row = existing[0]!;
+
+    // Soft delete
+    await query(
+      `UPDATE media_requests SET deleted_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    // Audit log
+    await query(
+      `INSERT INTO media_delete_log (request_id, campaign_name, status_at_deletion, priority_at_deletion, notes)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, row.campaign_name, row.status, row.priority, row.notes]
+    );
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Failed to delete media request" });
+  }
+});
+
+// GET /api/media-requests/delete-log
+router.get("/media-requests/delete-log", async (_req, res) => {
+  try {
+    const rows = await query<DeleteLogEntry>(
+      `SELECT * FROM media_delete_log ORDER BY deleted_at DESC LIMIT 50`
+    );
+    res.json({ log: rows });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch delete log" });
   }
 });
 

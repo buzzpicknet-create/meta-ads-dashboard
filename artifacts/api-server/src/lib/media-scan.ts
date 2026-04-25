@@ -68,6 +68,7 @@ export interface ScanTriggered {
   campaign_id: string;
   campaign_name: string;
   reasons: string[];
+  priority: string;
 }
 
 export interface ScanResult {
@@ -84,7 +85,8 @@ export async function runMediaScan(): Promise<ScanResult> {
 
   // 1. Existing open requests — for deduplication
   const existingRows = await query<{ campaign_id: string | null; campaign_name: string }>(
-    `SELECT campaign_id, campaign_name FROM media_requests WHERE status IN ('pending', 'in_progress')`
+    `SELECT campaign_id, campaign_name FROM media_requests
+     WHERE status IN ('needs_review', 'pending', 'in_progress') AND deleted_at IS NULL`
   );
   const existingCampaignIds = new Set(
     existingRows.map((r) => r.campaign_id).filter((id): id is string => !!id)
@@ -200,7 +202,20 @@ export async function runMediaScan(): Promise<ScanResult> {
     }
 
     if (reasons.length > 0) {
-      triggeredCampaigns.push({ campaign_id: campaignId, campaign_name: name, reasons });
+      // Smart priority based on severity
+      const hasSevereCpm = avgCpm > 120;
+      const hasSevereCtr = avgCtr > 0 && avgCtr < 1;
+      const hasSevereFreq = avgFreq > 2.5;
+      const hasNewCampaign = newCampaignIds.has(campaignId) && (avgCtr < 2 || avgFreq > 1.5 || avgCpm > 75);
+
+      let priority = "normal";
+      if (reasons.length >= 3 || hasSevereCpm || hasSevereCtr || hasSevereFreq) {
+        priority = "high";
+      } else if (reasons.length === 2 || hasNewCampaign) {
+        priority = "medium";
+      }
+
+      triggeredCampaigns.push({ campaign_id: campaignId, campaign_name: name, reasons, priority });
     }
   }
 
@@ -231,20 +246,20 @@ export async function runMediaScan(): Promise<ScanResult> {
     }
   }
 
-  // 7. Create media requests
+  // 7. Create media requests with needs_review status and smart priority
   let requestsCreated = 0;
-  for (const { campaign_id, campaign_name, reasons } of triggeredCampaigns) {
+  for (const { campaign_id, campaign_name, reasons, priority } of triggeredCampaigns) {
     const landingUrl = landingUrlMap.get(campaign_id) ?? null;
     const notes = `3 ميديا بزوايا مختلفة\n\nالأسباب:\n${reasons.map((r) => `• ${r}`).join("\n")}`;
 
     try {
       await query(
-        `INSERT INTO media_requests (campaign_id, campaign_name, landing_url, priority, notes)
-         VALUES ($1, $2, $3, 'high', $4)`,
-        [campaign_id, campaign_name, landingUrl, notes]
+        `INSERT INTO media_requests (campaign_id, campaign_name, landing_url, status, priority, notes)
+         VALUES ($1, $2, $3, 'needs_review', $4, $5)`,
+        [campaign_id, campaign_name, landingUrl, priority, notes]
       );
       requestsCreated++;
-      logger.info({ campaign_name, reasons }, "Auto media request created");
+      logger.info({ campaign_name, reasons, priority }, "Auto media request queued for review");
     } catch (err) {
       logger.error({ err, campaign_name }, "Failed to insert auto media request");
     }

@@ -59,6 +59,21 @@ async function runMigrations() {
       error TEXT
     )
   `);
+  // Soft delete support
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS deleted_reason TEXT`);
+  // needs_review status for auto-scanned requests
+  await query(`
+    CREATE TABLE IF NOT EXISTS media_delete_log (
+      id SERIAL PRIMARY KEY,
+      request_id INT NOT NULL,
+      campaign_name VARCHAR(500) NOT NULL,
+      status_at_deletion VARCHAR(20),
+      priority_at_deletion VARCHAR(10),
+      notes TEXT,
+      deleted_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
   logger.info("Database migrations complete");
 }
 
