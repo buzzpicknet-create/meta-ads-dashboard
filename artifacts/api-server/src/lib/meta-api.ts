@@ -322,6 +322,14 @@ export interface DailyPoint {
   cpa: number;
 }
 
+export interface AdIssue {
+  error_code: number;
+  error_message: string;
+  level: "AD" | "ADSET" | "CAMPAIGN";
+  summary: string;
+  type?: string;
+}
+
 export interface SegmentEntry {
   key: string;
   id: string;
@@ -336,6 +344,8 @@ export interface SegmentEntry {
   ctr: number;
   cr: number;
   hookRate: number;
+  effective_status?: string;
+  issues?: AdIssue[];
 }
 
 export interface CampaignInsights {
@@ -433,6 +443,23 @@ export async function getCampaignInsights(opts: {
     limit: "500",
   });
 
+  // 4) Ad delivery status & issues (effective_status, issues_info)
+  const adDeliveryRaw = await fbGet<{
+    id: string;
+    effective_status?: string;
+    issues_info?: AdIssue[];
+  }>(`/${opts.campaign_id}/ads`, {
+    fields: "id,effective_status,issues_info",
+    limit: "500",
+  });
+  const adDeliveryMap = new Map<string, { effective_status?: string; issues?: AdIssue[] }>();
+  for (const ad of adDeliveryRaw) {
+    adDeliveryMap.set(ad.id, {
+      effective_status: ad.effective_status,
+      issues: ad.issues_info ?? [],
+    });
+  }
+
   // ---- Aggregate totals from daily rows (most reliable)
   const totalsAcc = emptyMetrics();
   for (const row of dailyRows) addRow(totalsAcc, row);
@@ -506,6 +533,7 @@ export async function getCampaignInsights(opts: {
   const by_ad: SegmentEntry[] = [...adMap.entries()]
     .map(([id, v]) => {
       const d = derive(v.metrics);
+      const delivery = adDeliveryMap.get(id);
       return {
         key: id,
         id,
@@ -520,6 +548,8 @@ export async function getCampaignInsights(opts: {
         ctr: d.ctr,
         cr: d.crLpv,
         hookRate: d.hookRate,
+        effective_status: delivery?.effective_status,
+        issues: delivery?.issues ?? [],
       };
     })
     .sort((a, b) => b.spend - a.spend);

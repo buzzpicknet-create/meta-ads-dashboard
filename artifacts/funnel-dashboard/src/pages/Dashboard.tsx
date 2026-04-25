@@ -50,6 +50,7 @@ import { Button } from "@/components/ui/button";
 import { DashboardControls } from "@/components/dashboard-controls";
 import { useCampaigns, useInsights, useAccount, useAccounts } from "@/hooks/use-meta";
 import {
+  type AdIssue,
   type DatePreset,
   type SegmentEntry,
   type CampaignInsights,
@@ -809,6 +810,150 @@ function WhatIfSimulator({ totals, byAd }: { totals: DerivedMetrics; byAd: Segme
 // ──────────────────────────────────────────────────────────────
 // Funnel Diagnostic — CPA Root Cause
 // ──────────────────────────────────────────────────────────────
+// Delivery Warnings — Meta ad-level issues & status
+// ──────────────────────────────────────────────────────────────
+const STATUS_LABELS: Record<string, { ar: string; tone: "bad" | "warn" | "info" }> = {
+  WITH_ISSUES:       { ar: "بها مشاكل",         tone: "bad" },
+  DISAPPROVED:       { ar: "مرفوض",             tone: "bad" },
+  PENDING_REVIEW:    { ar: "قيد المراجعة",       tone: "warn" },
+  IN_PROCESS:        { ar: "قيد المعالجة",       tone: "warn" },
+  CAMPAIGN_PAUSED:   { ar: "الحملة موقوفة",      tone: "info" },
+  ADSET_PAUSED:      { ar: "الأد ست موقوف",      tone: "info" },
+  PAUSED:            { ar: "موقوف",              tone: "info" },
+  PREAPPROVED:       { ar: "موافق مسبق",         tone: "info" },
+};
+
+function DeliveryWarnings({ byAd }: { byAd: SegmentEntry[] }) {
+  const problematic = byAd.filter((ad) => {
+    const hasIssues = (ad.issues ?? []).length > 0;
+    const badStatus = ad.effective_status && STATUS_LABELS[ad.effective_status];
+    return hasIssues || badStatus;
+  });
+
+  if (problematic.length === 0) return null;
+
+  const toneCfg = {
+    bad:  { bg: "bg-rose-500/5 ring-rose-500/20",   icon: "text-rose-600 dark:text-rose-400",   title: "text-rose-700 dark:text-rose-300",   dot: "bg-rose-500" },
+    warn: { bg: "bg-amber-500/5 ring-amber-500/20", icon: "text-amber-600 dark:text-amber-400", title: "text-amber-700 dark:text-amber-300", dot: "bg-amber-500" },
+    info: { bg: "bg-sky-500/5 ring-sky-500/20",     icon: "text-sky-600 dark:text-sky-400",     title: "text-sky-700 dark:text-sky-300",     dot: "bg-sky-500" },
+  };
+
+  // Severity from Meta error_code — see https://developers.facebook.com/docs/marketing-api/
+  function issueTone(issue: AdIssue): "bad" | "warn" {
+    // Disapproval codes (1xxx) = bad, anything else = warn
+    const code = issue.error_code;
+    if (code >= 1000 && code < 2000) return "bad";
+    return "warn";
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
+          تحذيرات التسليم — مشاكل على مستوى الإعلانات
+          <span className="mr-auto rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-bold text-rose-600 dark:text-rose-400">
+            {problematic.length} إعلان
+          </span>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          هذه التحذيرات تظهر في Ads Manager — إصلاحها يحسّن التوزيع ويقلل CPM
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {problematic.map((ad) => {
+          const statusInfo = ad.effective_status ? STATUS_LABELS[ad.effective_status] : null;
+          const overallTone = (ad.issues ?? []).some(i => issueTone(i) === "bad") || statusInfo?.tone === "bad"
+            ? "bad" : statusInfo?.tone === "warn" || (ad.issues ?? []).length > 0 ? "warn" : "info";
+          const c = toneCfg[overallTone];
+
+          return (
+            <details key={ad.id} className={`rounded-xl ring-1 ${c.bg} group`}>
+              <summary className="flex items-center gap-3 cursor-pointer list-none px-4 py-3 select-none">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${c.dot}`} />
+                <div className="flex-1 min-w-0">
+                  <div className={`text-sm font-bold truncate ${c.title}`}>{ad.label}</div>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {statusInfo && (
+                      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ring-1 ${c.bg} ${c.title}`}>
+                        {statusInfo.ar}
+                      </span>
+                    )}
+                    {(ad.issues ?? []).length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {(ad.issues ?? []).length} مشكلة توزيع
+                      </span>
+                    )}
+                    {ad.spend > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        إنفاق: <Num>{fmt(ad.spend, 0)} EGP</Num>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ChevronDown className="h-4 w-4 text-muted-foreground/60 group-open:rotate-180 transition-transform shrink-0" />
+              </summary>
+
+              <div className="px-4 pb-4 space-y-2 mr-5">
+                {/* Delivery status explanation */}
+                {statusInfo && ad.effective_status !== "WITH_ISSUES" && (
+                  <div className={`rounded-lg ring-1 px-3 py-2 text-sm ${c.bg}`}>
+                    <span className={`font-bold ${c.title} ml-1`}>حالة التسليم:</span>
+                    <span className="text-muted-foreground">{statusInfo.ar} — {
+                      ad.effective_status === "DISAPPROVED" ? "الإعلان مرفوض ومش شغّال — راجع سياسات Meta" :
+                      ad.effective_status === "PENDING_REVIEW" ? "الإعلان في طور المراجعة — قد يستغرق 24 ساعة" :
+                      ad.effective_status === "CAMPAIGN_PAUSED" ? "الحملة موقوفة يدوياً — الإعلان مش بيشتغل" :
+                      ad.effective_status === "ADSET_PAUSED" ? "الأد ست موقوف — الإعلان مش بيشتغل" :
+                      "الإعلان موقوف مؤقتاً"
+                    }</span>
+                  </div>
+                )}
+
+                {/* Issues list */}
+                {(ad.issues ?? []).map((issue, i) => {
+                  const it = issueTone(issue);
+                  const ic = toneCfg[it];
+                  return (
+                    <div key={i} className={`rounded-lg ring-1 px-3 py-2.5 space-y-1 ${ic.bg}`}>
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${ic.icon}`} />
+                        <div className="space-y-0.5">
+                          <div className={`text-xs font-bold ${ic.title}`}>
+                            {issue.summary || issue.error_message}
+                          </div>
+                          {issue.error_message && issue.error_message !== issue.summary && (
+                            <div className="text-xs text-muted-foreground leading-relaxed">
+                              {issue.error_message}
+                            </div>
+                          )}
+                          <div className="text-[11px] text-muted-foreground/70">
+                            كود {issue.error_code} · مستوى {
+                              issue.level === "AD" ? "الإعلان" :
+                              issue.level === "ADSET" ? "الأد ست" : "الحملة"
+                            }
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Empty issues but WITH_ISSUES status */}
+                {(ad.issues ?? []).length === 0 && ad.effective_status === "WITH_ISSUES" && (
+                  <div className="text-sm text-muted-foreground">
+                    هناك مشاكل في هذا الإعلان — تحقق من Ads Manager لمزيد من التفاصيل
+                  </div>
+                )}
+              </div>
+            </details>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 function FunnelDiagnostic({ totals }: { totals: DerivedMetrics }) {
   type Health = "good" | "warn" | "bad" | "neutral";
 
@@ -1144,6 +1289,9 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
     <div className="space-y-6">
       {/* ALERT SYSTEM */}
       <AlertSystem totals={totals} byAd={insights.by_ad} />
+
+      {/* DELIVERY WARNINGS */}
+      <DeliveryWarnings byAd={insights.by_ad} />
 
       {/* PRIORITY ENGINE */}
       <PriorityEngine totals={totals} byAd={insights.by_ad} byAdset={insights.by_adset} />

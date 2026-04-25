@@ -63,6 +63,14 @@ export interface DailyPoint {
   cpa: number;
 }
 
+export interface AdIssue {
+  error_code: number;
+  error_message: string;
+  level: "AD" | "ADSET" | "CAMPAIGN";
+  summary: string;
+  type?: string;
+}
+
 export interface SegmentEntry {
   key: string;
   id: string;
@@ -77,6 +85,8 @@ export interface SegmentEntry {
   ctr: number;
   cr: number;
   hookRate: number;
+  effective_status?: string;
+  issues?: AdIssue[];
 }
 
 export interface CampaignInsights {
