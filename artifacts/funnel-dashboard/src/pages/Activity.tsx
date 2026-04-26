@@ -168,6 +168,46 @@ function translateEvent(
   return { label: eventType ?? "إجراء", icon: Edit3, color: "text-muted-foreground" };
 }
 
+type ActionCat = "create" | "activate" | "pause" | "budget" | "delete" | "edit";
+
+function actionCat(eventType?: string, extraData?: string): ActionCat {
+  const t = (eventType ?? "").toLowerCase();
+  if (t.includes("create")) return "create";
+  if (t.includes("delete") || t.includes("archive")) return "delete";
+  if (t.includes("budget") || t.includes("group_budget")) return "budget";
+  if (t.includes("run_status")) {
+    try {
+      const extra = extraData ? (JSON.parse(extraData) as Record<string, unknown>) : null;
+      const nv = extra?.new_value;
+      if (nv === "Active") return "activate";
+      if (nv === "Inactive" || nv === "Paused") return "pause";
+    } catch { /* ignore */ }
+    return "edit";
+  }
+  if (t.includes("pause")) return "pause";
+  if (t.includes("resume") || t.includes("reactivat") || t.includes("first_delivery")) return "activate";
+  return "edit";
+}
+
+const ACTION_CAT_LABELS: Record<ActionCat | "all", string> = {
+  all:      "الكل",
+  create:   "إنشاء",
+  activate: "تفعيل",
+  pause:    "إيقاف",
+  budget:   "ميزانية",
+  delete:   "حذف",
+  edit:     "تعديل",
+};
+const ACTION_CAT_COLORS: Record<ActionCat | "all", string> = {
+  all:      "bg-primary text-primary-foreground",
+  create:   "bg-blue-500/15 text-blue-700 dark:text-blue-300",
+  activate: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  pause:    "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+  budget:   "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  delete:   "bg-rose-700/15 text-rose-800 dark:text-rose-300",
+  edit:     "bg-muted text-muted-foreground",
+};
+
 function objectLevel(eventType?: string): string {
   const t = (eventType ?? "").toLowerCase();
   if (t.includes("campaign_group") || t === "create_campaign_group") return "حملة";
@@ -849,6 +889,8 @@ export default function ActivityPage() {
   const [accountId, setAccountId] = useState<string>("");
   const [preset, setPreset]       = useState<PresetKey>("7d");
   const [custom, setCustom]       = useState<DateRange>({ since: cairoOffset(13), until: cairoToday() });
+  const [filterActor, setFilterActor] = useState<string | null>(null);
+  const [filterCat,   setFilterCat]   = useState<ActionCat | "all">("all");
 
   const range = presetToRange(preset, custom);
 
@@ -916,9 +958,43 @@ export default function ActivityPage() {
       && parseInt(String(s.action_count ?? "0")) === 0
   ).length;
 
-  // Group by day (only entries with valid event_time)
-  const byDay = metaList.reduce<Record<string, MetaActivity[]>>((acc, act) => {
-    if (!toDate(act.event_time)) return acc;
+  // Actor summaries — aggregate by actor + action category
+  const actorSummaries = useMemo(() => {
+    const map: Record<string, { name: string; counts: Partial<Record<ActionCat, number>>; total: number }> = {};
+    metaList.filter(a => !!toDate(a.event_time)).forEach(act => {
+      const name = act.actor_name || "Meta";
+      if (!map[name]) map[name] = { name, counts: {}, total: 0 };
+      const cat = actionCat(act.event_type, act.extra_data);
+      map[name].counts[cat] = (map[name].counts[cat] ?? 0) + 1;
+      map[name].total++;
+    });
+    return Object.values(map).sort((a, b) => b.total - a.total);
+  }, [metaList]);
+
+  // Category counts (respects actor filter)
+  const catCounts = useMemo(() => {
+    const src = filterActor ? metaList.filter(a => (a.actor_name || "Meta") === filterActor) : metaList;
+    const counts: Partial<Record<ActionCat | "all", number>> = { all: 0 };
+    src.filter(a => !!toDate(a.event_time)).forEach(act => {
+      counts.all = (counts.all ?? 0) + 1;
+      const cat = actionCat(act.event_type, act.extra_data);
+      counts[cat] = (counts[cat] ?? 0) + 1;
+    });
+    return counts;
+  }, [metaList, filterActor]);
+
+  // Filtered list
+  const filteredList = useMemo(() => {
+    return metaList.filter(act => {
+      if (!toDate(act.event_time)) return false;
+      if (filterActor && (act.actor_name || "Meta") !== filterActor) return false;
+      if (filterCat !== "all" && actionCat(act.event_type, act.extra_data) !== filterCat) return false;
+      return true;
+    });
+  }, [metaList, filterActor, filterCat]);
+
+  // Group by day (filtered)
+  const byDay = filteredList.reduce<Record<string, MetaActivity[]>>((acc, act) => {
     const label = dayLabel(act.event_time);
     if (!label) return acc;
     if (!acc[label]) acc[label] = [];
@@ -960,7 +1036,7 @@ export default function ActivityPage() {
     return map;
   }, [campaignsQuery.data, adsetsQuery.data]);
 
-  const validCount = metaList.filter((a) => !!toDate(a.event_time)).length;
+  const validCount = filteredList.length;
 
   // Campaigns with health issues (last 7 days)
   const campaignsWithIssues = useMemo(() => {
@@ -1101,15 +1177,89 @@ export default function ActivityPage() {
 
           {/* ── Meta Activity Feed ─── */}
           <section className="space-y-4">
-            <h2 className="text-base font-bold flex items-center gap-2">
-              <ActivityIcon className="h-4 w-4 text-primary" />
-              نشاط ميتا الحقيقي
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-bold flex items-center gap-2">
+                <ActivityIcon className="h-4 w-4 text-primary" />
+                نشاط ميتا الحقيقي
+              </h2>
               {validCount > 0 && (
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                   {validCount} إجراء
                 </span>
               )}
-            </h2>
+              {(filterActor || filterCat !== "all") && (
+                <button
+                  onClick={() => { setFilterActor(null); setFilterCat("all"); }}
+                  className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 py-0.5 rounded bg-muted ml-auto"
+                >
+                  <XCircle className="h-3 w-3" /> إلغاء الفلتر
+                </button>
+              )}
+            </div>
+
+            {/* Actor summary cards */}
+            {actorSummaries.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto pb-1 snap-x">
+                {actorSummaries.map(actor => {
+                  const isSelected = filterActor === actor.name;
+                  const cats: ActionCat[] = ["create","activate","pause","budget","delete","edit"];
+                  const catColors: Record<ActionCat, string> = {
+                    create:   "text-blue-500",
+                    activate: "text-emerald-500",
+                    pause:    "text-rose-500",
+                    budget:   "text-amber-500",
+                    delete:   "text-rose-700",
+                    edit:     "text-muted-foreground",
+                  };
+                  return (
+                    <button
+                      key={actor.name}
+                      onClick={() => setFilterActor(isSelected ? null : actor.name)}
+                      className={`snap-start shrink-0 text-right rounded-xl border px-4 py-3 transition-all min-w-[160px] ${
+                        isSelected
+                          ? "border-primary bg-primary/8 shadow-sm"
+                          : "border-border bg-card hover:border-primary/40 hover:bg-muted/40"
+                      }`}
+                    >
+                      <p className="text-sm font-bold leading-tight truncate max-w-[140px]">{actor.name}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{actor.total} إجراء</p>
+                      <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-2">
+                        {cats.filter(c => actor.counts[c]).map(c => (
+                          <span key={c} className={`text-[10px] ${catColors[c]}`}>
+                            {ACTION_CAT_LABELS[c]} {actor.counts[c]}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Action category chips */}
+            {metaList.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {(["all", "create", "activate", "pause", "budget", "delete", "edit"] as (ActionCat | "all")[]).map(cat => {
+                  const count = catCounts[cat] ?? 0;
+                  if (cat !== "all" && count === 0) return null;
+                  const isActive = filterCat === cat;
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => setFilterCat(cat)}
+                      className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
+                        isActive
+                          ? ACTION_CAT_COLORS[cat]
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {ACTION_CAT_LABELS[cat]}
+                      <span className={`text-[10px] ${isActive ? "opacity-80" : "opacity-60"}`}>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {metaActivity.isLoading && (
               <div className="space-y-2">
