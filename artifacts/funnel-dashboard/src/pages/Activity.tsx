@@ -530,10 +530,7 @@ function CustomRangePicker({ value, onChange }: { value: DateRange; onChange: (r
 
 // ── Campaign Attention ────────────────────────────────────────
 const CAMP_T = {
-  cpa:  { warn: 80,  danger: 100 },
-  cpm:  { warn: 50,  danger: 70  },
-  freq: { warn: 2.0, danger: 2.5 },
-  ctr:  { warn: 1.5, danger: 1.0 },
+  cpa:  { warn: 50, danger: 55 },
   minSpend: 50,
 };
 
@@ -550,24 +547,9 @@ function detectIssues(c: CampMetric): CampIssue[] {
   if (c.purchases === 0 && c.spend >= 200) {
     issues.push({ type: "no-orders", severity: "danger", label: "لا أوردرات" });
   } else if (c.cpa > CAMP_T.cpa.danger) {
-    issues.push({ type: "cpa-high", severity: "danger", label: `CPA ${c.cpa.toFixed(0)} EGP` });
+    issues.push({ type: "cpa-high", severity: "danger", label: `CPA ${c.cpa.toFixed(0)} ج.م` });
   } else if (c.cpa > CAMP_T.cpa.warn) {
-    issues.push({ type: "cpa-high", severity: "warn", label: `CPA ${c.cpa.toFixed(0)} EGP` });
-  }
-  if (c.cpm > CAMP_T.cpm.danger) {
-    issues.push({ type: "cpm-high", severity: "danger", label: `CPM ${c.cpm.toFixed(0)} EGP` });
-  } else if (c.cpm > CAMP_T.cpm.warn) {
-    issues.push({ type: "cpm-high", severity: "warn", label: `CPM ${c.cpm.toFixed(0)} EGP` });
-  }
-  if (c.frequency > CAMP_T.freq.danger) {
-    issues.push({ type: "freq-high", severity: "danger", label: `Freq ${c.frequency.toFixed(2)}x` });
-  } else if (c.frequency > CAMP_T.freq.warn) {
-    issues.push({ type: "freq-high", severity: "warn", label: `Freq ${c.frequency.toFixed(2)}x` });
-  }
-  if (c.impressions > 1000 && c.ctr < CAMP_T.ctr.danger) {
-    issues.push({ type: "ctr-low", severity: "danger", label: `CTR ${c.ctr.toFixed(2)}%` });
-  } else if (c.impressions > 1000 && c.ctr < CAMP_T.ctr.warn) {
-    issues.push({ type: "ctr-low", severity: "warn", label: `CTR ${c.ctr.toFixed(2)}%` });
+    issues.push({ type: "cpa-high", severity: "warn", label: `CPA ${c.cpa.toFixed(0)} ج.م` });
   }
   return issues;
 }
@@ -579,8 +561,8 @@ interface DrillSeg {
 
 function segStatus(s: DrillSeg): "danger" | "warn" | "ok" {
   if (s.purchases === 0 && s.spend >= 100) return "danger";
-  if (s.cpa > CAMP_T.cpa.danger || s.cpm > CAMP_T.cpm.danger) return "danger";
-  if (s.cpa > CAMP_T.cpa.warn  || s.cpm > CAMP_T.cpm.warn)  return "warn";
+  if (s.cpa > CAMP_T.cpa.danger) return "danger";
+  if (s.cpa > CAMP_T.cpa.warn)   return "warn";
   return "ok";
 }
 
@@ -631,45 +613,46 @@ function DrillDown({ campaignId, accountId, since, until }: {
     </div>
   );
 
-  const adsets = (data.by_adset ?? []).filter(s => s.spend > 20).slice(0, 10);
-  const ads    = (data.by_ad    ?? []).filter(s => s.spend > 10).slice(0, 10);
+  const allAdsets = (data.by_adset ?? []).filter(s => s.spend > 20);
+  const allAds    = (data.by_ad    ?? []).filter(s => s.spend > 10);
 
-  const badAdsets = adsets.filter(s => segStatus(s) !== "ok");
-  const badAds    = ads.filter(s => segStatus(s) !== "ok");
+  const badAdsets = allAdsets.filter(s => segStatus(s) !== "ok");
+  const badAds    = allAds.filter(s => segStatus(s) !== "ok");
 
   function scopeLabel(bad: number, total: number) {
     if (total === 0) return "";
     if (bad === total) return "كلها متأثرة ⛔";
-    if (bad > 0)      return `${bad} من ${total} متأثرة`;
-    return "كلها بخير ✓";
+    return `${bad} من ${total} متأثرة`;
   }
+
+  const hasAffected = badAdsets.length > 0 || badAds.length > 0;
 
   return (
     <div className="mt-3 pt-3 border-t border-border space-y-3">
-      {adsets.length > 0 && (
+      {badAdsets.length > 0 && (
         <div>
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
-            مجموعات إعلانية
-            <span className="mr-1.5 normal-case font-normal">{scopeLabel(badAdsets.length, adsets.length)}</span>
+            مجموعات إعلانية متأثرة
+            <span className="mr-1.5 normal-case font-normal">{scopeLabel(badAdsets.length, allAdsets.length)}</span>
           </p>
           <div className="space-y-1">
-            {adsets.map(s => <DrillRow key={s.id} seg={s} />)}
+            {badAdsets.map(s => <DrillRow key={s.id} seg={s} />)}
           </div>
         </div>
       )}
-      {ads.length > 0 && (
+      {badAds.length > 0 && (
         <div>
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
-            إعلانات
-            <span className="mr-1.5 normal-case font-normal">{scopeLabel(badAds.length, ads.length)}</span>
+            إعلانات متأثرة
+            <span className="mr-1.5 normal-case font-normal">{scopeLabel(badAds.length, allAds.length)}</span>
           </p>
           <div className="space-y-1">
-            {ads.map(s => <DrillRow key={s.id} seg={s} />)}
+            {badAds.map(s => <DrillRow key={s.id} seg={s} />)}
           </div>
         </div>
       )}
-      {adsets.length === 0 && ads.length === 0 && (
-        <p className="text-xs text-muted-foreground text-center py-2">لا توجد بيانات كافية في الفترة</p>
+      {!hasAffected && (
+        <p className="text-xs text-muted-foreground text-center py-2">لا توجد إعلانات أو مجموعات متأثرة</p>
       )}
     </div>
   );
