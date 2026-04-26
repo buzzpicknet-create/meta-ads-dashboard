@@ -587,17 +587,61 @@ function DrillRow({ seg }: { seg: DrillSeg }) {
   );
 }
 
+interface DrillTotals {
+  ctr: number; cpm: number; cpc: number; cpa: number; frequency: number;
+  spend: number; purchases: number; impressions: number; link_clicks: number;
+}
+interface DrillDaily {
+  day: string; spend: number; impressions: number;
+  link_clicks: number; purchases: number; cpa: number;
+}
+interface DrillData {
+  totals: DrillTotals;
+  daily: DrillDaily[];
+  by_adset: DrillSeg[];
+  by_ad: DrillSeg[];
+}
+
+function buildDiagnosis(daily: DrillDaily[]): string[] {
+  if (daily.length < 4) return [];
+  const sorted = [...daily].sort((a, b) => a.day.localeCompare(b.day));
+  const half = Math.floor(sorted.length / 2);
+  const first = sorted.slice(0, half);
+  const second = sorted.slice(sorted.length - half);
+
+  function wavg(days: DrillDaily[], fn: (d: DrillDaily) => number, wfn: (d: DrillDaily) => number) {
+    const tw = days.reduce((s, d) => s + wfn(d), 0);
+    return tw > 0 ? days.reduce((s, d) => s + fn(d) * wfn(d), 0) / tw : 0;
+  }
+
+  const cpa1 = wavg(first,  d => (d.purchases > 0 ? d.spend / d.purchases : 0), d => d.purchases);
+  const cpa2 = wavg(second, d => (d.purchases > 0 ? d.spend / d.purchases : 0), d => d.purchases);
+  const cpm1 = wavg(first,  d => (d.impressions > 0 ? d.spend / d.impressions * 1000 : 0), d => d.impressions);
+  const cpm2 = wavg(second, d => (d.impressions > 0 ? d.spend / d.impressions * 1000 : 0), d => d.impressions);
+  const ctr1 = wavg(first,  d => (d.impressions > 0 ? d.link_clicks / d.impressions * 100 : 0), d => d.impressions);
+  const ctr2 = wavg(second, d => (d.impressions > 0 ? d.link_clicks / d.impressions * 100 : 0), d => d.impressions);
+
+  const msgs: string[] = [];
+  if (cpa1 > 0 && cpa2 > 0 && cpa2 / cpa1 > 1.15)
+    msgs.push(`CPA ارتفع من ${cpa1.toFixed(0)} إلى ${cpa2.toFixed(0)} ج.م في النصف الأخير من الفترة`);
+  if (cpm1 > 0 && cpm2 > 0 && cpm2 / cpm1 > 1.15)
+    msgs.push(`تكلفة الألف ظهور (CPM) ترتفع تدريجياً — الأيام الأخيرة ${cpm2.toFixed(0)} مقابل ${cpm1.toFixed(0)} ج.م`);
+  if (ctr1 > 0 && ctr2 > 0 && ctr2 / ctr1 < 0.85)
+    msgs.push(`معدل النقر (CTR) يتراجع — انخفض من ${ctr1.toFixed(2)}% إلى ${ctr2.toFixed(2)}%`);
+  return msgs;
+}
+
 function DrillDown({ campaignId, accountId, since, until }: {
   campaignId: string; accountId: string; since: string; until: string;
 }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["camp-drill", campaignId, since, until],
-    queryFn: async (): Promise<{ by_adset: DrillSeg[]; by_ad: DrillSeg[] }> => {
+    queryFn: async (): Promise<DrillData> => {
       const r = await fetch(
         `${BASE}/api/meta/insights?campaign_id=${campaignId}&since=${since}&until=${until}&ad_account_id=${accountId}`
       );
       if (!r.ok) throw new Error(await r.text());
-      return r.json() as Promise<{ by_adset: DrillSeg[]; by_ad: DrillSeg[] }>;
+      return r.json() as Promise<DrillData>;
     },
     staleTime: 10 * 60_000,
   });
@@ -613,9 +657,23 @@ function DrillDown({ campaignId, accountId, since, until }: {
     </div>
   );
 
+  const t = data.totals ?? {} as DrillTotals;
+  const diagnosis = buildDiagnosis(data.daily ?? []);
+
+  const metrics = [
+    { label: "CTR", value: `${(t.ctr ?? 0).toFixed(2)}%`,
+      note: (t.ctr ?? 0) < 1 ? "منخفض" : (t.ctr ?? 0) < 1.5 ? "متوسط" : "جيد",
+      bad: (t.ctr ?? 0) < 1 },
+    { label: "CPM", value: `${(t.cpm ?? 0).toFixed(0)} ج.م`,
+      note: (t.cpm ?? 0) > 70 ? "مرتفع جداً" : (t.cpm ?? 0) > 50 ? "مرتفع" : "طبيعي",
+      bad: (t.cpm ?? 0) > 50 },
+    { label: "CPC", value: `${(t.cpc ?? 0).toFixed(0)} ج.م`,
+      note: (t.cpc ?? 0) > 10 ? "مرتفع" : "طبيعي",
+      bad: (t.cpc ?? 0) > 10 },
+  ];
+
   const allAdsets = (data.by_adset ?? []).filter(s => s.spend > 20);
   const allAds    = (data.by_ad    ?? []).filter(s => s.spend > 10);
-
   const badAdsets = allAdsets.filter(s => segStatus(s) !== "ok");
   const badAds    = allAds.filter(s => segStatus(s) !== "ok");
 
@@ -629,6 +687,34 @@ function DrillDown({ campaignId, accountId, since, until }: {
 
   return (
     <div className="mt-3 pt-3 border-t border-border space-y-3">
+      {/* Metrics panel */}
+      <div className="grid grid-cols-3 gap-2">
+        {metrics.map(m => (
+          <div key={m.label} className={`rounded-lg px-3 py-2 text-center ${m.bad ? "bg-rose-500/8" : "bg-muted/60"}`}>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">{m.label}</p>
+            <p className={`text-sm font-bold tabular-nums ltr mt-0.5 ${m.bad ? "text-rose-600 dark:text-rose-400" : ""}`}>
+              {m.value}
+            </p>
+            <p className={`text-[10px] mt-0.5 ${m.bad ? "text-rose-500" : "text-emerald-600 dark:text-emerald-400"}`}>
+              {m.note}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Trend diagnosis */}
+      {diagnosis.length > 0 && (
+        <div className="rounded-lg bg-amber-500/8 border border-amber-500/20 px-3 py-2 space-y-1">
+          <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">تشخيص — تدهور تدريجي</p>
+          {diagnosis.map((msg, i) => (
+            <p key={i} className="text-xs text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
+              <span className="mt-0.5 shrink-0">•</span>{msg}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Affected adsets */}
       {badAdsets.length > 0 && (
         <div>
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
@@ -640,6 +726,8 @@ function DrillDown({ campaignId, accountId, since, until }: {
           </div>
         </div>
       )}
+
+      {/* Affected ads */}
       {badAds.length > 0 && (
         <div>
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
