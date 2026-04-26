@@ -5,14 +5,29 @@ import { logger } from "./logger";
 const API_VERSION = "v21.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
+interface ActionEntry {
+  action_type: string;
+  value: string;
+}
+
 interface InsightRow {
   campaign_id: string;
   campaign_name: string;
   date_start: string;
   ctr?: string;
   frequency?: string;
-  cpm?: string;
   impressions?: string;
+  spend?: string;
+  actions?: ActionEntry[];
+}
+
+function purchasesFromRow(row: InsightRow): number {
+  if (!row.actions) return 0;
+  return row.actions
+    .filter((a) =>
+      ["purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"].includes(a.action_type)
+    )
+    .reduce((s, a) => s + Number(a.value ?? 0), 0);
 }
 
 interface AdRow {
@@ -101,7 +116,7 @@ export async function runMediaScan(): Promise<ScanResult> {
     try {
       const rows = await fbGet<InsightRow>(`/act_${accountId}/insights`, {
         level: "campaign",
-        fields: "campaign_id,campaign_name,ctr,frequency,cpm,impressions",
+        fields: "campaign_id,campaign_name,ctr,frequency,impressions,spend,actions",
         time_increment: "1",
         time_range: JSON.stringify({ since, until }),
         filtering: JSON.stringify([
@@ -166,52 +181,59 @@ export async function runMediaScan(): Promise<ScanResult> {
     const totalImpressions = days.reduce((s, d) => s + Number(d.impressions ?? 0), 0);
     if (totalImpressions < 100) continue; // not enough data
 
-    const avgCtr = days.reduce((s, d) => s + Number(d.ctr ?? 0), 0) / days.length;
     const avgFreq = days.reduce((s, d) => s + Number(d.frequency ?? 0), 0) / days.length;
-    const avgCpm = days.reduce((s, d) => s + Number(d.cpm ?? 0), 0) / days.length;
 
     const reasons: string[] = [];
 
-    // Rule 1: CTR < 2%
-    if (avgCtr > 0 && avgCtr < 2) {
-      reasons.push(`CTR منخفض ${avgCtr.toFixed(2)}% (أقل من 2%)`);
+    // Rule 1: CTR declining progressively for ≥3 consecutive days
+    if (days.length >= 3) {
+      const ctrs = days.slice(-3).map((d) => Number(d.ctr ?? 0));
+      const ctrDeclining = ctrs[0] > 0 && ctrs[1] > 0 && ctrs[2] > 0
+        && ctrs[0] > ctrs[1] && ctrs[1] > ctrs[2];
+      if (ctrDeclining) {
+        const trend = ctrs.map((v) => v.toFixed(2) + "%").join(" → ");
+        reasons.push(`CTR في انخفاض تدريجي خلال 3 أيام: ${trend}`);
+      }
     }
 
-    // Rule 2: Frequency > 1.5
+    // Rule 2: CPA rising progressively for ≥3 consecutive days
+    if (days.length >= 3) {
+      const last3 = days.slice(-3);
+      const cpas = last3.map((d) => {
+        const spend = Number(d.spend ?? 0);
+        const purchases = purchasesFromRow(d);
+        return purchases > 0 ? spend / purchases : null;
+      });
+      // Only check if all 3 days had actual purchases
+      if (cpas[0] !== null && cpas[1] !== null && cpas[2] !== null) {
+        const cpaRising = cpas[0] < cpas[1] && cpas[1] < cpas[2];
+        if (cpaRising) {
+          const trend = cpas.map((v) => v!.toFixed(0) + " ج").join(" → ");
+          reasons.push(`CPA في ارتفاع تدريجي خلال 3 أيام: ${trend}`);
+        }
+      }
+    }
+
+    // Rule 3: High frequency (ad fatigue)
     if (avgFreq > 1.5) {
       reasons.push(`تكرار التردد مرتفع ${avgFreq.toFixed(2)} (أكثر من 1.5)`);
     }
 
-    // Rule 3: CPM > 75 EGP
-    if (avgCpm > 75) {
-      reasons.push(`CPM مرتفع ${avgCpm.toFixed(0)} جنيه (أكثر من 75 جنيه)`);
-    }
-
-    // Rule 4: CTR declining progressively (requires 3 days of data)
-    if (days.length >= 3) {
-      const ctrs = days.slice(-3).map((d) => Number(d.ctr ?? 0));
-      if (ctrs[0] > ctrs[1] && ctrs[1] > ctrs[2] && ctrs[2] > 0) {
-        const trend = ctrs.map((v) => v.toFixed(2) + "%").join(" → ");
-        reasons.push(`CTR في انخفاض تدريجي: ${trend}`);
-      }
-    }
-
-    // Rule 5: New campaign (48h+ old) with any bad metric
-    if (newCampaignIds.has(campaignId) && (avgCtr < 2 || avgFreq > 1.5 || avgCpm > 75)) {
-      reasons.push("حملة جديدة (48+ ساعة) بمقاييس ضعيفة");
+    // Rule 4: New campaign (48h+ old) with CTR decline or CPA rise
+    if (newCampaignIds.has(campaignId) && reasons.length > 0) {
+      reasons.push("حملة جديدة (48+ ساعة) بمؤشرات متراجعة");
     }
 
     if (reasons.length > 0) {
-      // Smart priority based on severity
-      const hasSevereCpm = avgCpm > 120;
-      const hasSevereCtr = avgCtr > 0 && avgCtr < 1;
+      // Priority: both CTR + CPA trends = high; one trend = medium; frequency only = normal
+      const hasCtrTrend = reasons.some((r) => r.includes("CTR في انخفاض"));
+      const hasCpaTrend = reasons.some((r) => r.includes("CPA في ارتفاع"));
       const hasSevereFreq = avgFreq > 2.5;
-      const hasNewCampaign = newCampaignIds.has(campaignId) && (avgCtr < 2 || avgFreq > 1.5 || avgCpm > 75);
 
       let priority = "normal";
-      if (reasons.length >= 3 || hasSevereCpm || hasSevereCtr || hasSevereFreq) {
+      if ((hasCtrTrend && hasCpaTrend) || hasSevereFreq) {
         priority = "high";
-      } else if (reasons.length === 2 || hasNewCampaign) {
+      } else if (hasCtrTrend || hasCpaTrend) {
         priority = "medium";
       }
 
