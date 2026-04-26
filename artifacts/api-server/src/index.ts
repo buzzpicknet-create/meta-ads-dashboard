@@ -128,6 +128,28 @@ async function runMigrations() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // One-time cleanup: soft-delete media requests created solely because of CPM
+  // CPM was removed as a trigger metric; these records are no longer valid
+  const cleaned = await query<{ id: number }>(
+    `UPDATE media_requests
+     SET deleted_at = NOW(),
+         deleted_reason = 'أُزيل تلقائياً: أُنشئ بناءً على CPM — تم إلغاء هذا المعيار'
+     WHERE deleted_at IS NULL
+       AND notes ILIKE '%CPM%'
+       AND notes NOT ILIKE '%CTR في انخفاض%'
+       AND notes NOT ILIKE '%CPA في ارتفاع%'
+     RETURNING id`
+  );
+  if (cleaned.length > 0) {
+    logger.info({ count: cleaned.length }, "Cleaned up CPM-only media requests");
+  }
+  // Also strip CPM lines from mixed records that also have valid trend reasons
+  await query(
+    `UPDATE media_requests
+     SET notes = regexp_replace(notes, '• CPM[^\n]*\n?', '', 'g')
+     WHERE deleted_at IS NULL
+       AND notes ILIKE '%CPM%'`
+  );
   logger.info("Database migrations complete");
 }
 
