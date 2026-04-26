@@ -826,12 +826,112 @@ function DrillDown({ campaignId, accountId, since, until }: {
   );
 }
 
+// ── Campaign note types ──────────────────────────────────────
+interface CampaignNote {
+  id: number;
+  note: string;
+  action_type: string | null;
+  noted_by: string | null;
+  created_at: string;
+}
+
+const CAMPAIGN_NOTE_TYPES = [
+  { value: "creative-change",  label: "تغيير كريتف" },
+  { value: "budget-change",    label: "تعديل ميزانية" },
+  { value: "audience-change",  label: "تعديل أوديانس" },
+  { value: "pause",            label: "إيقاف الحملة" },
+  { value: "other",            label: "إجراء آخر" },
+];
+
+function CampaignNoteForm({
+  campaignId, campaignName, accountId, onDone,
+}: { campaignId: string; campaignName: string; accountId: string; onDone: () => void }) {
+  const [actionType, setActionType] = useState("creative-change");
+  const [note, setNote]             = useState("");
+  const [by, setBy]                 = useState("");
+  const qc = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/campaigns/note`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campaignId, campaignName, accountId, note, actionType, notedBy: by }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["camp-meta", campaignId, accountId] });
+      onDone();
+    },
+  });
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-2.5">
+      <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">تسجيل إجراء</p>
+      <div className="flex flex-wrap gap-1.5">
+        {CAMPAIGN_NOTE_TYPES.map(t => (
+          <button key={t.value} onClick={() => setActionType(t.value)}
+            className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+              actionType === t.value
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:border-primary/50"
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <textarea
+        value={note} onChange={e => setNote(e.target.value)} rows={2}
+        placeholder="مثال: تم تغيير الكريتف من فيديو إلى صورة وتعديل الهيدلاين"
+        className="w-full text-sm rounded-lg border border-border bg-background px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+      />
+      <input value={by} onChange={e => setBy(e.target.value)} placeholder="اسم المنفّذ (اختياري)"
+        className="w-full text-sm rounded-lg border border-border bg-background px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary" />
+      <div className="flex items-center gap-2 justify-end">
+        <button onClick={onDone} className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">إلغاء</button>
+        <Button size="sm" disabled={!note.trim() || mutation.isPending} onClick={() => mutation.mutate()} className="text-xs">
+          {mutation.isPending ? "جارٍ الحفظ..." : "حفظ الملاحظة"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CampaignAttentionCard({ campaign, accountId, since, until }: {
   campaign: CampMetric & { issues: CampIssue[] };
   accountId: string; since: string; until: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded,  setExpanded]  = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [showForm,  setShowForm]  = useState(false);
   const isDanger = campaign.issues.some(i => i.severity === "danger");
+
+  const campMeta = useQuery({
+    queryKey: ["camp-meta", campaign.id, accountId],
+    queryFn: async (): Promise<{ first_seen_at: string | null; notes: CampaignNote[] }> => {
+      const r = await fetch(`${BASE}/api/campaigns/meta?campaign_id=${campaign.id}&account_id=${accountId}`);
+      if (!r.ok) throw new Error(await r.text());
+      return r.json() as Promise<{ first_seen_at: string | null; notes: CampaignNote[] }>;
+    },
+    enabled: !!accountId,
+    staleTime: 2 * 60_000,
+  });
+
+  const firstSeen  = campMeta.data?.first_seen_at ?? null;
+  const notes      = campMeta.data?.notes ?? [];
+  const hasNotes   = notes.length > 0;
+
+  function fmtDate(iso: string) {
+    return new Date(iso).toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" });
+  }
+  function fmtTime(iso: string) {
+    return new Date(iso).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+  }
+  function actionLabel(type: string | null) {
+    return CAMPAIGN_NOTE_TYPES.find(t => t.value === type)?.label ?? type ?? "إجراء";
+  }
 
   return (
     <div className={`rounded-xl border p-4 ${isDanger
@@ -850,7 +950,7 @@ function CampaignAttentionCard({ campaign, accountId, since, until }: {
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">موقوف</span>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5 mb-1">
+          <div className="flex flex-wrap gap-1.5 mb-1.5">
             {campaign.issues.map(issue => (
               <span key={issue.type} className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
                 issue.severity === "danger"
@@ -861,19 +961,81 @@ function CampaignAttentionCard({ campaign, accountId, since, until }: {
               </span>
             ))}
           </div>
-          <div className="text-[11px] text-muted-foreground">
-            إنفاق {campaign.spend.toLocaleString("en", { maximumFractionDigits: 0 })} EGP
-            {campaign.purchases > 0 && <span className="mx-1.5">· {campaign.purchases} طلب</span>}
+          <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
+            <span>
+              إنفاق {campaign.spend.toLocaleString("en", { maximumFractionDigits: 0 })} EGP
+              {campaign.purchases > 0 && <span className="mx-1.5">· {campaign.purchases} طلب</span>}
+            </span>
+            {firstSeen && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                رُصد {fmtDate(firstSeen)}
+              </span>
+            )}
+            {hasNotes && (
+              <button onClick={() => setShowNotes(p => !p)}
+                className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:underline">
+                <CheckCircle2 className="h-3 w-3" />
+                {notes.length} ملاحظة{notes.length > 1 ? "ات" : ""}
+              </button>
+            )}
           </div>
         </div>
-        <button
-          onClick={() => setExpanded(p => !p)}
-          className="shrink-0 flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          {expanded ? "إخفاء" : "تفاصيل"}
-        </button>
+
+        {/* Buttons */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => { setShowForm(p => !p); setShowNotes(false); }}
+            className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-colors ${
+              showForm
+                ? "bg-primary/10 text-primary border border-primary/30"
+                : "bg-primary text-primary-foreground hover:bg-primary/90"
+            }`}
+            title="تسجيل ملاحظة">
+            ✍ ملاحظة
+          </button>
+          <button
+            onClick={() => setExpanded(p => !p)}
+            className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            {expanded ? "إخفاء" : "تفاصيل"}
+          </button>
+        </div>
       </div>
+
+      {/* Existing notes */}
+      {showNotes && hasNotes && (
+        <div className="mt-3 pt-3 border-t border-border space-y-2">
+          {notes.map(n => (
+            <div key={n.id} className="rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2 space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                {n.action_type && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                    {actionLabel(n.action_type)}
+                  </span>
+                )}
+                <span className="text-[10px] text-muted-foreground">
+                  {n.noted_by ?? "الميدياباير"} · {fmtDate(n.created_at)} {fmtTime(n.created_at)}
+                </span>
+              </div>
+              <p className="text-xs text-foreground">{n.note}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Note form */}
+      {showForm && (
+        <CampaignNoteForm
+          campaignId={campaign.id}
+          campaignName={campaign.name}
+          accountId={accountId}
+          onDone={() => setShowForm(false)}
+        />
+      )}
+
+      {/* Drill-down details */}
       {expanded && (
         <DrillDown campaignId={campaign.id} accountId={accountId} since={since} until={until} />
       )}
@@ -1050,6 +1212,23 @@ export default function ActivityPage() {
         return bDanger - aDanger || b.spend - a.spend;
       });
   }, [campaignsQuery.data]);
+
+  // Auto-register campaigns to record first_seen_at (fire & forget)
+  useEffect(() => {
+    if (!accountId || campaignsWithIssues.length === 0) return;
+    void fetch(`${BASE}/api/campaigns/track`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accountId,
+        campaigns: campaignsWithIssues.map(c => ({
+          id: c.id,
+          name: c.name,
+          issueTypes: c.issues.map(i => i.type),
+        })),
+      }),
+    });
+  }, [accountId, campaignsWithIssues]);
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-8 space-y-8" dir="rtl">

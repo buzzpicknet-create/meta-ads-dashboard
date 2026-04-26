@@ -104,6 +104,30 @@ async function runMigrations() {
       actioned_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Campaign issue tracking (first_seen_at) + team notes
+  await query(`
+    CREATE TABLE IF NOT EXISTS campaign_issues (
+      id SERIAL PRIMARY KEY,
+      campaign_id VARCHAR(100) NOT NULL,
+      campaign_name VARCHAR(500),
+      account_id VARCHAR(50) NOT NULL,
+      issue_types VARCHAR(300),
+      first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(campaign_id, account_id)
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS campaign_notes (
+      id SERIAL PRIMARY KEY,
+      campaign_id VARCHAR(100) NOT NULL,
+      campaign_name VARCHAR(500),
+      account_id VARCHAR(50) NOT NULL,
+      note TEXT NOT NULL,
+      action_type VARCHAR(100),
+      noted_by VARCHAR(200),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
   logger.info("Database migrations complete");
 }
 
