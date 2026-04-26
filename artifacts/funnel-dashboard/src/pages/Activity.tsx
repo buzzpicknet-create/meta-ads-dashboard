@@ -660,17 +660,58 @@ function DrillDown({ campaignId, accountId, since, until }: {
   const t = data.totals ?? {} as DrillTotals;
   const diagnosis = buildDiagnosis(data.daily ?? []);
 
-  const metrics = [
-    { label: "CTR", value: `${(t.ctr ?? 0).toFixed(2)}%`,
-      note: (t.ctr ?? 0) < 1 ? "منخفض" : (t.ctr ?? 0) < 1.5 ? "متوسط" : "جيد",
-      bad: (t.ctr ?? 0) < 1 },
-    { label: "CPM", value: `${(t.cpm ?? 0).toFixed(0)} ج.م`,
-      note: (t.cpm ?? 0) > 70 ? "مرتفع جداً" : (t.cpm ?? 0) > 50 ? "مرتفع" : "طبيعي",
-      bad: (t.cpm ?? 0) > 50 },
-    { label: "CPC", value: `${(t.cpc ?? 0).toFixed(0)} ج.م`,
-      note: (t.cpc ?? 0) > 10 ? "مرتفع" : "طبيعي",
-      bad: (t.cpc ?? 0) > 10 },
+  type MSev = "great" | "ok" | "neutral" | "warn" | "danger";
+  function ctrSev(v: number): MSev {
+    if (v >= 4)   return "great";
+    if (v >= 3)   return "ok";
+    if (v >= 2)   return "neutral";
+    return "danger";
+  }
+  function ctrNote(v: number) {
+    if (v >= 4)   return "ممتاز";
+    if (v >= 3)   return "جيد";
+    if (v >= 2)   return "طبيعي";
+    if (v >= 1.5) return "منخفض";
+    return "خطر";
+  }
+  function cpcSev(v: number): MSev {
+    if (v < 1)  return "great";
+    if (v < 2)  return "ok";
+    if (v <= 3) return "neutral";
+    if (v <= 4) return "warn";
+    return "danger";
+  }
+  function cpcNote(v: number) {
+    if (v < 1)  return "ممتاز";
+    if (v < 2)  return "جيد";
+    if (v <= 3) return "مقبول";
+    if (v <= 4) return "يحتاج تحسين";
+    return "يحتاج تحسين للميديا";
+  }
+  function cpmSev(v: number): MSev {
+    return v > 70 ? "warn" : "ok";
+  }
+  function cpmNote(v: number) {
+    return v > 70 ? "يحتاج تحسين" : "طبيعي";
+  }
+
+  const ctr = t.ctr ?? 0;
+  const cpm = t.cpm ?? 0;
+  const cpc = t.cpc ?? 0;
+
+  const metrics: { label: string; value: string; note: string; sev: MSev }[] = [
+    { label: "CTR", value: `${ctr.toFixed(2)}%`,  note: ctrNote(ctr), sev: ctrSev(ctr) },
+    { label: "CPM", value: `${cpm.toFixed(0)} ج.م`, note: cpmNote(cpm), sev: cpmSev(cpm) },
+    { label: "CPC", value: `${cpc.toFixed(1)} ج.م`, note: cpcNote(cpc), sev: cpcSev(cpc) },
   ];
+
+  const sevCls: Record<MSev, { bg: string; text: string; note: string }> = {
+    great:   { bg: "bg-emerald-500/10", text: "text-emerald-600 dark:text-emerald-400", note: "text-emerald-600 dark:text-emerald-400" },
+    ok:      { bg: "bg-emerald-500/6",  text: "text-emerald-700 dark:text-emerald-300", note: "text-emerald-600 dark:text-emerald-400" },
+    neutral: { bg: "bg-muted/60",       text: "",                                        note: "text-muted-foreground" },
+    warn:    { bg: "bg-amber-500/8",    text: "text-amber-700 dark:text-amber-400",      note: "text-amber-600 dark:text-amber-400" },
+    danger:  { bg: "bg-rose-500/8",     text: "text-rose-600 dark:text-rose-400",        note: "text-rose-500" },
+  };
 
   const allAdsets = (data.by_adset ?? []).filter(s => s.spend > 20);
   const allAds    = (data.by_ad    ?? []).filter(s => s.spend > 10);
@@ -689,17 +730,16 @@ function DrillDown({ campaignId, accountId, since, until }: {
     <div className="mt-3 pt-3 border-t border-border space-y-3">
       {/* Metrics panel */}
       <div className="grid grid-cols-3 gap-2">
-        {metrics.map(m => (
-          <div key={m.label} className={`rounded-lg px-3 py-2 text-center ${m.bad ? "bg-rose-500/8" : "bg-muted/60"}`}>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">{m.label}</p>
-            <p className={`text-sm font-bold tabular-nums ltr mt-0.5 ${m.bad ? "text-rose-600 dark:text-rose-400" : ""}`}>
-              {m.value}
-            </p>
-            <p className={`text-[10px] mt-0.5 ${m.bad ? "text-rose-500" : "text-emerald-600 dark:text-emerald-400"}`}>
-              {m.note}
-            </p>
-          </div>
-        ))}
+        {metrics.map(m => {
+          const cls = sevCls[m.sev];
+          return (
+            <div key={m.label} className={`rounded-lg px-3 py-2 text-center ${cls.bg}`}>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">{m.label}</p>
+              <p className={`text-sm font-bold tabular-nums ltr mt-0.5 ${cls.text}`}>{m.value}</p>
+              <p className={`text-[10px] mt-0.5 ${cls.note}`}>{m.note}</p>
+            </div>
+          );
+        })}
       </div>
 
       {/* Trend diagnosis */}
