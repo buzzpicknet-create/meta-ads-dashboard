@@ -664,7 +664,7 @@ function buildDiagnosis(daily: DrillDaily[]): string[] {
   const msgs: string[] = [];
   if (cpa1 > 0 && cpa2 > 0 && cpa2 / cpa1 > 1.15)
     msgs.push(`CPA ارتفع من ${cpa1.toFixed(0)} إلى ${cpa2.toFixed(0)} ج.م في النصف الأخير من الفترة`);
-  if (cpm1 > 0 && cpm2 > 0 && cpm2 / cpm1 > 1.15)
+  if (cpm1 > 0 && cpm2 > 0 && cpm2 / cpm1 > 1.15 && (cpa2 === 0 || cpa2 > 55))
     msgs.push(`تكلفة الألف ظهور (CPM) ترتفع تدريجياً — الأيام الأخيرة ${cpm2.toFixed(0)} مقابل ${cpm1.toFixed(0)} ج.م`);
   if (ctr1 > 0 && ctr2 > 0 && ctr2 / ctr1 < 0.85)
     msgs.push(`معدل النقر (CTR) يتراجع — انخفض من ${ctr1.toFixed(2)}% إلى ${ctr2.toFixed(2)}%`);
@@ -729,10 +729,10 @@ function DrillDown({ campaignId, accountId, since, until }: {
     return "يحتاج تحسين للميديا";
   }
   function cpmSev(v: number): MSev {
-    return v > 70 ? "warn" : "ok";
+    return (v > 70 && (t.cpa ?? 0) > 55) ? "warn" : "ok";
   }
   function cpmNote(v: number) {
-    return v > 70 ? "يحتاج تحسين" : "طبيعي";
+    return (v > 70 && (t.cpa ?? 0) > 55) ? "يحتاج تحسين" : "طبيعي";
   }
 
   const ctr = t.ctr ?? 0;

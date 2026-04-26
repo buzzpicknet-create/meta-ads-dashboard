@@ -871,7 +871,7 @@ function AccountAlerts({ overview }: { overview: AccountOverview }) {
     alerts.push({ type: "danger", msg: `CPC مرتفع جداً (${fmt(totals.cpc, 2)} EGP) — الهدف ≤ 3 EGP`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
   else if (totals.cpc > 3)
     alerts.push({ type: "warn", msg: `CPC مرتفع (${fmt(totals.cpc, 2)} EGP) — الهدف ≤ 3 EGP لتحسين الربحية`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
-  if (totals.cpm > 70)
+  if (totals.cpm > 70 && totals.cpa > 55)
     alerts.push({ type: "danger", msg: `CPM مرتفع جداً (${fmt(totals.cpm, 0)} EGP) — منافسة عالية في المزاد`, problem: "cpc-high", metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend } });
   if (totals.crLpv < 2 && totals.lpv > 0)
     alerts.push({ type: "warn", msg: `CR ضعيف (${fmtPct(totals.crLpv)}) — صفحة المنتج تحتاج مراجعة`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
@@ -1017,12 +1017,12 @@ function AccountHealthPanel({ totals, campaigns }: { totals: DerivedMetrics; cam
       label: "CPM — تكلفة الألف ظهور",
       value: `${fmt(totals.cpm, 0)} EGP`,
       bench: "الهدف ≤ 70 EGP",
-      status: cpmStatus(totals.cpm),
-      statusLabel: totals.cpm <= 50 ? "جيد ✓" : totals.cpm <= 70 ? "مرتفع — مراقبة" : "خطر — منافسة عالية",
-      problem: totals.cpm > 70 ? "cpc-high" : undefined,
+      status: totals.cpa <= 55 ? "good" : cpmStatus(totals.cpm),
+      statusLabel: totals.cpa <= 55 && totals.cpm > 50 ? "مقبول — CPA ممتاز" : totals.cpm <= 50 ? "جيد ✓" : totals.cpm <= 70 ? "مرتفع — مراقبة" : "خطر — منافسة عالية",
+      problem: (totals.cpm > 70 && totals.cpa > 55) ? "cpc-high" : undefined,
       metrics: { cpc: totals.cpc, ctr: totals.ctr, cpa: totals.cpa, spend: totals.spend },
       badCampaigns: active
-        .filter((c) => c.cpm > 70)
+        .filter((c) => c.cpm > 70 && (c.cpa ?? 0) > 55)
         .sort((a, b) => b.cpm - a.cpm)
         .slice(0, 4)
         .map((c) => ({ name: c.name, value: `${fmt(c.cpm, 0)} EGP` })),
@@ -1954,7 +1954,7 @@ function AccountTabContent({
       alerts.push({ alertKey: "ctr-low:account", alertType: "ctr-low", severity: totals.ctr < 1.5 ? "danger" : "warn", metricValue: totals.ctr, metricLabel: `CTR ${totals.ctr.toFixed(2)}%` });
     if (totals.cpc > 3)
       alerts.push({ alertKey: "cpc-high:account", alertType: "cpc-high", severity: totals.cpc > 5 ? "danger" : "warn", metricValue: totals.cpc, metricLabel: `CPC ${totals.cpc.toFixed(2)} EGP` });
-    if (totals.cpm > 50)
+    if (totals.cpm > 50 && totals.cpa > 55)
       alerts.push({ alertKey: "cpM-high:account", alertType: "cpM-high", severity: totals.cpm > 70 ? "danger" : "warn", metricValue: totals.cpm, metricLabel: `CPM ${totals.cpm.toFixed(0)} EGP` });
     if (totals.cpa > 40)
       alerts.push({ alertKey: "cpa-high:account", alertType: "cpa-high", severity: totals.cpa > 100 ? "danger" : "warn", metricValue: totals.cpa, metricLabel: `CPA ${totals.cpa.toFixed(0)} EGP` });
@@ -2070,7 +2070,7 @@ function AccountTabContent({
             current={totals.cpm}
             prev={prev_totals.cpm}
             lowerIsBetter
-            tone={totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"}
+            tone={totals.cpa <= 55 ? "good" : (totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad")}
           />
           <KpiCard
             icon={TrendingUp}

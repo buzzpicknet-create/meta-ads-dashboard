@@ -1100,9 +1100,10 @@ function FunnelDiagnostic({ totals }: { totals: DerivedMetrics }) {
     {
       id: "cpm", label: "تكلفة المزاد", sublabel: "CPM",
       value: fmt(totals.cpm, 0) + " EGP",
-      health: totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad",
-      tip: totals.cpm > 60
-        ? "المزاد غالي — الأوديانس ضيقة أو المنافسة شرسة في وقت الإعلان"
+      health: totals.cpa <= 55 ? "good" : (totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"),
+      tip: totals.cpa <= 55 && totals.cpm > 30
+        ? "CPM مرتفع لكن CPA ممتاز — المزاد يعمل بكفاءة والنتائج صحية"
+        : totals.cpm > 60 ? "المزاد غالي — الأوديانس ضيقة أو المنافسة شرسة في وقت الإعلان"
         : totals.cpm > 30 ? "CPM معتدل — راقبه لو ارتفع فجأة"
         : "CPM صحي — التوزيع كفء",
       icon: CircleDollarSign,
@@ -1240,21 +1241,13 @@ function ExpertTips({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEnt
   const tips = useMemo<ExpertTip[]>(() => {
     const t: ExpertTip[] = [];
 
-    if (totals.cpm > 60) {
+    if (totals.cpm > 60 && totals.cpa > 55) {
       t.push({
         icon: CircleDollarSign,
         title: "المزاد غالي — CPM مرتفع فوق 60 EGP",
         body: `CPM حالياً ${fmt(totals.cpm, 0)} EGP يعني إنك بتدفع أكتر لكل 1000 مشاهدة. الأسباب الشائعة: أوديانس ضيق جداً، وقت إعلان غالي (Prime Time)، أو Quality Score منخفضة عند Meta. Meta بتكافئ الإعلانات عالية الجودة بـ CPM أرخص.`,
         action: "وسّع الأوديانس أو جرّب Advantage+ Audience. اختبر Placements مختلفة (Stories vs Reels vs Feed). ارفع جودة الكريتف — إعلانات بـ CTR عالي بتاخد CPM أرخص تلقائياً.",
         tone: "warn",
-      });
-    } else if (totals.cpm > 30) {
-      t.push({
-        icon: CircleDollarSign,
-        title: "CPM معتدل — راقبه لو ارتفع",
-        body: `CPM حالياً ${fmt(totals.cpm, 0)} EGP — في النطاق المقبول. ارتفاعه المفاجئ يعني إما منافسة متزايدة في الـ Auction أو تشبع الأوديانس.`,
-        action: "راقب CPM يومياً. لو ارتفع أكتر من 20% في أسبوع، راجع الـ Frequency وفكّر في تجديد الكريتف.",
-        tone: "info",
       });
     }
 
@@ -1932,7 +1925,7 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
             label="CPM"
             value={`${fmt(totals.cpm, 0)} EGP`}
             sub={<><Num>{fmt(totals.impressions)}</Num> ظهور</>}
-            tone={totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad"}
+            tone={totals.cpa <= 55 ? "good" : (totals.cpm < 30 ? "good" : totals.cpm < 60 ? "warn" : "bad")}
           />
           <KpiCard
             icon={TrendingUp}
