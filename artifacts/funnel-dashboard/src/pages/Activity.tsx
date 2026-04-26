@@ -598,7 +598,7 @@ function DrillRow({ seg }: { seg: DrillSeg }) {
       <span className="truncate flex-1">{seg.label}</span>
       <span className="shrink-0 tabular-nums ltr text-[11px]">
         {seg.purchases > 0
-          ? `CPA ${seg.cpa.toFixed(0)} · CPM ${seg.cpm.toFixed(0)}`
+          ? `CPA ${(seg.cpa ?? 0).toFixed(0)} · CPM ${(seg.cpm ?? 0).toFixed(0)}`
           : <span className="text-rose-500 font-bold">لا أوردرات</span>}
       </span>
     </div>
