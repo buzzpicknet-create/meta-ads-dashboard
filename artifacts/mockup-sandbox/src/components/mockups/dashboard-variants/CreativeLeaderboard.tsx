@@ -1,32 +1,37 @@
 import { useState } from "react";
-import { TrendingDown, TrendingUp, Trophy, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Zap, BarChart2, FileText, Type, Video } from "lucide-react";
+import { ChevronDown, ChevronUp, Zap, BarChart2, FileText, Type, Image } from "lucide-react";
+import { Trophy } from "lucide-react";
 
 // ── Mock data ───────────────────────────────────────────────────────────────
-// Each ad has a primary_text variant, headline variant, and video variant
+// Meta API fields: primary_text (body), headline (title), creative (video/image)
 const MOCK_ADS = [
-  { id:"1", name:"Ad 1", campaign:"رمضان — Broad",   spend:1050, orders:26, cpa:40.4, ctr:3.38, cr:6.37, text:"T1", headline:"H1", video:"V1" },
-  { id:"2", name:"Ad 2", campaign:"رمضان — Broad",   spend:850,  orders:24, cpa:35.4, ctr:3.90, cr:5.80, text:"T2", headline:"H1", video:"V1" },
-  { id:"3", name:"Ad 3", campaign:"رمضان — Retarget",spend:620,  orders:13, cpa:47.7, ctr:2.40, cr:4.10, text:"T1", headline:"H2", video:"V2" },
-  { id:"4", name:"Ad 4", campaign:"Product Launch",  spend:520,  orders: 9, cpa:57.8, ctr:1.90, cr:3.20, text:"T2", headline:"H2", video:"V1" },
-  { id:"5", name:"Ad 5", campaign:"Product Launch",  spend:420,  orders: 7, cpa:60.0, ctr:1.75, cr:2.90, text:"T1", headline:"H3", video:"V2" },
-  { id:"6", name:"Ad 6", campaign:"Awareness — Top", spend: 93,  orders: 1, cpa:93.0, ctr:2.42, cr:5.56, text:"T2", headline:"H3", video:"V2" },
-  { id:"7", name:"Ad 7", campaign:"Awareness — Top", spend: 22,  orders: 0, cpa:  0,  ctr:1.11, cr:0.00, text:"T1", headline:"H1", video:"V3" },
+  { id:"1", name:"Ad 1", campaign:"رمضان — Broad",    spend:1050, orders:26, cpa:40.4, ctr:3.38, cr:6.37, primaryText:"PT1", headline:"H1", media:"M1" },
+  { id:"2", name:"Ad 2", campaign:"رمضان — Broad",    spend: 850, orders:24, cpa:35.4, ctr:3.90, cr:5.80, primaryText:"PT2", headline:"H1", media:"M1" },
+  { id:"3", name:"Ad 3", campaign:"رمضان — Retarget", spend: 620, orders:13, cpa:47.7, ctr:2.40, cr:4.10, primaryText:"PT1", headline:"H2", media:"M2" },
+  { id:"4", name:"Ad 4", campaign:"Product Launch",   spend: 520, orders: 9, cpa:57.8, ctr:1.90, cr:3.20, primaryText:"PT2", headline:"H2", media:"M1" },
+  { id:"5", name:"Ad 5", campaign:"Product Launch",   spend: 420, orders: 7, cpa:60.0, ctr:1.75, cr:2.90, primaryText:"PT1", headline:"H3", media:"M2" },
+  { id:"6", name:"Ad 6", campaign:"Awareness — Top",  spend:  93, orders: 1, cpa:93.0, ctr:2.42, cr:5.56, primaryText:"PT2", headline:"H3", media:"M2" },
+  { id:"7", name:"Ad 7", campaign:"Awareness — Top",  spend:  22, orders: 0, cpa:   0, ctr:1.11, cr:0.00, primaryText:"PT1", headline:"H1", media:"M3" },
 ];
 
-// Human-readable labels for mock components
-const TEXT_LABELS: Record<string, string> = {
-  T1: "النص ١ — عرض الحل + إيموشن",
-  T2: "النص ٢ — سوشيال بروف + نتيجة",
+// Primary text variants (Meta: ad.creative.body)
+const PRIMARY_TEXT_LABELS: Record<string, { short: string; preview: string }> = {
+  PT1: { short:"Primary Text 1", preview: "بتعاني من مشكلة X؟ جرّبنا وهتحل في أول أسبوع — نتائج حقيقية من عملاء زيّك..." },
+  PT2: { short:"Primary Text 2", preview: "أكتر من ٥٠٠٠ عميل وثقوا فينا. النتيجة مضمونة أو مرجعلك فلوسك كاملة..." },
 };
-const HEADLINE_LABELS: Record<string, string> = {
-  H1: "العنوان ١ — اشتري دلوقتي",
-  H2: "العنوان ٢ — عرض محدود",
-  H3: "العنوان ٣ — جرّب مجاناً",
+
+// Headline variants (Meta: ad.creative.title)
+const HEADLINE_LABELS: Record<string, { short: string; preview: string }> = {
+  H1: { short:"Headline 1", preview: "اشتري دلوقتي — شحن مجاني" },
+  H2: { short:"Headline 2", preview: "عرض محدود — خصم ٣٠٪" },
+  H3: { short:"Headline 3", preview: "جرّب ٧ أيام مجاناً" },
 };
-const VIDEO_LABELS: Record<string, string> = {
-  V1: "فيديو A — UGC طبيعي ٣٠ث",
-  V2: "فيديو B — إيموشن + نتيجة ١٥ث",
-  V3: "فيديو C — مقارنة منافس ٤٥ث",
+
+// Media variants (Meta: ad.creative.video_id / image_hash)
+const MEDIA_LABELS: Record<string, { short: string; type: "video"|"image"; preview: string }> = {
+  M1: { short:"Media 1", type:"video", preview: "فيديو — UGC طبيعي ٣٠ث (عميل حقيقي)" },
+  M2: { short:"Media 2", type:"video", preview: "فيديو — إيموشن + نتيجة قبل/بعد ١٥ث" },
+  M3: { short:"Media 3", type:"image", preview: "صورة — Static design بالعرض" },
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -45,7 +50,7 @@ const TIER_CONFIG: Record<Tier, { label: string; bg: string; border: string; bad
 };
 
 // Compute component-level averages (only ads with orders>0)
-function componentAvg(key: "text"|"headline"|"video") {
+function componentAvg(key: "primaryText"|"headline"|"media") {
   const map: Record<string, { totalCpa: number; count: number; orders: number; spend: number }> = {};
   MOCK_ADS.filter(a => a.orders > 0).forEach(a => {
     const k = a[key];
@@ -72,11 +77,11 @@ function Pill({ v, good }: { v: string; good?: boolean | null }) {
 function ComponentBar({ label, items, labelMap, icon: Icon }: {
   label: string;
   items: { key: string; avgCpa: number; totalOrders: number; totalSpend: number }[];
-  labelMap: Record<string, string>;
+  labelMap: Record<string, { short: string; preview?: string; type?: string }>;
   icon: React.ElementType;
 }) {
   const best = items[0];
-  const maxOrders = Math.max(...items.map(i => i.totalOrders));
+  const maxOrders = Math.max(...items.map(i => i.totalOrders), 1);
 
   return (
     <div className="bg-card rounded-xl border border-border p-4">
@@ -85,19 +90,20 @@ function ComponentBar({ label, items, labelMap, icon: Icon }: {
         <span className="text-sm font-bold text-foreground">{label}</span>
         {best && (
           <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full mr-auto">
-            أفضل: {best.key}
+            أفضل: {labelMap[best.key]?.short ?? best.key}
           </span>
         )}
       </div>
       <div className="space-y-2.5">
         {items.map((item, idx) => {
           const isBest = idx === 0;
-          const barW = maxOrders > 0 ? (item.totalOrders / maxOrders) * 100 : 0;
+          const barW = (item.totalOrders / maxOrders) * 100;
+          const lbl = labelMap[item.key];
           return (
             <div key={item.key}>
               <div className="flex items-center justify-between mb-1">
-                <span className={`text-[11px] font-semibold truncate max-w-[60%] ${isBest ? "text-emerald-700" : "text-foreground"}`}>
-                  {labelMap[item.key] ?? item.key}
+                <span className={`text-[11px] font-semibold truncate max-w-[55%] ${isBest ? "text-emerald-700" : "text-foreground"}`}>
+                  {lbl?.short ?? item.key}
                 </span>
                 <div className="flex items-center gap-3 text-[11px]">
                   <span className={`font-black ${isBest ? "text-emerald-600" : "text-foreground"}`}>
@@ -134,9 +140,9 @@ export function CreativeLeaderboard() {
       return a.cpa - b.cpa;
     });
 
-  const textAvg     = componentAvg("text");
-  const headlineAvg = componentAvg("headline");
-  const videoAvg    = componentAvg("video");
+  const primaryTextAvg = componentAvg("primaryText");
+  const headlineAvg    = componentAvg("headline");
+  const mediaAvg       = componentAvg("media");
 
   const topWinner = validAds.find(a => getTier(a.cpa, a.orders) === "winner");
 
@@ -170,7 +176,7 @@ export function CreativeLeaderboard() {
             <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest">أفضل كريتف الآن</p>
             <p className="text-sm font-black">{topWinner.name} — {topWinner.campaign}</p>
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              {TEXT_LABELS[topWinner.text]} · {HEADLINE_LABELS[topWinner.headline]} · {VIDEO_LABELS[topWinner.video]}
+              {PRIMARY_TEXT_LABELS[topWinner.primaryText]?.short} · {HEADLINE_LABELS[topWinner.headline]?.short} · {MEDIA_LABELS[topWinner.media]?.short}
             </p>
           </div>
           <div className="flex gap-4 shrink-0 text-center">
@@ -238,37 +244,39 @@ export function CreativeLeaderboard() {
                 </div>
               </button>
 
-              {/* Expanded: creative components */}
+              {/* Expanded: Meta creative components */}
               {isOpen && (
                 <div className="px-4 pb-4 pt-1 border-t border-border/40">
-                  <p className="text-[10px] text-muted-foreground mb-2.5 font-bold uppercase tracking-wider">مكونات الكريتف</p>
+                  <p className="text-[10px] text-muted-foreground mb-2.5 font-bold uppercase tracking-wider">مكونات الكريتف — Meta Ad Creative</p>
                   <div className="grid grid-cols-3 gap-2">
-                    {/* Text */}
+                    {/* Primary Text */}
                     <div className="bg-background/70 rounded-lg border border-border p-2.5">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <FileText className="h-3 w-3 text-primary" />
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase">النص الإعلاني</span>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <FileText className="h-3 w-3 text-blue-500" />
+                        <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest">Primary Text</span>
                       </div>
-                      <p className="text-[11px] font-bold text-foreground">{ad.text}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{TEXT_LABELS[ad.text]}</p>
+                      <p className="text-[11px] font-bold text-foreground mb-0.5">{PRIMARY_TEXT_LABELS[ad.primaryText]?.short ?? ad.primaryText}</p>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2">{PRIMARY_TEXT_LABELS[ad.primaryText]?.preview}</p>
                     </div>
                     {/* Headline */}
                     <div className="bg-background/70 rounded-lg border border-border p-2.5">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <Type className="h-3 w-3 text-primary" />
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase">العنوان</span>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Type className="h-3 w-3 text-violet-500" />
+                        <span className="text-[9px] font-black text-violet-500 uppercase tracking-widest">Headline</span>
                       </div>
-                      <p className="text-[11px] font-bold text-foreground">{ad.headline}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{HEADLINE_LABELS[ad.headline]}</p>
+                      <p className="text-[11px] font-bold text-foreground mb-0.5">{HEADLINE_LABELS[ad.headline]?.short ?? ad.headline}</p>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">{HEADLINE_LABELS[ad.headline]?.preview}</p>
                     </div>
-                    {/* Video */}
+                    {/* Media */}
                     <div className="bg-background/70 rounded-lg border border-border p-2.5">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <Video className="h-3 w-3 text-primary" />
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase">الفيديو / الصورة</span>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Image className="h-3 w-3 text-amber-500" />
+                        <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">
+                          Media — {MEDIA_LABELS[ad.media]?.type === "video" ? "Video" : "Image"}
+                        </span>
                       </div>
-                      <p className="text-[11px] font-bold text-foreground">{ad.video}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{VIDEO_LABELS[ad.video]}</p>
+                      <p className="text-[11px] font-bold text-foreground mb-0.5">{MEDIA_LABELS[ad.media]?.short ?? ad.media}</p>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">{MEDIA_LABELS[ad.media]?.preview}</p>
                     </div>
                   </div>
                 </div>
@@ -285,9 +293,9 @@ export function CreativeLeaderboard() {
           <h2 className="text-sm font-black text-foreground">تحليل المكونات — أيهم بيجيب أفضل CPA؟</h2>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <ComponentBar label="النص الإعلاني" items={textAvg}     labelMap={TEXT_LABELS}     icon={FileText} />
-          <ComponentBar label="العنوان"        items={headlineAvg} labelMap={HEADLINE_LABELS} icon={Type} />
-          <ComponentBar label="الفيديو"        items={videoAvg}    labelMap={VIDEO_LABELS}    icon={Video} />
+          <ComponentBar label="Primary Text"  items={primaryTextAvg} labelMap={PRIMARY_TEXT_LABELS} icon={FileText} />
+          <ComponentBar label="Headline"      items={headlineAvg}    labelMap={HEADLINE_LABELS}     icon={Type} />
+          <ComponentBar label="Media"         items={mediaAvg}       labelMap={MEDIA_LABELS}        icon={Image} />
         </div>
       </div>
 
