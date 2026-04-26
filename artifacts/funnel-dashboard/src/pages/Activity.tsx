@@ -1155,8 +1155,16 @@ export default function ActivityPage() {
     });
   }, [metaList, filterActor, filterCat]);
 
-  // Group by day (filtered)
-  const byDay = filteredList.reduce<Record<string, MetaActivity[]>>((acc, act) => {
+  // Pagination — 10 items per page, reset when filters change
+  const PAGE_SIZE = 10;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filterActor, filterCat, preset, custom, accountId]);
+
+  const visibleList = filteredList.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredList.length;
+
+  // Group by day (paginated)
+  const byDay = visibleList.reduce<Record<string, MetaActivity[]>>((acc, act) => {
     const label = dayLabel(act.event_time);
     if (!label) return acc;
     if (!acc[label]) acc[label] = [];
@@ -1471,6 +1479,27 @@ export default function ActivityPage() {
                 </div>
               </div>
             ))}
+
+            {hasMore && (
+              <div className="flex flex-col items-center gap-1.5 py-2">
+                <button
+                  onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+                  className="flex items-center gap-2 text-sm font-bold px-6 py-2.5 rounded-xl bg-muted hover:bg-muted/70 text-muted-foreground hover:text-foreground transition-colors border border-border"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                  المزيد
+                </button>
+                <span className="text-[11px] text-muted-foreground">
+                  {visibleCount} من {filteredList.length} إجراء
+                </span>
+              </div>
+            )}
+
+            {!hasMore && validCount > PAGE_SIZE && (
+              <p className="text-center text-[11px] text-muted-foreground py-1">
+                تم عرض كل {validCount} إجراء
+              </p>
+            )}
           </section>
 
           <Card className="border-primary/10 bg-primary/3">
