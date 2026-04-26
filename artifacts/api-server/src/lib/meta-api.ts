@@ -1123,26 +1123,52 @@ export async function getAccountActivities({
   return rows;
 }
 
+// In-memory cache so rate-limit spikes don't blank out the accounts dropdown
+let _accountsCache: AdAccountSummary[] | null = null;
+
 export async function listAdAccounts(): Promise<AdAccountSummary[]> {
   const ids = getAdAccountIds();
-  const accounts = await Promise.all(
-    ids.map(async (id) => {
-      const cleanId = id.startsWith("act_") ? id.slice(4) : id;
-      const url = new URL(`${BASE_URL}/act_${cleanId}`);
-      url.searchParams.set("access_token", getAccessToken());
-      url.searchParams.set("fields", "id,name,currency,timezone_name,account_status");
-      const res = await fetch(url.toString());
-      const data = (await res.json()) as AdAccountSummary & {
-        error?: FbApiError;
-      };
-      if (data.error) throw new Error(`Meta API error: ${data.error.message}`);
-      return data;
-    }),
-  );
 
-  return [...accounts].filter(
-    (a, i, arr) => Boolean(a.id) && arr.findIndex((x) => x.id === a.id) === i,
-  );
+  try {
+    const accounts = await Promise.all(
+      ids.map(async (id) => {
+        const cleanId = id.startsWith("act_") ? id.slice(4) : id;
+        const url = new URL(`${BASE_URL}/act_${cleanId}`);
+        url.searchParams.set("access_token", getAccessToken());
+        url.searchParams.set("fields", "id,name,currency,timezone_name,account_status");
+        const res = await fetch(url.toString());
+        const data = (await res.json()) as AdAccountSummary & {
+          error?: FbApiError;
+        };
+        if (data.error) throw new Error(`Meta API error: ${data.error.message}`);
+        return data;
+      }),
+    );
+
+    const result = [...accounts].filter(
+      (a, i, arr) => Boolean(a.id) && arr.findIndex((x) => x.id === a.id) === i,
+    );
+
+    // Persist successful result so we can fall back on rate-limit
+    _accountsCache = result;
+    return result;
+  } catch (err) {
+    // Rate-limit or transient error — return last known good data if available
+    if (_accountsCache && _accountsCache.length > 0) {
+      return _accountsCache;
+    }
+    // No cache yet — build minimal stubs from env-configured IDs
+    return ids.map((id) => {
+      const cleanId = id.startsWith("act_") ? id.slice(4) : id;
+      return {
+        id: `act_${cleanId}`,
+        name: `حساب ${cleanId}`,
+        currency: "EGP",
+        timezone_name: "Africa/Cairo",
+        account_status: 1,
+      } as AdAccountSummary;
+    });
+  }
 }
 
 // ── Creative Intelligence ─────────────────────────────────────────────────────
