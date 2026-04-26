@@ -528,6 +528,208 @@ function CustomRangePicker({ value, onChange }: { value: DateRange; onChange: (r
   );
 }
 
+// ── Campaign Attention ────────────────────────────────────────
+const CAMP_T = {
+  cpa:  { warn: 80,  danger: 100 },
+  cpm:  { warn: 50,  danger: 70  },
+  freq: { warn: 2.0, danger: 2.5 },
+  ctr:  { warn: 1.5, danger: 1.0 },
+  minSpend: 50,
+};
+
+interface CampMetric {
+  id: string; name: string; spend: number; purchases: number;
+  cpa: number; cpm: number; frequency: number; ctr: number;
+  impressions: number; effective_status: string;
+}
+interface CampIssue { type: string; severity: "warn" | "danger"; label: string; }
+
+function detectIssues(c: CampMetric): CampIssue[] {
+  if (c.spend < CAMP_T.minSpend) return [];
+  const issues: CampIssue[] = [];
+  if (c.purchases === 0 && c.spend >= 200) {
+    issues.push({ type: "no-orders", severity: "danger", label: "لا أوردرات" });
+  } else if (c.cpa > CAMP_T.cpa.danger) {
+    issues.push({ type: "cpa-high", severity: "danger", label: `CPA ${c.cpa.toFixed(0)} EGP` });
+  } else if (c.cpa > CAMP_T.cpa.warn) {
+    issues.push({ type: "cpa-high", severity: "warn", label: `CPA ${c.cpa.toFixed(0)} EGP` });
+  }
+  if (c.cpm > CAMP_T.cpm.danger) {
+    issues.push({ type: "cpm-high", severity: "danger", label: `CPM ${c.cpm.toFixed(0)} EGP` });
+  } else if (c.cpm > CAMP_T.cpm.warn) {
+    issues.push({ type: "cpm-high", severity: "warn", label: `CPM ${c.cpm.toFixed(0)} EGP` });
+  }
+  if (c.frequency > CAMP_T.freq.danger) {
+    issues.push({ type: "freq-high", severity: "danger", label: `Freq ${c.frequency.toFixed(2)}x` });
+  } else if (c.frequency > CAMP_T.freq.warn) {
+    issues.push({ type: "freq-high", severity: "warn", label: `Freq ${c.frequency.toFixed(2)}x` });
+  }
+  if (c.impressions > 1000 && c.ctr < CAMP_T.ctr.danger) {
+    issues.push({ type: "ctr-low", severity: "danger", label: `CTR ${c.ctr.toFixed(2)}%` });
+  } else if (c.impressions > 1000 && c.ctr < CAMP_T.ctr.warn) {
+    issues.push({ type: "ctr-low", severity: "warn", label: `CTR ${c.ctr.toFixed(2)}%` });
+  }
+  return issues;
+}
+
+interface DrillSeg {
+  id: string; label: string; spend: number; purchases: number;
+  cpa: number; cpm: number; frequency: number; impressions: number;
+}
+
+function segStatus(s: DrillSeg): "danger" | "warn" | "ok" {
+  if (s.purchases === 0 && s.spend >= 100) return "danger";
+  if (s.cpa > CAMP_T.cpa.danger || s.cpm > CAMP_T.cpm.danger) return "danger";
+  if (s.cpa > CAMP_T.cpa.warn  || s.cpm > CAMP_T.cpm.warn)  return "warn";
+  return "ok";
+}
+
+function DrillRow({ seg }: { seg: DrillSeg }) {
+  const st = segStatus(seg);
+  return (
+    <div className={`flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg ${
+      st === "danger" ? "bg-rose-500/8 text-rose-700 dark:text-rose-300" :
+      st === "warn"   ? "bg-amber-500/8 text-amber-700 dark:text-amber-300" :
+      "bg-muted/50 text-muted-foreground"
+    }`}>
+      {st === "danger" && <XCircle      className="h-3 w-3 shrink-0 text-rose-500" />}
+      {st === "warn"   && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />}
+      {st === "ok"     && <CheckCircle2  className="h-3 w-3 shrink-0 text-emerald-500" />}
+      <span className="truncate flex-1">{seg.label}</span>
+      <span className="shrink-0 tabular-nums ltr text-[11px]">
+        {seg.purchases > 0
+          ? `CPA ${seg.cpa.toFixed(0)} · CPM ${seg.cpm.toFixed(0)}`
+          : <span className="text-rose-500 font-bold">لا أوردرات</span>}
+      </span>
+    </div>
+  );
+}
+
+function DrillDown({ campaignId, accountId, since, until }: {
+  campaignId: string; accountId: string; since: string; until: string;
+}) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["camp-drill", campaignId, since, until],
+    queryFn: async (): Promise<{ by_adset: DrillSeg[]; by_ad: DrillSeg[] }> => {
+      const r = await fetch(
+        `${BASE}/api/meta/insights?campaign_id=${campaignId}&since=${since}&until=${until}&ad_account_id=${accountId}`
+      );
+      if (!r.ok) throw new Error(await r.text());
+      return r.json() as Promise<{ by_adset: DrillSeg[]; by_ad: DrillSeg[] }>;
+    },
+    staleTime: 10 * 60_000,
+  });
+
+  if (isLoading) return (
+    <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+      {[1, 2, 3].map(i => <div key={i} className="h-8 rounded-lg bg-muted animate-pulse" />)}
+    </div>
+  );
+  if (isError || !data) return (
+    <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground text-center py-2">
+      تعذّر تحميل التفاصيل
+    </div>
+  );
+
+  const adsets = (data.by_adset ?? []).filter(s => s.spend > 20).slice(0, 10);
+  const ads    = (data.by_ad    ?? []).filter(s => s.spend > 10).slice(0, 10);
+
+  const badAdsets = adsets.filter(s => segStatus(s) !== "ok");
+  const badAds    = ads.filter(s => segStatus(s) !== "ok");
+
+  function scopeLabel(bad: number, total: number) {
+    if (total === 0) return "";
+    if (bad === total) return "كلها متأثرة ⛔";
+    if (bad > 0)      return `${bad} من ${total} متأثرة`;
+    return "كلها بخير ✓";
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border space-y-3">
+      {adsets.length > 0 && (
+        <div>
+          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
+            مجموعات إعلانية
+            <span className="mr-1.5 normal-case font-normal">{scopeLabel(badAdsets.length, adsets.length)}</span>
+          </p>
+          <div className="space-y-1">
+            {adsets.map(s => <DrillRow key={s.id} seg={s} />)}
+          </div>
+        </div>
+      )}
+      {ads.length > 0 && (
+        <div>
+          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
+            إعلانات
+            <span className="mr-1.5 normal-case font-normal">{scopeLabel(badAds.length, ads.length)}</span>
+          </p>
+          <div className="space-y-1">
+            {ads.map(s => <DrillRow key={s.id} seg={s} />)}
+          </div>
+        </div>
+      )}
+      {adsets.length === 0 && ads.length === 0 && (
+        <p className="text-xs text-muted-foreground text-center py-2">لا توجد بيانات كافية في الفترة</p>
+      )}
+    </div>
+  );
+}
+
+function CampaignAttentionCard({ campaign, accountId, since, until }: {
+  campaign: CampMetric & { issues: CampIssue[] };
+  accountId: string; since: string; until: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isDanger = campaign.issues.some(i => i.severity === "danger");
+
+  return (
+    <div className={`rounded-xl border p-4 ${isDanger
+      ? "border-rose-500/30 bg-rose-500/5"
+      : "border-amber-500/30 bg-amber-500/5"}`}>
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 shrink-0">
+          {isDanger
+            ? <XCircle className="h-4 w-4 text-rose-500" />
+            : <AlertTriangle className="h-4 w-4 text-amber-500" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1.5">
+            <span className="text-sm font-bold leading-snug">{campaign.name}</span>
+            {campaign.effective_status !== "ACTIVE" && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">موقوف</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5 mb-1">
+            {campaign.issues.map(issue => (
+              <span key={issue.type} className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                issue.severity === "danger"
+                  ? "bg-rose-500/15 text-rose-700 dark:text-rose-400"
+                  : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+              }`}>
+                {issue.label}
+              </span>
+            ))}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            إنفاق {campaign.spend.toLocaleString("en", { maximumFractionDigits: 0 })} EGP
+            {campaign.purchases > 0 && <span className="mx-1.5">· {campaign.purchases} طلب</span>}
+          </div>
+        </div>
+        <button
+          onClick={() => setExpanded(p => !p)}
+          className="shrink-0 flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          {expanded ? "إخفاء" : "تفاصيل"}
+        </button>
+      </div>
+      {expanded && (
+        <DrillDown campaignId={campaign.id} accountId={accountId} since={since} until={until} />
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────
 const PRESETS: PresetKey[] = ["today", "yesterday", "7d", "custom"];
 
@@ -565,16 +767,22 @@ export default function ActivityPage() {
     refetchInterval: 60_000,
   });
 
-  // Campaigns list — for campaign-level activity name lookup
+  // 7-day window for campaign health scan
+  const until7d = cairoToday();
+  const since7d  = cairoOffset(6);
+
+  // Campaigns list — full metrics for health scan + activity name lookup
   const campaignsQuery = useQuery({
-    queryKey: ["campaigns-all", accountId],
-    queryFn: async (): Promise<{ campaigns: Array<{ id: string; name: string }> }> => {
-      const res = await fetch(`${BASE}/api/meta/campaigns?ad_account_id=${accountId}`);
+    queryKey: ["campaigns-all", accountId, since7d, until7d],
+    queryFn: async (): Promise<{ campaigns: CampMetric[] }> => {
+      const res = await fetch(
+        `${BASE}/api/meta/campaigns?ad_account_id=${accountId}&since=${since7d}&until=${until7d}`
+      );
       if (!res.ok) throw new Error(await res.text());
-      return res.json();
+      return res.json() as Promise<{ campaigns: CampMetric[] }>;
     },
     enabled: !!accountId,
-    staleTime: 30 * 60_000,
+    staleTime: 10 * 60_000,
   });
 
   // Adsets list — extra_data.campaign_id in ad activities is actually the adset_id (Meta's old naming)
@@ -642,6 +850,19 @@ export default function ActivityPage() {
   }, [campaignsQuery.data, adsetsQuery.data]);
 
   const validCount = metaList.filter((a) => !!toDate(a.event_time)).length;
+
+  // Campaigns with health issues (last 7 days)
+  const campaignsWithIssues = useMemo(() => {
+    const all = campaignsQuery.data?.campaigns ?? [];
+    return all
+      .map(c => ({ ...c, issues: detectIssues(c) }))
+      .filter(c => c.issues.length > 0)
+      .sort((a, b) => {
+        const aDanger = a.issues.some(i => i.severity === "danger") ? 1 : 0;
+        const bDanger = b.issues.some(i => i.severity === "danger") ? 1 : 0;
+        return bDanger - aDanger || b.spend - a.spend;
+      });
+  }, [campaignsQuery.data]);
 
   return (
     <main className="mx-auto max-w-[900px] px-4 py-8 space-y-8" dir="rtl">
@@ -717,21 +938,55 @@ export default function ActivityPage() {
 
       {accountId && (
         <>
-          {/* ── Unresolved Alerts ─── */}
-          {unresolved.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-sm font-bold flex items-center gap-2">
-                <Bell className="h-4 w-4 text-rose-500" />
-                تنبيهات تحتاج انتباه
-                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${urgentCount > 0 ? "bg-rose-500/15 text-rose-700 dark:text-rose-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"}`}>
-                  {unresolved.length}{urgentCount > 0 ? ` · ${urgentCount} عاجل` : ""}
-                </span>
-              </h2>
+          {/* ── Campaigns Needing Attention ─── */}
+          <section className="space-y-3">
+            <h2 className="text-sm font-bold flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              حملات تحتاج تدخل
+              <span className="text-[11px] text-muted-foreground font-normal">آخر 7 أيام</span>
+              {campaignsQuery.isLoading
+                ? <span className="text-[11px] text-muted-foreground">جاري التحليل...</span>
+                : campaignsWithIssues.length > 0
+                  ? <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                      campaignsWithIssues.some(c => c.issues.some(i => i.severity === "danger"))
+                        ? "bg-rose-500/15 text-rose-700 dark:text-rose-400"
+                        : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                    }`}>
+                      {campaignsWithIssues.length} حملة
+                    </span>
+                  : null}
+            </h2>
+
+            {campaignsQuery.isLoading && (
               <div className="space-y-2">
-                {unresolved.map((s) => <UnresolvedCard key={s.id} snap={s} accountId={accountId} />)}
+                {[1, 2, 3].map(i => <div key={i} className="h-16 rounded-xl bg-muted animate-pulse" />)}
               </div>
-            </section>
-          )}
+            )}
+
+            {!campaignsQuery.isLoading && campaignsWithIssues.length === 0 && (
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-5 flex items-center gap-3">
+                <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">كل الحملات بخير</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">لا توجد حملات تتجاوز العتبات في آخر 7 أيام</p>
+                </div>
+              </div>
+            )}
+
+            {campaignsWithIssues.length > 0 && (
+              <div className="space-y-2">
+                {campaignsWithIssues.map(c => (
+                  <CampaignAttentionCard
+                    key={c.id}
+                    campaign={c}
+                    accountId={accountId}
+                    since={since7d}
+                    until={until7d}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* ── Meta Activity Feed ─── */}
           <section className="space-y-4">

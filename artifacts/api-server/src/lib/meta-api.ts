@@ -307,7 +307,10 @@ export async function listCampaigns(opts: {
       spend: m.spend,
       purchases: m.purchases,
       cpa: d.cpa,
+      cpm: d.cpm,
+      frequency: d.frequency,
       impressions: m.impressions,
+      reach: m.reach,
       link_clicks: m.link_clicks,
       ctr: d.ctr,
     };
@@ -346,6 +349,7 @@ export interface SegmentEntry {
   lpv: number;
   purchases: number;
   cpa: number;
+  cpm: number;
   cpc: number;
   ctr: number;
   cr: number;
@@ -521,6 +525,7 @@ export async function getCampaignInsights(opts: {
         lpv: v.metrics.lpv,
         purchases: v.metrics.purchases,
         cpa: d.cpa,
+        cpm: d.cpm,
         cpc: d.cpc,
         ctr: d.ctr,
         cr: d.crLpv,
@@ -556,6 +561,7 @@ export async function getCampaignInsights(opts: {
         lpv: v.metrics.lpv,
         purchases: v.metrics.purchases,
         cpa: d.cpa,
+        cpm: d.cpm,
         cpc: d.cpc,
         ctr: d.ctr,
         cr: d.crLpv,
