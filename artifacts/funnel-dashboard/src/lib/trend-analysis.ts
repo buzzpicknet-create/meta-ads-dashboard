@@ -213,7 +213,9 @@ function analyzeSingle(
   const isWorse = lowerIsBetter ? pctChange > 8 || consecutiveWorse >= 2 : pctChange < -8 || consecutiveWorse >= 2;
   const isBetter = lowerIsBetter ? pctChange < -8 || consecutiveBetter >= 2 : pctChange > 8 || consecutiveBetter >= 2;
   const direction: TrendDir = isWorse ? "worsening" : isBetter ? "improving" : "stable";
-  const predictedIn3Days = predictAhead(vals, 3);
+  // Actual average of last 3 days (not a projection)
+  const last3 = vals.slice(-3);
+  const predictedIn3Days = last3.reduce((a, b) => a + b, 0) / last3.length;
 
   return {
     metric, label, unit, lowerIsBetter,
@@ -310,13 +312,14 @@ export function buildPrediction(
   const data = calcDailyMetrics(daily).slice(-7);
   if (data.length < 3) return null;
 
-  const spendVals = data.map((d) => d.spend);
-  const purchaseVals = data.map((d) => d.purchases);
-  const cpaVals = data.filter((d) => d.cpa > 0).map((d) => d.cpa);
-
-  const predictedSpend3d = predictAhead(spendVals, 3);
-  const predictedOrders3d = Math.round(predictAhead(purchaseVals, 3));
-  const predictedCpa3d = cpaVals.length >= 2 ? predictAhead(cpaVals, 3) : 0;
+  // Show actual last-3-days performance (not a projection)
+  const last3data = data.slice(-3);
+  const predictedSpend3d = last3data.reduce((a, d) => a + d.spend, 0);
+  const predictedOrders3d = last3data.reduce((a, d) => a + d.purchases, 0);
+  const cpaLast3 = last3data.filter((d) => d.cpa > 0).map((d) => d.cpa);
+  const predictedCpa3d = cpaLast3.length > 0
+    ? cpaLast3.reduce((a, b) => a + b, 0) / cpaLast3.length
+    : 0;
 
   const cpaTrend = trends.find((t) => t.metric === "cpa");
   const ctrTrend = trends.find((t) => t.metric === "ctr");

@@ -1460,7 +1460,7 @@ function MetricAlertCard({ trend }: { trend: MetricTrend }) {
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
           <span>الحالي: <span className="num font-semibold text-foreground">{curFmt}</span></span>
-          <span>التوقع خلال 3 أيام: <span className={`num font-semibold ${isWorse ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>{predFmt}</span></span>
+          <span>متوسط آخر 3 أيام: <span className={`num font-semibold ${isWorse ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>{predFmt}</span></span>
         </div>
         <div className="flex items-start gap-1 text-xs">
           <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
@@ -1564,20 +1564,20 @@ function TrendAlertsPanel({ daily, totals }: { daily: CampaignInsights["daily"];
         {/* Prediction Row */}
         {prediction && prediction.predictedCpa3d > 0 && (
           <div className={`rounded-xl ring-1 px-4 py-3 space-y-1.5 ${prediction.verdict === "danger" ? "bg-rose-500/5 ring-rose-500/20" : prediction.verdict === "scale" ? "bg-emerald-500/5 ring-emerald-500/20" : "bg-muted/40 ring-border"}`}>
-            <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">توقع الأداء خلال 3 أيام</div>
+            <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">أداء آخر 3 أيام الفعلي</div>
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-              <span>CPA المتوقع: <span className={`num font-bold ${prediction.verdict === "danger" ? "text-rose-600 dark:text-rose-400" : prediction.verdict === "scale" ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>{Math.round(prediction.predictedCpa3d)} EGP</span></span>
-              <span>الأوردرات المتوقعة: <span className="num font-bold text-foreground">{prediction.predictedOrders3d}</span></span>
-              <span>الإنفاق المتوقع: <span className="num font-bold text-foreground">{Math.round(prediction.predictedSpend3d)} EGP</span></span>
+              <span>متوسط CPA: <span className={`num font-bold ${prediction.verdict === "danger" ? "text-rose-600 dark:text-rose-400" : prediction.verdict === "scale" ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>{Math.round(prediction.predictedCpa3d)} EGP</span></span>
+              <span>الطلبات: <span className="num font-bold text-foreground">{prediction.predictedOrders3d}</span></span>
+              <span>الإنفاق: <span className="num font-bold text-foreground">{Math.round(prediction.predictedSpend3d)} EGP</span></span>
             </div>
             {prediction.verdict === "danger" && (
               <div className="text-xs text-rose-600 dark:text-rose-400 font-medium">
-                🚨 لو استمر الوضع → تكلفة الأوردر ستزيد بشكل ملحوظ — تدخّل الآن
+                🚨 CPA مرتفع في آخر 3 أيام — راجع الكريتف وتدخّل الآن
               </div>
             )}
             {prediction.verdict === "scale" && (
               <div className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
-                🔥 الأداء يتحسن — فرصة Scale واضحة خلال الأيام القادمة
+                🔥 الأداء يتحسن باستمرار — فرصة Scale
               </div>
             )}
           </div>
