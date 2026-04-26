@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Trophy, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp,
-  Zap, BarChart2, FileText, Type, Film, TrendingUp, TrendingDown,
-  CalendarDays, RefreshCw,
+  Trophy, ChevronDown, ChevronUp, Zap, BarChart2,
+  FileText, Type, Film, CalendarDays, RefreshCw,
+  ArrowRight, Layers,
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-meta";
 
@@ -40,6 +40,43 @@ interface CreativeResponse {
   ads: AdCreativeRow[];
 }
 
+// ── Campaign summary (derived from ads) ───────────────────────────────────────
+interface CampaignSummary {
+  campaign_id: string;
+  campaign_name: string;
+  totalSpend: number;
+  totalOrders: number;
+  avgCpa: number;
+  activeAds: number;
+  totalAds: number;
+}
+
+function buildCampaignSummaries(ads: AdCreativeRow[]): CampaignSummary[] {
+  const map = new Map<string, CampaignSummary>();
+  for (const ad of ads) {
+    if (!map.has(ad.campaign_id)) {
+      map.set(ad.campaign_id, {
+        campaign_id: ad.campaign_id,
+        campaign_name: ad.campaign_name,
+        totalSpend: 0,
+        totalOrders: 0,
+        avgCpa: 0,
+        activeAds: 0,
+        totalAds: 0,
+      });
+    }
+    const c = map.get(ad.campaign_id)!;
+    c.totalSpend += ad.spend;
+    c.totalOrders += ad.purchases;
+    c.totalAds++;
+    if (ad.effective_status === "ACTIVE") c.activeAds++;
+  }
+  return [...map.values()].map(c => ({
+    ...c,
+    avgCpa: c.totalOrders > 0 ? c.totalSpend / c.totalOrders : 0,
+  })).sort((a, b) => b.totalSpend - a.totalSpend);
+}
+
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function cairoToday(): string {
   return new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);
@@ -71,10 +108,10 @@ const TIER_CFG: Record<Tier, {
   label: string; bg: string; border: string;
   badgeBg: string; badgeText: string;
 }> = {
-  winner:    { label: "فائز",           bg: "bg-emerald-500/8",  border: "border-emerald-400/30", badgeBg: "bg-emerald-100 dark:bg-emerald-900/40", badgeText: "text-emerald-700 dark:text-emerald-300" },
-  ok:        { label: "مقبول",          bg: "bg-amber-500/6",    border: "border-amber-400/25",   badgeBg: "bg-amber-100 dark:bg-amber-900/40",   badgeText: "text-amber-700 dark:text-amber-300" },
-  danger:    { label: "يحتاج تحسين",   bg: "bg-rose-500/6",     border: "border-rose-400/25",    badgeBg: "bg-rose-100 dark:bg-rose-900/40",     badgeText: "text-rose-700 dark:text-rose-300" },
-  "no-data": { label: "بيانات قليلة",  bg: "bg-muted/20",       border: "border-border/40",      badgeBg: "bg-muted",                            badgeText: "text-muted-foreground" },
+  winner:    { label: "فائز",          bg: "bg-emerald-500/8",  border: "border-emerald-400/30", badgeBg: "bg-emerald-100 dark:bg-emerald-900/40", badgeText: "text-emerald-700 dark:text-emerald-300" },
+  ok:        { label: "مقبول",         bg: "bg-amber-500/6",    border: "border-amber-400/25",   badgeBg: "bg-amber-100 dark:bg-amber-900/40",    badgeText: "text-amber-700 dark:text-amber-300" },
+  danger:    { label: "يحتاج تحسين",  bg: "bg-rose-500/6",     border: "border-rose-400/25",    badgeBg: "bg-rose-100 dark:bg-rose-900/40",      badgeText: "text-rose-700 dark:text-rose-300" },
+  "no-data": { label: "بيانات قليلة", bg: "bg-muted/20",       border: "border-border/40",      badgeBg: "bg-muted",                             badgeText: "text-muted-foreground" },
 };
 
 // ── Component analysis ────────────────────────────────────────────────────────
@@ -82,7 +119,7 @@ type CompKey = "primary_text" | "headline" | "media_id";
 
 interface CompGroup {
   key: string;
-  label: string;       // truncated display label
+  label: string;
   avgCpa: number;
   totalOrders: number;
   totalSpend: number;
@@ -90,28 +127,25 @@ interface CompGroup {
 }
 
 function groupByComponent(ads: AdCreativeRow[], field: CompKey, minSpend: number): CompGroup[] {
-  const map = new Map<string, { label: string; totalCpa: number; count: number; orders: number; spend: number }>();
+  const map = new Map<string, { label: string; cpaSum: number; count: number; orders: number; spend: number }>();
   ads.filter(a => a.spend >= minSpend && a.purchases > 0).forEach(ad => {
     const rawKey = ad[field] ?? "(none)";
     const key = String(rawKey).slice(0, 80);
     const label = field === "media_id"
-      ? `${ad.media_type === "video" ? "🎬" : "🖼️"} ${key.slice(0, 20)}…`
-      : key.length > 60 ? key.slice(0, 57) + "…" : key;
-    if (!map.has(key)) map.set(key, { label, totalCpa: 0, count: 0, orders: 0, spend: 0 });
+      ? `${ad.media_type === "video" ? "🎬" : "🖼️"} ${key.slice(0, 24)}`
+      : key.length > 55 ? key.slice(0, 52) + "…" : key;
+    if (!map.has(key)) map.set(key, { label, cpaSum: 0, count: 0, orders: 0, spend: 0 });
     const g = map.get(key)!;
-    g.totalCpa += ad.cpa;
+    g.cpaSum += ad.cpa;
     g.count++;
     g.orders += ad.purchases;
     g.spend += ad.spend;
   });
   return [...map.entries()].map(([k, v]) => ({
-    key: k,
-    label: v.label,
-    avgCpa: v.totalCpa / v.count,
-    totalOrders: v.orders,
-    totalSpend: v.spend,
-    adCount: v.count,
-  })).sort((a, b) => a.avgCpa - b.avgCpa);
+    key: k, label: v.label,
+    avgCpa: v.cpaSum / v.count,
+    totalOrders: v.orders, totalSpend: v.spend, adCount: v.count,
+  })).sort((a, b) => a.avgCpa - b.avgCpa).slice(0, 5);
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -124,9 +158,7 @@ function Pill({ v, good }: { v: string; good?: boolean | null }) {
 }
 
 function CompBar({ title, groups, icon: Icon }: {
-  title: string;
-  groups: CompGroup[];
-  icon: React.ElementType;
+  title: string; groups: CompGroup[]; icon: React.ElementType;
 }) {
   const maxOrders = Math.max(...groups.map(g => g.totalOrders), 1);
   const best = groups[0];
@@ -137,13 +169,11 @@ function CompBar({ title, groups, icon: Icon }: {
         <span className="text-sm font-bold">{title}</span>
         {best && (
           <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-bold px-1.5 py-0.5 rounded-full mr-auto whitespace-nowrap">
-            أفضل CPA: {best.avgCpa.toFixed(0)} EGP
+            أفضل: {best.avgCpa.toFixed(0)} EGP
           </span>
         )}
       </div>
-      {groups.length === 0 && (
-        <p className="text-xs text-muted-foreground">لا بيانات كافية</p>
-      )}
+      {groups.length === 0 && <p className="text-xs text-muted-foreground">لا بيانات كافية</p>}
       <div className="space-y-2.5">
         {groups.map((g, idx) => {
           const isBest = idx === 0;
@@ -151,22 +181,16 @@ function CompBar({ title, groups, icon: Icon }: {
           return (
             <div key={g.key}>
               <div className="flex items-start justify-between gap-2 mb-1">
-                <span className={`text-[11px] font-semibold leading-tight ${isBest ? "text-emerald-700 dark:text-emerald-400" : "text-foreground"}`}
-                  title={g.key}>
+                <span className={`text-[11px] font-semibold leading-tight ${isBest ? "text-emerald-700 dark:text-emerald-400" : "text-foreground"}`} title={g.key}>
                   {g.label}
                 </span>
                 <div className="flex items-center gap-2 text-[11px] shrink-0">
-                  <span className={`font-black ${isBest ? "text-emerald-600" : "text-foreground"}`}>
-                    {g.avgCpa.toFixed(0)} EGP
-                  </span>
+                  <span className={`font-black ${isBest ? "text-emerald-600" : "text-foreground"}`}>{g.avgCpa.toFixed(0)} EGP</span>
                   <span className="text-muted-foreground">{g.totalOrders} طلب</span>
                 </div>
               </div>
               <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${isBest ? "bg-emerald-500" : "bg-primary/30"}`}
-                  style={{ width: `${barW}%` }}
-                />
+                <div className={`h-full rounded-full ${isBest ? "bg-emerald-500" : "bg-primary/30"}`} style={{ width: `${barW}%` }} />
               </div>
             </div>
           );
@@ -176,15 +200,55 @@ function CompBar({ title, groups, icon: Icon }: {
   );
 }
 
+// ── Campaign Card ─────────────────────────────────────────────────────────────
+function CampaignCard({ c, onClick }: { c: CampaignSummary; onClick: () => void }) {
+  const tier = getTier(c.avgCpa, c.totalOrders);
+  const cfg  = TIER_CFG[tier];
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-right rounded-xl border p-4 transition-all hover:shadow-md hover:scale-[1.01] active:scale-[0.99] ${cfg.bg} ${cfg.border}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-black truncate">{c.campaign_name}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{c.totalAds} إعلان — {c.activeAds} نشط</p>
+        </div>
+        <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5 rotate-180" />
+      </div>
+      <div className="flex gap-4 mt-3 pt-3 border-t border-border/40">
+        <div>
+          <p className={`text-base font-black ${tier === "winner" ? "text-emerald-600" : tier === "danger" ? "text-rose-500" : "text-foreground"}`}>
+            {c.totalOrders === 0 ? "—" : `${c.avgCpa.toFixed(0)} EGP`}
+          </p>
+          <p className="text-[9px] text-muted-foreground uppercase">CPA</p>
+        </div>
+        <div>
+          <p className="text-base font-black">{c.totalOrders}</p>
+          <p className="text-[9px] text-muted-foreground uppercase">طلبات</p>
+        </div>
+        <div>
+          <p className="text-base font-black">{c.totalSpend.toLocaleString()}</p>
+          <p className="text-[9px] text-muted-foreground uppercase">SPEND EGP</p>
+        </div>
+        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full self-end mr-auto ${cfg.badgeBg} ${cfg.badgeText}`}>
+          {cfg.label}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function CreativePage() {
   const accounts = useAccounts();
-  const [accountId, setAccountId] = useState<string>("");
-  const [preset, setPreset] = useState<PresetKey>("7d");
-  const [custom, setCustom] = useState<DateRange>({ since: cairoOffset(29), until: cairoToday() });
-  const [minSpend, setMinSpend] = useState(50);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"cpa" | "orders" | "spend">("cpa");
+  const [accountId, setAccountId]     = useState<string>("");
+  const [preset, setPreset]           = useState<PresetKey>("7d");
+  const [custom, setCustom]           = useState<DateRange>({ since: cairoOffset(29), until: cairoToday() });
+  const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
+  const [minSpend, setMinSpend]       = useState(50);
+  const [sortBy, setSortBy]           = useState<"cpa" | "orders" | "spend">("cpa");
+  const [expanded, setExpanded]       = useState<string | null>(null);
 
   useEffect(() => {
     if (!accountId && accounts.data?.accounts?.length) {
@@ -209,9 +273,17 @@ export default function CreativePage() {
 
   const allAds = query.data?.ads ?? [];
 
-  // Filter + sort
+  // Campaign list
+  const campaigns = useMemo(() => buildCampaignSummaries(allAds), [allAds]);
+
+  // Ads for selected campaign
+  const campaignAds = useMemo(() => {
+    if (!selectedCampaign) return [];
+    return allAds.filter(a => a.campaign_id === selectedCampaign);
+  }, [allAds, selectedCampaign]);
+
   const displayAds = useMemo(() => {
-    return allAds
+    return campaignAds
       .filter(a => a.spend >= minSpend)
       .sort((a, b) => {
         if (sortBy === "cpa") {
@@ -223,17 +295,18 @@ export default function CreativePage() {
         if (sortBy === "orders") return b.purchases - a.purchases;
         return b.spend - a.spend;
       });
-  }, [allAds, minSpend, sortBy]);
+  }, [campaignAds, minSpend, sortBy]);
 
-  // Component groups
-  const ptGroups       = useMemo(() => groupByComponent(allAds, "primary_text", minSpend), [allAds, minSpend]);
-  const headlineGroups = useMemo(() => groupByComponent(allAds, "headline", minSpend),      [allAds, minSpend]);
-  const mediaGroups    = useMemo(() => groupByComponent(allAds, "media_id", minSpend),      [allAds, minSpend]);
+  const ptGroups       = useMemo(() => groupByComponent(campaignAds, "primary_text", minSpend), [campaignAds, minSpend]);
+  const headlineGroups = useMemo(() => groupByComponent(campaignAds, "headline", minSpend),      [campaignAds, minSpend]);
+  const mediaGroups    = useMemo(() => groupByComponent(campaignAds, "media_id", minSpend),      [campaignAds, minSpend]);
 
-  const topWinner = displayAds.find(a => getTier(a.cpa, a.purchases) === "winner");
-  const winnerCount  = displayAds.filter(a => getTier(a.cpa, a.purchases) === "winner").length;
-  const okCount      = displayAds.filter(a => getTier(a.cpa, a.purchases) === "ok").length;
-  const dangerCount  = displayAds.filter(a => getTier(a.cpa, a.purchases) === "danger").length;
+  const topWinner   = displayAds.find(a => getTier(a.cpa, a.purchases) === "winner");
+  const winnerCount = displayAds.filter(a => getTier(a.cpa, a.purchases) === "winner").length;
+  const okCount     = displayAds.filter(a => getTier(a.cpa, a.purchases) === "ok").length;
+  const dangerCount = displayAds.filter(a => getTier(a.cpa, a.purchases) === "danger").length;
+
+  const selectedCampaignName = campaigns.find(c => c.campaign_id === selectedCampaign)?.campaign_name ?? "";
 
   const PRESETS: { key: PresetKey; label: string }[] = [
     { key: "7d",  label: "٧ أيام" },
@@ -243,7 +316,8 @@ export default function CreativePage() {
   ];
 
   return (
-    <div dir="rtl" className="mx-auto max-w-[1300px] px-4 sm:px-6 py-6 space-y-6 pb-24 sm:pb-8">
+    <div dir="rtl" className="mx-auto max-w-[1200px] px-4 sm:px-6 py-6 space-y-5 pb-24 sm:pb-8">
+
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-end gap-4">
         <div>
@@ -252,30 +326,20 @@ export default function CreativePage() {
             <Zap className="h-6 w-6 text-primary" />
             مركز الكريتف
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            كل الإعلانات مرتّبة بالـ CPA — مع تحليل Primary Text · Headline · Media
-          </p>
         </div>
 
-        {/* Controls */}
         <div className="flex flex-wrap items-center gap-2 sm:mr-auto">
           {/* Date presets */}
           <div className="flex items-center gap-1 bg-muted/50 rounded-xl p-1">
             <CalendarDays className="h-3.5 w-3.5 text-muted-foreground mr-1" />
             {PRESETS.map(p => (
-              <button
-                key={p.key}
-                onClick={() => setPreset(p.key)}
+              <button key={p.key} onClick={() => setPreset(p.key)}
                 className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-colors ${
                   preset === p.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {p.label}
-              </button>
+                }`}>{p.label}</button>
             ))}
           </div>
 
-          {/* Custom date */}
           {preset === "custom" && (
             <div className="flex items-center gap-1 text-xs">
               <input type="date" value={custom.since} max={custom.until}
@@ -289,38 +353,26 @@ export default function CreativePage() {
           )}
 
           {/* Account */}
-          <select
-            value={accountId}
-            onChange={e => setAccountId(e.target.value)}
-            className="text-xs border border-border rounded-xl px-3 py-2 bg-card font-medium max-w-[200px] truncate"
-          >
+          <select value={accountId} onChange={e => { setAccountId(e.target.value); setSelectedCampaign(null); }}
+            className="text-xs border border-border rounded-xl px-3 py-2 bg-card font-medium max-w-[200px] truncate">
             {accounts.data?.accounts?.map(a => (
               <option key={a.id} value={a.id}>{a.name ?? a.id}</option>
             ))}
           </select>
 
-          {/* Refresh */}
-          <button
-            onClick={() => query.refetch()}
-            disabled={query.isFetching}
-            className="p-2 rounded-xl border border-border bg-card hover:bg-muted transition-colors"
-          >
+          <button onClick={() => query.refetch()} disabled={query.isFetching}
+            className="p-2 rounded-xl border border-border bg-card hover:bg-muted transition-colors">
             <RefreshCw className={`h-3.5 w-3.5 ${query.isFetching ? "animate-spin text-primary" : "text-muted-foreground"}`} />
           </button>
         </div>
       </div>
 
-      {/* Date range display */}
-      <p className="text-[11px] text-muted-foreground -mt-4">
-        {range.since} → {range.until}
-      </p>
+      <p className="text-[11px] text-muted-foreground -mt-3">{range.since} → {range.until}</p>
 
       {/* ── Loading ── */}
       {query.isLoading && (
         <div className="space-y-2">
-          {[1,2,3,4,5].map(i => (
-            <div key={i} className="h-16 rounded-xl bg-muted animate-pulse" />
-          ))}
+          {[1,2,3,4].map(i => <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />)}
         </div>
       )}
 
@@ -331,23 +383,53 @@ export default function CreativePage() {
         </div>
       )}
 
-      {query.isSuccess && (
+      {/* ── Campaign picker ── */}
+      {query.isSuccess && !selectedCampaign && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <Layers className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-black">اختار الحملة الإعلانية</h2>
+            <span className="text-xs text-muted-foreground">{campaigns.length} حملة</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {campaigns.map(c => (
+              <CampaignCard key={c.campaign_id} c={c} onClick={() => {
+                setSelectedCampaign(c.campaign_id);
+                setExpanded(null);
+              }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Creative leaderboard for selected campaign ── */}
+      {query.isSuccess && selectedCampaign && (
         <>
-          {/* ── Top winner strip ── */}
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setSelectedCampaign(null)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium">
+              <ArrowRight className="h-3.5 w-3.5 rotate-180" />
+              كل الحملات
+            </button>
+            <span className="text-muted-foreground/40">/</span>
+            <span className="text-xs font-bold text-foreground truncate max-w-[300px]">{selectedCampaignName}</span>
+          </div>
+
+          {/* Winner strip */}
           {topWinner && (
             <div className="rounded-xl border border-emerald-400/40 bg-emerald-500/8 p-4 flex items-center gap-3">
               <Trophy className="h-9 w-9 text-emerald-500 shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-emerald-600 font-black uppercase tracking-widest">أفضل كريتف الآن</p>
+                <p className="text-[10px] text-emerald-600 font-black uppercase tracking-widest">أفضل كريتف</p>
                 <p className="text-sm font-black truncate">{topWinner.ad_name}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{topWinner.campaign_name}</p>
                 {topWinner.primary_text && (
                   <p className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">
-                    {topWinner.primary_text.slice(0, 80)}{topWinner.primary_text.length > 80 ? "…" : ""}
+                    {topWinner.primary_text.slice(0, 90)}{topWinner.primary_text.length > 90 ? "…" : ""}
                   </p>
                 )}
               </div>
-              <div className="flex gap-5 shrink-0 text-center">
+              <div className="flex gap-4 shrink-0 text-center">
                 <div>
                   <p className="text-xl font-black text-emerald-600">{topWinner.cpa.toFixed(0)}</p>
                   <p className="text-[9px] text-muted-foreground">EGP CPA</p>
@@ -364,16 +446,16 @@ export default function CreativePage() {
             </div>
           )}
 
-          {/* ── Controls row ── */}
+          {/* Filters row */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> {winnerCount} فائز
               <span className="w-2 h-2 rounded-full bg-amber-400 inline-block mr-2" /> {okCount} مقبول
               <span className="w-2 h-2 rounded-full bg-rose-500 inline-block mr-2" /> {dangerCount} يحتاج تحسين
             </div>
-            <div className="flex items-center gap-2 mr-auto">
+            <div className="flex items-center gap-2 mr-auto flex-wrap">
               <label className="text-xs text-muted-foreground">إنفاق أدنى</label>
-              <select value={minSpend} onChange={e=>setMinSpend(+e.target.value)}
+              <select value={minSpend} onChange={e => setMinSpend(+e.target.value)}
                 className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card">
                 <option value={0}>الكل</option>
                 <option value={50}>50 EGP+</option>
@@ -381,7 +463,7 @@ export default function CreativePage() {
                 <option value={500}>500 EGP+</option>
               </select>
               <label className="text-xs text-muted-foreground">ترتيب</label>
-              <select value={sortBy} onChange={e=>setSortBy(e.target.value as typeof sortBy)}
+              <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)}
                 className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card">
                 <option value="cpa">CPA</option>
                 <option value="orders">طلبات</option>
@@ -390,7 +472,7 @@ export default function CreativePage() {
             </div>
           </div>
 
-          {/* ── Leaderboard ── */}
+          {/* Ad leaderboard */}
           <div className="space-y-2">
             {displayAds.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-8">لا توجد إعلانات تستوفي الفلتر</p>
@@ -399,14 +481,10 @@ export default function CreativePage() {
               const tier = getTier(ad.cpa, ad.purchases);
               const cfg  = TIER_CFG[tier];
               const isOpen = expanded === ad.ad_id;
-
               return (
                 <div key={ad.ad_id} className={`rounded-xl border transition-all ${cfg.bg} ${cfg.border}`}>
-                  {/* Main row */}
-                  <button
-                    className="w-full flex items-center gap-3 p-3 text-right"
-                    onClick={() => setExpanded(isOpen ? null : ad.ad_id)}
-                  >
+                  <button className="w-full flex items-center gap-3 p-3 text-right"
+                    onClick={() => setExpanded(isOpen ? null : ad.ad_id)}>
                     {/* Rank */}
                     <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-black ${
                       idx === 0 ? "bg-emerald-500 text-white" :
@@ -415,24 +493,22 @@ export default function CreativePage() {
                       "bg-muted text-muted-foreground"
                     }`}>{idx + 1}</div>
 
-                    {/* Name + campaign */}
+                    {/* Name */}
                     <div className="flex-1 min-w-0 text-right">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-foreground">{ad.ad_name}</span>
+                        <span className="text-sm font-bold">{ad.ad_name}</span>
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${cfg.badgeBg} ${cfg.badgeText}`}>
                           {cfg.label}
                         </span>
                       </div>
-                      <p className="text-[10px] text-muted-foreground truncate">{ad.campaign_name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{ad.adset_name}</p>
                     </div>
 
                     {/* Metrics */}
                     <div className="flex gap-4 shrink-0">
                       <div className="text-center">
-                        <Pill
-                          v={ad.purchases === 0 ? "—" : `${ad.cpa.toFixed(0)} EGP`}
-                          good={ad.purchases === 0 ? null : ad.cpa <= 45 ? true : ad.cpa <= 55 ? null : false}
-                        />
+                        <Pill v={ad.purchases === 0 ? "—" : `${ad.cpa.toFixed(0)} EGP`}
+                          good={ad.purchases === 0 ? null : ad.cpa <= 45 ? true : ad.cpa <= 55 ? null : false} />
                         <p className="text-[9px] text-muted-foreground">CPA</p>
                       </div>
                       <div className="text-center">
@@ -453,51 +529,39 @@ export default function CreativePage() {
                       </div>
                     </div>
 
-                    {/* Trend */}
                     <div className="shrink-0 text-muted-foreground">
                       {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </div>
                   </button>
 
-                  {/* Expanded creative details */}
+                  {/* Creative details */}
                   {isOpen && (
                     <div className="px-4 pb-4 pt-1 border-t border-border/40 space-y-3">
-                      <p className="text-[10px] text-muted-foreground font-black uppercase tracking-wider">
-                        Meta Ad Creative — مكونات الإعلان
-                      </p>
+                      <p className="text-[10px] text-muted-foreground font-black uppercase tracking-wider">مكونات الإعلان</p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        {/* Primary Text */}
                         <div className="bg-background/70 rounded-lg border border-border p-3">
                           <div className="flex items-center gap-1.5 mb-1.5">
                             <FileText className="h-3.5 w-3.5 text-blue-500" />
                             <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Primary Text</span>
                           </div>
-                          {ad.primary_text ? (
-                            <p className="text-[11px] text-foreground leading-relaxed line-clamp-4">{ad.primary_text}</p>
-                          ) : (
-                            <p className="text-[11px] text-muted-foreground italic">غير متوفر</p>
-                          )}
+                          {ad.primary_text
+                            ? <p className="text-[11px] text-foreground leading-relaxed line-clamp-5">{ad.primary_text}</p>
+                            : <p className="text-[11px] text-muted-foreground italic">غير متوفر</p>}
                         </div>
-
-                        {/* Headline */}
                         <div className="bg-background/70 rounded-lg border border-border p-3">
                           <div className="flex items-center gap-1.5 mb-1.5">
                             <Type className="h-3.5 w-3.5 text-violet-500" />
                             <span className="text-[10px] font-black text-violet-500 uppercase tracking-widest">Headline</span>
                           </div>
-                          {ad.headline ? (
-                            <p className="text-[12px] font-bold text-foreground">{ad.headline}</p>
-                          ) : (
-                            <p className="text-[11px] text-muted-foreground italic">غير متوفر</p>
-                          )}
+                          {ad.headline
+                            ? <p className="text-[12px] font-bold text-foreground">{ad.headline}</p>
+                            : <p className="text-[11px] text-muted-foreground italic">غير متوفر</p>}
                         </div>
-
-                        {/* Media */}
                         <div className="bg-background/70 rounded-lg border border-border p-3">
                           <div className="flex items-center gap-1.5 mb-1.5">
                             <Film className="h-3.5 w-3.5 text-amber-500" />
                             <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">
-                              Media — {ad.media_type === "video" ? "Video" : ad.media_type === "image" ? "Image" : "Unknown"}
+                              {ad.media_type === "video" ? "Video" : ad.media_type === "image" ? "Image" : "Media"}
                             </span>
                           </div>
                           <p className="text-[11px] text-foreground font-mono break-all">{ad.media_id ?? "—"}</p>
@@ -506,8 +570,6 @@ export default function CreativePage() {
                           </p>
                         </div>
                       </div>
-
-                      {/* Extra metrics */}
                       <div className="flex gap-4 text-center pt-1">
                         {[
                           { label: "Impressions", v: ad.impressions.toLocaleString() },
@@ -515,8 +577,8 @@ export default function CreativePage() {
                           { label: "CPC",          v: `${ad.cpc.toFixed(2)} EGP` },
                           { label: "SPEND",        v: `${ad.spend.toLocaleString()} EGP` },
                         ].map(m => (
-                          <div key={m.label} className="text-center">
-                            <p className="text-[12px] font-bold text-foreground">{m.v}</p>
+                          <div key={m.label}>
+                            <p className="text-[12px] font-bold">{m.v}</p>
                             <p className="text-[9px] text-muted-foreground uppercase">{m.label}</p>
                           </div>
                         ))}
@@ -528,12 +590,13 @@ export default function CreativePage() {
             })}
           </div>
 
-          {/* ── Component Analysis ── */}
+          {/* Component analysis */}
           {(ptGroups.length > 0 || headlineGroups.length > 0 || mediaGroups.length > 0) && (
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <BarChart2 className="h-5 w-5 text-primary" />
-                <h2 className="text-base font-black">تحليل المكونات — أيهم بيجيب أفضل CPA؟</h2>
+                <h2 className="text-base font-black">تحليل المكونات</h2>
+                <span className="text-xs text-muted-foreground">أيهم بيجيب أفضل CPA؟</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <CompBar title="Primary Text" groups={ptGroups}       icon={FileText} />
