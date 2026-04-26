@@ -2,6 +2,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
+import { warmCreativeCache } from "./routes/meta";
+import { getAdAccountIds } from "./lib/meta-token";
 
 async function runMigrations() {
   await query(`
@@ -105,6 +107,34 @@ async function runMigrations() {
   logger.info("Database migrations complete");
 }
 
+// ── Creative cache warmup ──────────────────────────────────────────────────────
+function cairoDateOffset(daysBack: number): string {
+  return new Date(Date.now() + 2 * 3600000 - daysBack * 86400000).toISOString().slice(0, 10);
+}
+function cairoToday(): string {
+  return new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);
+}
+
+async function startCreativeCacheWarmer() {
+  // Warm the most common presets: 7d and 14d for each account
+  const presets = [
+    { since: cairoDateOffset(6), until: cairoToday() },   // 7d
+    { since: cairoDateOffset(13), until: cairoToday() },  // 14d
+  ];
+  try {
+    const accountIds = getAdAccountIds();
+    logger.info({ accounts: accountIds.length, presets: presets.length }, "Starting creative cache warmup");
+    // Warm accounts sequentially to avoid rate-limits
+    for (const accountId of accountIds) {
+      for (const preset of presets) {
+        await warmCreativeCache(accountId, preset.since, preset.until);
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Creative cache warmer encountered an error");
+  }
+}
+
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 function startScanCron() {
@@ -144,6 +174,8 @@ runMigrations()
       }
       logger.info({ port }, "Server listening");
       startScanCron();
+      // Pre-warm creative cache in background (don't block server startup)
+      startCreativeCacheWarmer();
     });
   })
   .catch((err) => {

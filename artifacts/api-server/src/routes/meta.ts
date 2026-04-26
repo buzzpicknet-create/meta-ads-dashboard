@@ -15,6 +15,24 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+// ── In-memory cache for slow creative-intelligence endpoint ──────────────────
+const CREATIVE_CACHE = new Map<string, { data: unknown; ts: number }>();
+const CREATIVE_TTL_MS = 8 * 60 * 1000; // 8 minutes
+
+export async function warmCreativeCache(accountId: string, since: string, until: string): Promise<void> {
+  const cacheKey = `${accountId}::${since}::${until}`;
+  const hit = CREATIVE_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.ts < CREATIVE_TTL_MS) return; // already warm
+  try {
+    const ads = await getAdsWithCreatives({ adAccountId: accountId, since, until });
+    const payload = { account_id: accountId, period: { since, until }, fetched_at: new Date().toISOString(), ads };
+    CREATIVE_CACHE.set(cacheKey, { data: payload, ts: Date.now() });
+    logger.info({ account_id: accountId, count: ads.length, since, until }, "Creative cache warmed");
+  } catch (err) {
+    logger.warn({ err, account_id: accountId }, "Creative cache warm failed — will retry on first user request");
+  }
+}
+
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 
 function todayInCairo(): string {
@@ -217,12 +235,25 @@ router.get("/meta/activities", async (req, res) => {
 // ── GET /api/meta/creative-intelligence ──────────────────────────────────────
 router.get("/meta/creative-intelligence", async (req, res) => {
   try {
-    const accountId = String(req.query["ad_account_id"] || "").trim();
-    if (!accountId) return res.status(400).json({ error: "ad_account_id is required" });
+    const rawAccountId = String(req.query["ad_account_id"] || "").trim();
+    if (!rawAccountId) return res.status(400).json({ error: "ad_account_id is required" });
+    // Normalize: strip act_ prefix so cache keys match regardless of how client sends it
+    const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
     const { since, until } = parseRange(req.query as Record<string, string>);
+    const cacheKey = `${accountId}::${since}::${until}`;
+
+    // Serve from cache if fresh
+    const hit = CREATIVE_CACHE.get(cacheKey);
+    if (hit && Date.now() - hit.ts < CREATIVE_TTL_MS) {
+      logger.info({ account_id: accountId, cached: true, since, until }, "Creative intelligence served from cache");
+      return res.json(hit.data);
+    }
+
     const ads = await getAdsWithCreatives({ adAccountId: accountId, since, until });
     logger.info({ account_id: accountId, count: ads.length, since, until }, "Fetched creative intelligence");
-    res.json({ account_id: accountId, period: { since, until }, fetched_at: new Date().toISOString(), ads });
+    const payload = { account_id: accountId, period: { since, until }, fetched_at: new Date().toISOString(), ads };
+    CREATIVE_CACHE.set(cacheKey, { data: payload, ts: Date.now() });
+    res.json(payload);
   } catch (err) {
     logger.error({ err }, "Creative intelligence fetch failed");
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

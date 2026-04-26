@@ -1180,7 +1180,7 @@ export async function getAdsWithCreatives(opts: {
     ? opts.adAccountId.slice(4)
     : opts.adAccountId;
 
-  // 1) Fetch all ads with creative fields
+  // 1) Fetch all ads with creative fields — use small page size to avoid Meta data-size errors
   const ads = await fbGet<{
     id: string;
     name: string;
@@ -1198,10 +1198,10 @@ export async function getAdsWithCreatives(opts: {
     };
   }>(`/act_${rawAccount}/ads`, {
     fields: "id,name,status,effective_status,campaign_id,campaign_name,adset_id,adset_name,creative{body,title,video_id,image_hash}",
-    limit: "500",
+    limit: "100",
   });
 
-  // 2) Fetch ad-level insights for the date range
+  // 2) Fetch ad-level insights for the date range — smaller pages too
   const time_range = JSON.stringify({ since: opts.since, until: opts.until });
   const insightRows = await fbGet<FbInsightRow>(`/act_${rawAccount}/insights`, {
     level: "ad",
@@ -1212,7 +1212,7 @@ export async function getAdsWithCreatives(opts: {
       "actions", "action_values",
     ].join(","),
     action_attribution_windows: ATTRIBUTION_WINDOW,
-    limit: "500",
+    limit: "200",
   });
 
   // Build insight map by ad_id
