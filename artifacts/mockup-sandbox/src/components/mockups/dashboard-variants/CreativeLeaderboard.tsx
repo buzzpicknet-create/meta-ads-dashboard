@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Zap, BarChart2, FileText, Type, Image } from "lucide-react";
-import { Trophy } from "lucide-react";
+import { ChevronDown, ChevronUp, Zap, BarChart2, FileText, Type, Film, Trophy } from "lucide-react";
 
 // ── Mock data ───────────────────────────────────────────────────────────────
 // Meta API fields: primary_text (body), headline (title), creative (video/image)
@@ -270,7 +269,7 @@ export function CreativeLeaderboard() {
                     {/* Media */}
                     <div className="bg-background/70 rounded-lg border border-border p-2.5">
                       <div className="flex items-center gap-1.5 mb-1">
-                        <Image className="h-3 w-3 text-amber-500" />
+                        <Film className="h-3 w-3 text-amber-500" />
                         <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">
                           Media — {MEDIA_LABELS[ad.media]?.type === "video" ? "Video" : "Image"}
                         </span>
@@ -295,7 +294,7 @@ export function CreativeLeaderboard() {
         <div className="grid grid-cols-3 gap-3">
           <ComponentBar label="Primary Text"  items={primaryTextAvg} labelMap={PRIMARY_TEXT_LABELS} icon={FileText} />
           <ComponentBar label="Headline"      items={headlineAvg}    labelMap={HEADLINE_LABELS}     icon={Type} />
-          <ComponentBar label="Media"         items={mediaAvg}       labelMap={MEDIA_LABELS}        icon={Image} />
+          <ComponentBar label="Media"         items={mediaAvg}       labelMap={MEDIA_LABELS}        icon={Film} />
         </div>
       </div>
 
