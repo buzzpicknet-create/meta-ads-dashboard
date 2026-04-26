@@ -128,6 +128,18 @@ async function runMigrations() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // DB-backed campaigns cache (survives server restarts — permanent rate-limit solution)
+  await query(`
+    CREATE TABLE IF NOT EXISTS meta_campaigns_cache (
+      id SERIAL PRIMARY KEY,
+      account_id VARCHAR(50) NOT NULL,
+      period_since VARCHAR(10) NOT NULL,
+      period_until VARCHAR(10) NOT NULL,
+      campaigns JSONB NOT NULL DEFAULT '[]',
+      fetched_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(account_id, period_since, period_until)
+    )
+  `);
   // One-time cleanup: soft-delete media requests created solely because of CPM
   // CPM was removed as a trigger metric; these records are no longer valid
   const cleaned = await query<{ id: number }>(

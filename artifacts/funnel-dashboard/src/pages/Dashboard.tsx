@@ -2161,17 +2161,27 @@ export default function Dashboard() {
           lastUpdated={insights.data?.fetched_at}
         />
 
-        {/* Errors */}
+        {/* Rate-limited but data served from cache — soft indicator, not an error */}
+        {campaigns.data?.rate_limited && campaigns.data?.from_cache && (
+          <div className="flex items-center gap-2 rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-xs text-yellow-800 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-200">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              البيانات من آخر تحديث ناجح ({campaigns.data.fetched_at ? new Date(campaigns.data.fetched_at).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }) : "—"}) — Meta وضعت قيوداً مؤقتة على هذا الحساب، سيتم التحديث تلقائياً.
+            </span>
+          </div>
+        )}
+
+        {/* Hard errors (rate-limit with no cache, or API failure) */}
         {(campaigns.error || insights.error) && (() => {
           const msg = (campaigns.error as Error)?.message || (insights.error as Error)?.message || "";
-          const isRateLimit = msg.includes("تجاوز الحساب") || msg.includes("80004") || msg.toLowerCase().includes("too many calls");
+          const isRateLimit = msg.includes("الحساب وصل") || msg.includes("80004") || msg.toLowerCase().includes("too many calls");
           return (
             <Alert variant={isRateLimit ? "default" : "destructive"} className={isRateLimit ? "border-yellow-400 bg-yellow-50 text-yellow-900 dark:bg-yellow-950 dark:text-yellow-100" : ""}>
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>{isRateLimit ? "الحساب وصل للحد المسموح به مؤقتاً" : "تعذّر تحميل البيانات من Meta"}</AlertTitle>
               <AlertDescription className="mt-1 text-xs">
                 {isRateLimit
-                  ? "Meta وضعت قيوداً مؤقتة على هذا الحساب بسبب كثرة الطلبات. انتظري دقيقتين ثم أعيدي تحديث الصفحة."
+                  ? "Meta وضعت قيوداً مؤقتة على هذا الحساب. انتظري دقيقتين ثم أعيدي تحديث الصفحة."
                   : msg}
               </AlertDescription>
             </Alert>

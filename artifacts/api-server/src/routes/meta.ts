@@ -12,6 +12,7 @@ import {
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
+import { query } from "../lib/db";
 
 const router: IRouter = Router();
 
@@ -125,34 +126,98 @@ router.get("/meta/accounts", async (_req, res) => {
   }
 });
 
+// ── DB helpers for persistent campaigns cache ─────────────────────────────────
+const CAMPAIGNS_FRESH_MS = 30 * 60 * 1000; // serve DB cache without hitting Meta if < 30 min old
+
+async function dbGetCampaignsCache(accountId: string, since: string, until: string) {
+  const rows = await query<{ campaigns: unknown; fetched_at: string }>(
+    `SELECT campaigns, fetched_at FROM meta_campaigns_cache
+     WHERE account_id=$1 AND period_since=$2 AND period_until=$3`,
+    [accountId, since, until]
+  );
+  return rows[0] ?? null;
+}
+
+async function dbSetCampaignsCache(accountId: string, since: string, until: string, campaigns: unknown) {
+  await query(
+    `INSERT INTO meta_campaigns_cache (account_id, period_since, period_until, campaigns, fetched_at)
+     VALUES ($1,$2,$3,$4,NOW())
+     ON CONFLICT (account_id, period_since, period_until)
+     DO UPDATE SET campaigns=$4, fetched_at=NOW()`,
+    [accountId, since, until, JSON.stringify(campaigns)]
+  );
+}
+
 router.get("/meta/campaigns", async (req, res) => {
-  const accountId = String(req.query["ad_account_id"] || "").trim();
+  const rawAccountId = String(req.query["ad_account_id"] || "").trim();
+  // normalise: strip act_ prefix for cache key consistency
+  const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
+
+  let since: string, until: string;
   try {
-    const { since, until } = parseRange(req.query as Record<string, string>);
-    const cacheKey = `${accountId}::${since}::${until}`;
-    const campaigns = await listCampaigns({ since, until, adAccountId: accountId || undefined });
-    const payload = {
-      account_id: accountId || undefined,
+    ({ since, until } = parseRange(req.query as Record<string, string>));
+  } catch (parseErr) {
+    return res.status(400).json({ error: String(parseErr) });
+  }
+
+  // ① Check DB cache — if fresh enough, serve immediately (no Meta call)
+  const cached = await dbGetCampaignsCache(accountId, since, until).catch(() => null);
+  const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
+
+  if (cached && cacheAge < CAMPAIGNS_FRESH_MS) {
+    logger.info({ accountId, age_s: Math.round(cacheAge / 1000) }, "Campaigns served from DB cache (fresh)");
+    return res.json({
+      account_id: rawAccountId || undefined,
+      period: { since, until },
+      fetched_at: cached.fetched_at,
+      campaigns: cached.campaigns,
+      from_cache: true,
+    });
+  }
+
+  // ② Call Meta API to get fresh data
+  try {
+    const campaigns = await listCampaigns({ since, until, adAccountId: rawAccountId || undefined });
+    // Persist to DB immediately
+    if (accountId) await dbSetCampaignsCache(accountId, since, until, campaigns).catch(() => null);
+    // Also update in-memory cache
+    CAMPAIGNS_CACHE.set(`${accountId}::${since}::${until}`, { data: campaigns, ts: Date.now() });
+    return res.json({
+      account_id: rawAccountId || undefined,
       period: { since, until },
       fetched_at: new Date().toISOString(),
       campaigns,
-    };
-    // Store successful result in case of future rate-limit
-    if (accountId) CAMPAIGNS_CACHE.set(cacheKey, { data: payload, ts: Date.now() });
-    res.json(payload);
+    });
   } catch (err) {
     if (isRateLimitError(err)) {
-      // Try to serve from cache (any period for this account as fallback)
-      const { since, until } = parseRange(req.query as Record<string, string>);
-      const cacheKey = `${accountId}::${since}::${until}`;
-      const cached = CAMPAIGNS_CACHE.get(cacheKey);
-      if (cached && Date.now() - cached.ts < CAMPAIGNS_TTL_MS) {
-        logger.warn({ accountId }, "Meta rate-limited — serving campaigns from cache");
-        return res.json({ ...(cached.data as object), rate_limited: true });
+      // ③ Rate limited — serve DB cache regardless of age (permanent fallback)
+      if (cached) {
+        logger.warn({ accountId, age_s: Math.round(cacheAge / 1000) }, "Meta rate-limited — serving stale DB cache");
+        return res.json({
+          account_id: rawAccountId || undefined,
+          period: { since, until },
+          fetched_at: cached.fetched_at,
+          campaigns: cached.campaigns,
+          from_cache: true,
+          rate_limited: true,
+        });
       }
-      logger.warn({ err, accountId }, "Meta rate-limited — no cache available");
+      // Also try in-memory as last resort
+      const mem = CAMPAIGNS_CACHE.get(`${accountId}::${since}::${until}`);
+      if (mem) {
+        logger.warn({ accountId }, "Meta rate-limited — serving in-memory cache");
+        return res.json({
+          account_id: rawAccountId || undefined,
+          period: { since, until },
+          fetched_at: new Date(mem.ts).toISOString(),
+          campaigns: mem.data,
+          from_cache: true,
+          rate_limited: true,
+        });
+      }
+      logger.warn({ err, accountId }, "Meta rate-limited — no cache available at all");
       return res.status(429).json({
-        error: "تجاوز الحساب حد الطلبات المسموح به مؤقتاً من Meta. انتظري دقيقتين ثم أعيدي تحديث الصفحة.",
+        error: "الحساب وصل للحد المسموح به مؤقتاً من Meta — لا توجد بيانات محفوظة بعد. انتظري دقيقتين ثم أعيدي تحديث الصفحة.",
         rate_limited: true,
       });
     }

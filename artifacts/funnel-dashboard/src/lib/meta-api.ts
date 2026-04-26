@@ -20,6 +20,8 @@ export interface CampaignsResponse {
   period: { since: string; until: string };
   fetched_at: string;
   campaigns: CampaignSummary[];
+  from_cache?: boolean;
+  rate_limited?: boolean;
 }
 
 export interface AccountCampaignsResponse {
