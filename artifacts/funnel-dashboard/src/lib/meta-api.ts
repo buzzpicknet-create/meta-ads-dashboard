@@ -252,6 +252,34 @@ export function fetchCampaignsForAccount(opts: {
   return fetchCampaigns(opts);
 }
 
+export interface BreakdownSegment {
+  label: string;
+  spend: number;
+  impressions: number;
+  link_clicks: number;
+  purchases: number;
+  cpa: number;
+  ctr: number;
+}
+
+export interface CampaignBreakdowns {
+  campaign_id: string;
+  period: { since: string; until: string };
+  fetched_at: string;
+  by_age: BreakdownSegment[];
+  by_gender: BreakdownSegment[];
+  by_placement: BreakdownSegment[];
+}
+
+export function fetchBreakdowns(opts: {
+  campaign_id: string;
+  since: string;
+  until: string;
+}): Promise<CampaignBreakdowns> {
+  const params = new URLSearchParams(opts);
+  return jsonFetch<CampaignBreakdowns>(`${API_BASE}/meta/breakdowns?${params}`);
+}
+
 // ──────────────────────────────────────────────────────────────
 // CPA Alerts — 72-hour scale / warning types + fetch
 // ──────────────────────────────────────────────────────────────

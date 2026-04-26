@@ -1291,3 +1291,115 @@ export async function getAdsWithCreatives(opts: {
     };
   });
 }
+
+// ── Ad-level breakdown by age/gender + placement ──────────────────────────────
+
+interface FbBreakdownRow extends FbInsightRow {
+  age?: string;
+  gender?: string;
+  publisher_platform?: string;
+  platform_position?: string;
+}
+
+export interface BreakdownSegment {
+  label: string;
+  spend: number;
+  impressions: number;
+  link_clicks: number;
+  purchases: number;
+  cpa: number;
+  ctr: number;
+}
+
+export interface CampaignBreakdowns {
+  campaign_id: string;
+  period: { since: string; until: string };
+  fetched_at: string;
+  by_age: BreakdownSegment[];
+  by_gender: BreakdownSegment[];
+  by_placement: BreakdownSegment[];
+}
+
+const BREAK_FIELDS = [
+  "spend",
+  "impressions",
+  "reach",
+  "inline_link_clicks",
+  "actions",
+].join(",");
+
+function toSegments(map: Map<string, AggregatedMetrics>): BreakdownSegment[] {
+  return Array.from(map.entries())
+    .map(([label, m]) => {
+      const d = derive(m);
+      return {
+        label,
+        spend: m.spend,
+        impressions: m.impressions,
+        link_clicks: m.link_clicks,
+        purchases: m.purchases,
+        cpa: d.cpa,
+        ctr: d.ctr,
+      };
+    })
+    .filter((s) => s.spend > 0)
+    .sort((a, b) => b.spend - a.spend);
+}
+
+export async function getAdBreakdowns(opts: {
+  campaignId: string;
+  since: string;
+  until: string;
+}): Promise<CampaignBreakdowns> {
+  const time_range = JSON.stringify({ since: opts.since, until: opts.until });
+
+  const [ageGenderRows, placementRows] = await Promise.all([
+    fbGet<FbBreakdownRow>(`/${opts.campaignId}/insights`, {
+      level: "ad",
+      time_range,
+      fields: BREAK_FIELDS,
+      breakdowns: "age,gender",
+      action_attribution_windows: ATTRIBUTION_WINDOW,
+      limit: "500",
+    }),
+    fbGet<FbBreakdownRow>(`/${opts.campaignId}/insights`, {
+      level: "ad",
+      time_range,
+      fields: BREAK_FIELDS,
+      breakdowns: "publisher_platform,platform_position",
+      action_attribution_windows: ATTRIBUTION_WINDOW,
+      limit: "500",
+    }),
+  ]);
+
+  const ageMap = new Map<string, AggregatedMetrics>();
+  const genderMap = new Map<string, AggregatedMetrics>();
+  for (const row of ageGenderRows) {
+    const ageKey = row.age || "unknown";
+    const cur1 = ageMap.get(ageKey) ?? emptyMetrics();
+    addRow(cur1, row);
+    ageMap.set(ageKey, cur1);
+
+    const genderKey = row.gender || "unknown";
+    const cur2 = genderMap.get(genderKey) ?? emptyMetrics();
+    addRow(cur2, row);
+    genderMap.set(genderKey, cur2);
+  }
+
+  const placementMap = new Map<string, AggregatedMetrics>();
+  for (const row of placementRows) {
+    const key = `${row.publisher_platform || "?"} / ${row.platform_position || "?"}`;
+    const cur = placementMap.get(key) ?? emptyMetrics();
+    addRow(cur, row);
+    placementMap.set(key, cur);
+  }
+
+  return {
+    campaign_id: opts.campaignId,
+    period: { since: opts.since, until: opts.until },
+    fetched_at: new Date().toISOString(),
+    by_age: toSegments(ageMap),
+    by_gender: toSegments(genderMap),
+    by_placement: toSegments(placementMap),
+  };
+}

@@ -9,6 +9,7 @@ import {
   getCpaAlerts,
   getAccountActivities,
   getAdsWithCreatives,
+  getAdBreakdowns,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -19,6 +20,10 @@ const router: IRouter = Router();
 // ── In-memory cache for slow creative-intelligence endpoint ──────────────────
 const CREATIVE_CACHE = new Map<string, { data: unknown; ts: number }>();
 const CREATIVE_TTL_MS = 8 * 60 * 1000; // 8 minutes
+
+// ── In-memory cache for breakdown data ───────────────────────────────────────
+const BREAKDOWN_CACHE = new Map<string, { data: unknown; ts: number }>();
+const BREAKDOWN_TTL_MS = 8 * 60 * 1000; // 8 minutes
 
 // ── Campaigns cache — fallback when Meta rate-limits this ad account ──────────
 const CAMPAIGNS_CACHE = new Map<string, { data: unknown; ts: number }>();
@@ -347,6 +352,31 @@ router.get("/meta/creative-intelligence", async (req, res) => {
     res.json(payload);
   } catch (err) {
     logger.error({ err }, "Creative intelligence fetch failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── GET /api/meta/breakdowns ──────────────────────────────────────────────────
+// Ad-level breakdown by age/gender and placement for a campaign
+router.get("/meta/breakdowns", async (req, res) => {
+  try {
+    const campaignId = String(req.query["campaign_id"] || "").trim();
+    if (!campaignId) return res.status(400).json({ error: "campaign_id is required" });
+    const { since, until } = parseRange(req.query as Record<string, string>);
+    const cacheKey = `${campaignId}::${since}::${until}`;
+
+    const hit = BREAKDOWN_CACHE.get(cacheKey);
+    if (hit && Date.now() - hit.ts < BREAKDOWN_TTL_MS) {
+      logger.info({ campaignId, cached: true }, "Breakdown served from cache");
+      return res.json(hit.data);
+    }
+
+    const data = await getAdBreakdowns({ campaignId, since, until });
+    BREAKDOWN_CACHE.set(cacheKey, { data, ts: Date.now() });
+    logger.info({ campaignId, since, until }, "Fetched ad breakdowns");
+    res.json(data);
+  } catch (err) {
+    logger.error({ err }, "Breakdowns fetch failed");
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });

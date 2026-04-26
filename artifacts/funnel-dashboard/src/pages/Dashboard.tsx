@@ -57,13 +57,14 @@ import {
   type MetricTrend,
   type FrequencyAlert,
 } from "@/lib/trend-analysis";
-import { useCampaigns, useInsights, useAccount, useAccounts } from "@/hooks/use-meta";
+import { useCampaigns, useInsights, useAccount, useAccounts, useBreakdowns } from "@/hooks/use-meta";
 import {
   type AdIssue,
   type DatePreset,
   type SegmentEntry,
   type CampaignInsights,
   type DerivedMetrics,
+  type BreakdownSegment,
   rangeFromPreset,
 } from "@/lib/meta-api";
 
@@ -553,9 +554,9 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
 }
 
 // ──────────────────────────────────────────────────────────────
-// Breakdown Table
+// Segment Breakdown Table (AdSet / Ad level — existing insights)
 // ──────────────────────────────────────────────────────────────
-function BreakdownTable({ segments, label }: { segments: SegmentEntry[]; label: string }) {
+function SegmentBreakdownTable({ segments, label }: { segments: SegmentEntry[]; label: string }) {
   if (segments.length === 0) {
     return (
       <div className="text-sm text-muted-foreground italic text-center py-8">
@@ -1850,10 +1851,192 @@ function DashboardSkeleton() {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Demographic Breakdowns — Age / Gender / Placement at ad level
+// ──────────────────────────────────────────────────────────────
+
+type BreakTab = "age" | "gender" | "placement";
+
+const GENDER_LABEL: Record<string, string> = {
+  male: "ذكر",
+  female: "أنثى",
+  unknown: "غير محدد",
+};
+
+const PLACEMENT_LABEL: Record<string, string> = {
+  feed: "Feed",
+  story: "Story",
+  reels: "Reels",
+  video_feeds: "Video Feeds",
+  search: "Search",
+  marketplace: "Marketplace",
+  instream_video: "Instream Video",
+  right_hand_column: "Right Column",
+  instant_article: "Instant Article",
+  an_classic: "Audience Network",
+  rewarded_video: "Rewarded Video",
+};
+
+function cpaTone(cpa: number): string {
+  if (cpa === 0) return "text-muted-foreground";
+  if (cpa <= 45) return "text-emerald-600 dark:text-emerald-400 font-bold";
+  if (cpa <= 55) return "text-amber-600 dark:text-amber-400 font-semibold";
+  return "text-rose-600 dark:text-rose-400 font-bold";
+}
+
+function BreakdownTable({ segments, emptyLabel }: { segments: BreakdownSegment[]; emptyLabel: string }) {
+  if (segments.length === 0) {
+    return <div className="text-sm text-muted-foreground text-center py-6">{emptyLabel}</div>;
+  }
+  const maxSpend = Math.max(...segments.map((s) => s.spend), 1);
+  return (
+    <div className="space-y-1.5">
+      {/* Header */}
+      <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
+        <span>الشريحة</span>
+        <span className="w-20 text-center">إنفاق</span>
+        <span className="w-12 text-center">CTR</span>
+        <span className="w-12 text-center">أوردر</span>
+        <span className="w-16 text-center">CPA</span>
+      </div>
+      {segments.map((s) => {
+        const barPct = (s.spend / maxSpend) * 100;
+        return (
+          <div key={s.label} className="rounded-lg bg-muted/20 px-3 py-2.5 relative overflow-hidden">
+            {/* spend bar */}
+            <div className="absolute inset-y-0 right-0 bg-primary/6 rounded-lg" style={{ width: `${barPct}%` }} />
+            <div className="relative sm:grid sm:grid-cols-[1fr_auto_auto_auto_auto] sm:gap-x-3 sm:items-center">
+              <span className="text-sm font-medium truncate">{s.label}</span>
+              <div className="flex items-center justify-between sm:contents gap-2 mt-1 sm:mt-0">
+                <span className="w-20 text-center text-xs font-mono text-muted-foreground">{fmt(s.spend, 0)} EGP</span>
+                <span className="w-12 text-center text-xs font-mono text-muted-foreground">{s.ctr.toFixed(2)}%</span>
+                <span className="w-12 text-center text-xs font-bold">{s.purchases > 0 ? s.purchases : "—"}</span>
+                <span className={`w-16 text-center text-xs ${cpaTone(s.cpa)}`}>
+                  {s.cpa > 0 ? `${fmt(s.cpa, 0)} EGP` : "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DemographicBreakdowns({
+  campaignId,
+  since,
+  until,
+}: {
+  campaignId: string;
+  since: string;
+  until: string;
+}) {
+  const [tab, setTab] = useState<BreakTab>("age");
+  const [enabled, setEnabled] = useState(false);
+
+  const { data, isLoading, isError, error } = useBreakdowns({
+    campaign_id: campaignId,
+    since,
+    until,
+    enabled,
+  });
+
+  const segments: BreakdownSegment[] = data
+    ? tab === "age"
+      ? data.by_age
+      : tab === "gender"
+      ? data.by_gender.map((s) => ({ ...s, label: GENDER_LABEL[s.label.toLowerCase()] ?? s.label }))
+      : data.by_placement.map((s) => {
+          const parts = s.label.split(" / ");
+          const platform = parts[0] || "";
+          const pos = PLACEMENT_LABEL[parts[1] || ""] ?? parts[1] ?? "";
+          return { ...s, label: `${platform} · ${pos}` };
+        })
+    : [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Activity className="h-4 w-4 text-primary" />
+            التفصيل الديموغرافي — Demographic Breakdown
+          </CardTitle>
+          {data && (
+            <span className="text-[10px] text-muted-foreground">
+              آخر تحديث: {new Date(data.fetched_at).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">تحليل الأداء على مستوى الإعلان — العمر / الجنس / مواضع الإعلان</p>
+      </CardHeader>
+      <CardContent>
+        {!enabled ? (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <p className="text-sm text-muted-foreground text-center">
+              اضغط لتحميل بيانات الـ Breakdown من Meta (استدعاءان إضافيان للـ API)
+            </p>
+            <Button size="sm" onClick={() => setEnabled(true)}>
+              <Eye className="h-3.5 w-3.5 ml-1.5" />
+              تحميل التفصيل
+            </Button>
+          </div>
+        ) : isLoading ? (
+          <div className="space-y-2 py-2">
+            {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
+          </div>
+        ) : isError ? (
+          <Alert variant="destructive" className="text-sm">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error instanceof Error ? error.message : "حدث خطأ في تحميل البيانات"}</AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            {/* Tab buttons */}
+            <div className="flex gap-1 mb-4">
+              {(["age", "gender", "placement"] as BreakTab[]).map((t) => {
+                const labels: Record<BreakTab, string> = { age: "العمر", gender: "الجنس", placement: "الموضع" };
+                const counts: Record<BreakTab, number> = {
+                  age: data?.by_age.length ?? 0,
+                  gender: data?.by_gender.length ?? 0,
+                  placement: data?.by_placement.length ?? 0,
+                };
+                return (
+                  <button
+                    key={t}
+                    onClick={() => setTab(t)}
+                    className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors flex items-center gap-1 ${
+                      tab === t ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {labels[t]}
+                    <span className="opacity-70 font-normal">({counts[t]})</span>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setEnabled(false)}
+                className="mr-auto text-[10px] px-2 py-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                title="إخفاء"
+              >
+                ✕
+              </button>
+            </div>
+            <BreakdownTable
+              segments={segments}
+              emptyLabel={`لا توجد بيانات كافية لـ ${tab === "age" ? "العمر" : tab === "gender" ? "الجنس" : "الموضع"}`}
+            />
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Insights Body — main content
 // ──────────────────────────────────────────────────────────────
 function InsightsBody({ insights }: { insights: CampaignInsights }) {
-  const [breakView, setBreakView] = useState<"adset" | "ad">("adset");
   const totals = insights.totals;
   const cpaTarget = Math.round(totals.cpa * 0.8);
 
@@ -2003,63 +2186,13 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
         </CollapsibleSection>
       )}
 
-      {/* BREAKDOWN ANALYSIS */}
-      <CollapsibleSection title="Breakdown — تفصيل كامل" defaultOpen={false}>
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Activity className="h-4 w-4 text-primary" />
-                Breakdown Analysis — تفصيل كامل
-              </CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Tabs value={breakView} onValueChange={(v) => setBreakView(v as typeof breakView)} dir="rtl">
-              <TabsList className="mb-4">
-                <TabsTrigger value="adset">Ad Set ({insights.by_adset.length})</TabsTrigger>
-                <TabsTrigger value="ad">Ads / Creative ({insights.by_ad.length})</TabsTrigger>
-              </TabsList>
-              <TabsContent value={breakView} className="m-0">
-                <BreakdownTable
-                  segments={breakView === "adset" ? insights.by_adset : insights.by_ad}
-                  label={breakView === "adset" ? "Ad Set" : "Creative"}
-                />
-                {(breakView === "adset" ? insights.by_adset : insights.by_ad).length > 0 && (
-                  <div className="mt-6 h-[180px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={(breakView === "adset" ? insights.by_adset : insights.by_ad).map((s) => ({
-                          name: s.label.length > 25 ? s.label.slice(0, 25) + "…" : s.label,
-                          cpa: s.cpa || 0,
-                          purchases: s.purchases,
-                          _verdict: verdictFor(s, breakView === "adset" ? insights.by_adset : insights.by_ad),
-                        }))}
-                        margin={{ top: 10, right: 20, bottom: 0, left: 0 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                        <RTooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} />
-                        <Bar dataKey="cpa" name="CPA (EGP)" radius={[6, 6, 0, 0]}>
-                          {(breakView === "adset" ? insights.by_adset : insights.by_ad).map((s, i) => {
-                            const v = verdictFor(s, breakView === "adset" ? insights.by_adset : insights.by_ad);
-                            return (
-                              <Cell
-                                key={i}
-                                fill={v === "winner" ? CHART_COLORS.good : v === "kill" ? CHART_COLORS.bad : v === "okay" ? CHART_COLORS.info : CHART_COLORS.warn}
-                              />
-                            );
-                          })}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+      {/* DEMOGRAPHIC BREAKDOWNS — Age / Gender / Placement */}
+      <CollapsibleSection title="التفصيل الديموغرافي — Demographic Breakdown" defaultOpen={false}>
+        <DemographicBreakdowns
+          campaignId={insights.campaign.id}
+          since={insights.period.since}
+          until={insights.period.until}
+        />
       </CollapsibleSection>
     </div>
   );

@@ -8,6 +8,7 @@ import {
   fetchTokenHealth,
   fetchAccountOverview,
   fetchCpaAlerts,
+  fetchBreakdowns,
 } from "@/lib/meta-api";
 
 const ONE_HOUR = 60 * 60 * 1000;
@@ -117,5 +118,24 @@ export function useInsights(opts: {
     enabled: Boolean(
       opts.campaign_id && opts.since && opts.until && opts.ad_account_id,
     ),
+  });
+}
+
+export function useBreakdowns(opts: {
+  campaign_id: string | null;
+  since: string;
+  until: string;
+  enabled: boolean;
+}) {
+  return useQuery({
+    queryKey: ["meta", "breakdowns", opts.campaign_id, opts.since, opts.until],
+    queryFn: () =>
+      fetchBreakdowns({
+        campaign_id: opts.campaign_id!,
+        since: opts.since,
+        until: opts.until,
+      }),
+    staleTime: 8 * 60 * 1000, // 8 min — matches server cache
+    enabled: Boolean(opts.enabled && opts.campaign_id && opts.since && opts.until),
   });
 }
