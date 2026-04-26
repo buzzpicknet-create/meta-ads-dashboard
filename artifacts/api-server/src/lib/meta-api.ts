@@ -1215,13 +1215,20 @@ export async function getAdsWithCreatives(opts: {
     limit: "200",
   });
 
-  // Build insight map by ad_id
+  // Build insight map by ad_id + name map (insights reliably return campaign_name / adset_name)
   const insightMap = new Map<string, AggregatedMetrics>();
+  const nameMap    = new Map<string, { campaign_name: string; adset_name: string }>();
   for (const row of insightRows) {
     if (!row.ad_id) continue;
     const cur = insightMap.get(row.ad_id) ?? emptyMetrics();
     addRow(cur, row);
     insightMap.set(row.ad_id, cur);
+    if (!nameMap.has(row.ad_id)) {
+      nameMap.set(row.ad_id, {
+        campaign_name: row.campaign_name ?? "",
+        adset_name:    row.adset_name    ?? "",
+      });
+    }
   }
 
   // 3) Merge ads + insights
@@ -1231,14 +1238,16 @@ export async function getAdsWithCreatives(opts: {
     const c = ad.creative ?? {};
     const mediaType: "video" | "image" | "unknown" =
       c.video_id ? "video" : c.image_hash ? "image" : "unknown";
+    const names = nameMap.get(ad.id);
 
     return {
       ad_id: ad.id,
       ad_name: ad.name,
       campaign_id: ad.campaign_id,
-      campaign_name: ad.campaign_name,
+      // Prefer insight-sourced names (more reliable); fallback to ad fields
+      campaign_name: names?.campaign_name || ad.campaign_name || ad.campaign_id,
       adset_id: ad.adset_id,
-      adset_name: ad.adset_name,
+      adset_name: names?.adset_name || ad.adset_name || ad.adset_id,
       status: ad.status,
       effective_status: ad.effective_status,
       primary_text: c.body ?? null,
