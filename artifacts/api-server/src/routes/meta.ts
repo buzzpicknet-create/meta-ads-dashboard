@@ -19,6 +19,15 @@ const router: IRouter = Router();
 const CREATIVE_CACHE = new Map<string, { data: unknown; ts: number }>();
 const CREATIVE_TTL_MS = 8 * 60 * 1000; // 8 minutes
 
+// ── Campaigns cache — fallback when Meta rate-limits this ad account ──────────
+const CAMPAIGNS_CACHE = new Map<string, { data: unknown; ts: number }>();
+const CAMPAIGNS_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("80004") || msg.toLowerCase().includes("too many calls");
+}
+
 export async function warmCreativeCache(accountId: string, since: string, until: string): Promise<void> {
   const cacheKey = `${accountId}::${since}::${until}`;
   const hit = CREATIVE_CACHE.get(cacheKey);
@@ -117,21 +126,38 @@ router.get("/meta/accounts", async (_req, res) => {
 });
 
 router.get("/meta/campaigns", async (req, res) => {
+  const accountId = String(req.query["ad_account_id"] || "").trim();
   try {
-    const accountId = String(req.query["ad_account_id"] || "").trim();
     const { since, until } = parseRange(req.query as Record<string, string>);
+    const cacheKey = `${accountId}::${since}::${until}`;
     const campaigns = await listCampaigns({ since, until, adAccountId: accountId || undefined });
-    res.json({
+    const payload = {
       account_id: accountId || undefined,
       period: { since, until },
       fetched_at: new Date().toISOString(),
       campaigns,
-    });
+    };
+    // Store successful result in case of future rate-limit
+    if (accountId) CAMPAIGNS_CACHE.set(cacheKey, { data: payload, ts: Date.now() });
+    res.json(payload);
   } catch (err) {
+    if (isRateLimitError(err)) {
+      // Try to serve from cache (any period for this account as fallback)
+      const { since, until } = parseRange(req.query as Record<string, string>);
+      const cacheKey = `${accountId}::${since}::${until}`;
+      const cached = CAMPAIGNS_CACHE.get(cacheKey);
+      if (cached && Date.now() - cached.ts < CAMPAIGNS_TTL_MS) {
+        logger.warn({ accountId }, "Meta rate-limited — serving campaigns from cache");
+        return res.json({ ...(cached.data as object), rate_limited: true });
+      }
+      logger.warn({ err, accountId }, "Meta rate-limited — no cache available");
+      return res.status(429).json({
+        error: "تجاوز الحساب حد الطلبات المسموح به مؤقتاً من Meta. انتظري دقيقتين ثم أعيدي تحديث الصفحة.",
+        rate_limited: true,
+      });
+    }
     logger.error({ err }, "Campaigns fetch failed");
-    res
-      .status(500)
-      .json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 

@@ -2162,15 +2162,21 @@ export default function Dashboard() {
         />
 
         {/* Errors */}
-        {(campaigns.error || insights.error) && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>تعذّر تحميل البيانات من Meta</AlertTitle>
-            <AlertDescription className="mt-1 text-xs">
-              {(campaigns.error as Error)?.message || (insights.error as Error)?.message}
-            </AlertDescription>
-          </Alert>
-        )}
+        {(campaigns.error || insights.error) && (() => {
+          const msg = (campaigns.error as Error)?.message || (insights.error as Error)?.message || "";
+          const isRateLimit = msg.includes("تجاوز الحساب") || msg.includes("80004") || msg.toLowerCase().includes("too many calls");
+          return (
+            <Alert variant={isRateLimit ? "default" : "destructive"} className={isRateLimit ? "border-yellow-400 bg-yellow-50 text-yellow-900 dark:bg-yellow-950 dark:text-yellow-100" : ""}>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>{isRateLimit ? "الحساب وصل للحد المسموح به مؤقتاً" : "تعذّر تحميل البيانات من Meta"}</AlertTitle>
+              <AlertDescription className="mt-1 text-xs">
+                {isRateLimit
+                  ? "Meta وضعت قيوداً مؤقتة على هذا الحساب بسبب كثرة الطلبات. انتظري دقيقتين ثم أعيدي تحديث الصفحة."
+                  : msg}
+              </AlertDescription>
+            </Alert>
+          );
+        })()}
 
         {/* Content */}
         {insights.isLoading || (campaigns.isLoading && !insights.data) ? (
