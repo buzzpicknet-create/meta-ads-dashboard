@@ -8,13 +8,15 @@ import Overview from "@/pages/Overview";
 import HowTo from "@/pages/HowTo";
 import ActivityPage from "@/pages/Activity";
 import MediaRequestsPage from "@/pages/MediaRequests";
-import { Activity, BookOpen, LayoutDashboard, ClipboardList, Clapperboard } from "lucide-react";
+import CreativePage from "@/pages/Creative";
+import { Activity, BookOpen, LayoutDashboard, ClipboardList, Clapperboard, Sparkles } from "lucide-react";
 
 const queryClient = new QueryClient();
 
 const NAV_ITEMS = [
   { href: "/overview",  label: "نظرة عامة",    Icon: LayoutDashboard, useRoute: "/overview" },
   { href: "/",          label: "تحليل الحملة", Icon: Activity,         useRoute: "/" },
+  { href: "/creative",  label: "مركز الكريتف", Icon: Sparkles,        useRoute: "/creative" },
   { href: "/activity",  label: "نشاط الفريق",  Icon: ClipboardList,   useRoute: "/activity" },
   { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,    useRoute: "/media" },
   { href: "/how-to",    label: "دليل الحلول",  Icon: BookOpen,        useRoute: "/how-to" },
@@ -102,6 +104,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/overview" component={Overview} />
+        <Route path="/creative" component={CreativePage} />
         <Route path="/activity" component={ActivityPage} />
         <Route path="/media" component={MediaRequestsPage} />
         <Route path="/how-to" component={HowTo} />

@@ -8,6 +8,7 @@ import {
   getAccountOverview,
   getCpaAlerts,
   getAccountActivities,
+  getAdsWithCreatives,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -209,6 +210,21 @@ router.get("/meta/activities", async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, "Activities fetch failed");
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── GET /api/meta/creative-intelligence ──────────────────────────────────────
+router.get("/meta/creative-intelligence", async (req, res) => {
+  try {
+    const accountId = String(req.query["ad_account_id"] || "").trim();
+    if (!accountId) return res.status(400).json({ error: "ad_account_id is required" });
+    const { since, until } = parseRange(req.query as Record<string, string>);
+    const ads = await getAdsWithCreatives({ adAccountId: accountId, since, until });
+    logger.info({ account_id: accountId, count: ads.length, since, until }, "Fetched creative intelligence");
+    res.json({ account_id: accountId, period: { since, until }, fetched_at: new Date().toISOString(), ads });
+  } catch (err) {
+    logger.error({ err }, "Creative intelligence fetch failed");
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });

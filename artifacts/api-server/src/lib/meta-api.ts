@@ -1144,3 +1144,115 @@ export async function listAdAccounts(): Promise<AdAccountSummary[]> {
     (a, i, arr) => Boolean(a.id) && arr.findIndex((x) => x.id === a.id) === i,
   );
 }
+
+// ── Creative Intelligence ─────────────────────────────────────────────────────
+export interface AdCreativeRow {
+  ad_id: string;
+  ad_name: string;
+  campaign_id: string;
+  campaign_name: string;
+  adset_id: string;
+  adset_name: string;
+  status: string;
+  effective_status: string;
+  // Meta creative fields
+  primary_text: string | null;   // ad.creative.body
+  headline: string | null;       // ad.creative.title
+  media_type: "video" | "image" | "unknown";
+  media_id: string | null;       // video_id or image_hash
+  // Derived performance
+  spend: number;
+  purchases: number;
+  cpa: number;
+  ctr: number;
+  cr: number;
+  cpc: number;
+  impressions: number;
+  link_clicks: number;
+}
+
+export async function getAdsWithCreatives(opts: {
+  adAccountId: string;
+  since: string;
+  until: string;
+}): Promise<AdCreativeRow[]> {
+  const rawAccount = opts.adAccountId.startsWith("act_")
+    ? opts.adAccountId.slice(4)
+    : opts.adAccountId;
+
+  // 1) Fetch all ads with creative fields
+  const ads = await fbGet<{
+    id: string;
+    name: string;
+    status: string;
+    effective_status: string;
+    campaign_id: string;
+    campaign_name: string;
+    adset_id: string;
+    adset_name: string;
+    creative?: {
+      body?: string;
+      title?: string;
+      video_id?: string;
+      image_hash?: string;
+    };
+  }>(`/act_${rawAccount}/ads`, {
+    fields: "id,name,status,effective_status,campaign_id,campaign_name,adset_id,adset_name,creative{body,title,video_id,image_hash}",
+    limit: "500",
+  });
+
+  // 2) Fetch ad-level insights for the date range
+  const time_range = JSON.stringify({ since: opts.since, until: opts.until });
+  const insightRows = await fbGet<FbInsightRow>(`/act_${rawAccount}/insights`, {
+    level: "ad",
+    time_range,
+    fields: [
+      "ad_id", "ad_name", "campaign_id", "campaign_name", "adset_id", "adset_name",
+      "spend", "impressions", "inline_link_clicks", "ctr", "cpc",
+      "actions", "action_values",
+    ].join(","),
+    action_attribution_windows: ATTRIBUTION_WINDOW,
+    limit: "500",
+  });
+
+  // Build insight map by ad_id
+  const insightMap = new Map<string, AggregatedMetrics>();
+  for (const row of insightRows) {
+    if (!row.ad_id) continue;
+    const cur = insightMap.get(row.ad_id) ?? emptyMetrics();
+    addRow(cur, row);
+    insightMap.set(row.ad_id, cur);
+  }
+
+  // 3) Merge ads + insights
+  return ads.map((ad) => {
+    const m = insightMap.get(ad.id) ?? emptyMetrics();
+    const d = derive(m);
+    const c = ad.creative ?? {};
+    const mediaType: "video" | "image" | "unknown" =
+      c.video_id ? "video" : c.image_hash ? "image" : "unknown";
+
+    return {
+      ad_id: ad.id,
+      ad_name: ad.name,
+      campaign_id: ad.campaign_id,
+      campaign_name: ad.campaign_name,
+      adset_id: ad.adset_id,
+      adset_name: ad.adset_name,
+      status: ad.status,
+      effective_status: ad.effective_status,
+      primary_text: c.body ?? null,
+      headline: c.title ?? null,
+      media_type: mediaType,
+      media_id: c.video_id ?? c.image_hash ?? null,
+      spend: m.spend,
+      purchases: m.purchases,
+      cpa: d.cpa,
+      ctr: d.ctr,
+      cr: d.crClick,
+      cpc: d.cpc,
+      impressions: m.impressions,
+      link_clicks: m.link_clicks,
+    };
+  });
+}
