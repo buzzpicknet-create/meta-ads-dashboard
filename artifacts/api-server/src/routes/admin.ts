@@ -34,7 +34,7 @@ router.post("/admin/users", requireAdmin, async (req, res) => {
   if (!username || !password || !role) {
     return res.status(400).json({ error: "اسم المستخدم وكلمة المرور والدور مطلوبة" });
   }
-  if (!["admin", "media_manager"].includes(role)) {
+  if (!["admin", "media_buyer", "media_manager"].includes(role)) {
     return res.status(400).json({ error: "الدور غير صحيح" });
   }
   if (password.length < 6) {

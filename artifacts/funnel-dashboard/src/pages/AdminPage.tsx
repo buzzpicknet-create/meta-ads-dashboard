@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { UserPlus, Trash2, KeyRound, Shield, Clapperboard, Loader2, X } from "lucide-react";
+import { UserPlus, Trash2, KeyRound, Shield, Clapperboard, Activity, Loader2, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -9,29 +9,34 @@ const API = `${BASE}/api`;
 interface User {
   id: number;
   username: string;
-  role: "admin" | "media_manager";
+  role: "admin" | "media_buyer" | "media_manager";
   created_at: string;
 }
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "أدمن",
+  media_buyer: "ميدياباير",
   media_manager: "مسئول ميديا",
 };
 
 const ROLE_ICONS: Record<string, typeof Shield> = {
   admin: Shield,
+  media_buyer: Activity,
   media_manager: Clapperboard,
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  admin: "bg-violet-500/10 text-violet-600",
+  media_buyer: "bg-blue-500/10 text-blue-600",
+  media_manager: "bg-emerald-500/10 text-emerald-600",
 };
 
 function RoleBadge({ role }: { role: string }) {
   const Icon = ROLE_ICONS[role] ?? Shield;
-  const isAdmin = role === "admin";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-        isAdmin
-          ? "bg-violet-500/10 text-violet-600"
-          : "bg-emerald-500/10 text-emerald-600"
+        ROLE_COLORS[role] ?? "bg-muted text-muted-foreground"
       }`}
     >
       <Icon className="h-3 w-3" />
@@ -44,7 +49,7 @@ function AddUserModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"admin" | "media_manager">("media_manager");
+  const [role, setRole] = useState<"admin" | "media_buyer" | "media_manager">("media_manager");
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
@@ -108,10 +113,11 @@ function AddUserModal({ onClose }: { onClose: () => void }) {
             <label className="text-sm font-medium">الصلاحية</label>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as "admin" | "media_manager")}
+              onChange={(e) => setRole(e.target.value as "admin" | "media_buyer" | "media_manager")}
               className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
             >
-              <option value="admin">أدمن — يرى كل شيء</option>
+              <option value="admin">أدمن — يرى كل شيء + إدارة المستخدمين</option>
+              <option value="media_buyer">ميدياباير — يرى كل شيء ماعدا إدارة المستخدمين</option>
               <option value="media_manager">مسئول ميديا — طلبات الميديا فقط</option>
             </select>
           </div>

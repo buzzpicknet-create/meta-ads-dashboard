@@ -4,7 +4,7 @@ declare module "express-session" {
   interface SessionData {
     userId: number;
     username: string;
-    role: "admin" | "media_manager";
+    role: "admin" | "media_buyer" | "media_manager";
   }
 }
 

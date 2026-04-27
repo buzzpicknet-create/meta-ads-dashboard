@@ -16,11 +16,11 @@ import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Setti
 const queryClient = new QueryClient();
 
 const ALL_NAV_ITEMS = [
-  { href: "/overview",  label: "نظرة عامة",    Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin"] },
-  { href: "/",          label: "تحليل الحملة", Icon: Activity,         useRoute: "/",          roles: ["admin"] },
-  { href: "/creative",  label: "مركز الكريتف", Icon: Sparkles,        useRoute: "/creative",  roles: ["admin"] },
-  { href: "/activity",  label: "نشاط الفريق",  Icon: ClipboardList,   useRoute: "/activity",  roles: ["admin"] },
-  { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,   useRoute: "/media",     roles: ["admin", "media_manager"] },
+  { href: "/overview",  label: "نظرة عامة",    Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin", "media_buyer"] },
+  { href: "/",          label: "تحليل الحملة", Icon: Activity,         useRoute: "/",          roles: ["admin", "media_buyer"] },
+  { href: "/creative",  label: "مركز الكريتف", Icon: Sparkles,        useRoute: "/creative",  roles: ["admin", "media_buyer"] },
+  { href: "/activity",  label: "نشاط الفريق",  Icon: ClipboardList,   useRoute: "/activity",  roles: ["admin", "media_buyer"] },
+  { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,   useRoute: "/media",     roles: ["admin", "media_buyer", "media_manager"] },
   { href: "/admin",     label: "المستخدمون",   Icon: Settings,        useRoute: "/admin",      roles: ["admin"] },
 ];
 
@@ -148,14 +148,13 @@ function AppRoutes() {
     return <LoginPage />;
   }
 
-  // media_manager can only access /media
-  const isMediaManager = user.role === "media_manager";
+  const role = user.role;
 
   return (
     <>
       <NavBar />
       <Switch>
-        {isMediaManager ? (
+        {role === "media_manager" ? (
           <>
             <Route path="/media" component={MediaRequestsPage} />
             <Route>
@@ -172,7 +171,7 @@ function AppRoutes() {
             <Route path="/creative" component={CreativePage} />
             <Route path="/activity" component={ActivityPage} />
             <Route path="/media" component={MediaRequestsPage} />
-            <Route path="/admin" component={AdminPage} />
+            {role === "admin" && <Route path="/admin" component={AdminPage} />}
             <Route component={NotFound} />
           </>
         )}

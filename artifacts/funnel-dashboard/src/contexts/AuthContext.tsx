@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
 
-export type UserRole = "admin" | "media_manager";
+export type UserRole = "admin" | "media_buyer" | "media_manager";
 
 export interface AuthUser {
   id: number;
