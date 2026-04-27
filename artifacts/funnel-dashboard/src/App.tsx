@@ -5,11 +5,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import Overview from "@/pages/Overview";
-import HowTo from "@/pages/HowTo";
 import ActivityPage from "@/pages/Activity";
 import MediaRequestsPage from "@/pages/MediaRequests";
 import CreativePage from "@/pages/Creative";
-import { Activity, BookOpen, LayoutDashboard, ClipboardList, Clapperboard, Sparkles } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -19,7 +18,6 @@ const NAV_ITEMS = [
   { href: "/creative",  label: "مركز الكريتف", Icon: Sparkles,        useRoute: "/creative" },
   { href: "/activity",  label: "نشاط الفريق",  Icon: ClipboardList,   useRoute: "/activity" },
   { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,    useRoute: "/media" },
-  { href: "/how-to",    label: "دليل الحلول",  Icon: BookOpen,        useRoute: "/how-to" },
 ];
 
 function NavBar() {
@@ -107,7 +105,6 @@ function Router() {
         <Route path="/creative" component={CreativePage} />
         <Route path="/activity" component={ActivityPage} />
         <Route path="/media" component={MediaRequestsPage} />
-        <Route path="/how-to" component={HowTo} />
         <Route component={NotFound} />
       </Switch>
     </>
