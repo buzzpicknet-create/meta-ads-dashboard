@@ -165,7 +165,16 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
   if (totals.crLpv < CR_MIN && (totals.lpv > 0 || ctr2lp >= LPR_MIN)) {
     return { verdict: "landing", decision: "Improve Landing Page", problem: `صفحة الهبوط تفشل في الإقناع — CR ${f2(totals.crLpv)}%`, color: "red", emoji: "🔴", funnel, metrics, actionPlan: ["صمّم بنموذج AIDA مع Zigzag layout.", "احذف Header/Footer الافتراضيين.", "اربط أزرار الشراء بـ Anchor Link.", "أضف Social Proof بالقرب من CTA.", "بسّط الفورم إلى الحد الأدنى."] };
   }
-  return { verdict: "nodata", decision: "يحتاج بيانات أكثر", problem: "بيانات غير كافية لتشخيص دقيق", color: "gray", emoji: "⚪", funnel, metrics, actionPlan: ["انتظر 3+ أيام من الإنفاق.", "تأكد من تتبع الـ Pixel."] };
+  // CPA في النطاق القابل للتحسين (45–80) وكل المؤشرات الأخرى مقبولة
+  if (totals.purchases > 0 && totals.cpa > CPA_SCALE_MAX && totals.cpa <= CPA_IMPROVE_MAX) {
+    return { verdict: "refresh", decision: "حسّن الأداء 🟡", problem: `CPA قابل للتحسين — ${fmt(totals.cpa, 0)} EGP (الهدف: أقل من ${CPA_SCALE_MAX} EGP)`, color: "yellow", emoji: "🟡", funnel, metrics, actionPlan: [`خفّض CPA من ${fmt(totals.cpa, 0)} إلى أقل من ${CPA_SCALE_MAX} EGP.`, "اختبر كريتف جديد بـ Hook مختلف.", "ضيّق الجمهور لأكثر الشرائح تحويلاً.", "راجع صفحة الهبوط — قوّي الـ CTA.", "اختبر Lookalike من قاعدة المشترين."] };
+  }
+  // إنفاق بدون أوردرات والمؤشرات الأمامية جيدة → مشكلة في التتبع أو الصفحة
+  if (totals.purchases === 0 && totals.spend > 0 && totals.ctr >= CTR_MIN && totals.hookRate >= HOOK_MIN) {
+    return { verdict: "tech", decision: "راجع التتبع 🔴", problem: `كريتف يجذب النقرات لكن لا أوردرات — ${fmt(totals.spend, 0)} EGP إنفاق`, color: "red", emoji: "🔴", funnel, metrics, actionPlan: ["تحقق من Meta Pixel Helper — هل الـ Purchase Event يُطلق صح؟", "افتح Events Manager وتأكد من استقبال أحداث الشراء.", "اختبر شراء حقيقي وتتبع مساره.", "افحص سرعة تحميل صفحة الهبوط (PageSpeed Insights).", "إذا كان الـ Pixel سليم — صفحة الهبوط هي المشكلة، عزّز الـ CTA."] };
+  }
+  // أداء مقبول عام — لا مشكلة محددة
+  return { verdict: "nodata", decision: "أداء مقبول 🟡", problem: "لا توجد مشكلة واضحة — الحملة في منطقة الرصد", color: "gray", emoji: "🟡", funnel, metrics, actionPlan: ["استمر بالرصد اليومي.", "تأكد أن تتبع الـ Pixel يعمل بشكل صحيح.", "إذا استمر الأداء المتوسط 3 أيام — جرّب كريتف جديد.", "راجع الاستهداف إذا ارتفع الـ CPA تدريجياً."] };
 }
 
 // ── Master runner ──────────────────────────────────────────────
