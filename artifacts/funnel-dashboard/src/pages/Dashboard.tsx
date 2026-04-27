@@ -216,54 +216,49 @@ function howToHref(problem: string, metrics?: HowToMetrics): string {
   return `${base}/how-to?${p.toString()}`;
 }
 
-function HowToBtn({ problem, metrics }: { problem: string; metrics?: HowToMetrics }) {
+function DiagnoseBtn({ onClick }: { onClick: () => void }) {
   return (
-    <a
-      href={howToHref(problem, metrics)}
-      className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-background/60 hover:bg-background border border-border/60 text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-      onClick={(e) => e.stopPropagation()}
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg bg-background/60 hover:bg-primary/10 border border-primary/30 text-primary hover:text-primary transition-colors whitespace-nowrap"
     >
-      كيف أحلها؟ ↗
-    </a>
+      <Stethoscope className="h-3 w-3" />
+      تشخيص
+    </button>
   );
 }
 
-function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEntry[] }) {
-  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string; metrics?: HowToMetrics }[] = [];
+function AlertSystem({ totals, byAd, onDiagnose }: { totals: DerivedMetrics; byAd: SegmentEntry[]; onDiagnose: (tab: string) => void }) {
+  const alerts: { type: "danger" | "warn" | "info"; msg: string; tab?: string }[] = [];
 
-  // Drain ads — pass per-ad metrics
+  // Drain ads
   const drainAds = byAd.filter((a) => a.spend >= 100 && (a.purchases === 0 || a.cpa > CPA_STOP));
   drainAds.forEach((a) => {
-    alerts.push({
-      type: "danger",
-      msg: `"${a.label.slice(0, 40)}" يستهلك ${fmt(a.spend, 0)} EGP بدون نتائج كافية — أوقفه فوراً`,
-      problem: "no-conversions",
-      metrics: { name: a.label, spend: a.spend, purchases: a.purchases, cpa: a.purchases > 0 ? a.cpa : undefined },
-    });
+    alerts.push({ type: "danger", msg: `"${a.label.slice(0, 40)}" يستهلك ${fmt(a.spend, 0)} EGP بدون نتائج كافية — أوقفه فوراً`, tab: "ads" });
   });
 
   if (totals.ctr < 1)
-    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الكريتف مش بيوقف أحد`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend } });
+    alerts.push({ type: "danger", msg: `CTR منخفض جداً (${fmtPct(totals.ctr)}) — الكريتف مش بيوقف أحد`, tab: "creative" });
   else if (totals.ctr < 1.5)
-    alerts.push({ type: "warn", msg: `CTR (${fmtPct(totals.ctr)}) أقل من المعدل الصحي — حسّن الـ Creative`, problem: "ctr-low", metrics: { ctr: totals.ctr, cpc: totals.cpc, cpa: totals.cpa, spend: totals.spend } });
+    alerts.push({ type: "warn", msg: `CTR (${fmtPct(totals.ctr)}) أقل من المعدل الصحي — حسّن الـ Creative`, tab: "creative" });
 
   if (totals.lpv > 0 && totals.lpvRate < 60)
-    alerts.push({ type: "danger", msg: `${fmt(totals.lpvRate, 0)}% فقط من الكليكات وصلت الصفحة — الصفحة بطيئة أو متكسرة`, problem: "slow-landing", metrics: { lpvRate: totals.lpvRate, spend: totals.spend } });
+    alerts.push({ type: "danger", msg: `${fmt(totals.lpvRate, 0)}% فقط من الكليكات وصلت الصفحة — الصفحة بطيئة أو متكسرة`, tab: "campaign" });
   else if (totals.lpv > 0 && totals.lpvRate < 75)
-    alerts.push({ type: "warn", msg: `${fmt(totals.lpvRate, 0)}% من الكليكات وصلت الصفحة — سرعة التحميل تحتاج مراجعة`, problem: "slow-landing", metrics: { lpvRate: totals.lpvRate, spend: totals.spend } });
+    alerts.push({ type: "warn", msg: `${fmt(totals.lpvRate, 0)}% من الكليكات وصلت الصفحة — سرعة التحميل تحتاج مراجعة`, tab: "campaign" });
 
   if (totals.lpv > 0 && totals.crLpv < 2)
-    alerts.push({ type: "danger", msg: `CR (${fmtPct(totals.crLpv)}) منخفض جداً — مشكلة في الفورم أو التسعير`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+    alerts.push({ type: "danger", msg: `CR (${fmtPct(totals.crLpv)}) منخفض جداً — مشكلة في الفورم أو التسعير`, tab: "campaign" });
   else if (totals.lpv > 0 && totals.crLpv < 5)
-    alerts.push({ type: "warn", msg: `CR (${fmtPct(totals.crLpv)}) أقل من 5% — راجعي صفحة الـ Checkout`, problem: "low-cr", metrics: { cr: totals.crLpv, cpa: totals.cpa, spend: totals.spend, purchases: totals.purchases } });
+    alerts.push({ type: "warn", msg: `CR (${fmtPct(totals.crLpv)}) أقل من 5% — راجعي صفحة الـ Checkout`, tab: "campaign" });
 
   if (totals.hookRate > 0 && totals.hookRate < 20)
-    alerts.push({ type: "warn", msg: `Hook Rate (${fmt(totals.hookRate, 0)}%) ضعيف — أول 3 ثواني في الفيديو مش بتمسك الناس`, problem: "low-hook", metrics: { hookRate: totals.hookRate, spend: totals.spend } });
+    alerts.push({ type: "warn", msg: `Hook Rate (${fmt(totals.hookRate, 0)}%) ضعيف — أول 3 ثواني في الفيديو مش بتمسك الناس`, tab: "creative" });
 
   // Winner scaling alert
   const winners = byAd.filter((a) => a.purchases > 0 && a.cpa <= CPA_IMPROVE);
   if (winners.length > 0) {
-    alerts.push({ type: "info", msg: `🏆 ${winners.length} إعلان رابح — ضاعف ميزانيتهم قبل ما الـ Audience يتشبع` });
+    alerts.push({ type: "info", msg: `🏆 ${winners.length} إعلان رابح — ضاعف ميزانيتهم قبل ما الـ Audience يتشبع`, tab: "ads" });
   }
 
   if (alerts.length === 0) return null;
@@ -289,7 +284,7 @@ function AlertSystem({ totals, byAd }: { totals: DerivedMetrics; byAd: SegmentEn
             <Bell className="h-4 w-4 shrink-0 mt-0.5" />
           )}
           <span className="flex-1">{a.msg}</span>
-          {a.problem && <HowToBtn problem={a.problem} metrics={a.metrics} />}
+          {a.tab && <DiagnoseBtn onClick={() => onDiagnose(a.tab!)} />}
         </div>
       ))}
     </div>
@@ -424,7 +419,7 @@ function PriorityEngine({ totals, byAd, byAdset }: { totals: DerivedMetrics; byA
 // ──────────────────────────────────────────────────────────────
 // Performance Analysis — Best & Worst Ads
 // ──────────────────────────────────────────────────────────────
-function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset: SegmentEntry[] }) {
+function PerformanceAnalysis({ byAd, byAdset, onDiagnose }: { byAd: SegmentEntry[]; byAdset: SegmentEntry[]; onDiagnose: (tab: string) => void }) {
   const [view, setView] = useState<"ad" | "adset">("ad");
   const segs = view === "ad" ? byAd : byAdset;
 
@@ -499,7 +494,10 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
                     </div>
                     <div className="text-xs text-emerald-700 dark:text-emerald-400 mt-1 font-medium">التوصية: {getWinRec(s)}</div>
                   </div>
-                  <VerdictBadge type="winner" />
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <VerdictBadge type="winner" />
+                    <DiagnoseBtn onClick={() => onDiagnose(view === "ad" ? "ads" : "adsets")} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -521,29 +519,17 @@ function PerformanceAnalysis({ byAd, byAdset }: { byAd: SegmentEntry[]; byAdset:
                 return (
                 <div key={s.key} className={rowCls}>
                   <div className="flex items-start gap-3">
-                    {isKill
-                      ? <XCircle className={iconCls} />
-                      : <TrendingDown className={iconCls} />}
+                    {isKill ? <XCircle className={iconCls} /> : <TrendingDown className={iconCls} />}
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate">{s.label}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">
                         <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">Spend <Num>{fmt(s.spend, 0)} EGP</Num> · <Num>{fmt(s.purchases)}</Num> طلب · CTR <Num>{fmtPct(s.ctr)}</Num></span>
                       </div>
+                      <div className="text-xs text-muted-foreground mt-0.5 font-medium">{getProblem(s)}</div>
                     </div>
-                    <VerdictBadge type={lv} />
-                  </div>
-                  <div className="mt-2 mr-7 grid grid-cols-3 gap-2 text-xs">
-                    <div className="rounded-lg bg-rose-500/10 p-2">
-                      <div className="text-rose-800 dark:text-rose-300 font-bold">المشكلة</div>
-                      <div className="mt-0.5 text-muted-foreground">{getProblem(s)}</div>
-                    </div>
-                    <div className="rounded-lg bg-rose-500/10 p-2">
-                      <div className="text-rose-800 dark:text-rose-300 font-bold">القرار</div>
-                      <div className="mt-0.5 text-muted-foreground">{getDecision(s)}</div>
-                    </div>
-                    <div className="rounded-lg bg-rose-500/10 p-2">
-                      <div className="text-rose-800 dark:text-rose-300 font-bold">التوصية</div>
-                      <div className="mt-0.5 text-muted-foreground">{getRec(s)}</div>
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      <VerdictBadge type={lv} />
+                      <DiagnoseBtn onClick={() => onDiagnose(view === "ad" ? "ads" : "adsets")} />
                     </div>
                   </div>
                 </div>
@@ -2149,8 +2135,11 @@ function diagnoseSegment(seg: SegmentEntry): SegDiag {
 
 // ── Campaign-level diagnosis ───────────────────────────────────
 
-function diagnoseCampaign(totals: DerivedMetrics, daily: DailyPoint[]): CampaignDiag {
-  const holdRate = totals.video_plays > 0 ? (totals.v95 / totals.video_plays) * 100 : 0;
+function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: DailyPoint[]): CampaignDiag {
+  if (!totals) {
+    return { verdict: "nodata", decision: "لا توجد بيانات", problem: "لم يتم تحميل البيانات بعد", color: "gray", emoji: "⚪", funnel: [], metrics: [], actionPlan: ["أعد تحديث الصفحة."] };
+  }
+  const holdRate = (totals.video_plays ?? 0) > 0 ? ((totals.v95 ?? 0) / totals.video_plays) * 100 : 0;
   const ctr2lp = totals.link_clicks > 0 ? (totals.lpv / totals.link_clicks) * 100 : 0;
 
   const funnel = [
@@ -2380,10 +2369,14 @@ function CreativeTab({ ads }: { ads: Array<{ seg: SegmentEntry; diag: SegDiag }>
 
 // ── Diagnosis Modal (multi-tab) ───────────────────────────────
 
-function DiagnosisModal({ insights, open, onClose }: { insights: CampaignInsights; open: boolean; onClose: () => void }) {
+function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign" }: { insights: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string }) {
   const result = useMemo(() => runDiagnosis(insights), [insights]);
   const [expandedAdset, setExpandedAdset] = useState<string | null>(null);
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState(defaultTab);
+
+  // Sync tab when modal is opened with a different defaultTab
+  useEffect(() => { if (open) setActiveTab(defaultTab); }, [open, defaultTab]);
 
   const { campaign: camp } = result;
   const cfg = COLOR_CFG[camp.color];
@@ -2405,7 +2398,7 @@ function DiagnosisModal({ insights, open, onClose }: { insights: CampaignInsight
           </div>
         </DialogHeader>
 
-        <Tabs defaultValue="campaign" className="flex-1 flex flex-col min-h-0">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
           <TabsList className="shrink-0 grid grid-cols-4 text-xs h-8">
             <TabsTrigger value="campaign" className="text-[11px]">الحملة</TabsTrigger>
             <TabsTrigger value="adsets" className="text-[11px]">Ad Sets ({result.adsets.length})</TabsTrigger>
@@ -2491,7 +2484,10 @@ function DiagnosisModal({ insights, open, onClose }: { insights: CampaignInsight
 // ──────────────────────────────────────────────────────────────
 function InsightsBody({ insights }: { insights: CampaignInsights }) {
   const [diagOpen, setDiagOpen] = useState(false);
+  const [diagTab, setDiagTab] = useState("campaign");
   const totals = insights.totals;
+
+  const openDiagnosis = (tab: string) => { setDiagTab(tab); setDiagOpen(true); };
   const cpaTarget = Math.round(totals.cpa * 0.8);
 
   const trendData = insights.daily.map((d) => ({
@@ -2502,7 +2498,7 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
   return (
     <div className="space-y-5">
-      <DiagnosisModal insights={insights} open={diagOpen} onClose={() => setDiagOpen(false)} />
+      <DiagnosisModal insights={insights} open={diagOpen} onClose={() => setDiagOpen(false)} defaultTab={diagTab} />
 
       {/* DIAGNOSIS BUTTON */}
       <div className="flex justify-end">
@@ -2519,7 +2515,7 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
       {/* ALERT SYSTEM */}
       <CollapsibleSection title="التنبيهات">
-        <AlertSystem totals={totals} byAd={insights.by_ad} />
+        <AlertSystem totals={totals} byAd={insights.by_ad} onDiagnose={openDiagnosis} />
       </CollapsibleSection>
 
       {/* DELIVERY WARNINGS — only for actively running campaigns */}
@@ -2605,7 +2601,7 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
       {/* PERFORMANCE ANALYSIS */}
       <CollapsibleSection title="تحليل الأداء">
-        <PerformanceAnalysis byAd={insights.by_ad} byAdset={insights.by_adset} />
+        <PerformanceAnalysis byAd={insights.by_ad} byAdset={insights.by_adset} onDiagnose={openDiagnosis} />
       </CollapsibleSection>
 
       {/* EXPERT TIPS */}
