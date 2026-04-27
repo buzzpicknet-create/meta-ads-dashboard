@@ -31,7 +31,70 @@ const CAMPAIGNS_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function isRateLimitError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes("80004") || msg.toLowerCase().includes("too many calls");
+  return (
+    msg.includes("80004") ||
+    msg.includes("(17)") ||
+    msg.toLowerCase().includes("too many calls") ||
+    msg.toLowerCase().includes("user request limit") ||
+    msg.toLowerCase().includes("rate limit")
+  );
+}
+
+// ── DB helpers for insights cache ─────────────────────────────────────────────
+const INSIGHTS_FRESH_MS  = 30 * 60 * 1000; // 30 min fresh window
+const OVERVIEW_FRESH_MS  = 30 * 60 * 1000;
+const CPA_FRESH_MS       = 15 * 60 * 1000;
+
+async function dbGetInsightsCache(campaignId: string, since: string, until: string) {
+  const rows = await query<{ data: unknown; fetched_at: string }>(
+    `SELECT data, fetched_at FROM meta_insights_cache
+     WHERE campaign_id=$1 AND period_since=$2 AND period_until=$3`,
+    [campaignId, since, until]
+  );
+  return rows[0] ?? null;
+}
+async function dbSetInsightsCache(campaignId: string, since: string, until: string, data: unknown) {
+  await query(
+    `INSERT INTO meta_insights_cache (campaign_id, period_since, period_until, data, fetched_at)
+     VALUES ($1,$2,$3,$4,NOW())
+     ON CONFLICT (campaign_id, period_since, period_until)
+     DO UPDATE SET data=$4, fetched_at=NOW()`,
+    [campaignId, since, until, JSON.stringify(data)]
+  );
+}
+
+async function dbGetOverviewCache(accountId: string, since: string, until: string) {
+  const rows = await query<{ data: unknown; fetched_at: string }>(
+    `SELECT data, fetched_at FROM meta_overview_cache
+     WHERE account_id=$1 AND period_since=$2 AND period_until=$3`,
+    [accountId, since, until]
+  );
+  return rows[0] ?? null;
+}
+async function dbSetOverviewCache(accountId: string, since: string, until: string, data: unknown) {
+  await query(
+    `INSERT INTO meta_overview_cache (account_id, period_since, period_until, data, fetched_at)
+     VALUES ($1,$2,$3,$4,NOW())
+     ON CONFLICT (account_id, period_since, period_until)
+     DO UPDATE SET data=$4, fetched_at=NOW()`,
+    [accountId, since, until, JSON.stringify(data)]
+  );
+}
+
+async function dbGetCpaAlertsCache(accountId: string) {
+  const rows = await query<{ data: unknown; fetched_at: string }>(
+    `SELECT data, fetched_at FROM meta_cpa_alerts_cache WHERE account_id=$1`,
+    [accountId]
+  );
+  return rows[0] ?? null;
+}
+async function dbSetCpaAlertsCache(accountId: string, data: unknown) {
+  await query(
+    `INSERT INTO meta_cpa_alerts_cache (account_id, data, fetched_at)
+     VALUES ($1,$2,NOW())
+     ON CONFLICT (account_id) DO UPDATE SET data=$2, fetched_at=NOW()`,
+    [accountId, JSON.stringify(data)]
+  );
 }
 
 export async function warmCreativeCache(accountId: string, since: string, until: string): Promise<void> {
@@ -244,52 +307,120 @@ router.get("/meta/adsets", async (req, res) => {
 });
 
 router.get("/meta/insights", async (req, res) => {
+  const campaign_id = String(req.query["campaign_id"] || "");
+  const accountId   = String(req.query["ad_account_id"] || "").trim();
+  if (!campaign_id) {
+    res.status(400).json({ error: "campaign_id is required" });
+    return;
+  }
+  let since: string, until: string;
+  try { ({ since, until } = parseRange(req.query as Record<string, string>)); }
+  catch (e) { return res.status(400).json({ error: String(e) }); }
+
+  // ① Check DB cache
+  const cached = await dbGetInsightsCache(campaign_id, since, until).catch(() => null);
+  const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
+  if (cached && cacheAge < INSIGHTS_FRESH_MS) {
+    logger.info({ campaign_id, age_s: Math.round(cacheAge / 1000) }, "Insights served from DB cache (fresh)");
+    return res.json({ ...(cached.data as object), account_id: accountId || undefined, from_cache: true });
+  }
+
+  // ② Fetch from Meta
   try {
-    const campaign_id = String(req.query["campaign_id"] || "");
-    const accountId = String(req.query["ad_account_id"] || "").trim();
-    if (!campaign_id) {
-      res.status(400).json({ error: "campaign_id is required" });
-      return;
-    }
-    const { since, until } = parseRange(req.query as Record<string, string>);
     const data = await getCampaignInsights({ campaign_id, since, until });
-    res.json({ ...data, account_id: accountId || undefined });
+    await dbSetInsightsCache(campaign_id, since, until, data).catch(() => null);
+    return res.json({ ...data, account_id: accountId || undefined });
   } catch (err) {
+    if (isRateLimitError(err)) {
+      if (cached) {
+        logger.warn({ campaign_id, age_s: Math.round(cacheAge / 1000) }, "Meta rate-limited — serving stale insights cache");
+        return res.json({ ...(cached.data as object), account_id: accountId || undefined, from_cache: true, rate_limited: true });
+      }
+      logger.warn({ campaign_id }, "Meta rate-limited — no insights cache available");
+      return res.status(429).json({
+        error: "الحملة مش متاحة دلوقتي — Meta وصلت للحد المسموح مؤقتاً. البيانات هتظهر تاني خلال دقيقتين.",
+        rate_limited: true,
+      });
+    }
     logger.error({ err }, "Insights fetch failed");
-    res
-      .status(500)
-      .json({ error: err instanceof Error ? err.message : String(err) });
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
 router.get("/meta/account-overview", async (req, res) => {
+  const accountId = String(req.query["ad_account_id"] || "").trim();
+  if (!accountId) {
+    res.status(400).json({ error: "ad_account_id is required" });
+    return;
+  }
+  let since: string, until: string;
+  try { ({ since, until } = parseRange(req.query as Record<string, string>)); }
+  catch (e) { return res.status(400).json({ error: String(e) }); }
+
+  // ① Check DB cache
+  const cached = await dbGetOverviewCache(accountId, since, until).catch(() => null);
+  const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
+  if (cached && cacheAge < OVERVIEW_FRESH_MS) {
+    logger.info({ accountId, age_s: Math.round(cacheAge / 1000) }, "Overview served from DB cache (fresh)");
+    return res.json({ ...(cached.data as object), from_cache: true });
+  }
+
+  // ② Fetch from Meta
   try {
-    const accountId = String(req.query["ad_account_id"] || "").trim();
-    if (!accountId) {
-      res.status(400).json({ error: "ad_account_id is required" });
-      return;
-    }
-    const { since, until } = parseRange(req.query as Record<string, string>);
     const data = await getAccountOverview({ adAccountId: accountId, since, until });
-    res.json(data);
+    await dbSetOverviewCache(accountId, since, until, data).catch(() => null);
+    return res.json(data);
   } catch (err) {
+    if (isRateLimitError(err)) {
+      if (cached) {
+        logger.warn({ accountId, age_s: Math.round(cacheAge / 1000) }, "Meta rate-limited — serving stale overview cache");
+        return res.json({ ...(cached.data as object), from_cache: true, rate_limited: true });
+      }
+      logger.warn({ accountId }, "Meta rate-limited — no overview cache available");
+      return res.status(429).json({
+        error: "نظرة عامة مش متاحة دلوقتي — Meta وصلت للحد المسموح مؤقتاً. البيانات هتظهر تاني خلال دقيقتين.",
+        rate_limited: true,
+      });
+    }
     logger.error({ err }, "Account overview fetch failed");
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
 router.get("/meta/cpa-alerts", async (req, res) => {
+  const accountId = String(req.query["ad_account_id"] || "").trim();
+  if (!accountId) {
+    res.status(400).json({ error: "ad_account_id is required" });
+    return;
+  }
+
+  // ① Check DB cache
+  const cached = await dbGetCpaAlertsCache(accountId).catch(() => null);
+  const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
+  if (cached && cacheAge < CPA_FRESH_MS) {
+    logger.info({ accountId, age_s: Math.round(cacheAge / 1000) }, "CPA alerts served from DB cache (fresh)");
+    return res.json({ ...(cached.data as object), from_cache: true });
+  }
+
+  // ② Fetch from Meta
   try {
-    const accountId = String(req.query["ad_account_id"] || "").trim();
-    if (!accountId) {
-      res.status(400).json({ error: "ad_account_id is required" });
-      return;
-    }
     const data = await getCpaAlerts({ adAccountId: accountId });
-    res.json(data);
+    await dbSetCpaAlertsCache(accountId, data).catch(() => null);
+    return res.json(data);
   } catch (err) {
+    if (isRateLimitError(err)) {
+      if (cached) {
+        logger.warn({ accountId, age_s: Math.round(cacheAge / 1000) }, "Meta rate-limited — serving stale CPA alerts cache");
+        return res.json({ ...(cached.data as object), from_cache: true, rate_limited: true });
+      }
+      logger.warn({ accountId }, "Meta rate-limited — no CPA alerts cache available");
+      return res.status(429).json({
+        error: "تنبيهات CPA مش متاحة دلوقتي — Meta وصلت للحد المسموح مؤقتاً.",
+        rate_limited: true,
+      });
+    }
     logger.error({ err }, "CPA alerts fetch failed");
-    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
