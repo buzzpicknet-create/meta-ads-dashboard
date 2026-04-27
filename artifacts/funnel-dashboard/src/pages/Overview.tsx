@@ -33,6 +33,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  Stethoscope,
   Wrench,
   XCircle,
   Zap,
@@ -80,52 +81,20 @@ import { snapshotAlerts, type AlertSnapshotInput } from "@/lib/alerts-api";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 
 // ──────────────────────────────────────────────────────────────
-// How-To Link button — used throughout this page
+// Diagnose button — navigates to تحليل الحملة tab
 // ──────────────────────────────────────────────────────────────
-interface OvHowToMetrics {
-  name?: string;
-  cpa?: number;
-  ctr?: number;
-  cpc?: number;
-  cr?: number;
-  freq?: number;
-  spend?: number;
-  purchases?: number;
-  lpvRate?: number;
-  hookRate?: number;
-}
-
-function buildHowToHref(problem: string, metrics?: OvHowToMetrics): string {
+function HowToBtn({ size = "sm" }: { problem?: string; metrics?: Record<string, unknown>; size?: "sm" | "xs" }) {
   const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
-  const p = new URLSearchParams({ problem });
-  if (metrics) {
-    const add = (k: string, v: number | string | undefined) => {
-      if (v !== undefined && v !== "") p.set(k, String(v));
-    };
-    add("name", metrics.name);
-    if (metrics.cpa !== undefined) add("cpa", Math.round(metrics.cpa * 100) / 100);
-    if (metrics.ctr !== undefined) add("ctr", Math.round(metrics.ctr * 100) / 100);
-    if (metrics.cpc !== undefined) add("cpc", Math.round(metrics.cpc * 100) / 100);
-    if (metrics.cr !== undefined) add("cr", Math.round(metrics.cr * 100) / 100);
-    if (metrics.freq !== undefined) add("freq", Math.round(metrics.freq * 100) / 100);
-    if (metrics.spend !== undefined) add("spend", Math.round(metrics.spend));
-    if (metrics.purchases !== undefined) add("purchases", metrics.purchases);
-    if (metrics.lpvRate !== undefined) add("lpvRate", Math.round(metrics.lpvRate * 10) / 10);
-    if (metrics.hookRate !== undefined) add("hookRate", Math.round(metrics.hookRate * 10) / 10);
-  }
-  return `${base}/how-to?${p.toString()}`;
-}
-
-function HowToBtn({ problem, metrics, size = "sm" }: { problem: string; metrics?: OvHowToMetrics; size?: "sm" | "xs" }) {
   return (
     <a
-      href={buildHowToHref(problem, metrics)}
-      className={`shrink-0 inline-flex items-center gap-1 font-bold rounded-lg bg-background/60 hover:bg-background border border-border/60 text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap ${
+      href={base + "/"}
+      className={`shrink-0 inline-flex items-center gap-1 font-bold rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-700 dark:text-violet-400 hover:text-violet-800 dark:hover:text-violet-300 transition-colors whitespace-nowrap ${
         size === "xs" ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-2 py-1"
       }`}
       onClick={(e) => e.stopPropagation()}
     >
-      كيف أحلها؟ ↗
+      <Stethoscope className={size === "xs" ? "h-2.5 w-2.5" : "h-3 w-3"} />
+      تشخيص
     </a>
   );
 }
@@ -847,7 +816,7 @@ function OvDailyInsightCard({ daily, totals, campaigns }: { daily: DailyPoint[];
 // ──────────────────────────────────────────────────────────────
 function AccountAlerts({ overview }: { overview: AccountOverview }) {
   const { totals, campaigns } = overview;
-  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string; metrics?: OvHowToMetrics }[] = [];
+  const alerts: { type: "danger" | "warn" | "info"; msg: string; problem?: string; metrics?: Record<string, unknown> }[] = [];
 
   const activeCampaigns = campaigns.filter((c) => c.spend > 0);
   const cpas = activeCampaigns.filter((c) => c.purchases > 0).map((c) => c.cpa);
@@ -924,7 +893,7 @@ interface MetricHealth {
   status: HealthStatus;
   statusLabel: string;
   problem?: string;
-  metrics?: OvHowToMetrics;
+  metrics?: Record<string, unknown>;
   badCampaigns: { name: string; value: string }[];
 }
 
