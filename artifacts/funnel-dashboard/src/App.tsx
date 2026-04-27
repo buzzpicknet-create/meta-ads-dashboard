@@ -132,9 +132,43 @@ function NavBar() {
   );
 }
 
+function MediaManagerRouter() {
+  const [, navigate] = useLocation();
+  return (
+    <>
+      <NavBar />
+      <Switch>
+        <Route path="/media" component={MediaRequestsPage} />
+        <Route>
+          {() => {
+            navigate("/media");
+            return null;
+          }}
+        </Route>
+      </Switch>
+    </>
+  );
+}
+
+function FullRouter({ isAdmin }: { isAdmin: boolean }) {
+  return (
+    <>
+      <NavBar />
+      <Switch>
+        <Route path="/overview" component={Overview} />
+        <Route path="/creative" component={CreativePage} />
+        <Route path="/activity" component={ActivityPage} />
+        <Route path="/media" component={MediaRequestsPage} />
+        <Route path="/admin" component={isAdmin ? AdminPage : NotFound} />
+        <Route path="/" component={Dashboard} />
+        <Route component={NotFound} />
+      </Switch>
+    </>
+  );
+}
+
 function AppRoutes() {
   const { user, loading } = useAuth();
-  const [, navigate] = useLocation();
 
   if (loading) {
     return (
@@ -144,40 +178,11 @@ function AppRoutes() {
     );
   }
 
-  if (!user) {
-    return <LoginPage />;
-  }
+  if (!user) return <LoginPage />;
 
-  const role = user.role;
+  if (user.role === "media_manager") return <MediaManagerRouter />;
 
-  return (
-    <>
-      <NavBar />
-      <Switch>
-        {role === "media_manager" ? (
-          <>
-            <Route path="/media" component={MediaRequestsPage} />
-            <Route>
-              {() => {
-                navigate("/media");
-                return null;
-              }}
-            </Route>
-          </>
-        ) : (
-          <>
-            <Route path="/" component={Dashboard} />
-            <Route path="/overview" component={Overview} />
-            <Route path="/creative" component={CreativePage} />
-            <Route path="/activity" component={ActivityPage} />
-            <Route path="/media" component={MediaRequestsPage} />
-            {role === "admin" && <Route path="/admin" component={AdminPage} />}
-            <Route component={NotFound} />
-          </>
-        )}
-      </Switch>
-    </>
-  );
+  return <FullRouter isAdmin={user.role === "admin"} />;
 }
 
 function App() {
