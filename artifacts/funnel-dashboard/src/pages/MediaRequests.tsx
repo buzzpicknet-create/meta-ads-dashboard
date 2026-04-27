@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAccounts } from "@/hooks/use-meta";
 import { CampaignLink } from "@/components/CampaignLink";
+import { logMediaRequestCreated } from "@/hooks/use-activity-logger";
 import {
   Clapperboard, Plus, ExternalLink, ChevronDown, Check, Loader2, AlertCircle,
   ScanSearch, RefreshCw, Clock, ThumbsUp, ThumbsDown, ChevronDown as ChevDown,
@@ -187,8 +188,10 @@ function AddRequestModal({ onClose }: { onClose: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }).then((r) => r.json()),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["media-requests"] });
+      const name = (variables as { campaign_name?: string }).campaign_name ?? "";
+      if (name) logMediaRequestCreated(name);
       onClose();
     },
   });

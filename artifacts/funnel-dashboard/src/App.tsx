@@ -11,6 +11,7 @@ import CreativePage from "@/pages/Creative";
 import LoginPage from "@/pages/Login";
 import AdminPage from "@/pages/AdminPage";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -167,6 +168,11 @@ function FullRouter({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+function ActivityTracker() {
+  useActivityLogger();
+  return null;
+}
+
 function AppRoutes() {
   const { user, loading } = useAuth();
 
@@ -180,9 +186,14 @@ function AppRoutes() {
 
   if (!user) return <LoginPage />;
 
-  if (user.role === "media_manager") return <MediaManagerRouter />;
-
-  return <FullRouter isAdmin={user.role === "admin"} />;
+  return (
+    <>
+      <ActivityTracker />
+      {user.role === "media_manager"
+        ? <MediaManagerRouter />
+        : <FullRouter isAdmin={user.role === "admin"} />}
+    </>
+  );
 }
 
 function App() {

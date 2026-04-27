@@ -187,6 +187,23 @@ async function runMigrations() {
      WHERE deleted_at IS NULL
        AND notes ILIKE '%CPM%'`
   );
+  // User activity logs (page visits, diagnosis runs, media requests)
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_activity_logs (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id),
+      action VARCHAR(50) NOT NULL,
+      page VARCHAR(200),
+      meta JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_user_activity_user_created
+    ON user_activity_logs(user_id, created_at DESC)
+  `);
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
+
   // Create default admin user if no users exist
   const existingUsers = await query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM users WHERE deleted_at IS NULL`);
   if (Number(existingUsers[0]?.cnt ?? 0) === 0) {

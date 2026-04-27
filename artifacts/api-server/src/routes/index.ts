@@ -6,6 +6,7 @@ import mediaRouter from "./media";
 import campaignsRouter from "./campaigns";
 import authRouter from "./auth";
 import adminRouter from "./admin";
+import activityRouter from "./activity";
 
 const router = Router();
 
@@ -27,5 +28,6 @@ router.use(alertsRouter);
 router.use(mediaRouter);
 router.use(campaignsRouter);
 router.use(adminRouter);
+router.use(activityRouter);
 
 export default router;

@@ -1,4 +1,5 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { logDiagnosisRun } from "@/hooks/use-activity-logger";
 import { ChevronDown, Stethoscope, RefreshCw } from "lucide-react";
 import {
   Dialog,
@@ -359,8 +360,17 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
   const [expandedAdset, setExpandedAdset] = useState<string | null>(null);
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(defaultTab);
+  const loggedRef = useRef<string | null>(null);
 
   useEffect(() => { if (open) setActiveTab(defaultTab); }, [open, defaultTab]);
+
+  useEffect(() => {
+    if (open && loggedRef.current !== insights.campaign.id) {
+      loggedRef.current = insights.campaign.id;
+      logDiagnosisRun(insights.campaign.name);
+    }
+    if (!open) loggedRef.current = null;
+  }, [open, insights.campaign.id, insights.campaign.name]);
 
   const { campaign: camp } = result;
   const cfg = COLOR_CFG[camp.color];

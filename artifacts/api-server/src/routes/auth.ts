@@ -34,11 +34,19 @@ router.post("/auth/login", async (req, res) => {
     req.session.userId = user.id;
     req.session.username = user.username;
     req.session.role = user.role;
-    req.session.save((err) => {
+    req.session.save(async (err) => {
       if (err) {
         logger.error({ err }, "Session save failed");
         return res.status(500).json({ error: "فشل حفظ الجلسة" });
       }
+      // Log login activity + update last_seen_at
+      try {
+        await query(
+          `INSERT INTO user_activity_logs (user_id, action, page, meta) VALUES ($1, 'login', NULL, '{}')`,
+          [user.id]
+        );
+        await query(`UPDATE users SET last_seen_at = NOW() WHERE id = $1`, [user.id]);
+      } catch { /* non-blocking */ }
       res.json({ user: { id: user.id, username: user.username, role: user.role } });
     });
   } catch (err) {
