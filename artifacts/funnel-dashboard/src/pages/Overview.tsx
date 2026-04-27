@@ -80,6 +80,7 @@ import {
 import { snapshotAlerts, type AlertSnapshotInput } from "@/lib/alerts-api";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import { CampaignDiagnosisModal } from "@/components/DiagnosisModal";
+import { CampaignLink } from "@/components/CampaignLink";
 
 // ──────────────────────────────────────────────────────────────
 // Diagnose button — opens CampaignDiagnosisModal in-place when
@@ -326,7 +327,16 @@ function CpaWarningCard({ w, accountId, since, until }: { w: CpaWarning; account
               until={until}
             />
           </div>
-          <div className="text-sm font-semibold mt-1.5 truncate">{w.name}</div>
+          <div className="text-sm font-semibold mt-1.5 truncate">
+            <CampaignLink
+              campaignId={w.id}
+              campaignName={w.name}
+              accountId={accountId}
+              since={since}
+              until={until}
+              className="text-sm font-semibold"
+            />
+          </div>
         </div>
         <button
           onClick={() => setOpen((v) => !v)}
@@ -1771,7 +1781,7 @@ function urgencyBadge(u: FixSuggestion["urgency"]) {
   return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-400">تنبيه</span>;
 }
 
-function AdIssueCard({ ad }: { ad: AdWithIssues }) {
+function AdIssueCard({ ad, accountId, since, until }: { ad: AdWithIssues; accountId?: string; since?: string; until?: string }) {
   const [open, setOpen] = useState(false);
   const statusCfg = STATUS_AR[ad.effective_status ?? ""] ?? { label: ad.effective_status ?? "غير معروف", color: "text-slate-500" };
   const isCritical = ad.effective_status === "DISAPPROVED" || ad.effective_status === "WITH_ISSUES";
@@ -1795,7 +1805,17 @@ function AdIssueCard({ ad }: { ad: AdWithIssues }) {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate">{ad.name}</div>
           {ad.campaign_name && (
-            <div className="text-xs text-muted-foreground truncate">حملة: {ad.campaign_name}</div>
+            <div className="text-xs text-muted-foreground truncate">
+              حملة:&nbsp;
+              <CampaignLink
+                campaignId={ad.campaign_id}
+                campaignName={ad.campaign_name}
+                accountId={accountId}
+                since={since}
+                until={until}
+                className="text-xs"
+              />
+            </div>
           )}
         </div>
         <div className="shrink-0 flex items-center gap-2 text-xs text-muted-foreground">
@@ -1849,7 +1869,7 @@ function AdIssueCard({ ad }: { ad: AdWithIssues }) {
   );
 }
 
-function DeliveryWarningsPanel({ adIssues }: { adIssues: AdWithIssues[] }) {
+function DeliveryWarningsPanel({ adIssues, accountId, since, until }: { adIssues: AdWithIssues[]; accountId?: string; since?: string; until?: string }) {
   const [collapsed, setCollapsed] = useState(false);
   if (!adIssues || adIssues.length === 0) return null;
 
@@ -1893,7 +1913,7 @@ function DeliveryWarningsPanel({ adIssues }: { adIssues: AdWithIssues[] }) {
               return (order.indexOf(a.effective_status ?? "") - order.indexOf(b.effective_status ?? ""));
             })
             .map((ad) => (
-              <AdIssueCard key={ad.id} ad={ad} />
+              <AdIssueCard key={ad.id} ad={ad} accountId={accountId} since={since} until={until} />
             ))}
         </div>
       )}
@@ -2030,7 +2050,7 @@ function AccountTabContent({
         <CollapsibleSection title="تحذيرات التسليم">
           <Card className="border-rose-500/20 bg-rose-500/3">
             <CardContent className="pt-5 pb-4 px-5">
-              <DeliveryWarningsPanel adIssues={ad_issues} />
+              <DeliveryWarningsPanel adIssues={ad_issues} accountId={accountId} since={since} until={until} />
             </CardContent>
           </Card>
         </CollapsibleSection>

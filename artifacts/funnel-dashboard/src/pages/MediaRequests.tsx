@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAccounts } from "@/hooks/use-meta";
+import { CampaignLink } from "@/components/CampaignLink";
 import {
   Clapperboard, Plus, ExternalLink, ChevronDown, Check, Loader2, AlertCircle,
   ScanSearch, RefreshCw, Clock, ThumbsUp, ThumbsDown, ChevronDown as ChevDown,
@@ -479,6 +481,8 @@ function ScanResultToast({ result, onClose }: { result: ScanResult; onClose: () 
 // ─── Review Card ──────────────────────────────────────────────────────────────
 function ReviewCard({ req }: { req: MediaRequest }) {
   const qc = useQueryClient();
+  const accounts = useAccounts();
+  const accountId = accounts.data?.accounts?.[0]?.id;
   const priorityCfg = PRIORITY_CONFIG[req.priority] ?? PRIORITY_CONFIG["normal"]!;
 
   const approveMutation = useMutation({
@@ -505,7 +509,14 @@ function ReviewCard({ req }: { req: MediaRequest }) {
               {priorityCfg.label}
             </span>
           </div>
-          <h3 className="font-semibold text-sm leading-snug">{req.campaign_name}</h3>
+          <h3 className="font-semibold text-sm leading-snug">
+            <CampaignLink
+              campaignId={req.campaign_id ?? undefined}
+              campaignName={req.campaign_name}
+              accountId={accountId}
+              className="font-semibold text-sm leading-snug"
+            />
+          </h3>
           {req.landing_url && (
             <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5" dir="ltr">
               <ExternalLink className="h-3 w-3" />
@@ -571,6 +582,8 @@ function BriefRow({ icon, label, value, isUrl }: { icon: ReactNode; label: strin
 // ─── Kanban Card ──────────────────────────────────────────────────────────────
 function MediaCard({ req }: { req: MediaRequest }) {
   const qc = useQueryClient();
+  const accounts = useAccounts();
+  const accountId = accounts.data?.accounts?.[0]?.id;
   const statusCfg = STATUS_CONFIG[req.status] ?? STATUS_CONFIG["pending"]!;
   const priorityCfg = PRIORITY_CONFIG[req.priority] ?? PRIORITY_CONFIG["normal"]!;
   const [showDetails, setShowDetails] = useState(false);
@@ -615,7 +628,14 @@ function MediaCard({ req }: { req: MediaRequest }) {
                   </span>
                 )}
               </div>
-              <h3 className="font-semibold text-sm leading-snug">{req.campaign_name}</h3>
+              <h3 className="font-semibold text-sm leading-snug">
+                <CampaignLink
+                  campaignId={req.campaign_id ?? undefined}
+                  campaignName={req.campaign_name}
+                  accountId={accountId}
+                  className="font-semibold text-sm leading-snug"
+                />
+              </h3>
               {req.landing_url && (
                 <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5" dir="ltr">
                   <ExternalLink className="h-3 w-3" />

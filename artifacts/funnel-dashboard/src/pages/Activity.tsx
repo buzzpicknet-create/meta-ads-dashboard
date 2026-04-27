@@ -14,6 +14,7 @@ import {
   type AlertSnapshot,
 } from "@/lib/alerts-api";
 import { useAccounts } from "@/hooks/use-meta";
+import { CampaignLink } from "@/components/CampaignLink";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -527,7 +528,16 @@ function UnresolvedCard({ snap, accountId }: { snap: AlertSnapshot; accountId: s
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-bold">{alertLabel(snap.alert_type)}</span>
-            {snap.campaign_name && <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">— {snap.campaign_name}</span>}
+            {snap.campaign_name && (
+              <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">—&nbsp;
+                <CampaignLink
+                  campaignId={snap.campaign_id ?? undefined}
+                  campaignName={snap.campaign_name}
+                  accountId={accountId}
+                  className="text-[11px]"
+                />
+              </span>
+            )}
             {snap.metric_label && (
               <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${snap.severity === "danger" ? "bg-rose-500/15 text-rose-700 dark:text-rose-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"}`}>
                 {snap.metric_label}
