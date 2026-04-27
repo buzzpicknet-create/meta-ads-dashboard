@@ -200,6 +200,10 @@ export default function CreativePage() {
       c.totalSpend  += ad.spend;
       c.totalOrders += ad.purchases;
       c.totalAds++;
+      // Upgrade to a real name if currently holding an ID fallback
+      if (c.campaign_name === c.campaign_id && ad.campaign_name !== ad.campaign_id) {
+        c.campaign_name = ad.campaign_name;
+      }
     }
     return [...map.values()]
       .map(c => ({ ...c, avgCpa: c.totalOrders > 0 ? c.totalSpend / c.totalOrders : 0 }))

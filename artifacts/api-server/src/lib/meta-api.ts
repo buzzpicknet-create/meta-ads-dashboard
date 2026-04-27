@@ -1244,6 +1244,10 @@ export async function getAdsWithCreatives(opts: {
   // Build insight map by ad_id + name map (insights reliably return campaign_name / adset_name)
   const insightMap = new Map<string, AggregatedMetrics>();
   const nameMap    = new Map<string, { campaign_name: string; adset_name: string }>();
+  // Campaign-level name dictionary — collects the best name seen for each campaign_id
+  const campaignNameDict = new Map<string, string>();
+  const adsetNameDict    = new Map<string, string>();
+
   for (const row of insightRows) {
     if (!row.ad_id) continue;
     const cur = insightMap.get(row.ad_id) ?? emptyMetrics();
@@ -1254,6 +1258,19 @@ export async function getAdsWithCreatives(opts: {
         campaign_name: row.campaign_name ?? "",
         adset_name:    row.adset_name    ?? "",
       });
+    }
+    // Populate campaign/adset-level dictionaries from insights (most reliable source)
+    if (row.campaign_id && row.campaign_name) campaignNameDict.set(row.campaign_id, row.campaign_name);
+    if (row.adset_id    && row.adset_name)    adsetNameDict.set(row.adset_id, row.adset_name);
+  }
+
+  // Also collect from the ads list (secondary source) to cover campaigns with no insights in range
+  for (const ad of ads) {
+    if (ad.campaign_id && ad.campaign_name && !campaignNameDict.has(ad.campaign_id)) {
+      campaignNameDict.set(ad.campaign_id, ad.campaign_name);
+    }
+    if (ad.adset_id && ad.adset_name && !adsetNameDict.has(ad.adset_id)) {
+      adsetNameDict.set(ad.adset_id, ad.adset_name);
     }
   }
 
@@ -1270,10 +1287,10 @@ export async function getAdsWithCreatives(opts: {
       ad_id: ad.id,
       ad_name: ad.name,
       campaign_id: ad.campaign_id,
-      // Prefer insight-sourced names (more reliable); fallback to ad fields
-      campaign_name: names?.campaign_name || ad.campaign_name || ad.campaign_id,
+      // Use campaign-level dict first (aggregated from all sources), then per-ad fallbacks
+      campaign_name: campaignNameDict.get(ad.campaign_id) || names?.campaign_name || ad.campaign_name || ad.campaign_id,
       adset_id: ad.adset_id,
-      adset_name: names?.adset_name || ad.adset_name || ad.adset_id,
+      adset_name: adsetNameDict.get(ad.adset_id) || names?.adset_name || ad.adset_name || ad.adset_id,
       status: ad.status,
       effective_status: ad.effective_status,
       primary_text: c.body ?? null,
