@@ -78,6 +78,8 @@ function isCtrDeclining(daily: DailyPoint[]): boolean {
 // ── Segment-level diagnosis ───────────────────────────────────
 export function diagnoseSegment(seg: SegmentEntry): SegDiag {
   const lpvRate = seg.link_clicks > 0 ? (seg.lpv / seg.link_clicks) * 100 : 0;
+  const lostAtClick = seg.link_clicks > 0 ? Math.round(seg.link_clicks * (1 - lpvRate / 100)) : 0;
+  const visitorsLost = seg.lpv > 0 ? seg.lpv - seg.purchases : 0;
 
   const metrics: Metric[] = [
     { label: "Spend", value: `${fmt(seg.spend, 0)} EGP` },
@@ -91,33 +93,82 @@ export function diagnoseSegment(seg: SegmentEntry): SegDiag {
   ];
 
   if (seg.spend === 0) {
-    return { verdict: "kill", decision: "أوقف", mainIssue: "لا يوجد إنفاق", color: "gray", metrics, actions: ["تحقق من إعدادات الميزانية وحالة Ad Set."] };
+    return { verdict: "kill", decision: "أوقف", mainIssue: "لا يوجد إنفاق", color: "gray", metrics, actions: ["مفيش إنفاق — تحقق من حالة الـ Ad Set والميزانية."] };
   }
   if (seg.cpa > 0 && seg.cpa <= CPA_SCALE_MAX) {
-    return { verdict: "scale", decision: "Scale 🟢", mainIssue: `CPA رابح — ${fmt(seg.cpa, 0)} EGP`, color: "green", metrics, actions: ["زد ميزانية هذا المستوى 20% كل 48 ساعة.", "لا تغير الاستهداف أو الكريتف."] };
+    return {
+      verdict: "scale", decision: "Scale 🟢", mainIssue: `CPA رابح — ${fmt(seg.cpa, 0)} EGP`, color: "green", metrics,
+      actions: [
+        `CPA ${fmt(seg.cpa, 0)} EGP — تحت الـ ${CPA_SCALE_MAX} المستهدف. هذا المستوى رابح وجاهز للتوسع.`,
+        `زود ميزانية هذا الـ Ad Set 20% كل 48 ساعة. لا تلمس الكريتف ولا الاستهداف.`,
+      ],
+    };
   }
   if (seg.purchases === 0 && seg.spend > 100) {
-    return { verdict: "kill", decision: "أوقف 🔴", mainIssue: `إنفاق ${fmt(seg.spend, 0)} EGP بدون أوردرات`, color: "red", metrics, actions: ["أوقف هذا المستوى فوراً.", "افحص الكريتف والاستهداف وأعد البناء."] };
+    return {
+      verdict: "kill", decision: "أوقف 🔴", mainIssue: `${fmt(seg.spend, 0)} EGP بدون أوردر`, color: "red", metrics,
+      actions: [
+        `${fmt(seg.spend, 0)} EGP إنفاق وصفر أوردرات من هذا المستوى. كل جنيه بيتحرق هنا من غير عائد.`,
+        `أوقف هذا الـ Ad Set/Ad دلوقتي وحوّل ميزانيته للمستوى الأفضل أداءً.`,
+      ],
+    };
   }
   if (seg.cpa > CPA_IMPROVE_MAX) {
-    return { verdict: "kill", decision: "أوقف 🔴", mainIssue: `CPA مرتفع جداً — ${fmt(seg.cpa, 0)} EGP`, color: "red", metrics, actions: ["أوقف هذا المستوى فوراً.", "راجع الاستهداف والكريتف من الصفر."] };
+    return {
+      verdict: "kill", decision: "أوقف 🔴", mainIssue: `CPA مرتفع جداً — ${fmt(seg.cpa, 0)} EGP`, color: "red", metrics,
+      actions: [
+        `CPA ${fmt(seg.cpa, 0)} EGP — أعلى من ${CPA_IMPROVE_MAX} EGP بكتير. كل أوردر بيكلفك خسارة مؤكدة.`,
+        `أوقف هذا المستوى فوراً. لا تحاول تحسينه — أعد البناء من الصفر باستهداف مختلف.`,
+      ],
+    };
   }
   if (seg.hookRate < HOOK_MIN || seg.ctr < CTR_MIN) {
-    const issue = seg.hookRate < HOOK_MIN
-      ? `Hook Rate ضعيف — ${f1(seg.hookRate)}% (المطلوب: +${HOOK_MIN}%)`
-      : `CTR منخفض — ${f2(seg.ctr)}% (المطلوب: +${CTR_MIN}%)`;
-    return { verdict: "creative", decision: "كريتف ضعيف 🔴", mainIssue: issue, color: "red", metrics, actions: ["غيّر أول 3 ثواني في الفيديو.", "جرّب Hook مختلف — مشكلة + حل.", "اختبر UGC بدل الفيديو الاحترافي."] };
+    const isHook = seg.hookRate < HOOK_MIN;
+    return {
+      verdict: "creative", decision: "كريتف ضعيف 🔴",
+      mainIssue: isHook ? `Hook Rate ${f1(seg.hookRate)}% (المطلوب +${HOOK_MIN}%)` : `CTR ${f2(seg.ctr)}% (المطلوب +${CTR_MIN}%)`,
+      color: "red", metrics,
+      actions: [
+        isHook
+          ? `Hook Rate ${f1(seg.hookRate)}% — من كل 100 شاف الإعلان، ${Math.round(100 - seg.hookRate)} سكب في أول 3 ثواني. الكريتف مش بيجذب.`
+          : `CTR ${f2(seg.ctr)}% — الناس شايفة الإعلان بس مش ضاغطة. الـ Copy أو الـ CTA مش مقنع.`,
+        `أعد تصوير أول 3 ثواني. ابدأ بمشكلة الجمهور بالصوت مباشرة في الكادر الأول — لا Intro، لا شعار.`,
+        `جرّب UGC (شخص بيتكلم للكاميرا) بدل الإعلان المنتج.`,
+      ],
+    };
   }
   if (lpvRate > 0 && lpvRate < LPR_MIN) {
-    return { verdict: "tech", decision: "مشكلة تقنية 🔴", mainIssue: `LPR منخفض — ${f1(lpvRate)}% (المطلوب: +${LPR_MIN}%)`, color: "red", metrics, actions: ["افحص سرعة تحميل الموقع (PageSpeed).", "تحقق من Pixel Helper.", "تأكد من صحة رابط الإعلان."] };
+    return {
+      verdict: "tech", decision: "مشكلة تقنية 🔴", mainIssue: `LPR ${f1(lpvRate)}% — نقرات ضايعة`, color: "red", metrics,
+      actions: [
+        `${fmt(seg.link_clicks, 0)} نقرة على الإعلان، وصل منهم ${fmt(seg.lpv, 0)} للصفحة فقط (LPR ${f1(lpvRate)}%). ${fmt(lostAtClick, 0)} شخص ضاعوا في الطريق — ده مش كريتف، ده موقع بطيء أو رابط غلط.`,
+        `افتح PageSpeed Insights على رابط الإعلان من الموبايل. لو Speed Score < 50 — الاستضافة هي المشكلة.`,
+        `تأكد من الرابط في الإعلان نفسه — أحياناً Redirect بيخسر جزء من الزوار.`,
+      ],
+    };
   }
   if (seg.cr < CR_MIN && seg.lpv > 0) {
-    return { verdict: "landing", decision: "صفحة هبوط 🔴", mainIssue: `CR منخفض — ${f2(seg.cr)}% (المطلوب: +${CR_MIN}%)`, color: "red", metrics, actions: ["أصلح صفحة الهبوط — قوّي الـ CTA.", "أضف Social Proof بالقرب من زر الشراء.", "بسّط الفورم."] };
+    return {
+      verdict: "landing", decision: "صفحة هبوط 🔴", mainIssue: `CR ${f2(seg.cr)}% — الصفحة مش بتقنع`, color: "red", metrics,
+      actions: [
+        `${fmt(seg.lpv, 0)} زيارة للصفحة من هذا المستوى، وطلعت منهم ${seg.purchases} أوردر بس (CR ${f2(seg.cr)}%). ${fmt(visitorsLost, 0)} شخص دخل وخرج — الصفحة مش بتقنع.`,
+        `زرّ الشراء لازم يكون أول حاجة بتتشوف على الموبايل قبل ما يسكرولوا. لو محتاجين يسكرولوا عشان يلاقوه — بتخسر نص الزيارات.`,
+        `أضف جملة ضمان صغيرة جنب الزرار مباشرةً. ده بيرفع الثقة ويزود الـ CR.`,
+      ],
+    };
   }
   if (seg.cpa > CPA_SCALE_MAX) {
-    return { verdict: "improve", decision: "حسّن 🟡", mainIssue: `CPA قابل للتحسين — ${fmt(seg.cpa, 0)} EGP`, color: "amber", metrics, actions: ["اختبر كريتف جديد.", "ضيّق الاستهداف لجمهور أكثر دفئاً."] };
+    const gap = Math.round(seg.cpa - CPA_SCALE_MAX);
+    return {
+      verdict: "improve", decision: "حسّن 🟡", mainIssue: `CPA ${fmt(seg.cpa, 0)} EGP — قابل للتحسين`, color: "amber", metrics,
+      actions: [
+        `CPA ${fmt(seg.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. الحملة مش خسارة بس مش في الوضع المثالي.`,
+        `ضيّق الاستهداف — جرّب Lookalike 1% من قاعدة المشترين بدل Interest Targeting.`,
+        `اختبر كريتف بزاوية مختلفة. الكريتف الحالي وصل لسقف كفاءته.`,
+      ],
+    };
   }
-  return { verdict: "okay", decision: "مقبول ✅", mainIssue: "أداء مقبول", color: "green", metrics, actions: ["استمر بالرصد اليومي."] };
+  return { verdict: "okay", decision: "مقبول ✅", mainIssue: "أداء مقبول", color: "green", metrics, actions: ["مفيش مشكلة واضحة — استمر بالرصد اليومي وابحث عن أفضل Ad Set عشان تزود ميزانيته."] };
 }
 
 // ── Campaign-level diagnosis ───────────────────────────────────
@@ -127,6 +178,8 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
   }
   const holdRate = (totals.video_plays ?? 0) > 0 ? ((totals.v95 ?? 0) / totals.video_plays) * 100 : 0;
   const ctr2lp = totals.link_clicks > 0 ? (totals.lpv / totals.link_clicks) * 100 : 0;
+  const lostAtHook = totals.impressions > 0 ? Math.round(totals.impressions * (1 - totals.hookRate / 100)) : 0;
+  const lostAtClick = totals.link_clicks > 0 ? Math.round(totals.link_clicks * (1 - ctr2lp / 100)) : 0;
 
   const funnel = [
     { label: "المشاهدات", value: fmt(totals.impressions), flag: "good" as Flag },
@@ -151,31 +204,106 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
   if (totals.spend === 0) {
     return { verdict: "nodata", decision: "لا توجد بيانات", problem: "لا يوجد إنفاق في الفترة المحددة", color: "gray", emoji: "⚪", funnel, metrics, actionPlan: ["اختر فترة زمنية مختلفة أو تأكد من تشغيل الحملة."] };
   }
+
   if (totals.cpa > 0 && totals.cpa <= CPA_SCALE_MAX) {
-    return { verdict: "scale", decision: "Scale", problem: "الحملة تحقق أداءً ممتازاً — لا توجد مشكلة", color: "green", emoji: "🟢", funnel, metrics, actionPlan: ["زد الميزانية 20% كل 48 ساعة.", "فعّل Advantage+ Budget Optimization.", "لا تغير الكريتف أو الاستهداف.", "راقب CPA يومياً — أوقف الزيادة إذا تجاوز 50 EGP."] };
+    return {
+      verdict: "scale", decision: "Scale", problem: "الحملة شغالة صح", color: "green", emoji: "🟢", funnel, metrics,
+      actionPlan: [
+        `CPA بـ ${fmt(totals.cpa, 0)} EGP — تحت الـ ${CPA_SCALE_MAX} المستهدف. الحملة رابحة وdّلوقتي هو وقت التوسع مش التجربة.`,
+        `زود الميزانية 20% كل 48 ساعة بس — مش أكتر عشان مش تدخل Learning Phase من أول.`,
+        `لا تلمس الكريتف ولا الاستهداف. أي تعديل دلوقتي ممكن يرمي الـ Algorithm في حلقة تعلم جديدة وترجع CPA للوراء.`,
+        `لو CPA عدى ${CPA_SCALE_MAX + 5} EGP بعد الزيادة — وقّف الزيادة وسيب يستقر يومين.`,
+      ],
+    };
   }
+
   if (totals.frequency > 2.5 && isCtrDeclining(daily)) {
-    return { verdict: "refresh", decision: "Refresh", problem: "تشبع الجمهور — Ad Fatigue", color: "yellow", emoji: "🟡", funnel, metrics, actionPlan: ["وسّع الجمهور أو اختبر Lookalike جديد.", "أطلق كريتيف جديد كلياً.", "جرّب تغيير الـ Placement.", `أوقف الإعلانات بـ Frequency > 3.5 مؤقتاً.`] };
+    return {
+      verdict: "refresh", decision: "Ad Fatigue", problem: "تشبع الجمهور", color: "yellow", emoji: "🟡", funnel, metrics,
+      actionPlan: [
+        `Frequency وصلت ${f2(totals.frequency)} والـ CTR بيقل كل يوم — الجمهور شاف إعلانك أكتر من المطلوب وبدأ يتجاهله. مش مشكلة في الكريتف، مشكلة في التكرار.`,
+        `أوقف الإعلانات اللي Frequency > 3.5 دلوقتي من داخل Ad Set.`,
+        `اعمل كريتف جديد خالص — مش تعديل، مش تغيير ثامبنيل. زاوية بيعية مختلفة من الصفر.`,
+        `وسّع الجمهور بـ Lookalike 2% بدل الـ 1% — أو أضف Interest Exclusions عشان تطرد المحروقين.`,
+      ],
+    };
   }
+
   if (totals.hookRate < HOOK_MIN || totals.ctr < CTR_MIN) {
-    return { verdict: "creative", decision: "Improve Creative", problem: `كريتف ضعيف — Hook Rate ${f1(totals.hookRate)}% · CTR ${f2(totals.ctr)}%`, color: "red", emoji: "🔴", funnel, metrics, actionPlan: ["غيّر أول 3 ثواني — الـ Hook هو المشكلة.", "اختبر زاوية بيعية مختلفة (مشكلة + حل).", "جرّب UGC بدل الإعلان التقليدي.", `Hook Rate المطلوب: +${HOOK_MIN}% | CTR المطلوب: +${CTR_MIN}%`] };
+    const isHookProblem = totals.hookRate < HOOK_MIN;
+    const narrative = isHookProblem
+      ? `الكريتف بيخسر الناس في أول 3 ثواني. Hook Rate ${f1(totals.hookRate)}% — من كل 100 مشاهدة، ${Math.round(100 - totals.hookRate)} شخص سكب قبل ما يكمل. المطلوب +${HOOK_MIN}%. المشكلة مش في المنتج، في أول جملة.`
+      : `الناس بتشوف الإعلان بس مش بتضغط. CTR ${f2(totals.ctr)}% تحت الـ ${CTR_MIN}% المطلوب — يعني من كل 100 مشاهدة، أقل من واحد بيكبس. الإعلان مش بيخلق فضول كفاية.`;
+    return {
+      verdict: "creative", decision: "Improve Creative", problem: isHookProblem ? `كريتف ضعيف — Hook Rate ${f1(totals.hookRate)}%` : `CTR منخفض — ${f2(totals.ctr)}%`, color: "red", emoji: "🔴", funnel, metrics,
+      actionPlan: [
+        narrative,
+        isHookProblem
+          ? `أعد تصوير أول 3 ثواني بس. الكادر الأول لازم يطرح مشكلة الجمهور بالصوت مباشرة — لا Logo، لا Intro، لا موسيقى بدون كلام.`
+          : `غيّر الـ CTA في الإعلان. بدل "اطلب دلوقتي" جرّب سؤال مباشر عن مشكلة بتخص الجمهور. الضغط بيجي من الفضول مش من الأمر.`,
+        `اختبر UGC (شخص بيتكلم للكاميرا) بدل الإعلان المنتج — عادةً Hook Rate بيطلع ضعف.`,
+      ],
+    };
   }
+
   if (totals.ctr >= CTR_MIN && totals.lpv > 0 && ctr2lp < LPR_MIN) {
-    return { verdict: "tech", decision: "Fix Tech", problem: `نقرات بدون زيارات — LPR ${f1(ctr2lp)}% فقط`, color: "red", emoji: "🔴", funnel, metrics, actionPlan: ["افحص سرعة الموقع فوراً (PageSpeed Insights).", "تحقق من Meta Pixel Helper.", "راجع الاستضافة وانقطاعاتها.", "تأكد من صحة رابط الإعلان.", "جرّب Instant Experience."] };
+    return {
+      verdict: "tech", decision: "Fix Tech", problem: `نقرات بدون وصول — LPR ${f1(ctr2lp)}%`, color: "red", emoji: "🔴", funnel, metrics,
+      actionPlan: [
+        `${fmt(totals.link_clicks, 0)} شخص ضغط على الإعلان، وصل منهم ${fmt(totals.lpv, 0)} بس للصفحة (LPR ${f1(ctr2lp)}%). يعني ${fmt(lostAtClick, 0)} شخص اتفقد في الطريق — ده مش كريتف، ده موقع بطيء أو رابط مكسور.`,
+        `افتح PageSpeed Insights على رابط الإعلان على موبايل دلوقتي. لو Speed Score أقل من 50 — الاستضافة هي المشكلة الرئيسية.`,
+        `افتح Meta Pixel Helper في المتصفح وادخل على الرابط. لو مفيش أحداث بتطلع — الـ Pixel نفسه مش شغال على هذه الصفحة.`,
+        `لو الموقع سريع والـ Pixel شغال — تأكد من الرابط في الإعلان نفسه، ممكن يكون فيه Redirect بيضيع الـ UTM.`,
+      ],
+    };
   }
+
   if (totals.crLpv < CR_MIN && (totals.lpv > 0 || ctr2lp >= LPR_MIN)) {
-    return { verdict: "landing", decision: "Improve Landing Page", problem: `صفحة الهبوط تفشل في الإقناع — CR ${f2(totals.crLpv)}%`, color: "red", emoji: "🔴", funnel, metrics, actionPlan: ["صمّم بنموذج AIDA مع Zigzag layout.", "احذف Header/Footer الافتراضيين.", "اربط أزرار الشراء بـ Anchor Link.", "أضف Social Proof بالقرب من CTA.", "بسّط الفورم إلى الحد الأدنى."] };
+    const visitorsLost = totals.lpv > 0 ? totals.lpv - totals.purchases : 0;
+    return {
+      verdict: "landing", decision: "Improve Landing Page", problem: `الصفحة مش بتقنع — CR ${f2(totals.crLpv)}%`, color: "red", emoji: "🔴", funnel, metrics,
+      actionPlan: [
+        `${fmt(totals.lpv, 0)} زيارة للصفحة وطلعت منهم ${totals.purchases} أوردر بس (CR ${f2(totals.crLpv)}%). يعني ${fmt(visitorsLost, 0)} شخص دخل وخرج بدون شراء — الصفحة مش بتقنع. الكريتف مش المشكلة.`,
+        `زرّ الشراء لازم يكون أول حاجة بتتشوف على الموبايل قبل ما يسكرولوا. لو محتاجين يسكرولوا عشان يلاقوا الزرار — بتخسر نص الزيارات هناك.`,
+        `أضف جملة ضمان صغيرة جنب زرّ الشراء مباشرةً — "ضمان استرداد 7 أيام" أو "دفع عند الاستلام". ده بيرفع CR 20-40%.`,
+        `احذف أي Navigation Menu أو روابط خارجية من الصفحة — أي تشتيت بعيد عن الشراء بيكلفك.`,
+      ],
+    };
   }
-  // CPA في النطاق القابل للتحسين (45–80) وكل المؤشرات الأخرى مقبولة
+
   if (totals.purchases > 0 && totals.cpa > CPA_SCALE_MAX && totals.cpa <= CPA_IMPROVE_MAX) {
-    return { verdict: "refresh", decision: "حسّن الأداء 🟡", problem: `CPA قابل للتحسين — ${fmt(totals.cpa, 0)} EGP (الهدف: أقل من ${CPA_SCALE_MAX} EGP)`, color: "yellow", emoji: "🟡", funnel, metrics, actionPlan: [`خفّض CPA من ${fmt(totals.cpa, 0)} إلى أقل من ${CPA_SCALE_MAX} EGP.`, "اختبر كريتف جديد بـ Hook مختلف.", "ضيّق الجمهور لأكثر الشرائح تحويلاً.", "راجع صفحة الهبوط — قوّي الـ CTA.", "اختبر Lookalike من قاعدة المشترين."] };
+    const gap = Math.round(totals.cpa - CPA_SCALE_MAX);
+    return {
+      verdict: "refresh", decision: "حسّن الأداء", problem: `CPA بـ ${fmt(totals.cpa, 0)} EGP — قابل للتحسين`, color: "yellow", emoji: "🟡", funnel, metrics,
+      actionPlan: [
+        `الحملة بتحقق ${totals.purchases} أوردر بس CPA ${fmt(totals.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. مش خسارة بس كمان مش الوضع الأمثل. المشكلة غالباً في اتساع الجمهور أو الكريتف مش موجّه كفاية.`,
+        `ضيّق الجمهور — اعمل Lookalike 1% من قاعدة المشترين الحاليين بدل Interest Targeting. ده عادةً بيخفض CPA 20-30%.`,
+        `اختبر كريتف جديد بزاوية مختلفة — مش تغيير بسيط، بزاوية بيعية مختلفة. الكريتف الحالي وصل لسقفه.`,
+        `لو CPA نزل تحت ${CPA_SCALE_MAX} — ابدأ تزود الميزانية 20% كل 48 ساعة.`,
+      ],
+    };
   }
-  // إنفاق بدون أوردرات والمؤشرات الأمامية جيدة → مشكلة في التتبع أو الصفحة
+
   if (totals.purchases === 0 && totals.spend > 0 && totals.ctr >= CTR_MIN && totals.hookRate >= HOOK_MIN) {
-    return { verdict: "tech", decision: "راجع التتبع 🔴", problem: `كريتف يجذب النقرات لكن لا أوردرات — ${fmt(totals.spend, 0)} EGP إنفاق`, color: "red", emoji: "🔴", funnel, metrics, actionPlan: ["تحقق من Meta Pixel Helper — هل الـ Purchase Event يُطلق صح؟", "افتح Events Manager وتأكد من استقبال أحداث الشراء.", "اختبر شراء حقيقي وتتبع مساره.", "افحص سرعة تحميل صفحة الهبوط (PageSpeed Insights).", "إذا كان الـ Pixel سليم — صفحة الهبوط هي المشكلة، عزّز الـ CTA."] };
+    return {
+      verdict: "tech", decision: "راجع التتبع", problem: `${fmt(totals.spend, 0)} EGP إنفاق بدون أوردر واحد`, color: "red", emoji: "🔴", funnel, metrics,
+      actionPlan: [
+        `الكريتف كويس — Hook Rate ${f1(totals.hookRate)}% والـ CTR ${f2(totals.ctr)}% — الناس بتضغط. بس مفيش أوردر واحد من ${fmt(totals.spend, 0)} EGP إنفاق. ده مش طبيعي. إما الـ Pixel مش بيسجّل الشراء، وإما الصفحة بتعطّل الطلب قبل الإتمام.`,
+        `افتح Events Manager دلوقتي وشوف لو Purchase Event بيوصلك. لو لأ — الـ Pixel Code ناقص من صفحة الشكر.`,
+        `اعمل شراء تجريبي حقيقي وشوف هو بيكمل ولا بيتعطل. ممكن الفورم نفسه فيه مشكلة أو الـ Payment Gateway بيرفض.`,
+        `لو الـ Pixel سليم والطلبات بتكمل — اتحقق من Attribution Window في إعداد الإعلانات. ممكن أوردرات بتتعزى لحملة تانية.`,
+      ],
+    };
   }
-  // أداء مقبول عام — لا مشكلة محددة
-  return { verdict: "nodata", decision: "أداء مقبول 🟡", problem: "لا توجد مشكلة واضحة — الحملة في منطقة الرصد", color: "gray", emoji: "🟡", funnel, metrics, actionPlan: ["استمر بالرصد اليومي.", "تأكد أن تتبع الـ Pixel يعمل بشكل صحيح.", "إذا استمر الأداء المتوسط 3 أيام — جرّب كريتف جديد.", "راجع الاستهداف إذا ارتفع الـ CPA تدريجياً."] };
+
+  return {
+    verdict: "nodata", decision: "أداء مقبول", problem: "لا توجد مشكلة محددة", color: "gray", emoji: "🟡", funnel, metrics,
+    actionPlan: [
+      `مفيش مشكلة واضحة دلوقتي — الحملة في منطقة الرصد. CPA ومؤشرات الفانل مقبولة بس مش استثنائية.`,
+      `استمر بالرصد اليومي لـ CPA والـ CTR — لو حصل انحدار لأكتر من يومين متتاليين، راجع التشخيص بعد جمع بيانات أكتر.`,
+      `افتح Breakdown على مستوى Ad Set وشوف لو فيه Ad Set بيسحب الميزانية بدون أداء — أوقفه وحوّل الميزانية للأفضل.`,
+    ],
+  };
 }
 
 // ── Master runner ──────────────────────────────────────────────
@@ -219,17 +347,28 @@ export function MetricGrid({ metrics }: { metrics: Metric[] }) {
 
 export function ActionList({ actions, color }: { actions: string[]; color: ColorKey }) {
   const cfg = COLOR_CFG[color];
+  const [narrative, ...steps] = actions;
   return (
-    <div className={`rounded-xl border p-4 ${cfg.bg} ${cfg.border}`}>
-      <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">خطة العمل</div>
-      <ul className="space-y-2">
-        {actions.map((step, i) => (
-          <li key={i} className="flex items-start gap-2.5 text-sm">
-            <span className={`shrink-0 h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5 ${cfg.badge}`}>{i + 1}</span>
-            <span className="leading-relaxed">{step}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-2.5">
+      {narrative && (
+        <div className={`rounded-xl border p-3.5 ${cfg.bg} ${cfg.border}`}>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">المشكلة</div>
+          <p className="text-sm leading-relaxed">{narrative}</p>
+        </div>
+      )}
+      {steps.length > 0 && (
+        <div className="rounded-xl border border-border bg-muted/10 p-3.5">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">الحل</div>
+          <ul className="space-y-2">
+            {steps.map((step, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-sm">
+                <span className={`shrink-0 h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5 ${cfg.badge}`}>{i + 1}</span>
+                <span className="leading-relaxed">{step}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
