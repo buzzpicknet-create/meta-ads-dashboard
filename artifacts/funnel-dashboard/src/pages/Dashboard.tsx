@@ -31,6 +31,7 @@ import {
   Rocket,
   ShoppingCart,
   Sparkles,
+  Stethoscope,
   Target,
   TrendingDown,
   TrendingUp,
@@ -47,6 +48,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { DashboardControls } from "@/components/dashboard-controls";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
 import {
@@ -65,6 +72,7 @@ import {
   type CampaignInsights,
   type DerivedMetrics,
   type BreakdownSegment,
+  type DailyPoint,
   rangeFromPreset,
 } from "@/lib/meta-api";
 
@@ -2034,9 +2042,213 @@ function DemographicBreakdowns({
 }
 
 // ──────────────────────────────────────────────────────────────
+// Campaign Diagnosis Engine
+// ──────────────────────────────────────────────────────────────
+
+const CPA_SCALE_MAX = 45; // EGP — winner threshold
+
+interface DiagnosisResult {
+  verdict: "scale" | "refresh" | "creative" | "tech" | "landing" | "nodata";
+  decision: string;
+  problem: string;
+  color: "green" | "yellow" | "red" | "gray";
+  emoji: string;
+  supportingMetrics: Array<{ label: string; value: string; flag?: "good" | "warn" | "bad" }>;
+  actionPlan: string[];
+}
+
+function isCtrDeclining(daily: DailyPoint[]): boolean {
+  const rows = daily.filter((d) => d.impressions > 0).map((d) => (d.link_clicks / d.impressions) * 100);
+  if (rows.length < 4) return false;
+  const half = Math.floor(rows.length / 2);
+  const firstAvg = rows.slice(0, half).reduce((s, v) => s + v, 0) / half;
+  const secondAvg = rows.slice(half).reduce((s, v) => s + v, 0) / (rows.length - half);
+  return secondAvg < firstAvg * 0.85; // ≥15% decline
+}
+
+function runDiagnosis(totals: DerivedMetrics, daily: DailyPoint[]): DiagnosisResult {
+  const holdRate = totals.video_plays > 0 ? (totals.v95 / totals.video_plays) * 100 : 0;
+
+  const supportingMetrics: DiagnosisResult["supportingMetrics"] = [
+    { label: "CPA", value: totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—", flag: totals.cpa > 0 && totals.cpa <= 45 ? "good" : totals.cpa <= 55 ? "warn" : "bad" },
+    { label: "Frequency", value: totals.frequency.toFixed(2), flag: totals.frequency <= 2.5 ? "good" : "bad" },
+    { label: "Outbound CTR", value: `${totals.ctr.toFixed(2)}%`, flag: totals.ctr >= 2 ? "good" : totals.ctr >= 1 ? "warn" : "bad" },
+    { label: "Hook Rate", value: `${totals.hookRate.toFixed(1)}%`, flag: totals.hookRate >= 25 ? "good" : totals.hookRate >= 15 ? "warn" : "bad" },
+    { label: "Hold Rate", value: holdRate > 0 ? `${holdRate.toFixed(1)}%` : "—", flag: holdRate >= 25 ? "good" : holdRate > 0 ? "warn" : undefined },
+    { label: "LPR (Landing Page Rate)", value: totals.lpvRate > 0 ? `${totals.lpvRate.toFixed(1)}%` : "—", flag: totals.lpvRate >= 70 ? "good" : totals.lpvRate >= 50 ? "warn" : "bad" },
+    { label: "CR (Conversion Rate)", value: totals.crLpv > 0 ? `${totals.crLpv.toFixed(2)}%` : "—", flag: totals.crLpv >= 2 ? "good" : totals.crLpv >= 1 ? "warn" : "bad" },
+    { label: "Spend", value: `${fmt(totals.spend, 0)} EGP`, flag: undefined },
+  ];
+
+  if (totals.spend === 0) {
+    return { verdict: "nodata", decision: "لا توجد بيانات", problem: "لا يوجد إنفاق في الفترة المحددة", color: "gray", emoji: "⚪", supportingMetrics, actionPlan: ["اختر فترة زمنية مختلفة أو تأكد من تشغيل الحملة"] };
+  }
+
+  // 1. Scale 🟢
+  if (totals.cpa > 0 && totals.cpa <= CPA_SCALE_MAX) {
+    return {
+      verdict: "scale", decision: "Scale", problem: "لا يوجد — الحملة تحقق أداءً ممتازاً", color: "green", emoji: "🟢",
+      supportingMetrics,
+      actionPlan: [
+        "قم بزيادة الميزانية اليومية بنسبة 20% كل 48 ساعة.",
+        "فعّل Advantage+ Budget Optimization لتوزيع الميزانية تلقائياً على الأفضل أداءً.",
+        "لا تغير الكريتف أو الاستهداف — ثبّت ما يعمل.",
+        "راقب CPA يومياً وأوقف الزيادة إذا تجاوز 50 EGP.",
+      ],
+    };
+  }
+
+  // 2. Ad Fatigue 🟡
+  if (totals.frequency > 2.5 && isCtrDeclining(daily)) {
+    return {
+      verdict: "refresh", decision: "Refresh", problem: "تشبع الجمهور (Ad Fatigue)", color: "yellow", emoji: "🟡",
+      supportingMetrics,
+      actionPlan: [
+        "قم بتوسيع الجمهور المستهدف أو اختبر Lookalike جديد.",
+        "أطلق كريتيف جديد كلياً — غيّر الأسلوب البيعي والـ Hook.",
+        "جرّب تغيير الـ Placement (مثلاً Stories أو Reels بدل Feed).",
+        "أوقف الإعلانات ذات Frequency > 3.5 مؤقتاً وأعد إطلاقها بعد أسبوع.",
+      ],
+    };
+  }
+
+  // 3. Weak Creative 🔴
+  if (totals.hookRate < 25 || totals.ctr < 1) {
+    return {
+      verdict: "creative", decision: "Improve Creative", problem: "الكريتف لا يجذب الانتباه (Weak Hook)", color: "red", emoji: "🔴",
+      supportingMetrics,
+      actionPlan: [
+        "غيّر أول 3 ثواني من الفيديو — الـ Hook هو المشكلة الأساسية.",
+        "اختبر زاوية بيعية مختلفة (مشكلة + حل، بدل العرض المباشر).",
+        "جرّب UGC (محتوى من المستخدمين) كبديل للإعلان التقليدي.",
+        "استخدم نص مباشر وجريء في أول ثانيتين لاستيقاف التمرير.",
+        `Hook Rate الحالي: ${totals.hookRate.toFixed(1)}% — المستهدف: أعلى من 25%.`,
+      ],
+    };
+  }
+
+  // 4. Tech / Traffic Drop-off 🔴
+  if (totals.ctr >= 1 && totals.lpv > 0 && totals.lpvRate < 70) {
+    return {
+      verdict: "tech", decision: "Fix Tech", problem: "نقرات بدون زيارات فعلية (Drop-off)", color: "red", emoji: "🔴",
+      supportingMetrics,
+      actionPlan: [
+        "افحص سرعة تحميل الموقع فوراً باستخدام PageSpeed Insights.",
+        "تأكد من عمل Meta Pixel وسكربتات التتبع عبر Meta Pixel Helper.",
+        "راجع استضافة المتجر — قد تكون بطيئة أو تواجه انقطاعات.",
+        "تأكد أن لينك الإعلان يفتح الصفحة الصحيحة وليس الـ Homepage.",
+        "جرّب تفعيل Instant Experience للتقليل من الاعتماد على سرعة الموقع.",
+      ],
+    };
+  }
+
+  // 5. Landing Page Problem 🔴
+  if (totals.crLpv < 2 && (totals.lpv > 0 || totals.lpvRate >= 70)) {
+    return {
+      verdict: "landing", decision: "Improve Landing Page", problem: "الترافيك مستهدف ولكن الصفحة تفشل في الإقناع", color: "red", emoji: "🔴",
+      supportingMetrics,
+      actionPlan: [
+        "صمّم الصفحة بنموذج AIDA مع تخطيط متعرج (Zigzag layout) لتوجيه عين المستخدم.",
+        "احذف الـ Header والـ Footer الافتراضيين وأقسام الدفع المعتادة لضمان عدم التعارض مع تطبيقات مثل EasySell.",
+        "تأكد أن جميع أزرار الشراء (CTAs) مرتبطة بـ Anchor Link: #gL3WL365fv لتوجيه العميل مباشرة لفورم الطلب.",
+        "أضف Social Proof (تقييمات، أعداد مبيعات) بالقرب من زر الشراء.",
+        "اختصر عدد حقول الفورم إلى الحد الأدنى لتقليل الاحتكاك.",
+      ],
+    };
+  }
+
+  return {
+    verdict: "nodata", decision: "يحتاج بيانات أكثر", problem: "البيانات غير كافية لتشخيص دقيق", color: "gray", emoji: "⚪",
+    supportingMetrics,
+    actionPlan: ["انتظر حتى تتراكم بيانات كافية (3+ أيام من الإنفاق).", "تأكد من تتبع الـ Pixel بشكل صحيح."],
+  };
+}
+
+// ── Diagnosis Modal ────────────────────────────────────────────
+
+function DiagnosisModal({ insights, open, onClose }: { insights: CampaignInsights; open: boolean; onClose: () => void }) {
+  const result = useMemo(() => runDiagnosis(insights.totals, insights.daily), [insights]);
+
+  type ColorKey = "green" | "yellow" | "red" | "gray";
+  const colorCfg: Record<ColorKey, { bg: string; border: string; text: string; badge: string }> = {
+    green:  { bg: "bg-emerald-500/8",  border: "border-emerald-500/25", text: "text-emerald-600 dark:text-emerald-400", badge: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300" },
+    yellow: { bg: "bg-amber-500/8",    border: "border-amber-500/25",   text: "text-amber-600 dark:text-amber-400",   badge: "bg-amber-500/20 text-amber-700 dark:text-amber-300" },
+    red:    { bg: "bg-rose-500/8",     border: "border-rose-500/25",    text: "text-rose-600 dark:text-rose-400",     badge: "bg-rose-500/20 text-rose-700 dark:text-rose-300" },
+    gray:   { bg: "bg-muted/20",       border: "border-border",         text: "text-muted-foreground",                badge: "bg-muted text-muted-foreground" },
+  };
+  const cfg = colorCfg[result.color];
+
+  const flagColor = { good: "text-emerald-600 dark:text-emerald-400", warn: "text-amber-600 dark:text-amber-400", bad: "text-rose-600 dark:text-rose-400" };
+
+  const campaignName = insights.campaign.name.length > 35
+    ? insights.campaign.name.slice(0, 35) + "…"
+    : insights.campaign.name;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto" dir="rtl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-sm">
+            <Stethoscope className="h-4 w-4 text-primary shrink-0" />
+            <span className="truncate">تشخيص الحملة — {campaignName}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pb-2">
+          {/* ① Decision banner */}
+          <div className={`rounded-2xl border p-6 text-center ${cfg.bg} ${cfg.border}`}>
+            <div className="text-5xl mb-3 select-none">{result.emoji}</div>
+            <div className={`text-3xl font-black tracking-tight mb-1 ${cfg.text}`} dir="ltr">{result.decision}</div>
+            <div className="text-xs text-muted-foreground font-medium uppercase tracking-widest">القرار النهائي</div>
+          </div>
+
+          {/* ② Problem */}
+          <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">المشكلة الرئيسية</div>
+            <div className="text-sm font-semibold leading-relaxed">{result.problem}</div>
+          </div>
+
+          {/* ③ Supporting metrics */}
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 px-0.5">الأرقام الداعمة</div>
+            <div className="grid grid-cols-2 gap-2">
+              {result.supportingMetrics.map((m) => (
+                <div key={m.label} className="rounded-lg border border-border bg-muted/10 px-3 py-2.5">
+                  <div className="text-[10px] text-muted-foreground font-medium leading-tight">{m.label}</div>
+                  <div className={`text-sm font-bold font-mono mt-1 ${m.flag ? flagColor[m.flag] : "text-foreground"}`} dir="ltr">{m.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ④ Action plan */}
+          <div className={`rounded-xl border p-4 ${cfg.bg} ${cfg.border}`}>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">خطة العمل</div>
+            <ul className="space-y-2.5">
+              {result.actionPlan.map((step, i) => (
+                <li key={i} className="flex items-start gap-3 text-sm">
+                  <span className={`shrink-0 h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5 ${cfg.badge}`}>{i + 1}</span>
+                  <span className="leading-relaxed">{step}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* footer */}
+          <div className="text-[10px] text-muted-foreground text-center">
+            الفترة: {insights.period.since} → {insights.period.until} · إجمالي الإنفاق: {fmt(insights.totals.spend, 0)} EGP
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // Insights Body — main content
 // ──────────────────────────────────────────────────────────────
 function InsightsBody({ insights }: { insights: CampaignInsights }) {
+  const [diagOpen, setDiagOpen] = useState(false);
   const totals = insights.totals;
   const cpaTarget = Math.round(totals.cpa * 0.8);
 
@@ -2048,6 +2260,21 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
   return (
     <div className="space-y-5">
+      <DiagnosisModal insights={insights} open={diagOpen} onClose={() => setDiagOpen(false)} />
+
+      {/* DIAGNOSIS BUTTON */}
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setDiagOpen(true)}
+          className="gap-2 border-primary/30 text-primary hover:bg-primary/8 hover:border-primary/50"
+        >
+          <Stethoscope className="h-4 w-4" />
+          تشخيص الحملة
+        </Button>
+      </div>
+
       {/* ALERT SYSTEM */}
       <CollapsibleSection title="التنبيهات">
         <AlertSystem totals={totals} byAd={insights.by_ad} />
