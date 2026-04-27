@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { runMediaScan } from "../lib/media-scan";
+import "../lib/auth-middleware";
 
 const router = Router();
 
@@ -101,6 +102,8 @@ router.post("/media-requests", async (req, res) => {
 // PATCH /api/media-requests/:id
 router.patch("/media-requests/:id", async (req, res) => {
   const id = Number(req.params["id"]);
+  const userRole = req.session?.role;
+
   const { status, priority, landing_url, notes, campaign_name,
           drive_link, product_description, angles, scripts, reference_links,
           output_link, upload_link } = req.body as {
@@ -117,6 +120,11 @@ router.patch("/media-requests/:id", async (req, res) => {
     output_link?: string;
     upload_link?: string;
   };
+
+  // media_manager cannot set status to needs_review
+  if (status === "needs_review" && userRole !== "admin") {
+    return res.status(403).json({ error: "غير مصرح — لا يمكن تعيين حالة 'قيد المراجعة'" });
+  }
 
   const updates: string[] = [];
   const params: unknown[] = [];

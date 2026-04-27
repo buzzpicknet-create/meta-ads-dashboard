@@ -4,8 +4,33 @@ import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
 import { warmCreativeCache } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
+import bcrypt from "bcryptjs";
 
 async function runMigrations() {
+  // Session store table (for connect-pg-simple)
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      "sid" VARCHAR NOT NULL COLLATE "default",
+      "sess" JSON NOT NULL,
+      "expire" TIMESTAMP(6) NOT NULL,
+      CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON user_sessions ("expire")
+  `);
+
+  // Users table for authentication
+  await query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(100) NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role VARCHAR(20) NOT NULL DEFAULT 'media_manager',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
+    )
+  `);
   await query(`
     CREATE TABLE IF NOT EXISTS alert_snapshots (
       id SERIAL PRIMARY KEY,
@@ -162,6 +187,17 @@ async function runMigrations() {
      WHERE deleted_at IS NULL
        AND notes ILIKE '%CPM%'`
   );
+  // Create default admin user if no users exist
+  const existingUsers = await query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM users WHERE deleted_at IS NULL`);
+  if (Number(existingUsers[0]?.cnt ?? 0) === 0) {
+    const hash = await bcrypt.hash("admin123", 12);
+    await query(
+      `INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'admin') ON CONFLICT (username) DO NOTHING`,
+      ["admin", hash]
+    );
+    logger.info("Default admin user created: admin / admin123");
+  }
+
   logger.info("Database migrations complete");
 }
 

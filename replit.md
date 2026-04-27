@@ -37,11 +37,22 @@ Arabic RTL Meta Ads dashboard. All amounts in EGP. UI fully Arabic RTL.
 - `src/pages/Dashboard.tsx` — Campaign dashboard
 - `src/pages/Overview.tsx` — Account overview (includes AccountHealthPanel, auto-snapshot logic)
 - `src/pages/Activity.tsx` — Team activity monitor
-- `src/pages/HowTo.tsx` — Diagnostic guide
-- `src/App.tsx` — WouterRouter + NavBar (4 links)
+- `src/pages/MediaRequests.tsx` — Media requests management
+- `src/pages/AdminPage.tsx` — User management (admin only)
+- `src/pages/Login.tsx` — Login page (RTL Arabic)
+- `src/App.tsx` — WouterRouter + NavBar + AuthProvider + route guards
+- `src/contexts/AuthContext.tsx` — Auth state (user, login, logout)
 - `src/lib/meta-api.ts` — All types + fetch functions
 - `src/lib/alerts-api.ts` — Alert snapshot + action API client
 - `src/hooks/use-meta.ts` — React Query hooks
+
+### Authentication & Authorization
+- **Sessions**: express-session + connect-pg-simple (stored in `user_sessions` DB table)
+- **Roles**:
+  - `admin`: sees all pages + user management
+  - `media_manager`: sees only `/media` page; cannot set status to `needs_review`
+- **Default admin**: created on first run — `admin / admin123` (change after first login)
+- **API**: routes protected by auth guard; `/auth/*` endpoints are public
 
 ### Alert Thresholds (AccountHealthPanel)
 - CTR: danger < 1.5%, warn < 2%
