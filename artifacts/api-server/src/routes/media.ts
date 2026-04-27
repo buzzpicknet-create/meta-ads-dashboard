@@ -9,6 +9,7 @@ interface MediaRequest {
   id: number;
   campaign_id: string | null;
   campaign_name: string;
+  account_id: string | null;
   landing_url: string | null;
   status: string;
   priority: string;
@@ -47,7 +48,7 @@ interface AuditLogEntry {
 router.get("/media-requests", async (_req, res) => {
   try {
     const rows = await query<MediaRequest>(
-      `SELECT id, campaign_id, campaign_name, landing_url, status, priority, notes,
+      `SELECT id, campaign_id, campaign_name, account_id, landing_url, status, priority, notes,
               drive_link, product_description, angles, scripts, reference_links,
               output_link, upload_link, created_at, updated_at
        FROM media_requests
@@ -65,10 +66,11 @@ router.get("/media-requests", async (_req, res) => {
 
 // POST /api/media-requests
 router.post("/media-requests", async (req, res) => {
-  const { campaign_id, campaign_name, landing_url, priority, notes,
+  const { campaign_id, campaign_name, account_id, landing_url, priority, notes,
           drive_link, product_description, angles, scripts, reference_links } = req.body as {
     campaign_id?: string;
     campaign_name: string;
+    account_id?: string;
     landing_url?: string;
     priority?: string;
     notes?: string;
@@ -86,11 +88,12 @@ router.post("/media-requests", async (req, res) => {
   try {
     const rows = await query<MediaRequest>(
       `INSERT INTO media_requests
-         (campaign_id, campaign_name, landing_url, status, priority, notes,
+         (campaign_id, campaign_name, account_id, landing_url, status, priority, notes,
           drive_link, product_description, angles, scripts, reference_links)
-       VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [campaign_id ?? null, campaign_name, landing_url ?? null, priority ?? "normal", notes ?? null,
+      [campaign_id ?? null, campaign_name, account_id ?? null, landing_url ?? null,
+       priority ?? "normal", notes ?? null,
        drive_link ?? null, product_description ?? null, angles ?? null, scripts ?? null, reference_links ?? null]
     );
     res.status(201).json({ request: rows[0] });

@@ -82,6 +82,7 @@ function nDaysAgo(n: number): string {
 export interface ScanTriggered {
   campaign_id: string;
   campaign_name: string;
+  account_id: string | null;
   reasons: string[];
   priority: string;
 }
@@ -112,6 +113,7 @@ export async function runMediaScan(): Promise<ScanResult> {
 
   // 2. Fetch campaign-level insights (daily breakdown, last 3 days)
   const allInsights: InsightRow[] = [];
+  const campaignAccountMap = new Map<string, string>(); // campaign_id → account_id
   for (const accountId of accountIds) {
     try {
       const rows = await fbGet<InsightRow>(`/act_${accountId}/insights`, {
@@ -124,6 +126,9 @@ export async function runMediaScan(): Promise<ScanResult> {
         ]),
         limit: "500",
       });
+      for (const r of rows) {
+        if (r.campaign_id) campaignAccountMap.set(r.campaign_id, `act_${accountId}`);
+      }
       allInsights.push(...rows);
     } catch (err) {
       logger.warn({ err, accountId }, "Failed to fetch insights for account");
@@ -237,7 +242,7 @@ export async function runMediaScan(): Promise<ScanResult> {
         priority = "medium";
       }
 
-      triggeredCampaigns.push({ campaign_id: campaignId, campaign_name: name, reasons, priority });
+      triggeredCampaigns.push({ campaign_id: campaignId, campaign_name: name, account_id: campaignAccountMap.get(campaignId) ?? null, reasons, priority });
     }
   }
 
@@ -270,21 +275,21 @@ export async function runMediaScan(): Promise<ScanResult> {
 
   // 7. Create media requests with needs_review status and smart priority
   let requestsCreated = 0;
-  for (const { campaign_id, campaign_name, reasons, priority } of triggeredCampaigns) {
+  for (const { campaign_id, campaign_name, account_id, reasons, priority } of triggeredCampaigns) {
     const landingUrl = landingUrlMap.get(campaign_id) ?? null;
     const notes = `3 ميديا بزوايا مختلفة\n\nالأسباب:\n${reasons.map((r) => `• ${r}`).join("\n")}`;
 
     try {
       const inserted = await query<{ id: number }>(
-        `INSERT INTO media_requests (campaign_id, campaign_name, landing_url, status, priority, notes)
-         VALUES ($1, $2, $3, 'needs_review', $4, $5)
+        `INSERT INTO media_requests (campaign_id, campaign_name, account_id, landing_url, status, priority, notes)
+         VALUES ($1, $2, $3, $4, 'needs_review', $5, $6)
          ON CONFLICT (campaign_id)
          WHERE campaign_id IS NOT NULL
            AND deleted_at IS NULL
            AND status IN ('needs_review', 'pending', 'in_progress')
          DO NOTHING
          RETURNING id`,
-        [campaign_id, campaign_name, landingUrl, priority, notes]
+        [campaign_id, campaign_name, account_id, landingUrl, priority, notes]
       );
       if (inserted.length > 0) {
         requestsCreated++;

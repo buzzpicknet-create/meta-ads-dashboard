@@ -17,6 +17,7 @@ interface MediaRequest {
   id: number;
   campaign_id: string | null;
   campaign_name: string;
+  account_id: string | null;
   landing_url: string | null;
   status: string;
   priority: string;
@@ -160,13 +161,32 @@ function FieldInput({ label, icon, value, onChange, placeholder, type = "text", 
   );
 }
 
+// ─── Account badge helper ─────────────────────────────────────────────────────
+function AccountBadge({ accountId, accounts }: {
+  accountId: string | null;
+  accounts: Array<{ id: string; name?: string }> | undefined;
+}) {
+  if (!accountId) return null;
+  const match = accounts?.find((a) => a.id === accountId || `act_${a.id}` === accountId || a.id === `act_${accountId}`);
+  const rawNum = accountId.replace(/^act_/, "");
+  const label = match?.name ? match.name.slice(0, 18) : `#${rawNum.slice(-6)}`;
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted/50 rounded-full px-1.5 py-0.5 font-mono" dir="ltr">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+      {label}
+    </span>
+  );
+}
+
 // ─── Add Request Modal ────────────────────────────────────────────────────────
 function AddRequestModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { data: campData } = useCampaigns();
+  const { data: accountsData } = useAccounts();
   const campaigns = (campData?.campaigns ?? []).filter(
     (c) => c.effective_status === "ACTIVE" || c.effective_status === "PAUSED"
   );
+  const defaultAccountId = accountsData?.accounts?.[0]?.id ?? "act_1714386865726065";
 
   const [campaignId, setCampaignId] = useState("");
   const [campaignName, setCampaignName] = useState("");
@@ -208,6 +228,7 @@ function AddRequestModal({ onClose }: { onClose: () => void }) {
     mutation.mutate({
       campaign_id: useCustom ? null : campaignId || null,
       campaign_name: name,
+      account_id: useCustom ? null : (defaultAccountId || null),
       landing_url: landingUrl || null,
       priority,
       notes: notes || null,
@@ -486,6 +507,7 @@ function ReviewCard({ req }: { req: MediaRequest }) {
   const qc = useQueryClient();
   const accounts = useAccounts();
   const accountId = accounts.data?.accounts?.[0]?.id;
+  const allAccounts = accounts.data?.accounts;
   const priorityCfg = PRIORITY_CONFIG[req.priority] ?? PRIORITY_CONFIG["normal"]!;
 
   const approveMutation = useMutation({
@@ -520,12 +542,15 @@ function ReviewCard({ req }: { req: MediaRequest }) {
               className="font-semibold text-sm leading-snug"
             />
           </h3>
-          {req.landing_url && (
-            <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5" dir="ltr">
-              <ExternalLink className="h-3 w-3" />
-              {(() => { try { return new URL(req.landing_url).hostname; } catch { return req.landing_url; } })()}
-            </a>
-          )}
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <AccountBadge accountId={req.account_id} accounts={allAccounts} />
+            {req.landing_url && (
+              <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline" dir="ltr">
+                <ExternalLink className="h-3 w-3" />
+                {(() => { try { return new URL(req.landing_url).hostname; } catch { return req.landing_url; } })()}
+              </a>
+            )}
+          </div>
         </div>
         <span className="text-xs text-muted-foreground shrink-0">{formatRelativeTime(req.created_at)}</span>
       </div>
@@ -587,6 +612,7 @@ function MediaCard({ req }: { req: MediaRequest }) {
   const qc = useQueryClient();
   const accounts = useAccounts();
   const accountId = accounts.data?.accounts?.[0]?.id;
+  const allAccounts = accounts.data?.accounts;
   const statusCfg = STATUS_CONFIG[req.status] ?? STATUS_CONFIG["pending"]!;
   const priorityCfg = PRIORITY_CONFIG[req.priority] ?? PRIORITY_CONFIG["normal"]!;
   const [showDetails, setShowDetails] = useState(false);
@@ -639,12 +665,15 @@ function MediaCard({ req }: { req: MediaRequest }) {
                   className="font-semibold text-sm leading-snug"
                 />
               </h3>
-              {req.landing_url && (
-                <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-0.5" dir="ltr">
-                  <ExternalLink className="h-3 w-3" />
-                  {(() => { try { return new URL(req.landing_url).hostname; } catch { return req.landing_url; } })()}
-                </a>
-              )}
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <AccountBadge accountId={req.account_id} accounts={allAccounts} />
+                {req.landing_url && (
+                  <a href={req.landing_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline" dir="ltr">
+                    <ExternalLink className="h-3 w-3" />
+                    {(() => { try { return new URL(req.landing_url).hostname; } catch { return req.landing_url; } })()}
+                  </a>
+                )}
+              </div>
             </div>
             <button onClick={() => setShowEdit(true)} className="text-muted-foreground hover:text-primary transition-colors p-1 rounded-lg hover:bg-muted shrink-0">
               <Pencil className="h-3.5 w-3.5" />
