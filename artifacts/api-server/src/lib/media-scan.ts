@@ -277,7 +277,7 @@ export async function runMediaScan(): Promise<ScanResult> {
   let requestsCreated = 0;
   for (const { campaign_id, campaign_name, account_id, reasons, priority } of triggeredCampaigns) {
     const landingUrl = landingUrlMap.get(campaign_id) ?? null;
-    const notes = `3 ميديا بزوايا مختلفة\n\nالأسباب:\n${reasons.map((r) => `• ${r}`).join("\n")}`;
+    const notes = `الأسباب:\n${reasons.map((r) => `• ${r}`).join("\n")}`;
 
     try {
       const inserted = await query<{ id: number }>(
