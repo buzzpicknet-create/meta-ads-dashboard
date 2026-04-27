@@ -117,14 +117,16 @@ function HowToBtn({
           <Stethoscope className={size === "xs" ? "h-2.5 w-2.5" : "h-3 w-3"} />
           تشخيص
         </button>
-        <CampaignDiagnosisModal
-          campaignId={campaignId}
-          accountId={accountId}
-          since={since}
-          until={until}
-          open={open}
-          onClose={() => setOpen(false)}
-        />
+        {open && (
+          <CampaignDiagnosisModal
+            campaignId={campaignId}
+            accountId={accountId}
+            since={since}
+            until={until}
+            open={open}
+            onClose={() => setOpen(false)}
+          />
+        )}
       </>
     );
   }

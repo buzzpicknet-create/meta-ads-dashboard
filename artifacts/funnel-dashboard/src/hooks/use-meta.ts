@@ -79,6 +79,8 @@ export function useAccountOverview(opts: {
         until: opts.until,
       }),
     staleTime: ONE_HOUR,
+    retry: 1,
+    retryDelay: 30_000,
     enabled: Boolean(opts.ad_account_id && opts.since && opts.until),
   });
 }
@@ -88,6 +90,8 @@ export function useCpaAlerts(opts: { ad_account_id: string | null }) {
     queryKey: ["meta", "cpa-alerts", opts.ad_account_id],
     queryFn: () => fetchCpaAlerts({ ad_account_id: opts.ad_account_id! }),
     staleTime: 15 * 60 * 1000, // 15 min — alerts are time-sensitive
+    retry: 1,
+    retryDelay: 30_000,
     enabled: Boolean(opts.ad_account_id),
   });
 }
@@ -115,6 +119,8 @@ export function useInsights(opts: {
         until: opts.until,
       }),
     staleTime: ONE_HOUR,
+    retry: 1,
+    retryDelay: 20_000,
     enabled: Boolean(
       opts.campaign_id && opts.since && opts.until && opts.ad_account_id,
     ),
