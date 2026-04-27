@@ -79,23 +79,61 @@ import {
 } from "@/lib/meta-api";
 import { snapshotAlerts, type AlertSnapshotInput } from "@/lib/alerts-api";
 import { CollapsibleSection } from "@/components/CollapsibleSection";
+import { CampaignDiagnosisModal } from "@/components/DiagnosisModal";
 
 // ──────────────────────────────────────────────────────────────
-// Diagnose button — navigates to تحليل الحملة tab
+// Diagnose button — opens CampaignDiagnosisModal in-place when
+// campaignId/accountId/since/until are provided; otherwise just
+// renders an inert indicator badge.
 // ──────────────────────────────────────────────────────────────
-function HowToBtn({ size = "sm" }: { problem?: string; metrics?: Record<string, unknown>; size?: "sm" | "xs" }) {
-  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+function HowToBtn({
+  size = "sm",
+  campaignId,
+  accountId,
+  since,
+  until,
+}: {
+  problem?: string;
+  metrics?: Record<string, unknown>;
+  size?: "sm" | "xs";
+  campaignId?: string;
+  accountId?: string;
+  since?: string;
+  until?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const cls = `shrink-0 inline-flex items-center gap-1 font-bold rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-700 dark:text-violet-400 hover:text-violet-800 dark:hover:text-violet-300 transition-colors whitespace-nowrap cursor-pointer ${
+    size === "xs" ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-2 py-1"
+  }`;
+
+  if (campaignId && accountId && since && until) {
+    return (
+      <>
+        <button
+          type="button"
+          className={cls}
+          onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        >
+          <Stethoscope className={size === "xs" ? "h-2.5 w-2.5" : "h-3 w-3"} />
+          تشخيص
+        </button>
+        <CampaignDiagnosisModal
+          campaignId={campaignId}
+          accountId={accountId}
+          since={since}
+          until={until}
+          open={open}
+          onClose={() => setOpen(false)}
+        />
+      </>
+    );
+  }
+
   return (
-    <a
-      href={base + "/"}
-      className={`shrink-0 inline-flex items-center gap-1 font-bold rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-700 dark:text-violet-400 hover:text-violet-800 dark:hover:text-violet-300 transition-colors whitespace-nowrap ${
-        size === "xs" ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-2 py-1"
-      }`}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <span className={cls} onClick={(e) => e.stopPropagation()}>
       <Stethoscope className={size === "xs" ? "h-2.5 w-2.5" : "h-3 w-3"} />
       تشخيص
-    </a>
+    </span>
   );
 }
 
@@ -265,7 +303,7 @@ function CpaWinnerCard({ w }: { w: CpaWinner }) {
   );
 }
 
-function CpaWarningCard({ w }: { w: CpaWarning }) {
+function CpaWarningCard({ w, accountId, since, until }: { w: CpaWarning; accountId?: string; since?: string; until?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-xl bg-amber-500/8 ring-1 ring-amber-500/25 p-4">
@@ -280,6 +318,10 @@ function CpaWarningCard({ w }: { w: CpaWarning }) {
               problem={w.purchases === 0 ? "no-conversions" : "cpa-high"}
               metrics={{ name: w.name, cpa: w.purchases > 0 ? w.cpa : undefined, spend: w.spend, purchases: w.purchases }}
               size="xs"
+              campaignId={w.id}
+              accountId={accountId}
+              since={since}
+              until={until}
             />
           </div>
           <div className="text-sm font-semibold mt-1.5 truncate">{w.name}</div>
@@ -409,7 +451,7 @@ function CpaAlertsPanel({ accountId }: { accountId: string }) {
               <AlertTriangle className="h-3.5 w-3.5" />
               {warnings.length === 1 ? "حملة تحتاج مراقبة" : `${warnings.length} حملات تحتاج مراقبة`} — CPA أعلى من 40 EGP
             </div>
-            {warnings.map((w) => <CpaWarningCard key={w.id} w={w} />)}
+            {warnings.map((w) => <CpaWarningCard key={w.id} w={w} accountId={accountId} since={period.since} until={period.until} />)}
           </div>
         )}
       </CardContent>
