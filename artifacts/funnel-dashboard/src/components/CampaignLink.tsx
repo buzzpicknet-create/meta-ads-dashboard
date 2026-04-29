@@ -79,25 +79,56 @@ function CampaignPopup({
   campaignId: string; campaignName: string; accountId: string;
   since: string; until: string;
 }) {
-  const { data, isLoading, isError } = useQuery<DrillData>({
+  class RateLimitedError extends Error { isRateLimited = true; }
+
+  const { data, isLoading, isError, error, failureCount } = useQuery<DrillData>({
     queryKey: ["camp-popup", campaignId, since, until, accountId],
     queryFn: async () => {
       const r = await fetch(
         `${BASE}/api/meta/insights?campaign_id=${campaignId}&since=${since}&until=${until}&ad_account_id=${accountId}`
       );
+      if (r.status === 429) {
+        const e = new RateLimitedError("rate_limited");
+        throw e;
+      }
       if (!r.ok) throw new Error(await r.text());
       return r.json() as Promise<DrillData>;
     },
     staleTime: 10 * 60_000,
+    retry: (count, err) => {
+      if (err instanceof RateLimitedError) return count < 4; // retry up to 4x
+      return count < 1;
+    },
+    retryDelay: (count, err) => {
+      if (err instanceof RateLimitedError) return (count + 1) * 30_000; // 30s, 60s, 90s, 120s
+      return 3_000;
+    },
   });
 
-  if (isLoading) return (
-    <div className="space-y-3 py-4">
-      {[1, 2, 3, 4].map(i => (
-        <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />
-      ))}
-    </div>
-  );
+  const isRateLimited = error instanceof RateLimitedError;
+
+  if (isLoading || (isRateLimited && failureCount > 0 && !data)) {
+    const retryIn = isRateLimited ? Math.min((failureCount) * 30, 120) : null;
+    return (
+      <div className="space-y-3 py-4">
+        {isRateLimited ? (
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+            <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+              Meta وضعت قيوداً مؤقتة
+            </p>
+            <p className="text-xs text-muted-foreground">
+              إعادة المحاولة خلال {retryIn} ثانية تلقائياً...
+            </p>
+          </div>
+        ) : (
+          [1, 2, 3, 4].map(i => (
+            <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />
+          ))
+        )}
+      </div>
+    );
+  }
 
   if (isError || !data) return (
     <div className="py-8 text-center text-sm text-muted-foreground">

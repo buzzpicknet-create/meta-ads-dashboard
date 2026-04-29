@@ -684,21 +684,35 @@ function buildDiagnosis(daily: DrillDaily[]): string[] {
 function DrillDown({ campaignId, accountId, since, until }: {
   campaignId: string; accountId: string; since: string; until: string;
 }) {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error, failureCount } = useQuery({
     queryKey: ["camp-drill", campaignId, since, until],
     queryFn: async (): Promise<DrillData> => {
       const r = await fetch(
         `${BASE}/api/meta/insights?campaign_id=${campaignId}&since=${since}&until=${until}&ad_account_id=${accountId}`
       );
+      if (r.status === 429) { const e = new Error("rate_limited"); (e as Error & { isRateLimited: boolean }).isRateLimited = true; throw e; }
       if (!r.ok) throw new Error(await r.text());
       return r.json() as Promise<DrillData>;
     },
     staleTime: 10 * 60_000,
+    retry: (count, err) => ((err as Error & { isRateLimited?: boolean }).isRateLimited ? count < 4 : count < 1),
+    retryDelay: (count, err) => ((err as Error & { isRateLimited?: boolean }).isRateLimited ? (count + 1) * 30_000 : 3_000),
   });
 
-  if (isLoading) return (
-    <div className="mt-3 pt-3 border-t border-border space-y-1.5">
-      {[1, 2, 3].map(i => <div key={i} className="h-8 rounded-lg bg-muted animate-pulse" />)}
+  const isRateLimited = (error as Error & { isRateLimited?: boolean })?.isRateLimited;
+
+  if (isLoading || (isRateLimited && !data)) return (
+    <div className="mt-3 pt-3 border-t border-border">
+      {isRateLimited ? (
+        <div className="flex items-center gap-2 py-2 text-xs text-amber-600 dark:text-amber-400">
+          <div className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent flex-shrink-0" />
+          Meta وضعت قيوداً مؤقتة — إعادة المحاولة خلال {Math.min(failureCount * 30, 120)} ث
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {[1, 2, 3].map(i => <div key={i} className="h-8 rounded-lg bg-muted animate-pulse" />)}
+        </div>
+      )}
     </div>
   );
   if (isError || !data) return (

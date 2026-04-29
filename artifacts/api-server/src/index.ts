@@ -5,7 +5,7 @@ import { runMediaScan } from "./lib/media-scan";
 import { warmCreativeCache } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
 import { initVapid, sendPushToRoles } from "./lib/push";
-import { getCpaAlerts } from "./lib/meta-api";
+import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
 import bcrypt from "bcryptjs";
 
 async function runMigrations() {
@@ -307,6 +307,33 @@ const CPA_CRON_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
 const CPA_DEDUP_HOURS = 6;
 const CPA_RECIPIENT_ROLES = ["admin", "media_buyer"];
 
+const CPA_ROUTE_CACHE_FRESH_MS = 15 * 60 * 1000; // same as route's CPA_FRESH_MS
+
+async function getCpaAlertsWithCache(accountId: string): Promise<CpaAlertsResult> {
+  // Check DB cache first (same table the route uses) — avoid extra Meta calls
+  const rows = await query<{ data: string; fetched_at: string }>(
+    `SELECT data, fetched_at FROM meta_cpa_alerts_cache WHERE account_id=$1`,
+    [accountId]
+  );
+  const cached = rows[0] ?? null;
+  if (cached) {
+    const age = Date.now() - new Date(cached.fetched_at).getTime();
+    if (age < CPA_ROUTE_CACHE_FRESH_MS) {
+      logger.info({ accountId, age_s: Math.round(age / 1000) }, "CPA cron: serving from DB cache");
+      return cached.data as unknown as CpaAlertsResult;
+    }
+  }
+  // Cache is stale or missing — fetch fresh data and store it
+  const result = await getCpaAlerts({ adAccountId: accountId });
+  await query(
+    `INSERT INTO meta_cpa_alerts_cache (account_id, data, fetched_at)
+     VALUES ($1,$2,NOW())
+     ON CONFLICT (account_id) DO UPDATE SET data=$2, fetched_at=NOW()`,
+    [accountId, JSON.stringify(result)]
+  ).catch(() => null);
+  return result;
+}
+
 async function runCpaAlertCron() {
   const accountIds = getAdAccountIds();
   if (accountIds.length === 0) {
@@ -316,7 +343,7 @@ async function runCpaAlertCron() {
 
   for (const accountId of accountIds) {
     try {
-      const result = await getCpaAlerts({ adAccountId: accountId });
+      const result = await getCpaAlertsWithCache(accountId);
 
       // Build list of (campaignId, alertType) that were recently notified
       const recentRows = await query<{ campaign_id: string; alert_type: string }>(`

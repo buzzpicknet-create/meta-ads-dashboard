@@ -51,10 +51,32 @@ interface FbApiResponse<T> {
   error?: FbApiError;
 }
 
+// ── Global rate-limit state ────────────────────────────────────────────────
+// Tracks when we last hit a rate limit so subsequent callers can back off.
+let _rateLimitBackoffUntil = 0; // epoch ms — Meta API paused until this time
+const RATE_LIMIT_BACKOFF_MS = 90_000; // 90 seconds initial backoff
+const RATE_LIMIT_CODES = new Set([80004, 17, 32]);
+
+function isRateLimitCode(code: number): boolean {
+  return RATE_LIMIT_CODES.has(code);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fbGet<T>(
   pathOrUrl: string,
   params: Record<string, string> = {},
 ): Promise<T[]> {
+  // Honor any active backoff before making a new request
+  const now = Date.now();
+  if (_rateLimitBackoffUntil > now) {
+    const wait = _rateLimitBackoffUntil - now;
+    logger.warn({ wait_ms: wait }, "Meta rate-limit active — waiting before request");
+    await sleep(wait);
+  }
+
   const url = pathOrUrl.startsWith("http")
     ? new URL(pathOrUrl)
     : new URL(`${BASE_URL}${pathOrUrl}`);
@@ -71,6 +93,14 @@ async function fbGet<T>(
     const res = await fetch(nextUrl);
     const json = (await res.json()) as FbApiResponse<T>;
     if (json.error) {
+      if (isRateLimitCode(json.error.code)) {
+        // Record backoff so all concurrent callers know to wait
+        _rateLimitBackoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+        logger.warn(
+          { code: json.error.code, backoff_s: RATE_LIMIT_BACKOFF_MS / 1000 },
+          "Meta rate-limit hit — backoff recorded"
+        );
+      }
       throw new Error(
         `Meta API error (${json.error.code}): ${json.error.message}`,
       );
