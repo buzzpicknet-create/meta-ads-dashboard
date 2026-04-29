@@ -62,9 +62,10 @@ router.get("/push/settings", async (req, res) => {
 router.post("/push/broadcast", async (req, res) => {
   if (req.session?.role !== "admin") return res.status(403).json({ error: "Forbidden" });
   try {
-    const { title, body, roles } = req.body as {
+    const { title, body, url, roles } = req.body as {
       title: string;
       body: string;
+      url?: string;
       roles: string[];
     };
     if (!title?.trim() || !body?.trim()) {
@@ -73,7 +74,11 @@ router.post("/push/broadcast", async (req, res) => {
     if (!Array.isArray(roles) || roles.length === 0) {
       return res.status(400).json({ error: "اختر مستقبلاً واحداً على الأقل" });
     }
-    await sendPushToRoles(roles, { title: title.trim(), body: body.trim() });
+    await sendPushToRoles(roles, {
+      title: title.trim(),
+      body: body.trim(),
+      ...(url?.trim() ? { url: url.trim() } : {}),
+    });
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "فشل إرسال الإشعار" });

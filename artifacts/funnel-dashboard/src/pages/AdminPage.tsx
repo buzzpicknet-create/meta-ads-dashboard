@@ -687,6 +687,7 @@ function NotificationSettingsSection() {
 function BroadcastSection() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [url, setUrl] = useState("");
   const [roles, setRoles] = useState<string[]>(["admin", "media_buyer", "media_manager"]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -702,13 +703,14 @@ function BroadcastSection() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ title, body, roles }),
+        body: JSON.stringify({ title, body, url: url.trim() || undefined, roles }),
       }).then((r) => r.json()),
     onSuccess: (d) => {
       if (d.ok) {
         setResult({ ok: true, text: "✓ تم الإرسال بنجاح" });
         setTitle("");
         setBody("");
+        setUrl("");
       } else {
         setResult({ ok: false, text: d.error ?? "فشل الإرسال" });
       }
@@ -761,6 +763,26 @@ function BroadcastSection() {
         />
         <p className="text-[10px] text-muted-foreground text-left" dir="ltr">
           {body.length}/200
+        </p>
+      </div>
+
+      {/* Click URL */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          رابط عند الضغط <span className="normal-case text-[10px]">(اختياري)</span>
+        </label>
+        <div className="relative">
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://... أو اتركه فارغاً للصفحة الرئيسية"
+            dir="ltr"
+            className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-amber-400 placeholder:text-right placeholder:dir-rtl"
+          />
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          لو فارغ، الضغط على الإشعار يفتح الصفحة الرئيسية
         </p>
       </div>
 
