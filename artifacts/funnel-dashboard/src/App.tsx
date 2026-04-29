@@ -32,20 +32,22 @@ function NotificationBell() {
   if (state === "loading") return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
 
   const isOn = state === "subscribed";
-  return (
+  return isOn ? (
     <button
-      onClick={isOn ? unsubscribe : subscribe}
-      title={isOn ? "إيقاف الإشعارات" : "تفعيل إشعارات الموبايل"}
-      className={`inline-flex items-center justify-center h-8 w-8 rounded-lg transition-colors relative ${
-        isOn
-          ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-      }`}
+      onClick={unsubscribe}
+      title="إيقاف الإشعارات"
+      className="inline-flex items-center justify-center h-8 w-8 rounded-lg transition-colors relative text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
     >
-      {isOn ? <Bell className="h-4 w-4 fill-amber-500" /> : <BellOff className="h-4 w-4" />}
-      {isOn && (
-        <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-amber-500" />
-      )}
+      <Bell className="h-4 w-4 fill-amber-500" />
+      <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-amber-500" />
+    </button>
+  ) : (
+    <button
+      onClick={subscribe}
+      className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium bg-amber-500 text-white hover:bg-amber-600 transition-colors shrink-0"
+    >
+      <Bell className="h-3.5 w-3.5" />
+      تفعيل الإشعارات
     </button>
   );
 }
