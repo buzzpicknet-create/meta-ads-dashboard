@@ -7,6 +7,7 @@ import campaignsRouter from "./campaigns";
 import authRouter from "./auth";
 import adminRouter from "./admin";
 import activityRouter from "./activity";
+import pushRouter from "./push";
 
 const router = Router();
 
@@ -29,5 +30,6 @@ router.use(mediaRouter);
 router.use(campaignsRouter);
 router.use(adminRouter);
 router.use(activityRouter);
+router.use(pushRouter);
 
 export default router;

@@ -12,7 +12,8 @@ import LoginPage from "@/pages/Login";
 import AdminPage from "@/pages/AdminPage";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2 } from "lucide-react";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,30 @@ const ALL_NAV_ITEMS = [
   { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,   useRoute: "/media",     roles: ["admin", "media_buyer", "media_manager"] },
   { href: "/admin",     label: "المستخدمون",   Icon: Settings,        useRoute: "/admin",      roles: ["admin"] },
 ];
+
+function NotificationBell() {
+  const { state, subscribe, unsubscribe } = usePushNotifications();
+  if (state === "unsupported" || state === "denied") return null;
+  if (state === "loading") return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+
+  const isOn = state === "subscribed";
+  return (
+    <button
+      onClick={isOn ? unsubscribe : subscribe}
+      title={isOn ? "إيقاف الإشعارات" : "تفعيل إشعارات الموبايل"}
+      className={`inline-flex items-center justify-center h-8 w-8 rounded-lg transition-colors relative ${
+        isOn
+          ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      }`}
+    >
+      {isOn ? <Bell className="h-4 w-4 fill-amber-500" /> : <BellOff className="h-4 w-4" />}
+      {isOn && (
+        <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-amber-500" />
+      )}
+    </button>
+  );
+}
 
 function NavBar() {
   const { user, logout } = useAuth();
@@ -75,11 +100,12 @@ function NavBar() {
               })}
             </div>
 
-            {/* User + Logout */}
+            {/* User + Notifications + Logout */}
             <div className="hidden sm:flex items-center gap-2 shrink-0">
               <span className="text-xs text-muted-foreground hidden md:block">
                 {user?.username}
               </span>
+              <NotificationBell />
               <button
                 onClick={logout}
                 title="تسجيل الخروج"

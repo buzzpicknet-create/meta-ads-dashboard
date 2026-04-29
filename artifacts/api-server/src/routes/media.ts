@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { runMediaScan } from "../lib/media-scan";
+import { sendPushToRoles } from "../lib/push";
 import "../lib/auth-middleware";
 
 const router = Router();
@@ -175,6 +176,24 @@ router.patch("/media-requests/:id", async (req, res) => {
         `INSERT INTO media_audit_log (request_id, campaign_name, action, priority) VALUES ($1, $2, 'approved', $3)`,
         [id, updated.campaign_name, updated.priority]
       );
+    }
+
+    // Push notifications on status changes
+    if (prev.status !== updated.status) {
+      const name = updated.campaign_name.slice(0, 40);
+      if (updated.status === "completed") {
+        sendPushToRoles(["admin", "media_buyer"], {
+          title: "✅ طلب ميديا مكتمل",
+          body: `تم تسليم الميديا لحملة "${name}"`,
+          url: "/media",
+        }).catch(() => null);
+      } else if (updated.status === "rejected") {
+        sendPushToRoles(["admin"], {
+          title: "🔴 طلب ميديا مرفوض",
+          body: `تم رفض طلب حملة "${name}"`,
+          url: "/media",
+        }).catch(() => null);
+      }
     }
 
     res.json({ request: updated });

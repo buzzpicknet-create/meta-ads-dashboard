@@ -4,6 +4,7 @@ import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
 import { warmCreativeCache } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
+import { initVapid } from "./lib/push";
 import bcrypt from "bcryptjs";
 
 async function runMigrations() {
@@ -204,6 +205,22 @@ async function runMigrations() {
   `);
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
   await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS account_id VARCHAR(50)`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS push_config (
+      key VARCHAR(50) PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id),
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 
   // Create default admin user if no users exist
   const existingUsers = await query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM users WHERE deleted_at IS NULL`);
@@ -278,6 +295,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 runMigrations()
+  .then(() => initVapid())
   .then(() => {
     app.listen(port, (err) => {
       if (err) {
