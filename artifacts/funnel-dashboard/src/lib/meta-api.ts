@@ -150,6 +150,8 @@ export interface CampaignSummaryFull {
   cpm: number;
   cpc: number;
   cr: number;
+  hookRate: number;
+  video_plays: number;
 }
 
 export interface AdWithIssues {

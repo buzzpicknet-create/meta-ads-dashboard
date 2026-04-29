@@ -656,6 +656,8 @@ export interface CampaignSummaryFull {
   cpm: number;
   cpc: number;
   cr: number;
+  hookRate: number;
+  video_plays: number;
 }
 
 export interface AdWithIssues {
@@ -796,6 +798,8 @@ export async function getAccountOverview(opts: {
       cpm: d.cpm,
       cpc: d.cpc,
       cr: d.crLpv,
+      hookRate: d.hookRate,
+      video_plays: m.video_plays,
     };
   });
 
