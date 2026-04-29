@@ -10,10 +10,11 @@ import MediaRequestsPage from "@/pages/MediaRequests";
 import CreativePage from "@/pages/Creative";
 import LoginPage from "@/pages/Login";
 import AdminPage from "@/pages/AdminPage";
+import DecisionsPage from "@/pages/Decisions";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ const ALL_NAV_ITEMS = [
   { href: "/creative",  label: "مركز الكريتف", Icon: Sparkles,        useRoute: "/creative",  roles: ["admin", "media_buyer"] },
   { href: "/activity",  label: "نشاط الفريق",  Icon: ClipboardList,   useRoute: "/activity",  roles: ["admin", "media_buyer"] },
   { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,   useRoute: "/media",     roles: ["admin", "media_buyer", "media_manager"] },
+  { href: "/decisions", label: "القرارات",      Icon: Target,          useRoute: "/decisions", roles: ["admin"] },
   { href: "/admin",     label: "المستخدمون",   Icon: Settings,        useRoute: "/admin",      roles: ["admin"] },
 ];
 
@@ -217,6 +219,7 @@ function FullRouter({ isAdmin }: { isAdmin: boolean }) {
         <Route path="/activity" component={ActivityPage} />
         <Route path="/media" component={MediaRequestsPage} />
         <Route path="/admin" component={isAdmin ? AdminPage : NotFound} />
+        <Route path="/decisions" component={isAdmin ? DecisionsPage : NotFound} />
         <Route path="/" component={Dashboard} />
         <Route component={NotFound} />
       </Switch>
