@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/db";
-import { getVapidPublicKey, sendPushToUser } from "../lib/push";
+import { getVapidPublicKey, sendPushToUser, sendPushToRoles } from "../lib/push";
 
 interface NotifSetting {
   event_type: string;
@@ -56,6 +56,28 @@ router.get("/push/settings", async (req, res) => {
     res.json({ settings: rows });
   } catch {
     res.status(500).json({ error: "Failed to fetch settings" });
+  }
+});
+
+router.post("/push/broadcast", async (req, res) => {
+  if (req.session?.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+  try {
+    const { title, body, roles } = req.body as {
+      title: string;
+      body: string;
+      roles: string[];
+    };
+    if (!title?.trim() || !body?.trim()) {
+      return res.status(400).json({ error: "العنوان والنص مطلوبان" });
+    }
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return res.status(400).json({ error: "اختر مستقبلاً واحداً على الأقل" });
+    }
+    const { sendPushToRoles } = await import("../lib/push");
+    await sendPushToRoles(roles, { title: title.trim(), body: body.trim() });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "فشل إرسال الإشعار" });
   }
 });
 
