@@ -69,21 +69,33 @@ router.get("/admin/user-activity", requireAdmin, async (_req, res) => {
        ORDER BY last_seen_at DESC NULLS LAST, created_at DESC`
     );
 
-    const logs = await query<{
-      user_id: number;
-      action: string;
-      page: string | null;
-      meta: Record<string, unknown>;
-      created_at: string;
-    }>(
-      `SELECT user_id, action, page, meta, created_at
-       FROM user_activity_logs
-       WHERE action != 'heartbeat'
-         AND user_id = ANY($1::int[])
-       ORDER BY created_at DESC
-       LIMIT 200`,
-      [users.map((u) => u.id)]
-    );
+    const [logs, pushSubs] = await Promise.all([
+      query<{
+        user_id: number;
+        action: string;
+        page: string | null;
+        meta: Record<string, unknown>;
+        created_at: string;
+      }>(
+        `SELECT user_id, action, page, meta, created_at
+         FROM user_activity_logs
+         WHERE action != 'heartbeat'
+           AND user_id = ANY($1::int[])
+         ORDER BY created_at DESC
+         LIMIT 200`,
+        [users.map((u) => u.id)]
+      ),
+      query<{ user_id: number; cnt: string }>(
+        `SELECT user_id, COUNT(*) AS cnt
+         FROM push_subscriptions
+         WHERE user_id = ANY($1::int[])
+         GROUP BY user_id`,
+        [users.map((u) => u.id)]
+      ),
+    ]);
+
+    const pushByUser: Record<number, number> = {};
+    for (const p of pushSubs) pushByUser[p.user_id] = Number(p.cnt);
 
     const logsByUser: Record<number, typeof logs> = {};
     for (const log of logs) {
@@ -95,6 +107,7 @@ router.get("/admin/user-activity", requireAdmin, async (_req, res) => {
 
     const result = users.map((u) => ({
       ...u,
+      push_sub_count: pushByUser[u.id] ?? 0,
       recent_activity: (logsByUser[u.id] ?? []).map((l) => ({
         action: l.action,
         action_label: ACTION_LABELS[l.action] ?? l.action,

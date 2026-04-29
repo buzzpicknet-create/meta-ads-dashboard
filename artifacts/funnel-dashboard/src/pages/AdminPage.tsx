@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   UserPlus, Trash2, KeyRound, Shield, Clapperboard, Activity,
   Loader2, X, ChevronDown, LogIn, Stethoscope, Film, LayoutDashboard,
-  Clock, WifiOff, Bell, ChevronUp, Save, CheckSquare, Square,
+  Clock, WifiOff, Bell, BellOff, ChevronUp, Save, CheckSquare, Square,
   MousePointerClick, Eye, EyeOff, Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +28,7 @@ interface ActivityEntry {
 
 interface UserWithActivity extends User {
   last_seen_at: string | null;
+  push_sub_count: number;
   recent_activity: ActivityEntry[];
 }
 
@@ -357,6 +358,18 @@ function UserActivityCard({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {/* Push notification status */}
+          {u.push_sub_count > 0 ? (
+            <span title={`الإشعارات مفعّلة (${u.push_sub_count} جهاز)`} className="hidden sm:flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 rounded-full px-2 py-0.5">
+              <Bell className="h-2.5 w-2.5" />
+              {u.push_sub_count > 1 ? `${u.push_sub_count} أجهزة` : "إشعارات"}
+            </span>
+          ) : (
+            <span title="الإشعارات غير مفعّلة" className="hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+              <BellOff className="h-2.5 w-2.5" />
+              بدون إشعارات
+            </span>
+          )}
           {/* Quick stats */}
           {(statsMap["diagnosis_run"] ?? 0) > 0 && (
             <span className="hidden sm:flex items-center gap-1 text-[10px] text-blue-600 bg-blue-500/10 rounded-full px-2 py-0.5">
