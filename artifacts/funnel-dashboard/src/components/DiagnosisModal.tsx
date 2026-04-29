@@ -149,7 +149,7 @@ export function diagnoseSegment(seg: SegmentEntry): SegDiag {
       actions: [
         `CPA ${fmt(seg.cpa, 0)} EGP — أعلى من حد الخسارة (${CPA_IMPROVE_MAX} EGP) بـ ${Math.round(seg.cpa - CPA_IMPROVE_MAX)} EGP. كل أوردر بيكلفك خسارة مؤكدة.`,
         `أوقف هذا المستوى فوراً وحوّل ميزانيته للأفضل أداءً. لا تحاول "إنقاذه" بتغييرات صغيرة — الـ Audience غلط من الأساس.`,
-        `عند إعادة البناء: ابدأ بـ Lookalike 1-2% من قاعدة مشترين حقيقيين — مش Interest Targeting — للوصول لجمهور مشابه لمن اشترى فعلاً.`,
+        `عند إعادة البناء: استخدم Advantage+ Audience (Broad بدون أي تحديد جمهور). بعد Andromeda، الـ Algorithm بيلاقي المشترين من الـ Creative Signal أكفأ من أي Lookalike أو Interest. الكريتف هو الـ Targeting الحقيقي دلوقتي.`,
       ],
     };
   }
@@ -224,7 +224,7 @@ export function diagnoseSegment(seg: SegmentEntry): SegDiag {
       actions: [
         `CPA ${fmt(seg.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. الحملة مش خاسرة بس مش في نقطة الـ Scale بعد. في الغالب المشكلة في الجمهور أو أن الكريتف وصل لسقف كفاءته.`,
         `افتح Breakdown > Placement على مستوى هذا الـ Ad Set وشوف: هل Reels أو Feed أو Stories هو الأرخص CPA؟ حوّل الميزانية على الأكفأ وأغلق الباقي.`,
-        `جرّب Lookalike 1% من قاعدة المشترين الحاليين بدل Interest Targeting. في السوق المصري ده بيخفض CPA بنسبة 15-30% في معظم المنتجات.`,
+        `الاستهداف: حوّل لـ Advantage+ Audience (Broad بدون أي تحديد). بعد Andromeda، الـ Algorithm بيلاقي المشترين من الـ Creative Signal — أكفأ من Lookalike وأرخص CPM. مفيش Manual Targeting بيتفوق على AI بعد 2024.`,
         `لو عدد التحويلات < 50 في 7 أيام — أنت لسه في Learning Phase. الـ Algorithm لسه بيتعلم ولم يصل للكفاءة القصوى. سيب يشتغل بدون تغيير يومين قبل أي قرار.`,
       ],
     };
@@ -292,14 +292,16 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
       actionPlan: [
         `CPA ${fmt(totals.cpa, 0)} EGP — تحت الهدف بـ ${Math.round(CPA_SCALE_MAX - totals.cpa)} EGP. الحملة رابحة وجاهزة للتوسع. ${isLearning ? `⚠️ لسه في Learning Phase (${totals.purchases}/50 تحويل) — لا تعدّل أي شيء الآن، سيب Algorithm يكمل تعلمه.` : `الـ Algorithm خرج من Learning Phase ومستقر على الجمهور المثالي.`}`,
         ...(isLearning ? [
-          `في Learning Phase: أي تعديل — حتى الميزانية بأكتر من 20% — بيُعيد العداد للصفر ويبدأ التعلم من جديد. الصبر هنا هو الاستراتيجية.`,
-          `بعد وصول 50 تحويل: ابدأ رفع الميزانية 20% كل 48 ساعة، وفكر في الانتقال لـ Campaign Budget Optimization (CBO) لتوزيع أذكى.`,
+          `في Learning Phase: أي تعديل — حتى الميزانية بأكتر من 20% — بيُعيد العداد للصفر ويبدأ التعلم من جديد. الصبر دلوقتي هو الاستراتيجية الوحيدة.`,
+          `بعد 50 تحويل: ابدأ رفع الميزانية 20% كل 48 ساعة. وفكّر تحوّل لـ CBO (Campaign Budget Optimization) عشان الـ Algorithm يوزع ميزانيتك على الأفضل أوتوماتيكياً.`,
         ] : [
-          `زود الميزانية 20% كل 48 ساعة بالظبط — ليس 30% أو 50%. الـ Meta Algorithm حساس لتغييرات الميزانية الكبيرة وبيرجع للتعلم لو الزيادة كبيرة.`,
-          ...(freqWarning ? [`⚠️ Frequency وصلت ${f2(totals.frequency)} — ابدأ في تجهيز كريتف بديل الآن. لما Fatigue يظهر ويكون الكريتف جاهز بتستبدل فوراً بدون إيقاف الحملة.`] : [
-            `جهّز Lookalike 2% من المشترين كـ Ad Set إضافي في نفس الحملة (CBO) — لو الـ 1% بدأ يتشبع ينقل الميزانية للـ 2% أوتوماتيكياً.`,
+          `زود الميزانية 20% بالظبط كل 48 ساعة — مش 30% مش 50%. الـ Algorithm حساس للتغييرات الكبيرة وبيرجع للتعلم من الأول لو الزيادة مفاجئة.`,
+          ...(freqWarning ? [
+            `⚠️ Frequency وصلت ${f2(totals.frequency)} — جهّز كريتف بديل دلوقتي. لما يظهر Fatigue يكون الكريتف جاهز وتستبدله فوراً بدون إيقاف الحملة أو خسارة أي Learning.`,
+          ] : [
+            `للـ Scale الكبير: حوّل لـ Advantage+ Shopping Campaign (ASC) — أفضل Campaign Type في Meta لـ E-commerce بعد تحديث Andromeda. بيستخدم كل الـ Pixel Data عندك ويلاقي المشترين بدون ما تحدد Audience. أسرع تعلم وأرخص CPA.`,
           ]),
-          `لو CPA تجاوز ${Math.round(CPA_SCALE_MAX * 1.15)} EGP بعد زيادة الميزانية — أوقف الزيادة وسيب الحملة تستقر يومين قبل أي قرار آخر.`,
+          `لو CPA تجاوز ${Math.round(CPA_SCALE_MAX * 1.15)} EGP بعد زيادة الميزانية — أوقف الزيادة وسيب الحملة تستقر يومين قبل أي قرار.`,
         ]),
       ],
     };
@@ -327,9 +329,9 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
       color: "yellow", emoji: "😴", funnel, metrics,
       actionPlan: [
         `Frequency ${f2(totals.frequency)} مع CTR هابط — نفس الجمهور شاف إعلانك ${f2(totals.frequency)} مرة في المتوسط وبدأ يتجاهله. ده مش مشكلة في المنتج أو الكريتف — مشكلة في تكرار التعرض وضيق Pool الجمهور.`,
-        `الحل الفوري (48 ساعة): أضف Exclusion Audience في الـ Ad Set — استبعد "اشترى خلال آخر 60 يوم" + "زار الصفحة خلال آخر 30 يوم". ده بيخفض Frequency للجمهور الجديد بدون إيقاف الحملة.`,
-        `الحل المتوسط (1 أسبوع): انقل لـ Advantage+ Audience (Broad Targeting) وخلّي الـ Meta يبحث عن جمهور مشابه بنفسه. في الغالب بيوصل لـ Pool أكبر بكتير من Interest Targeting وCPM أرخص.`,
-        `اعمل كريتف جديد خالص بزاوية بيعية مختلفة — مش تعديل أو إعادة نشر. إعلان جديد كامل بـ Hook مختلف، مش نفس الإعلان بـ Thumbnail جديد.`,
+        `الحل الأسرع والأذكى: الكريتف هو الـ Targeting دلوقتي. اعمل إعلان جديد خالص بزاوية بيعية مختلفة — مش تعديل، مش Thumbnail جديد، إعلان كامل بـ Hook مختلف. أضفه على نفس الـ Ad Set القديم وخلّي Meta يوزع الميزانية بين القديم والجديد أوتوماتيكياً.`,
+        `بعد Andromeda، مش محتاج تضيف Exclusion Audience أو Lookalike جديد. حوّل الـ Ad Set لـ Advantage+ Audience (Broad بدون أي تحديد) وخلّي Algorithm يلاقي جمهور جديد من خلال الـ Creative Signal نفسه. ده أسرع وأرخص من أي Audience Expansion تقليدية.`,
+        `ملاحظة مهمة: مش لازم توقف الحملة. أضف الكريتف الجديد وسيب الـ Ad Set يشتغل. الـ Algorithm هيحوّل الميزانية للأفضل أداءً تدريجياً بدون تدخل منك.`,
       ],
     };
   }
@@ -415,21 +417,21 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
       color: "yellow", emoji: "🟡", funnel, metrics,
       actionPlan: [
         `CPA ${fmt(totals.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. الحملة مش خاسرة بس مش في نقطة الـ Scale بعد. ${isLearning ? `والأهم: لسه في Learning Phase (${totals.purchases}/50 تحويل) — الـ CPA هيتحسن أوتوماتيكياً لما تعدي 50 تحويل بدون أي تدخل.` : ""}`,
-        `أسرع تحسين للـ CPA: افتح Breakdown على مستوى Ad Set > شوف أي Ad Set عنده CPA > ${CPA_IMPROVE_MAX} EGP > أوقفه فوراً وحوّل ميزانيته للأفضل. ده لوحده ممكن يخفض CPA الحملة كلها بـ 15-25%.`,
-        `جرّب Lookalike 1% من قاعدة المشترين الحاليين بدل Interest Targeting. في السوق المصري Lookalike من قاعدة مشترين حقيقيين بيوصل لنتائج أفضل بـ 15-35% في معظم المنتجات.`,
-        `افتح Placement Breakdown وشوف: Reels vs Feed vs Stories — في الغالب Reels بيجيب Hook Rate أعلى، Feed بيجيب CR أعلى. حوّل الميزانية على الـ Placement الأكثر كفاءة.`,
+        `أسرع تحسين: افتح Breakdown > Ad Set Level > شيّل أي Ad Set بـ CPA > ${CPA_IMPROVE_MAX} EGP فوراً وحوّل ميزانيته للأفضل. ده لوحده بيخفض CPA الحملة الكلي بـ 15-25% بدون أي تغيير في الكريتف.`,
+        `الاستهداف بعد Andromeda: الإجابة مش Lookalike ولا Interest — الإجابة هي Advantage+ Audience (Broad بدون أي تحديد). خلّي Algorithm يلاقي المشترين من الـ Creative Signal نفسه. أكفأ وأرخص CPM من أي Manual Targeting.`,
+        `افتح Placement Breakdown: قارن Reels vs Feed. الـ Reels بيجيب Hook Rate أعلى، الـ Feed بيجيب CR أعلى عادةً. شوف أنهي Placement بـ CPA أرخص وحوّل ليه الميزانية.`,
       ],
     };
   }
 
   return {
-    verdict: "nodata", decision: "أداء مقبول 🟡", problem: "لا توجد مشكلة محددة — استمر بالرصد",
+    verdict: "nodata", decision: "أداء مقبول 🟡", problem: "لا توجد مشكلة محددة — فرصة للتحسين",
     color: "gray", emoji: "🟡", funnel, metrics,
     actionPlan: [
-      `الحملة في منطقة الرصد — الأرقام مقبولة لكن مش استثنائية. CPA ${totals.cpa > 0 ? fmt(totals.cpa, 0) + " EGP" : "غير محدد"} مع ${totals.purchases} تحويل.`,
-      `افتح Breakdown > Age & Gender وشوف لو فيه شريحة بـ CPA ممتاز مقارنة بالباقي. اعمل لها Ad Set منفصل بميزانية أعلى وضيّق الشرائح الأغلى.`,
-      `افتح Placement Breakdown > قارن Reels vs Feed vs Stories vs Stories. في الغالب Placement واحد أو اثنين بيحقق 80% من النتائج. حوّل الميزانية عليهم وأغلق الباقي.`,
-      `لو CPM مرتفع (> 70 EGP) — الجمهور ضيّق أو تنافسي. جرّب Advantage+ Audience (Broad) وخلّي Meta يبحث بنفسه عن أرخص جمهور مهتم.`,
+      `الحملة في منطقة الرصد — الأرقام مقبولة لكن مش استثنائية. CPA ${totals.cpa > 0 ? fmt(totals.cpa, 0) + " EGP" : "غير محدد"} مع ${totals.purchases} تحويل. مفيش مشكلة واضحة لكن في فرصة تحسين حقيقية.`,
+      `الأسرع والأقل خطر: افتح Placement Breakdown وشوف أنهي Placement بـ CPA أرخص (Reels vs Feed vs Stories). في الغالب Placement واحد بيعمل 80% من النتائج. خصّص له الميزانية وأغلق الباقي.`,
+      `الاستهداف: لو لسه بتستخدم Interest Targeting أو Manual Audience، حوّل لـ Advantage+ Audience (Broad بدون أي تحديد). بعد Andromeda، الـ Algorithm بيلاقي المشترين عبر الـ Creative Signal — أكفأ وأرخص CPM من أي Manual Targeting.`,
+      `لو الأرقام مقبولة بس بدون تحسين لأسبوع كامل — الكريتف وصل لسقف كفاءته. اعمل كريتف جديد خالص بزاوية بيعية مختلفة واختبره. الكريتف هو الـ Targeting الأهم دلوقتي.`,
     ],
   };
 }
@@ -475,26 +477,35 @@ export function MetricGrid({ metrics }: { metrics: Metric[] }) {
 
 export function ActionList({ actions, color }: { actions: string[]; color: ColorKey }) {
   const cfg = COLOR_CFG[color];
-  const [narrative, ...steps] = actions;
+  const [diagnosis, ...steps] = actions;
   return (
-    <div className="space-y-2.5">
-      {narrative && (
-        <div className={`rounded-xl border p-3.5 ${cfg.bg} ${cfg.border}`}>
-          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">المشكلة</div>
-          <p className="text-sm leading-relaxed">{narrative}</p>
+    <div className="space-y-3">
+      {diagnosis && (
+        <div className={`rounded-xl border-2 ${cfg.border} ${cfg.bg} p-4`}>
+          <div className={`text-[9px] font-black uppercase tracking-widest mb-2.5 flex items-center gap-1.5 ${cfg.text}`}>
+            <span>⚡</span>
+            <span>التشخيص</span>
+          </div>
+          <p className="text-sm leading-[1.75] text-foreground">{diagnosis}</p>
         </div>
       )}
       {steps.length > 0 && (
-        <div className="rounded-xl border border-border bg-muted/10 p-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">الحل</div>
-          <ul className="space-y-2">
-            {steps.map((step, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm">
-                <span className={`shrink-0 h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5 ${cfg.badge}`}>{i + 1}</span>
-                <span className="leading-relaxed">{step}</span>
-              </li>
-            ))}
-          </ul>
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-4 py-2.5 bg-muted/40 border-b border-border flex items-center gap-2">
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">📋 خطة العمل</span>
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${cfg.badge}`}>{steps.length} خطوات</span>
+          </div>
+          {steps.map((step, i) => (
+            <div
+              key={i}
+              className={`flex items-start gap-4 px-4 py-3.5 ${i < steps.length - 1 ? "border-b border-border/50" : ""}`}
+            >
+              <div className={`shrink-0 w-7 h-7 rounded-full text-[11px] font-black flex items-center justify-center mt-0.5 leading-none ${cfg.badge}`}>
+                {i + 1}
+              </div>
+              <p className="text-sm leading-[1.75] text-foreground flex-1">{step}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -522,38 +533,55 @@ export function FunnelStep({ label, value, rate, flag, isLast }: { label: string
 
 export function SegmentRow({ seg, diag, expanded, onToggle }: { seg: SegmentEntry; diag: SegDiag; expanded: boolean; onToggle: () => void }) {
   const cfg = COLOR_CFG[diag.color];
-  const statusBadge = seg.effective_status ? (
-    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${seg.effective_status === "ACTIVE" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
-      {seg.effective_status === "ACTIVE" ? "نشط" : seg.effective_status === "PAUSED" ? "موقوف" : seg.effective_status}
-    </span>
-  ) : null;
+  const isActive = seg.effective_status === "ACTIVE";
 
   return (
-    <div className="border border-border rounded-xl overflow-hidden">
+    <div className={`border rounded-xl overflow-hidden transition-all ${expanded ? cfg.border : "border-border"}`}>
       <button
-        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-right hover:bg-muted/20 transition-colors"
+        className="w-full flex items-center gap-3 px-3 py-2.5 text-right hover:bg-muted/20 transition-colors"
         onClick={onToggle}
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className={`shrink-0 text-xs font-bold px-2 py-0.5 rounded-md border ${cfg.bg} ${cfg.border} ${cfg.text}`}>{diag.decision}</span>
-          <span className="text-xs truncate text-foreground font-medium">{seg.label}</span>
-        </div>
+        {/* Verdict badge */}
+        <span className={`shrink-0 text-[10px] font-black px-2 py-1 rounded-lg border ${cfg.bg} ${cfg.border} ${cfg.text} leading-none`}>
+          {diag.decision}
+        </span>
+        {/* Name */}
+        <span className="flex-1 text-xs text-foreground font-medium truncate min-w-0">{seg.label}</span>
+        {/* Mini stats */}
         <div className="flex items-center gap-2 shrink-0">
-          {statusBadge}
-          <span className="text-[10px] text-muted-foreground font-mono" dir="ltr">{seg.cpa > 0 ? `${fmt(seg.cpa, 0)} EGP` : "—"}</span>
+          {seg.effective_status && (
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${isActive ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted/50 text-muted-foreground"}`}>
+              {isActive ? "نشط" : "موقوف"}
+            </span>
+          )}
+          {seg.hookRate > 0 && (
+            <span className={`text-[10px] font-mono font-bold ${seg.hookRate >= 25 ? "text-emerald-600 dark:text-emerald-400" : seg.hookRate >= 15 ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400"}`} dir="ltr">
+              VR {seg.hookRate.toFixed(0)}%
+            </span>
+          )}
+          <span className={`text-[10px] font-mono font-bold ${seg.cpa > 0 && seg.cpa <= 45 ? "text-emerald-600 dark:text-emerald-400" : seg.cpa <= 80 ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400"}`} dir="ltr">
+            {seg.cpa > 0 ? `${fmt(seg.cpa, 0)} EGP` : "—"}
+          </span>
           <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
         </div>
       </button>
       {expanded && (
-        <div className="border-t border-border bg-muted/5 px-3 pt-3 pb-3 space-y-3">
-          <div className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cfg.bg} ${cfg.border} ${cfg.text}`}>{diag.mainIssue}</div>
+        <div className="border-t border-border bg-card px-3 pt-3 pb-4 space-y-3">
+          {/* Main issue */}
+          <div className={`rounded-lg border-2 px-3 py-2.5 ${cfg.bg} ${cfg.border}`}>
+            <div className={`text-[9px] font-black uppercase tracking-widest mb-1 ${cfg.text}`}>المشكلة الرئيسية</div>
+            <div className={`text-xs font-bold leading-snug ${cfg.text}`}>{diag.mainIssue}</div>
+          </div>
+          {/* Metrics */}
           <MetricGrid metrics={diag.metrics} />
+          {/* Meta warnings */}
           {seg.issues && seg.issues.length > 0 && (
-            <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2">
-              <div className="text-[10px] font-bold uppercase text-rose-600 dark:text-rose-400 mb-1">تحذيرات Meta</div>
-              {seg.issues.map((iss, i) => <div key={i} className="text-xs text-rose-700 dark:text-rose-300">{iss.summary}</div>)}
+            <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2.5">
+              <div className="text-[9px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400 mb-1.5">⚠ تحذيرات Meta</div>
+              {seg.issues.map((iss, i) => <div key={i} className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">{iss.summary}</div>)}
             </div>
           )}
+          {/* Action plan */}
           <ActionList actions={diag.actions} color={diag.color} />
         </div>
       )}
@@ -668,24 +696,53 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
           </TabsList>
 
           <TabsContent value="campaign" className="flex-1 overflow-y-auto space-y-4 mt-3 pb-2">
-            <div className={`rounded-2xl border p-5 text-center ${cfg.bg} ${cfg.border}`}>
-              <div className="text-4xl mb-2 select-none">{camp.emoji}</div>
-              <div className={`text-2xl font-black tracking-tight ${cfg.text}`} dir="ltr">{camp.decision}</div>
-              <div className="text-xs text-muted-foreground mt-1 font-medium">{camp.problem}</div>
+            {/* ── Verdict Hero ── */}
+            <div className={`rounded-2xl border-2 overflow-hidden ${cfg.border}`}>
+              <div className={`${cfg.bg} px-4 py-3.5 flex items-center gap-3`}>
+                <div className="text-2xl select-none leading-none">{camp.emoji}</div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-base font-black tracking-tight leading-tight ${cfg.text}`}>{camp.decision}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5 leading-snug">{camp.problem}</div>
+                </div>
+                {camp.metrics.find(m => m.label === "CPA") && (
+                  <div className="text-right shrink-0">
+                    <div className={`text-lg font-black font-mono leading-none ${cfg.text}`} dir="ltr">
+                      {camp.metrics.find(m => m.label === "CPA")!.value}
+                    </div>
+                    <div className="text-[9px] text-muted-foreground mt-0.5">CPA</div>
+                  </div>
+                )}
+              </div>
+              {/* Quick stats strip */}
+              <div className="grid grid-cols-4 divide-x divide-x-reverse divide-border border-t border-border bg-muted/10">
+                {(["Purchases","Frequency","CPM","Hook Rate"] as const).map((lbl) => {
+                  const m = camp.metrics.find(x => x.label === lbl);
+                  if (!m) return null;
+                  return (
+                    <div key={lbl} className="text-center py-2">
+                      <div className={`text-xs font-bold font-mono leading-none ${m.flag ? FLAG_TEXT[m.flag] : "text-foreground"}`} dir="ltr">{m.value}</div>
+                      <div className="text-[9px] text-muted-foreground leading-none mt-0.5">{lbl}</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-muted/5 px-4 pt-4 pb-2">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">مسار القمع — Funnel</div>
+            {/* ── Funnel ── */}
+            <div className="rounded-xl border border-border bg-muted/5 px-4 pt-3.5 pb-1">
+              <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-3">الفانل — من الـ Impression للأوردر</div>
               {camp.funnel.map((step, i) => (
                 <FunnelStep key={step.label} {...step} isLast={i === camp.funnel.length - 1} />
               ))}
             </div>
 
+            {/* ── Metrics grid ── */}
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">الأرقام الكاملة</div>
+              <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">الأرقام الكاملة</div>
               <MetricGrid metrics={camp.metrics} />
             </div>
 
+            {/* ── Action plan ── */}
             <ActionList actions={camp.actionPlan} color={camp.color} />
           </TabsContent>
 
