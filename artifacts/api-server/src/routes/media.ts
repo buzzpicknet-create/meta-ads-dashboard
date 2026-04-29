@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { runMediaScan } from "../lib/media-scan";
-import { sendPushToRoles } from "../lib/push";
+import { sendPushForEvent } from "../lib/push";
 import "../lib/auth-middleware";
 
 const router = Router();
@@ -182,13 +182,13 @@ router.patch("/media-requests/:id", async (req, res) => {
     if (prev.status !== updated.status) {
       const name = updated.campaign_name.slice(0, 40);
       if (updated.status === "completed") {
-        sendPushToRoles(["admin", "media_buyer"], {
+        sendPushForEvent("request_completed", {
           title: "✅ طلب ميديا مكتمل",
           body: `تم تسليم الميديا لحملة "${name}"`,
           url: "/media",
         }).catch(() => null);
       } else if (updated.status === "rejected") {
-        sendPushToRoles(["admin"], {
+        sendPushForEvent("request_rejected", {
           title: "🔴 طلب ميديا مرفوض",
           body: `تم رفض طلب حملة "${name}"`,
           url: "/media",

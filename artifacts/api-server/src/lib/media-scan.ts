@@ -1,7 +1,7 @@
 import { getAccessToken, getAdAccountIds } from "./meta-token";
 import { query } from "./db";
 import { logger } from "./logger";
-import { sendPushToRoles } from "./push";
+import { sendPushForEvent } from "./push";
 
 const API_VERSION = "v21.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -295,7 +295,7 @@ export async function runMediaScan(): Promise<ScanResult> {
       if (inserted.length > 0) {
         requestsCreated++;
         logger.info({ campaign_name, reasons, priority }, "Auto media request queued for review");
-        sendPushToRoles(["admin", "media_manager"], {
+        sendPushForEvent("new_scan_request", {
           title: "📋 طلب ميديا جديد",
           body: `تحتاج حملة "${campaign_name.slice(0, 40)}" ميديا جديدة`,
           url: "/media",

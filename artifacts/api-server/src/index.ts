@@ -221,6 +221,20 @@ async function runMigrations() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS notification_settings (
+      event_type VARCHAR(50) PRIMARY KEY,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      recipient_roles TEXT[] NOT NULL DEFAULT '{}'
+    )
+  `);
+  await query(`
+    INSERT INTO notification_settings (event_type, enabled, recipient_roles) VALUES
+      ('request_completed', true, ARRAY['admin','media_buyer']),
+      ('request_rejected', true, ARRAY['admin']),
+      ('new_scan_request', true, ARRAY['admin','media_manager'])
+    ON CONFLICT (event_type) DO NOTHING
+  `);
 
   // Create default admin user if no users exist
   const existingUsers = await query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM users WHERE deleted_at IS NULL`);

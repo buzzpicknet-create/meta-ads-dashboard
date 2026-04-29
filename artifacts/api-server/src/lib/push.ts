@@ -94,6 +94,21 @@ export async function sendPushToRoles(roles: string[], payload: PushPayload) {
   }
 }
 
+export async function sendPushForEvent(eventType: string, payload: PushPayload) {
+  if (!vapidPublicKey) return;
+  try {
+    const rows = await query<{ enabled: boolean; recipient_roles: string[] }>(
+      `SELECT enabled, recipient_roles FROM notification_settings WHERE event_type = $1`,
+      [eventType]
+    );
+    const setting = rows[0];
+    if (!setting || !setting.enabled || setting.recipient_roles.length === 0) return;
+    await sendPushToRoles(setting.recipient_roles, payload);
+  } catch (err) {
+    logger.warn({ err }, "sendPushForEvent failed");
+  }
+}
+
 export async function sendPushToAllUsers(payload: PushPayload) {
   if (!vapidPublicKey) return;
   try {

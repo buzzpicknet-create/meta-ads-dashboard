@@ -2,6 +2,12 @@ import { Router } from "express";
 import { query } from "../lib/db";
 import { getVapidPublicKey } from "../lib/push";
 
+interface NotifSetting {
+  event_type: string;
+  enabled: boolean;
+  recipient_roles: string[];
+}
+
 const router = Router();
 
 router.get("/push/vapid-key", (_req, res) => {
@@ -39,6 +45,35 @@ router.delete("/push/subscribe", async (req, res) => {
     await query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]);
   }
   res.json({ ok: true });
+});
+
+router.get("/push/settings", async (req, res) => {
+  if (req.session?.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+  try {
+    const rows = await query<NotifSetting>(
+      `SELECT event_type, enabled, recipient_roles FROM notification_settings ORDER BY event_type`
+    );
+    res.json({ settings: rows });
+  } catch {
+    res.status(500).json({ error: "Failed to fetch settings" });
+  }
+});
+
+router.put("/push/settings", async (req, res) => {
+  if (req.session?.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+  try {
+    const { settings } = req.body as { settings: NotifSetting[] };
+    if (!Array.isArray(settings)) return res.status(400).json({ error: "Invalid body" });
+    for (const s of settings) {
+      await query(
+        `UPDATE notification_settings SET enabled = $2, recipient_roles = $3 WHERE event_type = $1`,
+        [s.event_type, s.enabled, s.recipient_roles]
+      );
+    }
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "Failed to save settings" });
+  }
 });
 
 export default router;

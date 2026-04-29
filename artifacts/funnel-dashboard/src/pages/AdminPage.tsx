@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   UserPlus, Trash2, KeyRound, Shield, Clapperboard, Activity,
   Loader2, X, ChevronDown, LogIn, Stethoscope, Film, LayoutDashboard,
-  Clock, Wifi, WifiOff,
+  Clock, WifiOff, Bell, ChevronUp, Save, CheckSquare, Square,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -414,6 +414,224 @@ function UserActivityCard({
   );
 }
 
+interface NotifSetting {
+  event_type: string;
+  enabled: boolean;
+  recipient_roles: string[];
+}
+
+const EVENT_META: Record<string, { label: string; icon: string; desc: string }> = {
+  request_completed: {
+    label: "طلب مكتمل",
+    icon: "✅",
+    desc: "عندما يُكتمل طلب ميديا ويُسلَّم",
+  },
+  request_rejected: {
+    label: "طلب مرفوض",
+    icon: "🔴",
+    desc: "عندما يُحذف/يُرفض طلب ميديا",
+  },
+  new_scan_request: {
+    label: "طلب جديد (سكان تلقائي)",
+    icon: "📋",
+    desc: "عندما يكتشف السكان التلقائي حملة تحتاج ميديا جديدة",
+  },
+};
+
+const ALL_ROLES = [
+  { key: "admin", label: "أدمن" },
+  { key: "media_buyer", label: "ميدياباير" },
+  { key: "media_manager", label: "مسئول ميديا" },
+];
+
+function NotificationSettingsSection() {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<NotifSetting[] | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["push-settings"],
+    queryFn: () =>
+      fetch(`${API}/push/settings`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((d) => d.settings as NotifSetting[]),
+    enabled: open,
+  });
+
+  const settings = draft ?? data ?? [];
+
+  function toggleEvent(eventType: string) {
+    const base = draft ?? data ?? [];
+    setDraft(
+      base.map((s) =>
+        s.event_type === eventType ? { ...s, enabled: !s.enabled } : s
+      )
+    );
+  }
+
+  function toggleRole(eventType: string, role: string) {
+    const base = draft ?? data ?? [];
+    setDraft(
+      base.map((s) => {
+        if (s.event_type !== eventType) return s;
+        const has = s.recipient_roles.includes(role);
+        return {
+          ...s,
+          recipient_roles: has
+            ? s.recipient_roles.filter((r) => r !== role)
+            : [...s.recipient_roles, role],
+        };
+      })
+    );
+  }
+
+  const save = useMutation({
+    mutationFn: () =>
+      fetch(`${API}/push/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ settings }),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      setSaved(true);
+      setDraft(null);
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  const isDirty = draft !== null;
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden bg-card">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/40 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-amber-500" />
+          إعدادات الإشعارات
+        </div>
+        {open ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+
+      {open && (
+        <div className="border-t border-border">
+          {isLoading && !data ? (
+            <div className="flex items-center justify-center h-20">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="p-4 space-y-3">
+              {settings.map((s) => {
+                const meta = EVENT_META[s.event_type];
+                if (!meta) return null;
+                return (
+                  <div
+                    key={s.event_type}
+                    className={`rounded-xl border p-4 transition-colors ${
+                      s.enabled
+                        ? "border-amber-200 bg-amber-50/50 dark:border-amber-900/40 dark:bg-amber-900/10"
+                        : "border-border bg-muted/10"
+                    }`}
+                  >
+                    {/* Event header */}
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium flex items-center gap-1.5">
+                          <span>{meta.icon}</span>
+                          {meta.label}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{meta.desc}</p>
+                      </div>
+                      {/* Toggle */}
+                      <button
+                        onClick={() => toggleEvent(s.event_type)}
+                        className={`relative shrink-0 h-6 w-11 rounded-full transition-colors ${
+                          s.enabled ? "bg-amber-500" : "bg-muted-foreground/30"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                            s.enabled ? "translate-x-5 rtl:-translate-x-5" : "translate-x-0.5 rtl:-translate-x-0.5"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Role checkboxes */}
+                    {s.enabled && (
+                      <div>
+                        <p className="text-[11px] text-muted-foreground mb-2 font-medium uppercase tracking-wide">
+                          يُرسَل لـ
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {ALL_ROLES.map((r) => {
+                            const checked = s.recipient_roles.includes(r.key);
+                            return (
+                              <button
+                                key={r.key}
+                                onClick={() => toggleRole(s.event_type, r.key)}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                                  checked
+                                    ? "bg-amber-500 text-white border-amber-500"
+                                    : "border-border text-muted-foreground hover:border-amber-400 hover:text-amber-600"
+                                }`}
+                              >
+                                {checked ? (
+                                  <CheckSquare className="h-3 w-3" />
+                                ) : (
+                                  <Square className="h-3 w-3" />
+                                )}
+                                {r.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {s.recipient_roles.length === 0 && (
+                          <p className="text-[11px] text-red-500 mt-1.5">
+                            ⚠️ لم يُحدد أحد — لن يُرسَل إشعار
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Save */}
+              <div className="flex items-center justify-between pt-1">
+                {saved && (
+                  <span className="text-xs text-emerald-600 font-medium">
+                    ✓ تم الحفظ
+                  </span>
+                )}
+                {!saved && <span />}
+                <button
+                  onClick={() => save.mutate()}
+                  disabled={!isDirty || save.isPending}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-40 transition-colors"
+                >
+                  {save.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5" />
+                  )}
+                  حفظ الإعدادات
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { user: me } = useAuth();
   const qc = useQueryClient();
@@ -505,6 +723,15 @@ export default function AdminPage() {
           ))}
         </div>
       )}
+
+      {/* Notification settings section */}
+      <div className="mt-8">
+        <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+          <Bell className="h-4 w-4" />
+          إعدادات الإشعارات
+        </h2>
+        <NotificationSettingsSection />
+      </div>
 
       {showAdd && <AddUserModal onClose={() => setShowAdd(false)} />}
       {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
