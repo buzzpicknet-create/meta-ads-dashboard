@@ -77,98 +77,167 @@ function isCtrDeclining(daily: DailyPoint[]): boolean {
 
 // ── Segment-level diagnosis ───────────────────────────────────
 export function diagnoseSegment(seg: SegmentEntry): SegDiag {
-  const lpvRate = seg.link_clicks > 0 ? (seg.lpv / seg.link_clicks) * 100 : 0;
-  const lostAtClick = seg.link_clicks > 0 ? Math.round(seg.link_clicks * (1 - lpvRate / 100)) : 0;
-  const visitorsLost = seg.lpv > 0 ? seg.lpv - seg.purchases : 0;
+  const lpvRate   = seg.link_clicks > 0 ? (seg.lpv / seg.link_clicks) * 100 : 0;
+  const lostAtClk = seg.link_clicks > 0 ? Math.round(seg.link_clicks * (1 - lpvRate / 100)) : 0;
+  const lostAtLpv = seg.lpv > 0 ? seg.lpv - seg.purchases : 0;
+  const cplpv     = seg.lpv > 0 ? seg.spend / seg.lpv : 0;
 
   const metrics: Metric[] = [
-    { label: "Spend", value: `${fmt(seg.spend, 0)} EGP` },
-    { label: "Purchases", value: `${seg.purchases}`, flag: seg.purchases > 0 ? "good" : "bad" },
-    { label: "CPA", value: seg.cpa > 0 ? `${fmt(seg.cpa, 0)} EGP` : "—", flag: seg.cpa > 0 ? flagCpa(seg.cpa) : "bad" },
-    { label: "CTR", value: `${f2(seg.ctr)}%`, flag: flagPct(seg.ctr, 2, CTR_MIN) },
-    { label: "Hook Rate", value: `${f1(seg.hookRate)}%`, flag: flagPct(seg.hookRate, HOOK_MIN, 15) },
-    { label: "LPR", value: lpvRate > 0 ? `${f1(lpvRate)}%` : "—", flag: lpvRate > 0 ? flagPct(lpvRate, LPR_MIN, 50) : "bad" },
-    { label: "CR (LPV)", value: seg.cr > 0 ? `${f2(seg.cr)}%` : "—", flag: seg.cr > 0 ? flagPct(seg.cr, CR_MIN, 1) : "bad" },
-    { label: "Frequency", value: f2(seg.frequency), flag: seg.frequency <= 2.5 ? "good" : "bad" },
+    { label: "Spend",      value: `${fmt(seg.spend, 0)} EGP` },
+    { label: "Purchases",  value: `${seg.purchases}`, flag: seg.purchases > 0 ? "good" : "bad" },
+    { label: "CPA",        value: seg.cpa > 0 ? `${fmt(seg.cpa, 0)} EGP` : "—", flag: seg.cpa > 0 ? flagCpa(seg.cpa) : "bad" },
+    { label: "Hook Rate",  value: `${f1(seg.hookRate)}%`, flag: flagPct(seg.hookRate, HOOK_MIN, 15) },
+    { label: "Outbound CTR", value: `${f2(seg.ctr)}%`, flag: flagPct(seg.ctr, 2, CTR_MIN) },
+    { label: "LPR",        value: lpvRate > 0 ? `${f1(lpvRate)}%` : "—", flag: lpvRate > 0 ? flagPct(lpvRate, LPR_MIN, 50) : "bad" },
+    { label: "CR (LPV)",   value: seg.cr > 0 ? `${f2(seg.cr)}%` : "—", flag: seg.cr > 0 ? flagPct(seg.cr, CR_MIN, 1) : "bad" },
+    { label: "Frequency",  value: f2(seg.frequency), flag: seg.frequency <= 2.5 ? "good" : seg.frequency <= 3.5 ? "warn" : "bad" },
+    { label: "CPLPV",      value: cplpv > 0 ? `${f1(cplpv)} EGP` : "—", flag: cplpv > 0 ? (cplpv < 3 ? "good" : cplpv < 7 ? "warn" : "bad") : "bad" },
   ];
 
   if (seg.spend === 0) {
-    return { verdict: "kill", decision: "أوقف", mainIssue: "لا يوجد إنفاق", color: "gray", metrics, actions: ["مفيش إنفاق — تحقق من حالة الـ Ad Set والميزانية."] };
+    return { verdict: "kill", decision: "موقوف ⏸", mainIssue: "لا يوجد إنفاق", color: "gray", metrics,
+      actions: ["مفيش إنفاق — تحقق من حالة الـ Ad Set والميزانية، وتأكد إنه Active ومش Paused."] };
   }
+
+  // Scale: CPA رابح
   if (seg.cpa > 0 && seg.cpa <= CPA_SCALE_MAX) {
+    const isLearning = seg.purchases < 10;
     return {
-      verdict: "scale", decision: "Scale 🟢", mainIssue: `CPA رابح — ${fmt(seg.cpa, 0)} EGP`, color: "green", metrics,
+      verdict: "scale", decision: "Scale 🟢", mainIssue: `CPA ${fmt(seg.cpa, 0)} EGP — رابح${isLearning ? " (لسه بيتعلم)" : ""}`,
+      color: "green", metrics,
       actions: [
-        `CPA ${fmt(seg.cpa, 0)} EGP — تحت الـ ${CPA_SCALE_MAX} المستهدف. هذا المستوى رابح وجاهز للتوسع.`,
-        `زود ميزانية هذا الـ Ad Set 20% كل 48 ساعة. لا تلمس الكريتف ولا الاستهداف.`,
+        `CPA ${fmt(seg.cpa, 0)} EGP على مستوى الـ ${isLearning ? "Ad" : "Ad Set"} — رابح ومحقق الهدف. ${isLearning ? `بس لسه في مرحلة التعلم (${seg.purchases} تحويل فقط) — لا تعدّل شيء دلوقتي.` : "اتخذ قرار التوسع."}`,
+        ...(isLearning ? [
+          `كل تعديل تعمله (ميزانية، جمهور، كريتف) بيرجع عداد التعلم للصفر. سيب يشتغل يومين أكتر أولاً.`,
+        ] : [
+          `زود ميزانية هذا الـ ${isLearning ? "Ad" : "Ad Set"} بـ 20% كل 48 ساعة. مش أكتر — أي زيادة أكبر بتُعيد Algorithm للتعلم.`,
+          `لا تلمس الـ Audience ولا الكريتف طالما CPA في المنطقة الرابحة. الـ Algorithm اتعلّم الجمهور المثالي — أي تغيير ممكن يُضيّع هذا التعلم.`,
+          `احتاط بكريتف بديل جاهز في حالة ظهور Fatigue (Frequency > 3) — عشان تستبدل بدون توقف.`,
+        ]),
       ],
     };
   }
-  if (seg.purchases === 0 && seg.spend > 100) {
+
+  // لا تحويلات + إنفاق كبير
+  if (seg.purchases === 0 && seg.spend > 150) {
+    const isCreativeIssue = seg.hookRate > 0 && seg.hookRate < 20;
+    const isTrackingIssue = seg.ctr >= CTR_MIN && lpvRate >= 60;
     return {
-      verdict: "kill", decision: "أوقف 🔴", mainIssue: `${fmt(seg.spend, 0)} EGP بدون أوردر`, color: "red", metrics,
-      actions: [
-        `${fmt(seg.spend, 0)} EGP إنفاق وصفر أوردرات من هذا المستوى. كل جنيه بيتحرق هنا من غير عائد.`,
-        `أوقف هذا الـ Ad Set/Ad دلوقتي وحوّل ميزانيته للمستوى الأفضل أداءً.`,
-      ],
-    };
-  }
-  if (seg.cpa > CPA_IMPROVE_MAX) {
-    return {
-      verdict: "kill", decision: "أوقف 🔴", mainIssue: `CPA مرتفع جداً — ${fmt(seg.cpa, 0)} EGP`, color: "red", metrics,
-      actions: [
-        `CPA ${fmt(seg.cpa, 0)} EGP — أعلى من ${CPA_IMPROVE_MAX} EGP بكتير. كل أوردر بيكلفك خسارة مؤكدة.`,
-        `أوقف هذا المستوى فوراً. لا تحاول تحسينه — أعد البناء من الصفر باستهداف مختلف.`,
-      ],
-    };
-  }
-  if (seg.hookRate < HOOK_MIN || seg.ctr < CTR_MIN) {
-    const isHook = seg.hookRate < HOOK_MIN;
-    return {
-      verdict: "creative", decision: "كريتف ضعيف 🔴",
-      mainIssue: isHook ? `Hook Rate ${f1(seg.hookRate)}% (المطلوب +${HOOK_MIN}%)` : `CTR ${f2(seg.ctr)}% (المطلوب +${CTR_MIN}%)`,
+      verdict: "kill", decision: "أوقف 🔴", mainIssue: `${fmt(seg.spend, 0)} EGP بدون أوردر واحد`,
       color: "red", metrics,
       actions: [
-        isHook
-          ? `Hook Rate ${f1(seg.hookRate)}% — من كل 100 شاف الإعلان، ${Math.round(100 - seg.hookRate)} سكب في أول 3 ثواني. الكريتف مش بيجذب.`
-          : `CTR ${f2(seg.ctr)}% — الناس شايفة الإعلان بس مش ضاغطة. الـ Copy أو الـ CTA مش مقنع.`,
-        `أعد تصوير أول 3 ثواني. ابدأ بمشكلة الجمهور بالصوت مباشرة في الكادر الأول — لا Intro، لا شعار.`,
-        `جرّب UGC (شخص بيتكلم للكاميرا) بدل الإعلان المنتج.`,
+        `${fmt(seg.spend, 0)} EGP إنفاق وصفر تحويلات من هذا المستوى. كل جنيه بيتحرق هنا بدون عائد — القرار واضح.`,
+        ...(isTrackingIssue ? [
+          `CTR وLPR معقولين — ده بيشير إلى مشكلة Pixel مش مشكلة كريتف. افتح Events Manager > Test Events وتأكد إن Purchase Event بيوصل من الصفحة دي.`,
+          `تحقق إن الـ Ad Set محسّن على Purchase وليس Add to Cart أو View Content — خطأ شائع بيودي إنفاق كبير بدون تحويل حقيقي.`,
+        ] : isCreativeIssue ? [
+          `Hook Rate ${f1(seg.hookRate)}% منخفض جداً — الناس مش بتشوف الإعلان كفاية. غيّر الكريتف قبل إعادة الإطلاق.`,
+          `أوقف وحوّل الميزانية للـ Ad Set/Ad الأفضل أداءً. لا تسيب المال يُحرق على نتائج مؤكدة.`,
+        ] : [
+          `أوقف هذا المستوى فوراً. راجع الـ Audience (ممكن يكون ضيّق جداً أو غير مناسب) والـ Offer على الصفحة.`,
+          `قبل إعادة الإطلاق: اعمل شراء تجريبي حقيقي وتحقق من إن Pixel بيسجّل الأوردر بشكل صحيح.`,
+        ]),
       ],
     };
   }
+
+  // CPA مرتفع جداً → وقّف
+  if (seg.cpa > CPA_IMPROVE_MAX) {
+    return {
+      verdict: "kill", decision: "أوقف 🔴", mainIssue: `CPA ${fmt(seg.cpa, 0)} EGP — خسارة مؤكدة`,
+      color: "red", metrics,
+      actions: [
+        `CPA ${fmt(seg.cpa, 0)} EGP — أعلى من حد الخسارة (${CPA_IMPROVE_MAX} EGP) بـ ${Math.round(seg.cpa - CPA_IMPROVE_MAX)} EGP. كل أوردر بيكلفك خسارة مؤكدة.`,
+        `أوقف هذا المستوى فوراً وحوّل ميزانيته للأفضل أداءً. لا تحاول "إنقاذه" بتغييرات صغيرة — الـ Audience غلط من الأساس.`,
+        `عند إعادة البناء: ابدأ بـ Lookalike 1-2% من قاعدة مشترين حقيقيين — مش Interest Targeting — للوصول لجمهور مشابه لمن اشترى فعلاً.`,
+      ],
+    };
+  }
+
+  // ميت Hook (VR < 15%)
+  if (seg.hookRate > 0 && seg.hookRate < 15) {
+    const skipPct = Math.round(100 - seg.hookRate);
+    return {
+      verdict: "creative", decision: "ميت Hook 🔴", mainIssue: `Hook Rate ${f1(seg.hookRate)}% — ${skipPct}% سكبوا في 3ث`,
+      color: "red", metrics,
+      actions: [
+        `Hook Rate ${f1(seg.hookRate)}% — من كل 100 مشاهد، ${skipPct} شخص سكب قبل ما يعدّي 3 ثواني. ده مش إعلان ضعيف — الكريتف ده مش بيوقف السكرول خالص، والـ Algorithm بيقلل Reach تدريجياً.`,
+        `أعد تصوير أول 3 ثواني فقط بـ Pattern Interrupt حقيقي: وجه بنظرة مباشرة للكاميرا + سؤال مشكلة الجمهور بالاسم في أول جملة، بدون Intro أو موسيقى بدون كلام.`,
+        `جرّب صيغة UGC (Unboxing أو Testimonial حقيقي) — متوسط Hook Rate بتاع UGC على Meta 25-40% مقارنة بـ 8-18% للإعلانات المنتجة في نفس الـ Niche.`,
+      ],
+    };
+  }
+
+  // كريتف ضعيف: Hook أو CTR
+  if (seg.hookRate > 0 && (seg.hookRate < HOOK_MIN || seg.ctr < CTR_MIN)) {
+    const isHookWeak = seg.hookRate < HOOK_MIN;
+    return {
+      verdict: "creative", decision: isHookWeak ? "Hook ضعيف 🟠" : "CTR منخفض 🟠",
+      mainIssue: isHookWeak ? `Hook Rate ${f1(seg.hookRate)}% (المطلوب +${HOOK_MIN}%)` : `Outbound CTR ${f2(seg.ctr)}% (المطلوب +${CTR_MIN}%)`,
+      color: "red", metrics,
+      actions: [
+        isHookWeak
+          ? `Hook Rate ${f1(seg.hookRate)}% — من كل 100 مشاهد، ${Math.round(100 - seg.hookRate)} شخص سكب في أول 3ث. الإعلان مش بيوقف السكرول. الـ Meta Algorithm بيعاقب الكريتف الضعيف بزيادة CPM تدريجياً.`
+          : `Outbound CTR ${f2(seg.ctr)}% — الناس بتشوف الإعلان لكن مش بتضغط. الكريتف بيستحوذ على الانتباه لكن الـ Offer أو الـ CTA مش بيخلق Action.`,
+        isHookWeak
+          ? `أعد تصوير أول 3 ثواني بزاوية مختلفة خالص. جرّب: (1) سؤال مباشر عن مشكلة الجمهور، (2) رقم صادم/إحصاء مثير للفضول، (3) نتيجة المنتج قبل تقديمه.`
+          : `اختبر CTAs مختلفة: بدل "اشتري الآن" جرّب سؤال مباشر أو "شوف الأسعار" أو "احجز نسختك". أضف Urgency حقيقية لو ممكن (كمية محدودة، سعر عرض).`,
+        `اعمل A/B Test رسمي: 3 إعلانات بـ Hook مختلف، نفس الميزانية (50 EGP/يوم لكل)، 3 أيام. خذ الأفضل وأغلق الباقي.`,
+      ],
+    };
+  }
+
+  // مشكلة تقنية (LPR)
   if (lpvRate > 0 && lpvRate < LPR_MIN) {
     return {
-      verdict: "tech", decision: "مشكلة تقنية 🔴", mainIssue: `LPR ${f1(lpvRate)}% — نقرات ضايعة`, color: "red", metrics,
+      verdict: "tech", decision: "مشكلة تقنية 🔴", mainIssue: `LPR ${f1(lpvRate)}% — ${fmt(lostAtClk, 0)} نقرة ضاعت`,
+      color: "red", metrics,
       actions: [
-        `${fmt(seg.link_clicks, 0)} نقرة على الإعلان، وصل منهم ${fmt(seg.lpv, 0)} للصفحة فقط (LPR ${f1(lpvRate)}%). ${fmt(lostAtClick, 0)} شخص ضاعوا في الطريق — ده مش كريتف، ده موقع بطيء أو رابط غلط.`,
-        `افتح PageSpeed Insights على رابط الإعلان من الموبايل. لو Speed Score < 50 — الاستضافة هي المشكلة.`,
-        `تأكد من الرابط في الإعلان نفسه — أحياناً Redirect بيخسر جزء من الزوار.`,
+        `${fmt(seg.link_clicks, 0)} نقرة دفعت Meta ثمنها، وصل منهم ${fmt(seg.lpv, 0)} للصفحة فقط (LPR ${f1(lpvRate)}%). ${fmt(lostAtClk, 0)} شخص اختفى في الطريق — ده مش كريتف، ده موقع بطيء أو Pixel غلط.`,
+        `افتح PageSpeed Insights (pagespeed.web.dev) على رابط الإعلان من الموبايل. لو Performance < 50 — الصفحة بطيئة وبتخسر أكتر من نص النقرات قبل ما تفتح.`,
+        `ثبّت Meta Pixel Helper Extension في Chrome وافتح الرابط. تأكد إن PageView Event بيطلع فوراً — لو مش بيطلع الـ Pixel مش مربوط على هذه الصفحة تحديداً.`,
+        `تحقق من إن الرابط مباشر — كل Redirect زيادة بيخسّر 5-10% من الزوار. استخدم الرابط النهائي مباشرةً في الإعلان بدون URL Shortener.`,
       ],
     };
   }
-  if (seg.cr < CR_MIN && seg.lpv > 0) {
+
+  // صفحة هبوط (CR منخفض)
+  if (seg.cr < CR_MIN && seg.lpv > 10) {
     return {
-      verdict: "landing", decision: "صفحة هبوط 🔴", mainIssue: `CR ${f2(seg.cr)}% — الصفحة مش بتقنع`, color: "red", metrics,
+      verdict: "landing", decision: "صفحة هبوط ضعيفة 🔴", mainIssue: `CR ${f2(seg.cr)}% — ${fmt(lostAtLpv, 0)} زيارة بدون شراء`,
+      color: "red", metrics,
       actions: [
-        `${fmt(seg.lpv, 0)} زيارة للصفحة من هذا المستوى، وطلعت منهم ${seg.purchases} أوردر بس (CR ${f2(seg.cr)}%). ${fmt(visitorsLost, 0)} شخص دخل وخرج — الصفحة مش بتقنع.`,
-        `زرّ الشراء لازم يكون أول حاجة بتتشوف على الموبايل قبل ما يسكرولوا. لو محتاجين يسكرولوا عشان يلاقوه — بتخسر نص الزيارات.`,
-        `أضف جملة ضمان صغيرة جنب الزرار مباشرةً. ده بيرفع الثقة ويزود الـ CR.`,
+        `${fmt(seg.lpv, 0)} زيارة من Meta وصلت الصفحة، ${seg.purchases} أوردر فقط (CR ${f2(seg.cr)}%). ${fmt(lostAtLpv, 0)} شخص دخل وخرج بدون شراء — الكريتف والاستهداف شغالين، الصفحة مش بتحوّل.`,
+        `اعمل Screenshot من موبايل Android وشوف: هل زرّ الشراء والسعر ظاهرين Above the Fold (بدون Scroll)؟ لو لأ — بتخسر 40-60% من الزوار هناك.`,
+        `أضف Social Proof فوري فوق الزرار: عدد الأوردرات ("وصلنا 3500 طلب") أو تقييم نجوم 4.8+. في السوق المصري ده بيرفع CR 25-45%.`,
+        `جرّب "دفع عند الاستلام" كخيار — حتى لو بتأخذ مخاطرة أعلى، في السوق المصري بيضاعف CR في معظم المنتجات. اختبره لمدة 3 أيام وقيس الفرق.`,
       ],
     };
   }
+
+  // يحتاج تحسين (CPA فوق الهدف)
   if (seg.cpa > CPA_SCALE_MAX) {
     const gap = Math.round(seg.cpa - CPA_SCALE_MAX);
     return {
-      verdict: "improve", decision: "حسّن 🟡", mainIssue: `CPA ${fmt(seg.cpa, 0)} EGP — قابل للتحسين`, color: "amber", metrics,
+      verdict: "improve", decision: "حسّن 🟡", mainIssue: `CPA ${fmt(seg.cpa, 0)} EGP — أعلى من الهدف بـ ${gap} EGP`,
+      color: "amber", metrics,
       actions: [
-        `CPA ${fmt(seg.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. الحملة مش خسارة بس مش في الوضع المثالي.`,
-        `ضيّق الاستهداف — جرّب Lookalike 1% من قاعدة المشترين بدل Interest Targeting.`,
-        `اختبر كريتف بزاوية مختلفة. الكريتف الحالي وصل لسقف كفاءته.`,
+        `CPA ${fmt(seg.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. الحملة مش خاسرة بس مش في نقطة الـ Scale بعد. في الغالب المشكلة في الجمهور أو أن الكريتف وصل لسقف كفاءته.`,
+        `افتح Breakdown > Placement على مستوى هذا الـ Ad Set وشوف: هل Reels أو Feed أو Stories هو الأرخص CPA؟ حوّل الميزانية على الأكفأ وأغلق الباقي.`,
+        `جرّب Lookalike 1% من قاعدة المشترين الحاليين بدل Interest Targeting. في السوق المصري ده بيخفض CPA بنسبة 15-30% في معظم المنتجات.`,
+        `لو عدد التحويلات < 50 في 7 أيام — أنت لسه في Learning Phase. الـ Algorithm لسه بيتعلم ولم يصل للكفاءة القصوى. سيب يشتغل بدون تغيير يومين قبل أي قرار.`,
       ],
     };
   }
-  return { verdict: "okay", decision: "مقبول ✅", mainIssue: "أداء مقبول", color: "green", metrics, actions: ["مفيش مشكلة واضحة — استمر بالرصد اليومي وابحث عن أفضل Ad Set عشان تزود ميزانيته."] };
+
+  return {
+    verdict: "okay", decision: "مقبول ✅", mainIssue: "أداء مقبول — استمر بالرصد",
+    color: "green", metrics,
+    actions: [
+      `الأرقام مقبولة على مستوى هذا الـ ${seg.key.startsWith("ad_") ? "Ad" : "Ad Set"}. مفيش مشكلة واضحة — لكن "مقبول" مش "ممتاز".`,
+      `افتح Breakdown > Age وشوف لو فيه شريحة عمرية بـ CPA أقل. اعمل لها Ad Set منفصل بميزانية أعلى وضيّق الباقي.`,
+    ],
+  };
 }
 
 // ── Campaign-level diagnosis ───────────────────────────────────
@@ -176,132 +245,191 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
   if (!totals) {
     return { verdict: "nodata", decision: "لا توجد بيانات", problem: "لم يتم تحميل البيانات بعد", color: "gray", emoji: "⚪", funnel: [], metrics: [], actionPlan: ["أعد تحديث الصفحة."] };
   }
-  const holdRate = (totals.video_plays ?? 0) > 0 ? ((totals.v95 ?? 0) / totals.video_plays) * 100 : 0;
-  const ctr2lp = totals.link_clicks > 0 ? (totals.lpv / totals.link_clicks) * 100 : 0;
-  const lostAtHook = totals.impressions > 0 ? Math.round(totals.impressions * (1 - totals.hookRate / 100)) : 0;
-  const lostAtClick = totals.link_clicks > 0 ? Math.round(totals.link_clicks * (1 - ctr2lp / 100)) : 0;
+
+  const holdRate   = (totals.video_plays ?? 0) > 0 ? ((totals.v95 ?? 0) / totals.video_plays) * 100 : 0;
+  const ctr2lp     = totals.link_clicks > 0 ? (totals.lpv / totals.link_clicks) * 100 : 0;
+  const lostAtClk  = totals.link_clicks > 0 ? Math.round(totals.link_clicks * (1 - ctr2lp / 100)) : 0;
+  const lostAtLpv  = totals.lpv > 0 ? totals.lpv - totals.purchases : 0;
+  const cplpv      = totals.lpv > 0 ? totals.spend / totals.lpv : 0;
+  const isVideo    = (totals.video_plays ?? 0) > 0;
+  const isLearning = totals.purchases < 50;
 
   const funnel = [
-    { label: "المشاهدات", value: fmt(totals.impressions), flag: "good" as Flag },
-    { label: "Hook Rate (3ث)", value: `${f1(totals.hookRate)}%`, rate: `${f1(totals.hookRate)}%`, flag: flagPct(totals.hookRate, HOOK_MIN, 15) },
-    { label: "Outbound CTR", value: `${f2(totals.ctr)}%`, rate: `${f2(totals.ctr)}%`, flag: flagPct(totals.ctr, 2, CTR_MIN) },
-    { label: "Landing Page Rate", value: `${f1(ctr2lp)}%`, rate: `${f1(ctr2lp)}%`, flag: flagPct(ctr2lp, LPR_MIN, 50) },
-    { label: "Conversion Rate", value: `${f2(totals.crLpv)}%`, rate: `${f2(totals.crLpv)}%`, flag: flagPct(totals.crLpv, CR_MIN, 1) },
-    { label: "Hold Rate (95%)", value: holdRate > 0 ? `${f1(holdRate)}%` : "—", flag: holdRate > 0 ? flagPct(holdRate, 25, 15) : ("bad" as Flag) },
+    { label: "المشاهدات (Impressions)", value: fmt(totals.impressions), flag: "good" as Flag },
+    ...(isVideo ? [
+      { label: "Hook Rate (3ث — وقف السكرول)", value: `${f1(totals.hookRate)}%`, rate: `${f1(totals.hookRate)}%`, flag: flagPct(totals.hookRate, HOOK_MIN, 15) as Flag },
+      ...(holdRate > 0 ? [{ label: "Hold Rate (ThruPlay 95%)", value: `${f1(holdRate)}%`, rate: `${f1(holdRate)}%`, flag: flagPct(holdRate, 25, 15) as Flag }] : []),
+    ] : []),
+    { label: "Outbound CTR (نقر للخروج)", value: `${f2(totals.ctr)}%`, rate: `${f2(totals.ctr)}%`, flag: flagPct(totals.ctr, 2, CTR_MIN) as Flag },
+    { label: "Landing Page Rate (LPR)", value: ctr2lp > 0 ? `${f1(ctr2lp)}%` : "—", rate: `${f1(ctr2lp)}%`, flag: flagPct(ctr2lp, LPR_MIN, 50) as Flag },
+    { label: "Conv. Rate — LPV→شراء", value: `${f2(totals.crLpv)}%`, rate: `${f2(totals.crLpv)}%`, flag: flagPct(totals.crLpv, CR_MIN, 1) as Flag },
   ];
 
   const metrics: Metric[] = [
-    { label: "CPA", value: totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—", flag: totals.cpa > 0 ? flagCpa(totals.cpa) : "bad" },
-    { label: "Spend", value: `${fmt(totals.spend, 0)} EGP` },
-    { label: "Purchases", value: `${totals.purchases}`, flag: totals.purchases > 0 ? "good" : "bad" },
-    { label: "Frequency", value: f2(totals.frequency), flag: totals.frequency <= 2.5 ? "good" : "bad" },
-    { label: "CPM", value: `${fmt(totals.cpm, 0)} EGP` },
-    { label: "CPC", value: `${fmt(totals.cpc, 0)} EGP` },
-    { label: "Link Clicks", value: fmt(totals.link_clicks) },
-    { label: "LPV", value: fmt(totals.lpv) },
+    { label: "CPA",         value: totals.cpa > 0 ? `${fmt(totals.cpa, 0)} EGP` : "—", flag: totals.cpa > 0 ? flagCpa(totals.cpa) : "bad" },
+    { label: "Spend",       value: `${fmt(totals.spend, 0)} EGP` },
+    { label: "Purchases",   value: `${totals.purchases}`, flag: totals.purchases > 0 ? "good" : "bad" },
+    { label: "Frequency",   value: f2(totals.frequency), flag: totals.frequency <= 2.5 ? "good" : totals.frequency <= 3.5 ? "warn" : "bad" },
+    { label: "CPM",         value: `${fmt(totals.cpm, 0)} EGP`, flag: totals.cpm < 30 ? "good" : totals.cpm < 70 ? "warn" : "bad" },
+    { label: "CPLPV",       value: cplpv > 0 ? `${f1(cplpv)} EGP` : "—", flag: cplpv > 0 ? (cplpv < 3 ? "good" : cplpv < 8 ? "warn" : "bad") : "bad" },
+    { label: "Hook Rate",   value: `${f1(totals.hookRate)}%`, flag: flagPct(totals.hookRate, HOOK_MIN, 15) },
+    ...(holdRate > 0 ? [{ label: "Hold Rate (95%)", value: `${f1(holdRate)}%`, flag: flagPct(holdRate, 25, 15) as Flag }] : []),
+    { label: "CPC",         value: `${fmt(totals.cpc, 0)} EGP` },
+    { label: "LPV",         value: fmt(totals.lpv) },
   ];
 
   if (totals.spend === 0) {
-    return { verdict: "nodata", decision: "لا توجد بيانات", problem: "لا يوجد إنفاق في الفترة المحددة", color: "gray", emoji: "⚪", funnel, metrics, actionPlan: ["اختر فترة زمنية مختلفة أو تأكد من تشغيل الحملة."] };
+    return { verdict: "nodata", decision: "لا توجد بيانات", problem: "لا يوجد إنفاق في الفترة المحددة", color: "gray", emoji: "⚪", funnel, metrics,
+      actionPlan: ["اختر فترة زمنية مختلفة أو تأكد من تشغيل الحملة وأنها لم تنتهِ ميزانيتها."] };
   }
 
+  // ① Scale — CPA رابح
   if (totals.cpa > 0 && totals.cpa <= CPA_SCALE_MAX) {
+    const freqWarning = totals.frequency > 2.8;
     return {
-      verdict: "scale", decision: "Scale", problem: "الحملة شغالة صح", color: "green", emoji: "🟢", funnel, metrics,
+      verdict: "scale", decision: "Scale 🟢", problem: `CPA ${fmt(totals.cpa, 0)} EGP — الحملة رابحة${isLearning ? " (Learning Phase)" : ""}`,
+      color: "green", emoji: "🟢", funnel, metrics,
       actionPlan: [
-        `CPA بـ ${fmt(totals.cpa, 0)} EGP — تحت الـ ${CPA_SCALE_MAX} المستهدف. الحملة رابحة وdّلوقتي هو وقت التوسع مش التجربة.`,
-        `زود الميزانية 20% كل 48 ساعة بس — مش أكتر عشان مش تدخل Learning Phase من أول.`,
-        `لا تلمس الكريتف ولا الاستهداف. أي تعديل دلوقتي ممكن يرمي الـ Algorithm في حلقة تعلم جديدة وترجع CPA للوراء.`,
-        `لو CPA عدى ${CPA_SCALE_MAX + 5} EGP بعد الزيادة — وقّف الزيادة وسيب يستقر يومين.`,
+        `CPA ${fmt(totals.cpa, 0)} EGP — تحت الهدف بـ ${Math.round(CPA_SCALE_MAX - totals.cpa)} EGP. الحملة رابحة وجاهزة للتوسع. ${isLearning ? `⚠️ لسه في Learning Phase (${totals.purchases}/50 تحويل) — لا تعدّل أي شيء الآن، سيب Algorithm يكمل تعلمه.` : `الـ Algorithm خرج من Learning Phase ومستقر على الجمهور المثالي.`}`,
+        ...(isLearning ? [
+          `في Learning Phase: أي تعديل — حتى الميزانية بأكتر من 20% — بيُعيد العداد للصفر ويبدأ التعلم من جديد. الصبر هنا هو الاستراتيجية.`,
+          `بعد وصول 50 تحويل: ابدأ رفع الميزانية 20% كل 48 ساعة، وفكر في الانتقال لـ Campaign Budget Optimization (CBO) لتوزيع أذكى.`,
+        ] : [
+          `زود الميزانية 20% كل 48 ساعة بالظبط — ليس 30% أو 50%. الـ Meta Algorithm حساس لتغييرات الميزانية الكبيرة وبيرجع للتعلم لو الزيادة كبيرة.`,
+          ...(freqWarning ? [`⚠️ Frequency وصلت ${f2(totals.frequency)} — ابدأ في تجهيز كريتف بديل الآن. لما Fatigue يظهر ويكون الكريتف جاهز بتستبدل فوراً بدون إيقاف الحملة.`] : [
+            `جهّز Lookalike 2% من المشترين كـ Ad Set إضافي في نفس الحملة (CBO) — لو الـ 1% بدأ يتشبع ينقل الميزانية للـ 2% أوتوماتيكياً.`,
+          ]),
+          `لو CPA تجاوز ${Math.round(CPA_SCALE_MAX * 1.15)} EGP بعد زيادة الميزانية — أوقف الزيادة وسيب الحملة تستقر يومين قبل أي قرار آخر.`,
+        ]),
       ],
     };
   }
 
+  // ② ميت Hook (VR < 15%) — أخطر من كريتف ضعيف
+  if (isVideo && totals.hookRate < 15) {
+    const skipPct = Math.round(100 - totals.hookRate);
+    return {
+      verdict: "creative", decision: "ميت Hook 💀", problem: `Hook Rate ${f1(totals.hookRate)}% — ${skipPct}% سكبوا في 3ث الأولى`,
+      color: "red", emoji: "💀", funnel, metrics,
+      actionPlan: [
+        `Hook Rate ${f1(totals.hookRate)}% — من كل 100 شخص شاف الإعلان، ${skipPct} شخص سكب قبل ما يعدي 3 ثواني. ده مش إعلان ضعيف — ده إعلان مش بيوقف السكرول خالص. الـ Meta Algorithm يلاحظ نسبة الـ Skip ويرفع CPM تدريجياً عقاباً على جودة الكريتف المنخفضة.`,
+        `أول 3 ثواني هي القرار الوحيد. الـ Pattern Interrupt الأكتر فاعلية على Meta حالياً: (1) وجه بنظرة مباشرة للكاميرا + سؤال "هل عندك مشكلة [X]؟"، (2) رقم صادم يخص الجمهور في الكادر الأول، (3) النتيجة/التحول قبل عرض المنتج.`,
+        `جرّب UGC (Unboxing أو Testimonial حقيقي من عميل) — متوسط Hook Rate بتاع UGC على Meta 25-40% مقارنة بـ 8-15% للإعلانات المنتجة في نفس الـ Niche وهذا بيفسر الفارق الكبير في النتائج.`,
+        `طريقة الـ A/B Test الأسرع: اعمل 3 إعلانات بنفس المنتج لكن Hook مختلف في كل واحد. كل Ad بميزانية 70 EGP/يوم، شغّل 3 أيام. الـ Hook الأعلى VR يكمل، الباقي يتوقف.`,
+      ],
+    };
+  }
+
+  // ③ إرهاق جمهور (Frequency عالية + CTR هابط)
   if (totals.frequency > 2.5 && isCtrDeclining(daily)) {
     return {
-      verdict: "refresh", decision: "Ad Fatigue", problem: "تشبع الجمهور", color: "yellow", emoji: "🟡", funnel, metrics,
+      verdict: "refresh", decision: "إرهاق جمهور 😴", problem: `Frequency ${f2(totals.frequency)} + CTR هابط — الجمهور محروق`,
+      color: "yellow", emoji: "😴", funnel, metrics,
       actionPlan: [
-        `Frequency وصلت ${f2(totals.frequency)} والـ CTR بيقل كل يوم — الجمهور شاف إعلانك أكتر من المطلوب وبدأ يتجاهله. مش مشكلة في الكريتف، مشكلة في التكرار.`,
-        `أوقف الإعلانات اللي Frequency > 3.5 دلوقتي من داخل Ad Set.`,
-        `اعمل كريتف جديد خالص — مش تعديل، مش تغيير ثامبنيل. زاوية بيعية مختلفة من الصفر.`,
-        `وسّع الجمهور بـ Lookalike 2% بدل الـ 1% — أو أضف Interest Exclusions عشان تطرد المحروقين.`,
+        `Frequency ${f2(totals.frequency)} مع CTR هابط — نفس الجمهور شاف إعلانك ${f2(totals.frequency)} مرة في المتوسط وبدأ يتجاهله. ده مش مشكلة في المنتج أو الكريتف — مشكلة في تكرار التعرض وضيق Pool الجمهور.`,
+        `الحل الفوري (48 ساعة): أضف Exclusion Audience في الـ Ad Set — استبعد "اشترى خلال آخر 60 يوم" + "زار الصفحة خلال آخر 30 يوم". ده بيخفض Frequency للجمهور الجديد بدون إيقاف الحملة.`,
+        `الحل المتوسط (1 أسبوع): انقل لـ Advantage+ Audience (Broad Targeting) وخلّي الـ Meta يبحث عن جمهور مشابه بنفسه. في الغالب بيوصل لـ Pool أكبر بكتير من Interest Targeting وCPM أرخص.`,
+        `اعمل كريتف جديد خالص بزاوية بيعية مختلفة — مش تعديل أو إعادة نشر. إعلان جديد كامل بـ Hook مختلف، مش نفس الإعلان بـ Thumbnail جديد.`,
       ],
     };
   }
 
-  if (totals.hookRate < HOOK_MIN || totals.ctr < CTR_MIN) {
-    const isHookProblem = totals.hookRate < HOOK_MIN;
-    const narrative = isHookProblem
-      ? `الكريتف بيخسر الناس في أول 3 ثواني. Hook Rate ${f1(totals.hookRate)}% — من كل 100 مشاهدة، ${Math.round(100 - totals.hookRate)} شخص سكب قبل ما يكمل. المطلوب +${HOOK_MIN}%. المشكلة مش في المنتج، في أول جملة.`
-      : `الناس بتشوف الإعلان بس مش بتضغط. CTR ${f2(totals.ctr)}% تحت الـ ${CTR_MIN}% المطلوب — يعني من كل 100 مشاهدة، أقل من واحد بيكبس. الإعلان مش بيخلق فضول كفاية.`;
+  // ④ Hook Rate ضعيف (15-25%) — الكريتف مش بيوقف السكرول بكفاءة
+  if (isVideo && totals.hookRate < HOOK_MIN) {
     return {
-      verdict: "creative", decision: "Improve Creative", problem: isHookProblem ? `كريتف ضعيف — Hook Rate ${f1(totals.hookRate)}%` : `CTR منخفض — ${f2(totals.ctr)}%`, color: "red", emoji: "🔴", funnel, metrics,
+      verdict: "creative", decision: "Hook ضعيف 🔴", problem: `Hook Rate ${f1(totals.hookRate)}% — المطلوب +${HOOK_MIN}%`,
+      color: "red", emoji: "🔴", funnel, metrics,
       actionPlan: [
-        narrative,
-        isHookProblem
-          ? `أعد تصوير أول 3 ثواني بس. الكادر الأول لازم يطرح مشكلة الجمهور بالصوت مباشرة — لا Logo، لا Intro، لا موسيقى بدون كلام.`
-          : `غيّر الـ CTA في الإعلان. بدل "اطلب دلوقتي" جرّب سؤال مباشر عن مشكلة بتخص الجمهور. الضغط بيجي من الفضول مش من الأمر.`,
-        `اختبر UGC (شخص بيتكلم للكاميرا) بدل الإعلان المنتج — عادةً Hook Rate بيطلع ضعف.`,
+        `Hook Rate ${f1(totals.hookRate)}% — أقل من المعيار (${HOOK_MIN}%). من كل 100 مشاهد، ${Math.round(100 - totals.hookRate)} شخص سكب في أول 3ث. الـ Meta Algorithm بيستخدم Hook Rate كمؤشر جودة — كل ما انخفض، رفع CPM بالتدريج (ده يفسر ارتفاع تكلفة الوصول مع الوقت).`,
+        `أعد تصوير أول 3 ثواني فقط — مش كل الإعلان. الكادر الأول: وجه إنسان + صوت عالي واضح + مشكلة الجمهور بالاسم في أول جملة (بدون Logo أو Intro).`,
+        `3 أنواع Hook الأقوى على Meta حالياً: (1) "أنت لسه بتعمل [خطأ شائع]؟" (2) "اكتشفنا إن [حقيقة غير متوقعة] عن [مشكلة الجمهور]" (3) نتيجة مدهشة قبل شرح المنتج.`,
+        `اعمل A/B Test: نفس الإعلان بـ 3 Hook مختلفين، كل Hook في Ad منفصل تحت نفس الـ Ad Set. بعد 500 EGP إنفاق على كل واحد، شيّل الأدنى Hook Rate وضاعف ميزانية الأعلى.`,
       ],
     };
   }
 
+  // ⑤ CTR منخفض (VR كويس، بس مش بيضغطوا)
+  if (totals.ctr < CTR_MIN) {
+    return {
+      verdict: "creative", decision: "CTR منخفض 🔴", problem: `Outbound CTR ${f2(totals.ctr)}% — المطلوب +${CTR_MIN}%`,
+      color: "red", emoji: "🔴", funnel, metrics,
+      actionPlan: [
+        `Outbound CTR ${f2(totals.ctr)}% — الناس بتشوف الإعلان (Hook Rate ${f1(totals.hookRate)}%) لكن مش بتضغط. الكريتف بيستحوذ الانتباه لكن الـ Offer أو الـ CTA مش بيخلق Action. المشكلة في الوسط أو النهاية مش في الـ Hook.`,
+        `اختبر CTAs مختلفة: بدل "اطلب الآن / اشتري" جرّب (1) سؤال مباشر، (2) "شوف السعر" أو "احجز نسختك"، (3) إضافة Scarcity حقيقية "آخر [X] قطعة". الـ CTA الذي يثير فضول > الأمر المباشر في السوق المصري.`,
+        `راجع الـ Offer نفسه: هل السعر ظاهر في الإعلان؟ السعر المخفي بيقلل الضغط. إظهار السعر بيفلتر جمهور غير مهتم ويجيب جمهور جاهز للشراء = CTR أقل لكن CR أعلى.`,
+        `تحقق من موضع الـ CTA في الفيديو — لو الـ CTA في الدقيقة 1:30 وناس كتير بتسكب قبلها، انقل الـ CTA للـ 30 ثانية الأولى وضعّها مرتين.`,
+      ],
+    };
+  }
+
+  // ⑥ مشكلة تقنية (LPR)
   if (totals.ctr >= CTR_MIN && totals.lpv > 0 && ctr2lp < LPR_MIN) {
     return {
-      verdict: "tech", decision: "Fix Tech", problem: `نقرات بدون وصول — LPR ${f1(ctr2lp)}%`, color: "red", emoji: "🔴", funnel, metrics,
+      verdict: "tech", decision: "مشكلة تقنية ⚙️", problem: `LPR ${f1(ctr2lp)}% — ${fmt(lostAtClk, 0)} نقرة دفعتها ضاعت`,
+      color: "red", emoji: "⚙️", funnel, metrics,
       actionPlan: [
-        `${fmt(totals.link_clicks, 0)} شخص ضغط على الإعلان، وصل منهم ${fmt(totals.lpv, 0)} بس للصفحة (LPR ${f1(ctr2lp)}%). يعني ${fmt(lostAtClick, 0)} شخص اتفقد في الطريق — ده مش كريتف، ده موقع بطيء أو رابط مكسور.`,
-        `افتح PageSpeed Insights على رابط الإعلان على موبايل دلوقتي. لو Speed Score أقل من 50 — الاستضافة هي المشكلة الرئيسية.`,
-        `افتح Meta Pixel Helper في المتصفح وادخل على الرابط. لو مفيش أحداث بتطلع — الـ Pixel نفسه مش شغال على هذه الصفحة.`,
-        `لو الموقع سريع والـ Pixel شغال — تأكد من الرابط في الإعلان نفسه، ممكن يكون فيه Redirect بيضيع الـ UTM.`,
+        `${fmt(totals.link_clicks, 0)} شخص ضغط على الإعلان، وصل منهم ${fmt(totals.lpv, 0)} للصفحة فقط (LPR ${f1(ctr2lp)}%). ${fmt(lostAtClk, 0)} شخص دفع Meta ثمن نقرتهم واختفوا — ده مش مشكلة كريتف أو استهداف، ده موقع بطيء أو Pixel مش شغال.`,
+        `الاختبار الأهم والأسرع: افتح pagespeed.web.dev على رابط الإعلان من Mobile. لو Performance Score < 50 — الصفحة بطيئة وبتخسر نص النقرات. أسرع صفحات الـ Landing هي أهم استثمار تقني لأي حملة Meta.`,
+        `ثبّت Meta Pixel Helper في Chrome وافتح الرابط. لازم يظهر PageView Event فوراً. لو مش بيظهر — الـ Pixel مش موجود أو مش مربوط على هذه الصفحة بالذات.`,
+        `تحقق من إن الرابط مباشر بدون Redirects زيادة. كل Redirect Chain (bit.ly → landing.page → product) بيضيع 5-15% من الزوار على Android وأكتر على iOS 17 بسبب Tracking Prevention. استخدم الرابط النهائي مباشرةً.`,
+        `فكّر في Conversion API (CAPI): إضافة Server-Side Tracking بيضيف 15-25% من الأحداث اللي Ad Blockers و iOS بتضيّعها. ده بيحسن بيانات الـ Algorithm ويخفض CPA تلقائياً.`,
       ],
     };
   }
 
-  if (totals.crLpv < CR_MIN && (totals.lpv > 0 || ctr2lp >= LPR_MIN)) {
-    const visitorsLost = totals.lpv > 0 ? totals.lpv - totals.purchases : 0;
+  // ⑦ صفحة هبوط ضعيفة (CR منخفض)
+  if (totals.crLpv < CR_MIN && totals.lpv > 20) {
     return {
-      verdict: "landing", decision: "Improve Landing Page", problem: `الصفحة مش بتقنع — CR ${f2(totals.crLpv)}%`, color: "red", emoji: "🔴", funnel, metrics,
+      verdict: "landing", decision: "صفحة هبوط ضعيفة 🛒", problem: `CR ${f2(totals.crLpv)}% — ${fmt(lostAtLpv, 0)} زيارة بدون شراء`,
+      color: "red", emoji: "🛒", funnel, metrics,
       actionPlan: [
-        `${fmt(totals.lpv, 0)} زيارة للصفحة وطلعت منهم ${totals.purchases} أوردر بس (CR ${f2(totals.crLpv)}%). يعني ${fmt(visitorsLost, 0)} شخص دخل وخرج بدون شراء — الصفحة مش بتقنع. الكريتف مش المشكلة.`,
-        `زرّ الشراء لازم يكون أول حاجة بتتشوف على الموبايل قبل ما يسكرولوا. لو محتاجين يسكرولوا عشان يلاقوا الزرار — بتخسر نص الزيارات هناك.`,
-        `أضف جملة ضمان صغيرة جنب زرّ الشراء مباشرةً — "ضمان استرداد 7 أيام" أو "دفع عند الاستلام". ده بيرفع CR 20-40%.`,
-        `احذف أي Navigation Menu أو روابط خارجية من الصفحة — أي تشتيت بعيد عن الشراء بيكلفك.`,
+        `${fmt(totals.lpv, 0)} زيارة من Meta وصلت الصفحة، وطلعت منهم ${totals.purchases} أوردر فقط (CR ${f2(totals.crLpv)}%). ${fmt(lostAtLpv, 0)} شخص دخل وخرج بدون شراء — الكريتف والاستهداف مظبوطين، الصفحة هي المشكلة.`,
+        `اعمل Screenshot من Android عادي وشوف الصفحة: زرّ الشراء والسعر لازم يكونوا Above the Fold (بدون أي Scroll). لو مخفيين — بتخسر 40-60% من الزوار هناك مباشرةً.`,
+        `أضف 3 عناصر Conversion فوق زرّ الشراء: (1) عدد الأوردرات السابقة ("3,500+ عميل سعيد")، (2) تقييم نجوم بصورة حقيقية، (3) ضمان صريح ("دفع عند الاستلام / استرداد 7 أيام"). هذه الـ 3 عناصر في السوق المصري بترفع CR بنسبة 30-60%.`,
+        `احذف أي Navigation Menu أو روابط خارجية من الصفحة. كل رابط زيادة هو طريق للهروب بعيد عن الشراء.`,
+        `جرّب "دفع عند الاستلام" كخيار إضافي — حتى لو بتأخذ مخاطرة أعلى في الإلغاء. في معظم المنتجات في مصر بيضاعف CR. اختبره لـ 72 ساعة وقيس.`,
       ],
     };
   }
 
+  // ⑧ Pixel/Tracking issue (كريتف كويس، لا تحويلات)
+  if (totals.purchases === 0 && totals.spend > 100 && totals.ctr >= CTR_MIN && totals.hookRate >= HOOK_MIN) {
+    return {
+      verdict: "tech", decision: "مشكلة Pixel 🔴", problem: `${fmt(totals.spend, 0)} EGP إنفاق — Pixel مش شغال`,
+      color: "red", emoji: "⚙️", funnel, metrics,
+      actionPlan: [
+        `الكريتف جيد — Hook Rate ${f1(totals.hookRate)}%، CTR ${f2(totals.ctr)}% — الناس بتضغط ووصلوا للصفحة. لكن مفيش أوردر واحد مسجّل من ${fmt(totals.spend, 0)} EGP إنفاق. 95% من الحالات دي مشكلة Pixel مش مشكلة حملة.`,
+        `افتح Meta Events Manager الآن > Test Events > ادخل رابط صفحة الشكر مباشرةً. لازم يظهر Purchase Event. لو مش بيظهر — الـ Pixel Code غايب من صفحة الشكر (Thank You Page). أضفه.`,
+        `اعمل شراء تجريبي حقيقي بنفسك وتابع الـ Events Manager في نفس الوقت. لو الأوردر بيتكمل بس الـ Event مش بيوصل — المشكلة في Code Integration.`,
+        `تحقق من إن الـ Ad Set محسّن على Purchase Event وليس Add to Cart أو Initiate Checkout — خطأ شائع بيودي إنفاق كبير على مراحل غير الشراء.`,
+        `أضف Meta Conversions API (Server-Side) كطبقة إضافية فوق Browser Pixel — ده بيضيف 20-35% من الأحداث المفقودة بسبب iOS وAd Blockers.`,
+      ],
+    };
+  }
+
+  // ⑨ يحتاج تحسين (CPA فوق الهدف لكن مقبول)
   if (totals.purchases > 0 && totals.cpa > CPA_SCALE_MAX && totals.cpa <= CPA_IMPROVE_MAX) {
     const gap = Math.round(totals.cpa - CPA_SCALE_MAX);
     return {
-      verdict: "refresh", decision: "حسّن الأداء", problem: `CPA بـ ${fmt(totals.cpa, 0)} EGP — قابل للتحسين`, color: "yellow", emoji: "🟡", funnel, metrics,
+      verdict: "refresh", decision: "يحتاج تحسين 🟡", problem: `CPA ${fmt(totals.cpa, 0)} EGP — فوق الهدف بـ ${gap} EGP`,
+      color: "yellow", emoji: "🟡", funnel, metrics,
       actionPlan: [
-        `الحملة بتحقق ${totals.purchases} أوردر بس CPA ${fmt(totals.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. مش خسارة بس كمان مش الوضع الأمثل. المشكلة غالباً في اتساع الجمهور أو الكريتف مش موجّه كفاية.`,
-        `ضيّق الجمهور — اعمل Lookalike 1% من قاعدة المشترين الحاليين بدل Interest Targeting. ده عادةً بيخفض CPA 20-30%.`,
-        `اختبر كريتف جديد بزاوية مختلفة — مش تغيير بسيط، بزاوية بيعية مختلفة. الكريتف الحالي وصل لسقفه.`,
-        `لو CPA نزل تحت ${CPA_SCALE_MAX} — ابدأ تزود الميزانية 20% كل 48 ساعة.`,
-      ],
-    };
-  }
-
-  if (totals.purchases === 0 && totals.spend > 0 && totals.ctr >= CTR_MIN && totals.hookRate >= HOOK_MIN) {
-    return {
-      verdict: "tech", decision: "راجع التتبع", problem: `${fmt(totals.spend, 0)} EGP إنفاق بدون أوردر واحد`, color: "red", emoji: "🔴", funnel, metrics,
-      actionPlan: [
-        `الكريتف كويس — Hook Rate ${f1(totals.hookRate)}% والـ CTR ${f2(totals.ctr)}% — الناس بتضغط. بس مفيش أوردر واحد من ${fmt(totals.spend, 0)} EGP إنفاق. ده مش طبيعي. إما الـ Pixel مش بيسجّل الشراء، وإما الصفحة بتعطّل الطلب قبل الإتمام.`,
-        `افتح Events Manager دلوقتي وشوف لو Purchase Event بيوصلك. لو لأ — الـ Pixel Code ناقص من صفحة الشكر.`,
-        `اعمل شراء تجريبي حقيقي وشوف هو بيكمل ولا بيتعطل. ممكن الفورم نفسه فيه مشكلة أو الـ Payment Gateway بيرفض.`,
-        `لو الـ Pixel سليم والطلبات بتكمل — اتحقق من Attribution Window في إعداد الإعلانات. ممكن أوردرات بتتعزى لحملة تانية.`,
+        `CPA ${fmt(totals.cpa, 0)} EGP — فوق الـ ${CPA_SCALE_MAX} المستهدف بـ ${gap} EGP. الحملة مش خاسرة بس مش في نقطة الـ Scale بعد. ${isLearning ? `والأهم: لسه في Learning Phase (${totals.purchases}/50 تحويل) — الـ CPA هيتحسن أوتوماتيكياً لما تعدي 50 تحويل بدون أي تدخل.` : ""}`,
+        `أسرع تحسين للـ CPA: افتح Breakdown على مستوى Ad Set > شوف أي Ad Set عنده CPA > ${CPA_IMPROVE_MAX} EGP > أوقفه فوراً وحوّل ميزانيته للأفضل. ده لوحده ممكن يخفض CPA الحملة كلها بـ 15-25%.`,
+        `جرّب Lookalike 1% من قاعدة المشترين الحاليين بدل Interest Targeting. في السوق المصري Lookalike من قاعدة مشترين حقيقيين بيوصل لنتائج أفضل بـ 15-35% في معظم المنتجات.`,
+        `افتح Placement Breakdown وشوف: Reels vs Feed vs Stories — في الغالب Reels بيجيب Hook Rate أعلى، Feed بيجيب CR أعلى. حوّل الميزانية على الـ Placement الأكثر كفاءة.`,
       ],
     };
   }
 
   return {
-    verdict: "nodata", decision: "أداء مقبول", problem: "لا توجد مشكلة محددة", color: "gray", emoji: "🟡", funnel, metrics,
+    verdict: "nodata", decision: "أداء مقبول 🟡", problem: "لا توجد مشكلة محددة — استمر بالرصد",
+    color: "gray", emoji: "🟡", funnel, metrics,
     actionPlan: [
-      `مفيش مشكلة واضحة دلوقتي — الحملة في منطقة الرصد. CPA ومؤشرات الفانل مقبولة بس مش استثنائية.`,
-      `استمر بالرصد اليومي لـ CPA والـ CTR — لو حصل انحدار لأكتر من يومين متتاليين، راجع التشخيص بعد جمع بيانات أكتر.`,
-      `افتح Breakdown على مستوى Ad Set وشوف لو فيه Ad Set بيسحب الميزانية بدون أداء — أوقفه وحوّل الميزانية للأفضل.`,
+      `الحملة في منطقة الرصد — الأرقام مقبولة لكن مش استثنائية. CPA ${totals.cpa > 0 ? fmt(totals.cpa, 0) + " EGP" : "غير محدد"} مع ${totals.purchases} تحويل.`,
+      `افتح Breakdown > Age & Gender وشوف لو فيه شريحة بـ CPA ممتاز مقارنة بالباقي. اعمل لها Ad Set منفصل بميزانية أعلى وضيّق الشرائح الأغلى.`,
+      `افتح Placement Breakdown > قارن Reels vs Feed vs Stories vs Stories. في الغالب Placement واحد أو اثنين بيحقق 80% من النتائج. حوّل الميزانية عليهم وأغلق الباقي.`,
+      `لو CPM مرتفع (> 70 EGP) — الجمهور ضيّق أو تنافسي. جرّب Advantage+ Audience (Broad) وخلّي Meta يبحث بنفسه عن أرخص جمهور مهتم.`,
     ],
   };
 }

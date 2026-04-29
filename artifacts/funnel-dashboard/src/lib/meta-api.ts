@@ -152,6 +152,7 @@ export interface CampaignSummaryFull {
   cr: number;
   hookRate: number;
   video_plays: number;
+  v95: number;
 }
 
 export interface AdWithIssues {

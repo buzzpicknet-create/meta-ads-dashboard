@@ -186,6 +186,18 @@ function MetricBar({ label, value, pct, flag }: { label: string; value: string; 
   );
 }
 
+// ── Mini stat badge ───────────────────────────────────────────
+function StatBadge({ label, value, flag }: { label: string; value: string; flag: "good" | "warn" | "bad" | "neutral" }) {
+  const clr = flag === "good" ? "text-emerald-700 dark:text-emerald-400" : flag === "warn" ? "text-amber-700 dark:text-amber-400" : flag === "bad" ? "text-rose-700 dark:text-rose-400" : "text-muted-foreground";
+  const bg  = flag === "good" ? "bg-emerald-500/8" : flag === "warn" ? "bg-amber-500/8" : flag === "bad" ? "bg-rose-500/8" : "bg-muted/30";
+  return (
+    <div className={`flex flex-col items-center rounded-lg px-2 py-1 ${bg}`}>
+      <span className={`text-xs font-bold font-mono leading-none ${clr}`} dir="ltr">{value}</span>
+      <span className="text-[9px] text-muted-foreground leading-none mt-0.5">{label}</span>
+    </div>
+  );
+}
+
 // ── Campaign Card ─────────────────────────────────────────────
 function CampaignDecisionCard({
   campaign, onDiagnose,
@@ -193,17 +205,27 @@ function CampaignDecisionCard({
   campaign: CampaignSummaryFull;
   onDiagnose: (id: string) => void;
 }) {
-  const score   = computeScore(campaign);
-  const cat     = getCategory(campaign);
-  const cfg     = CAT[cat];
-  const CatIcon = cfg.Icon;
+  const score    = computeScore(campaign);
+  const cat      = getCategory(campaign);
+  const cfg      = CAT[cat];
+  const CatIcon  = cfg.Icon;
   const isPaused = cat === "paused" || cat === "nodata";
 
-  const vr      = campaign.hookRate;
-  const hasVR   = campaign.video_plays > 0;
-  const vrFlag: "good" | "warn" | "bad" = vr >= HOOK_WEAK ? "good" : vr >= HOOK_DEAD ? "warn" : "bad";
-  const ctrFlag: "good" | "warn" | "bad" = campaign.ctr >= CTR_GOOD ? "good" : campaign.ctr >= CTR_MIN ? "warn" : "bad";
-  const cpaFlag: "good" | "warn" | "bad" = campaign.cpa > 0 && campaign.cpa <= CPA_WIN ? "good" : campaign.cpa <= CPA_NEAR ? "warn" : "bad";
+  // ── Derived metrics ──
+  const vr        = campaign.hookRate;
+  const hasVR     = campaign.video_plays > 0;
+  const holdRate  = hasVR && campaign.v95 > 0 ? (campaign.v95 / campaign.video_plays) * 100 : 0;
+  const lpr       = campaign.link_clicks > 0 ? (campaign.lpv / campaign.link_clicks) * 100 : 0;
+
+  // ── Flags ──
+  const vrFlag:   "good"|"warn"|"bad" = vr >= HOOK_WEAK ? "good" : vr >= HOOK_DEAD ? "warn" : "bad";
+  const holdFlag: "good"|"warn"|"bad" = holdRate >= 25 ? "good" : holdRate >= 15 ? "warn" : "bad";
+  const ctrFlag:  "good"|"warn"|"bad" = campaign.ctr >= CTR_GOOD ? "good" : campaign.ctr >= CTR_MIN ? "warn" : "bad";
+  const lprFlag:  "good"|"warn"|"bad" = lpr >= 70 ? "good" : lpr >= 50 ? "warn" : "bad";
+  const cpaFlag:  "good"|"warn"|"bad" = campaign.cpa > 0 && campaign.cpa <= CPA_WIN ? "good" : campaign.cpa <= CPA_NEAR ? "warn" : "bad";
+  const freqFlag: "good"|"warn"|"bad" = campaign.frequency <= 2.5 ? "good" : campaign.frequency <= 3.5 ? "warn" : "bad";
+  const cpmFlag:  "good"|"warn"|"bad" = campaign.cpm < 30 ? "good" : campaign.cpm < 70 ? "warn" : "bad";
+
   const cpaText = campaign.cpa > 0
     ? `${Math.round(campaign.cpa)} EGP`
     : campaign.purchases === 0 ? "لا أوردر" : "—";
@@ -226,22 +248,63 @@ function CampaignDecisionCard({
       </div>
 
       {/* Metrics */}
-      <div className="bg-card px-4 py-3 space-y-2.5 flex-1">
-        {/* View Rate (hookRate) */}
-        <MetricBar
-          label="View Rate (3ث)"
-          value={hasVR ? `${vr.toFixed(1)}%` : "—"}
-          pct={hasVR ? Math.min((vr / 50) * 100, 100) : 0}
-          flag={hasVR ? vrFlag : "bad"}
-        />
-        {/* CTR */}
+      <div className="bg-card px-4 py-3 space-y-2 flex-1">
+
+        {/* ① Video funnel — Hook Rate */}
+        {hasVR && (
+          <MetricBar
+            label="Hook Rate (3ث — وقف السكرول)"
+            value={`${vr.toFixed(1)}%`}
+            pct={Math.min((vr / 50) * 100, 100)}
+            flag={vrFlag}
+          />
+        )}
+
+        {/* ② Video funnel — Hold Rate (ThruPlay 95%) */}
+        {holdRate > 0 && (
+          <MetricBar
+            label="Hold Rate (ThruPlay 95%)"
+            value={`${holdRate.toFixed(1)}%`}
+            pct={Math.min((holdRate / 40) * 100, 100)}
+            flag={holdFlag}
+          />
+        )}
+
+        {/* ③ Click funnel — Outbound CTR */}
         <MetricBar
           label="Outbound CTR"
           value={`${campaign.ctr.toFixed(2)}%`}
           pct={Math.min((campaign.ctr / 3) * 100, 100)}
           flag={ctrFlag}
         />
-        {/* CPA + Spend */}
+
+        {/* ④ Landing Page Rate */}
+        {lpr > 0 && (
+          <MetricBar
+            label="Landing Page Rate (LPR)"
+            value={`${lpr.toFixed(1)}%`}
+            pct={Math.min(lpr, 100)}
+            flag={lprFlag}
+          />
+        )}
+
+        {/* ⑤ Mini stats row: Frequency · CPM · Purchases */}
+        <div className="flex items-center justify-between gap-1.5 pt-1">
+          <StatBadge label="Freq." value={campaign.frequency.toFixed(1)} flag={freqFlag} />
+          <StatBadge label="CPM" value={`${Math.round(campaign.cpm)}`} flag={cpmFlag} />
+          <StatBadge
+            label="Orders"
+            value={`${campaign.purchases}`}
+            flag={campaign.purchases > 0 ? "good" : "bad"}
+          />
+          <StatBadge
+            label="Spend"
+            value={`${Math.round(campaign.spend / 1000) > 0 ? (campaign.spend / 1000).toFixed(1) + "K" : Math.round(campaign.spend) + ""}`}
+            flag="neutral"
+          />
+        </div>
+
+        {/* ⑥ CPA bottom row */}
         <div className="flex items-center justify-between pt-1 border-t border-border/50">
           <div className="text-xs text-muted-foreground">
             CPA:{" "}
@@ -251,11 +314,8 @@ function CampaignDecisionCard({
               : "text-rose-600 dark:text-rose-400"
             }`} dir="ltr">{cpaText}</span>
           </div>
-          <div className="text-xs text-muted-foreground">
-            إنفاق:{" "}
-            <span className="font-mono font-medium" dir="ltr">
-              {Math.round(campaign.spend).toLocaleString()} EGP
-            </span>
+          <div className="text-xs text-muted-foreground font-mono" dir="ltr">
+            {Math.round(campaign.spend).toLocaleString()} EGP
           </div>
         </div>
       </div>
@@ -266,7 +326,7 @@ function CampaignDecisionCard({
         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-t border-border bg-muted/20 hover:bg-primary/10 hover:text-primary transition-colors text-xs font-semibold text-muted-foreground"
       >
         <Stethoscope className="h-3.5 w-3.5" />
-        عرض التحليل
+        عرض التحليل الكامل
       </button>
     </div>
   );
