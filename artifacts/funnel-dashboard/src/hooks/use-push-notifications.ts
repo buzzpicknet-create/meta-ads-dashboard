@@ -18,6 +18,25 @@ export type PushState =
   | "unsubscribed"
   | "loading";
 
+/**
+ * Syncs an existing browser-side push subscription to the server.
+ * Silently succeeds or fails — does not throw.
+ */
+async function syncSubscriptionToServer(sub: PushSubscription): Promise<void> {
+  try {
+    const json = sub.toJSON() as { endpoint: string; keys?: { p256dh?: string; auth?: string } };
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return;
+    await fetch(`${API}/push/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(json),
+      credentials: "include",
+    });
+  } catch {
+    // silent — next page load will retry
+  }
+}
+
 export function usePushNotifications() {
   const [state, setState] = useState<PushState>("loading");
 
@@ -30,10 +49,21 @@ export function usePushNotifications() {
       setState("denied");
       return;
     }
+
     navigator.serviceWorker.getRegistration("/sw.js").then(async (reg) => {
-      if (!reg) { setState("unsubscribed"); return; }
+      if (!reg) {
+        setState("unsubscribed");
+        return;
+      }
       const sub = await reg.pushManager.getSubscription();
-      setState(sub ? "subscribed" : "unsubscribed");
+      if (sub) {
+        // Subscription exists in browser — re-sync to server on every load
+        // This fixes cases where the initial POST to server failed silently
+        await syncSubscriptionToServer(sub);
+        setState("subscribed");
+      } else {
+        setState("unsubscribed");
+      }
     });
   }, []);
 
@@ -63,7 +93,7 @@ export function usePushNotifications() {
         return;
       }
       if (perm !== "granted") {
-        // User dismissed the dialog without choosing — set "blocked" so we show hint
+        // User dismissed the dialog without choosing — treat as blocked
         setState("blocked");
         return;
       }
@@ -79,12 +109,20 @@ export function usePushNotifications() {
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
 
-      await fetch(`${API}/push/subscribe`, {
+      const json = sub.toJSON() as { endpoint: string; keys?: { p256dh?: string; auth?: string } };
+      const saveRes = await fetch(`${API}/push/subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sub.toJSON()),
+        body: JSON.stringify(json),
         credentials: "include",
       });
+
+      if (!saveRes.ok) {
+        // Server rejected — unsubscribe from browser too to keep state consistent
+        await sub.unsubscribe();
+        setState("unsubscribed");
+        return;
+      }
 
       setState("subscribed");
     } catch {
