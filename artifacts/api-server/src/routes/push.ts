@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/db";
-import { getVapidPublicKey } from "../lib/push";
+import { getVapidPublicKey, sendPushToUser } from "../lib/push";
 
 interface NotifSetting {
   event_type: string;
@@ -56,6 +56,24 @@ router.get("/push/settings", async (req, res) => {
     res.json({ settings: rows });
   } catch {
     res.status(500).json({ error: "Failed to fetch settings" });
+  }
+});
+
+router.post("/push/test", async (req, res) => {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: "Not authenticated" });
+  try {
+    const sent = await sendPushToUser(userId, {
+      title: "🔔 إشعار تجريبي",
+      body: "الإشعارات تعمل بنجاح على جهازك!",
+      url: "/admin",
+    });
+    if (sent === 0) {
+      return res.status(400).json({ error: "لا يوجد اشتراك إشعارات — تأكد من تفعيل الإشعارات أولاً" });
+    }
+    res.json({ ok: true, sent });
+  } catch {
+    res.status(500).json({ error: "فشل إرسال الإشعار التجريبي" });
   }
 });
 

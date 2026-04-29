@@ -509,6 +509,24 @@ function NotificationSettingsSection() {
 
   const isDirty = draft !== null;
 
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const sendTest = useMutation({
+    mutationFn: () =>
+      fetch(`${API}/push/test`, { method: "POST", credentials: "include" }).then((r) => r.json()),
+    onSuccess: (d) => {
+      if (d.ok) {
+        setTestMsg({ ok: true, text: "✓ الإشعار اتبعت — شوف هاتفك" });
+      } else {
+        setTestMsg({ ok: false, text: d.error ?? "فشل الإرسال" });
+      }
+      setTimeout(() => setTestMsg(null), 4000);
+    },
+    onError: () => {
+      setTestMsg({ ok: false, text: "فشل الإرسال — تأكد من تفعيل الإشعارات أولاً" });
+      setTimeout(() => setTestMsg(null), 4000);
+    },
+  });
+
   return (
     <div className="border border-border rounded-xl overflow-hidden bg-card">
       <button
@@ -610,26 +628,53 @@ function NotificationSettingsSection() {
                 );
               })}
 
-              {/* Save */}
-              <div className="flex items-center justify-between pt-1">
-                {saved && (
-                  <span className="text-xs text-emerald-600 font-medium">
-                    ✓ تم الحفظ
-                  </span>
+              {/* Test + Save row */}
+              <div className="flex flex-col gap-2 pt-1">
+                {/* Feedback messages */}
+                {(saved || testMsg) && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {saved && (
+                      <span className="text-xs text-emerald-600 font-medium">✓ تم حفظ الإعدادات</span>
+                    )}
+                    {testMsg && (
+                      <span className={`text-xs font-medium ${testMsg.ok ? "text-emerald-600" : "text-red-500"}`}>
+                        {testMsg.text}
+                      </span>
+                    )}
+                  </div>
                 )}
-                {!saved && <span />}
-                <button
-                  onClick={() => save.mutate(settings)}
-                  disabled={!isDirty || save.isPending}
-                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-40 transition-colors"
-                >
-                  {save.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Save className="h-3.5 w-3.5" />
-                  )}
-                  حفظ الإعدادات
-                </button>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Test button */}
+                  <button
+                    onClick={() => sendTest.mutate()}
+                    disabled={sendTest.isPending}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-amber-400 text-amber-600 bg-amber-50 dark:bg-amber-900/20 text-sm font-medium hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-40 transition-colors"
+                  >
+                    {sendTest.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Bell className="h-3.5 w-3.5" />
+                    )}
+                    إرسال إشعار تجريبي
+                  </button>
+
+                  <div className="flex-1" />
+
+                  {/* Save button */}
+                  <button
+                    onClick={() => save.mutate(settings)}
+                    disabled={!isDirty || save.isPending}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-40 transition-colors"
+                  >
+                    {save.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                    حفظ الإعدادات
+                  </button>
+                </div>
               </div>
             </div>
           )}

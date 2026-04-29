@@ -109,6 +109,21 @@ export async function sendPushForEvent(eventType: string, payload: PushPayload) 
   }
 }
 
+export async function sendPushToUser(userId: number, payload: PushPayload) {
+  if (!vapidPublicKey) return 0;
+  try {
+    const subs = await query<PushSubscriptionRow>(
+      `SELECT * FROM push_subscriptions WHERE user_id = $1`,
+      [userId]
+    );
+    await sendToSubs(subs, payload);
+    return subs.length;
+  } catch (err) {
+    logger.warn({ err }, "sendPushToUser failed");
+    return 0;
+  }
+}
+
 export async function sendPushToAllUsers(payload: PushPayload) {
   if (!vapidPublicKey) return;
   try {
