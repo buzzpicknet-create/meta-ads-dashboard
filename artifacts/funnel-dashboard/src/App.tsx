@@ -28,8 +28,31 @@ const ALL_NAV_ITEMS = [
 
 function NotificationBell() {
   const { state, subscribe, unsubscribe } = usePushNotifications();
-  if (state === "unsupported" || state === "denied") return null;
+
+  if (state === "unsupported") return null;
   if (state === "loading") return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+
+  // Blocked by browser (quiet UI / previously dismissed too many times)
+  if (state === "blocked") {
+    return (
+      <div className="flex items-center gap-1.5 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 text-[11px] text-amber-700 dark:text-amber-400 max-w-[200px]" dir="rtl">
+        <BellOff className="h-3.5 w-3.5 shrink-0" />
+        <span>فعّل الإشعارات يدوياً من إعدادات المتصفح</span>
+      </div>
+    );
+  }
+
+  // Denied permanently in browser settings
+  if (state === "denied") {
+    return (
+      <div
+        title="الإشعارات محجوبة — افتح إعدادات المتصفح وأعطِ الإذن يدوياً"
+        className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground opacity-50 cursor-default"
+      >
+        <BellOff className="h-4 w-4" />
+      </div>
+    );
+  }
 
   const isOn = state === "subscribed";
   return isOn ? (
