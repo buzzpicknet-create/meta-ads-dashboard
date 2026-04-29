@@ -230,6 +230,7 @@ async function runMigrations() {
   `);
   await query(`
     INSERT INTO notification_settings (event_type, enabled, recipient_roles) VALUES
+      ('manual_request_created', true, ARRAY['media_manager']),
       ('request_completed', true, ARRAY['admin','media_buyer']),
       ('request_rejected', true, ARRAY['admin']),
       ('new_scan_request', true, ARRAY['admin','media_manager'])

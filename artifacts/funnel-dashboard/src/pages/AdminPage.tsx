@@ -421,6 +421,16 @@ interface NotifSetting {
 }
 
 const EVENT_META: Record<string, { label: string; icon: string; desc: string }> = {
+  manual_request_created: {
+    label: "طلب ميديا يدوي جديد",
+    icon: "🆕",
+    desc: "عندما يُضيف أحدهم طلب ميديا يدوياً من الصفحة",
+  },
+  new_scan_request: {
+    label: "طلب جديد (سكان تلقائي)",
+    icon: "📋",
+    desc: "عندما يكتشف السكان التلقائي حملة تحتاج ميديا جديدة",
+  },
   request_completed: {
     label: "طلب مكتمل",
     icon: "✅",
@@ -430,11 +440,6 @@ const EVENT_META: Record<string, { label: string; icon: string; desc: string }> 
     label: "طلب مرفوض",
     icon: "🔴",
     desc: "عندما يُحذف/يُرفض طلب ميديا",
-  },
-  new_scan_request: {
-    label: "طلب جديد (سكان تلقائي)",
-    icon: "📋",
-    desc: "عندما يكتشف السكان التلقائي حملة تحتاج ميديا جديدة",
   },
 };
 
@@ -485,17 +490,19 @@ function NotificationSettingsSection() {
     );
   }
 
+  const qcInner = useQueryClient();
   const save = useMutation({
-    mutationFn: () =>
+    mutationFn: (toSave: NotifSetting[]) =>
       fetch(`${API}/push/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ settings }),
+        body: JSON.stringify({ settings: toSave }),
       }).then((r) => r.json()),
     onSuccess: () => {
       setSaved(true);
       setDraft(null);
+      qcInner.invalidateQueries({ queryKey: ["push-settings"] });
       setTimeout(() => setSaved(false), 2000);
     },
   });
@@ -612,7 +619,7 @@ function NotificationSettingsSection() {
                 )}
                 {!saved && <span />}
                 <button
-                  onClick={() => save.mutate()}
+                  onClick={() => save.mutate(settings)}
                   disabled={!isDirty || save.isPending}
                   className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-40 transition-colors"
                 >

@@ -97,7 +97,13 @@ router.post("/media-requests", async (req, res) => {
        priority ?? "normal", notes ?? null,
        drive_link ?? null, product_description ?? null, angles ?? null, scripts ?? null, reference_links ?? null]
     );
-    res.status(201).json({ request: rows[0] });
+    const created = rows[0]!;
+    sendPushForEvent("manual_request_created", {
+      title: "🆕 طلب ميديا جديد",
+      body: `طلب جديد لحملة "${campaign_name.slice(0, 40)}"`,
+      url: "/media",
+    }).catch(() => null);
+    res.status(201).json({ request: created });
   } catch (err) {
     res.status(500).json({ error: "Failed to create media request" });
   }
