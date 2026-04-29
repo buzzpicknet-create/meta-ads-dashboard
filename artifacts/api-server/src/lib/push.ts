@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { query } from "./db";
 import { logger } from "./logger";
+import { randomUUID } from "crypto";
 
 interface PushSubscriptionRow {
   id: number;
@@ -54,29 +55,56 @@ export interface PushPayload {
 
 async function sendToSubs(subs: PushSubscriptionRow[], payload: PushPayload) {
   if (subs.length === 0) return;
-  const payloadStr = JSON.stringify(payload);
+
+  // Build per-user payloads — each user gets a unique notificationId for tracking
+  const perUserFixed = subs.map((sub) => {
+    const notificationId = randomUUID();
+    return { sub, notificationId, payloadStr: JSON.stringify({ ...payload, notificationId }) };
+  });
+
   const results = await Promise.allSettled(
-    subs.map((sub) =>
+    perUserFixed.map(({ sub, payloadStr }) =>
       webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
         payloadStr
       )
     )
   );
+
   const expired: number[] = [];
   for (let i = 0; i < results.length; i++) {
     const r = results[i]!;
+    const { sub, notificationId } = perUserFixed[i]!;
     if (
       r.status === "rejected" ||
       (r.status === "fulfilled" && r.value.statusCode === 410)
     ) {
-      expired.push(subs[i]!.id);
+      expired.push(sub.id);
+    } else {
+      // Log successful sends
+      await query(
+        `INSERT INTO notification_log (notification_id, user_id, title, body, url, sent_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [notificationId, sub.user_id, payload.title, payload.body, payload.url ?? null]
+      ).catch(() => null);
     }
   }
   if (expired.length > 0) {
     await query(`DELETE FROM push_subscriptions WHERE id = ANY($1)`, [expired]);
   }
   logger.info({ sent: subs.length - expired.length, expired: expired.length }, "Push sent");
+}
+
+// Called by the service worker to record shown/clicked/dismissed events
+export async function logNotificationEvent(
+  notificationId: string,
+  event: "shown" | "clicked" | "dismissed"
+): Promise<void> {
+  const col = event === "shown" ? "shown_at" : event === "clicked" ? "clicked_at" : "dismissed_at";
+  await query(
+    `UPDATE notification_log SET ${col} = NOW() WHERE notification_id = $1 AND ${col} IS NULL`,
+    [notificationId]
+  );
 }
 
 export async function sendPushToRoles(roles: string[], payload: PushPayload) {

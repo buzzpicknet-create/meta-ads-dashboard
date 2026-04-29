@@ -238,6 +238,24 @@ async function runMigrations() {
     ON CONFLICT (event_type) DO NOTHING
   `);
 
+  // Notification delivery log — tracks per-user sent/shown/clicked/dismissed
+  await query(`
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id SERIAL PRIMARY KEY,
+      notification_id VARCHAR(36) NOT NULL,
+      user_id INT REFERENCES users(id),
+      title TEXT,
+      body TEXT,
+      url TEXT,
+      sent_at TIMESTAMPTZ DEFAULT NOW(),
+      shown_at TIMESTAMPTZ,
+      clicked_at TIMESTAMPTZ,
+      dismissed_at TIMESTAMPTZ
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_notif_log_notif_id ON notification_log (notification_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_notif_log_sent ON notification_log (sent_at DESC)`);
+
   // CPA alert log — tracks sent push notifications to avoid duplicates
   await query(`
     CREATE TABLE IF NOT EXISTS cpa_alert_log (

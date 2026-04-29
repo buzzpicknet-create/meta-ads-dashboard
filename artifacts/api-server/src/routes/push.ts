@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/db";
-import { getVapidPublicKey, sendPushToUser, sendPushToRoles } from "../lib/push";
+import { getVapidPublicKey, sendPushToUser, sendPushToRoles, logNotificationEvent } from "../lib/push";
 
 interface NotifSetting {
   event_type: string;
@@ -100,6 +100,53 @@ router.post("/push/test", async (req, res) => {
     res.json({ ok: true, sent });
   } catch {
     res.status(500).json({ error: "فشل إرسال الإشعار التجريبي" });
+  }
+});
+
+// ── Notification tracking (called by Service Worker — no session required) ────
+router.post("/push/track", async (req, res) => {
+  const { notificationId, event } = req.body as {
+    notificationId: string;
+    event: "shown" | "clicked" | "dismissed";
+  };
+  if (!notificationId || !["shown", "clicked", "dismissed"].includes(event)) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+  try {
+    await logNotificationEvent(notificationId, event);
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "Track failed" });
+  }
+});
+
+// ── Notification log (admin only) ─────────────────────────────────────────────
+router.get("/push/log", async (req, res) => {
+  if (req.session?.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+  try {
+    const limit = Math.min(Number(req.query["limit"] ?? 100), 500);
+    const rows = await query<{
+      notification_id: string;
+      username: string | null;
+      title: string;
+      body: string;
+      url: string | null;
+      sent_at: string;
+      shown_at: string | null;
+      clicked_at: string | null;
+      dismissed_at: string | null;
+    }>(
+      `SELECT nl.notification_id, u.username, nl.title, nl.body, nl.url,
+              nl.sent_at, nl.shown_at, nl.clicked_at, nl.dismissed_at
+       FROM notification_log nl
+       LEFT JOIN users u ON u.id = nl.user_id
+       ORDER BY nl.sent_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    res.json({ log: rows });
+  } catch {
+    res.status(500).json({ error: "Failed to fetch log" });
   }
 });
 

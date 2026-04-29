@@ -4,6 +4,7 @@ import {
   UserPlus, Trash2, KeyRound, Shield, Clapperboard, Activity,
   Loader2, X, ChevronDown, LogIn, Stethoscope, Film, LayoutDashboard,
   Clock, WifiOff, Bell, ChevronUp, Save, CheckSquare, Square,
+  MousePointerClick, Eye, EyeOff, Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -945,10 +946,152 @@ export default function AdminPage() {
 
         {/* Settings */}
         <NotificationSettingsSection />
+
+        {/* Log */}
+        <NotificationLogSection />
       </div>
 
       {showAdd && <AddUserModal onClose={() => setShowAdd(false)} />}
       {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
+    </div>
+  );
+}
+
+// ── Notification Log Section ───────────────────────────────────────────────────
+interface NotifLogRow {
+  notification_id: string;
+  username: string | null;
+  title: string;
+  body: string;
+  url: string | null;
+  sent_at: string;
+  shown_at: string | null;
+  clicked_at: string | null;
+  dismissed_at: string | null;
+}
+
+function relTime(iso: string | null): string {
+  if (!iso) return "—";
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return "الآن";
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)} د`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)} س`;
+  return `${Math.floor(diff / 86400_000)} ي`;
+}
+
+function NotificationLogSection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["push-log"],
+    queryFn: () =>
+      fetch(`${API}/push/log?limit=60`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((d) => d.log as NotifLogRow[]),
+    refetchInterval: 30_000,
+  });
+
+  const rows = data ?? [];
+
+  // Compute stats
+  const total = rows.length;
+  const shown = rows.filter((r) => r.shown_at).length;
+  const clicked = rows.filter((r) => r.clicked_at).length;
+  const dismissed = rows.filter((r) => r.dismissed_at && !r.clicked_at).length;
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/40 dark:bg-slate-900/20 p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium flex items-center gap-1.5">
+          <Eye className="h-4 w-4 text-slate-500" />
+          سجل الإشعارات
+        </p>
+        {total > 0 && (
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="flex items-center gap-1 text-slate-500">
+              <Send className="h-3 w-3" /> {total} مُرسَل
+            </span>
+            <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+              <Eye className="h-3 w-3" /> {shown} ظهر ({total > 0 ? Math.round(shown / total * 100) : 0}%)
+            </span>
+            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              <MousePointerClick className="h-3 w-3" /> {clicked} ضُغط ({total > 0 ? Math.round(clicked / total * 100) : 0}%)
+            </span>
+            <span className="flex items-center gap-1 text-rose-500 dark:text-rose-400">
+              <EyeOff className="h-3 w-3" /> {dismissed} أُغلق
+            </span>
+          </div>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-4">
+          لا توجد إشعارات مسجّلة بعد
+        </p>
+      ) : (
+        <div className="overflow-x-auto -mx-1">
+          <table className="w-full text-xs border-collapse min-w-[500px]">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border">
+                <th className="text-right py-1.5 px-2 font-medium">المستخدم</th>
+                <th className="text-right py-1.5 px-2 font-medium">الإشعار</th>
+                <th className="text-right py-1.5 px-2 font-medium">أُرسل</th>
+                <th className="text-center py-1.5 px-2 font-medium">ظهر</th>
+                <th className="text-center py-1.5 px-2 font-medium">ضُغط</th>
+                <th className="text-center py-1.5 px-2 font-medium">أُغلق</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr
+                  key={r.notification_id}
+                  className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                >
+                  <td className="py-1.5 px-2 font-medium">{r.username ?? "—"}</td>
+                  <td className="py-1.5 px-2 max-w-[160px]">
+                    <p className="font-medium truncate">{r.title}</p>
+                    <p className="text-muted-foreground truncate">{r.body}</p>
+                  </td>
+                  <td className="py-1.5 px-2 text-muted-foreground whitespace-nowrap">
+                    {relTime(r.sent_at)}
+                  </td>
+                  <td className="py-1.5 px-2 text-center">
+                    {r.shown_at ? (
+                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600">
+                        <Eye className="h-3 w-3" />
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 px-2 text-center">
+                    {r.clicked_at ? (
+                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600">
+                        <MousePointerClick className="h-3 w-3" />
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 px-2 text-center">
+                    {r.dismissed_at && !r.clicked_at ? (
+                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-rose-100 dark:bg-rose-900/30 text-rose-500">
+                        <EyeOff className="h-3 w-3" />
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
