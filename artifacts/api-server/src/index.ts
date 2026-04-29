@@ -4,7 +4,8 @@ import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
 import { warmCreativeCache } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
-import { initVapid } from "./lib/push";
+import { initVapid, sendPushToRoles } from "./lib/push";
+import { getCpaAlerts } from "./lib/meta-api";
 import bcrypt from "bcryptjs";
 
 async function runMigrations() {
@@ -237,6 +238,23 @@ async function runMigrations() {
     ON CONFLICT (event_type) DO NOTHING
   `);
 
+  // CPA alert log — tracks sent push notifications to avoid duplicates
+  await query(`
+    CREATE TABLE IF NOT EXISTS cpa_alert_log (
+      id SERIAL PRIMARY KEY,
+      campaign_id VARCHAR(100) NOT NULL,
+      account_id VARCHAR(50) NOT NULL,
+      alert_type VARCHAR(20) NOT NULL,
+      campaign_name VARCHAR(500),
+      cpa DOUBLE PRECISION,
+      notified_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_cpa_alert_log_lookup
+    ON cpa_alert_log (campaign_id, account_id, alert_type, notified_at DESC)
+  `);
+
   // Create default admin user if no users exist
   const existingUsers = await query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM users WHERE deleted_at IS NULL`);
   if (Number(existingUsers[0]?.cnt ?? 0) === 0) {
@@ -279,6 +297,94 @@ async function startCreativeCacheWarmer() {
   }
 }
 
+// ── CPA Alert Cron ────────────────────────────────────────────────────────────
+// Runs every 2 hours. Sends push to admin + media_buyer when:
+//   winner: CPA < 30 EGP (scaling opportunity)
+//   warning: CPA > 40 EGP or zero purchases (needs intervention)
+// Deduplication: won't re-notify same campaign+type within 6 hours.
+
+const CPA_CRON_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const CPA_DEDUP_HOURS = 6;
+const CPA_RECIPIENT_ROLES = ["admin", "media_buyer"];
+
+async function runCpaAlertCron() {
+  const accountIds = getAdAccountIds();
+  if (accountIds.length === 0) {
+    logger.info("CPA cron: no ad accounts configured, skipping");
+    return;
+  }
+
+  for (const accountId of accountIds) {
+    try {
+      const result = await getCpaAlerts({ adAccountId: accountId });
+
+      // Build list of (campaignId, alertType) that were recently notified
+      const recentRows = await query<{ campaign_id: string; alert_type: string }>(`
+        SELECT campaign_id, alert_type
+        FROM cpa_alert_log
+        WHERE account_id = $1
+          AND notified_at > NOW() - INTERVAL '${CPA_DEDUP_HOURS} hours'
+      `, [accountId]);
+      const recentSet = new Set(recentRows.map((r) => `${r.campaign_id}:${r.alert_type}`));
+
+      // Process winners
+      for (const w of result.winners) {
+        const key = `${w.id}:winner`;
+        if (recentSet.has(key)) continue;
+
+        await sendPushToRoles(CPA_RECIPIENT_ROLES, {
+          title: "🚀 حملة جاهزة للتوسع",
+          body: `${w.name} — CPA ${w.cpa.toFixed(0)} ج.م (${w.purchases} أوردر) — ضاعف الميزانية الآن`,
+          url: "/overview",
+        });
+        await query(
+          `INSERT INTO cpa_alert_log (campaign_id, account_id, alert_type, campaign_name, cpa) VALUES ($1,$2,'winner',$3,$4)`,
+          [w.id, accountId, w.name, w.cpa]
+        );
+        logger.info({ campaign: w.name, cpa: w.cpa }, "CPA winner alert sent");
+      }
+
+      // Process warnings
+      for (const w of result.warnings) {
+        const key = `${w.id}:warning`;
+        if (recentSet.has(key)) continue;
+
+        const cpaText = w.purchases === 0
+          ? `إنفاق ${w.spend.toFixed(0)} ج.م بدون أوردرات`
+          : `CPA ${w.cpa.toFixed(0)} ج.م`;
+        await sendPushToRoles(CPA_RECIPIENT_ROLES, {
+          title: "⚠️ حملة تحتاج تدخل فوري",
+          body: `${w.name} — ${cpaText} — راجع الحملة وقلل الميزانية`,
+          url: "/overview",
+        });
+        await query(
+          `INSERT INTO cpa_alert_log (campaign_id, account_id, alert_type, campaign_name, cpa) VALUES ($1,$2,'warning',$3,$4)`,
+          [w.id, accountId, w.name, w.cpa]
+        );
+        logger.info({ campaign: w.name, cpa: w.cpa }, "CPA warning alert sent");
+      }
+
+      logger.info(
+        { account: accountId, winners: result.winners.length, warnings: result.warnings.length },
+        "CPA cron run complete"
+      );
+    } catch (err) {
+      logger.error({ err, account: accountId }, "CPA cron failed for account");
+    }
+  }
+}
+
+function startCpaAlertCron() {
+  // First run: 10 minutes after startup (let scan cron go first)
+  setTimeout(() => {
+    runCpaAlertCron().catch((err) => logger.error({ err }, "Initial CPA alert cron failed"));
+    setInterval(() => {
+      runCpaAlertCron().catch((err) => logger.error({ err }, "Scheduled CPA alert cron failed"));
+    }, CPA_CRON_INTERVAL_MS);
+  }, 10 * 60 * 1000);
+  logger.info({ interval_hours: 2 }, "CPA alert cron scheduled");
+}
+
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 function startScanCron() {
@@ -319,6 +425,7 @@ runMigrations()
       }
       logger.info({ port }, "Server listening");
       startScanCron();
+      startCpaAlertCron();
       // Pre-warm creative cache in background (don't block server startup)
       startCreativeCacheWarmer();
     });
