@@ -73,7 +73,6 @@ router.post("/push/broadcast", async (req, res) => {
     if (!Array.isArray(roles) || roles.length === 0) {
       return res.status(400).json({ error: "اختر مستقبلاً واحداً على الأقل" });
     }
-    const { sendPushToRoles } = await import("../lib/push");
     await sendPushToRoles(roles, { title: title.trim(), body: body.trim() });
     res.json({ ok: true });
   } catch {

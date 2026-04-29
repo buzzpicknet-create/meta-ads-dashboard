@@ -684,6 +684,141 @@ function NotificationSettingsSection() {
   );
 }
 
+function BroadcastSection() {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [roles, setRoles] = useState<string[]>(["admin", "media_buyer", "media_manager"]);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  function toggleRole(role: string) {
+    setRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
+    );
+  }
+
+  const send = useMutation({
+    mutationFn: () =>
+      fetch(`${API}/push/broadcast`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ title, body, roles }),
+      }).then((r) => r.json()),
+    onSuccess: (d) => {
+      if (d.ok) {
+        setResult({ ok: true, text: "✓ تم الإرسال بنجاح" });
+        setTitle("");
+        setBody("");
+      } else {
+        setResult({ ok: false, text: d.error ?? "فشل الإرسال" });
+      }
+      setTimeout(() => setResult(null), 4000);
+    },
+    onError: () => {
+      setResult({ ok: false, text: "فشل الإرسال — تحقق من الاتصال" });
+      setTimeout(() => setResult(null), 4000);
+    },
+  });
+
+  return (
+    <div className="border border-amber-200 dark:border-amber-900/40 rounded-xl bg-amber-50/40 dark:bg-amber-900/10 p-4 space-y-4">
+      {/* Header */}
+      <div>
+        <p className="text-sm font-medium flex items-center gap-1.5">
+          <Bell className="h-4 w-4 text-amber-500" />
+          إشعار مخصص
+        </p>
+        <p className="text-xs text-muted-foreground mt-0.5">اكتب إشعاراً واختار مين يوصله — يُرسَل مرة واحدة فقط</p>
+      </div>
+
+      {/* Title input */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          عنوان الإشعار
+        </label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={80}
+          placeholder="مثال: تنبيه مهم"
+          className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-amber-400"
+        />
+      </div>
+
+      {/* Body textarea */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          نص الإشعار
+        </label>
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          maxLength={200}
+          rows={3}
+          placeholder="اكتب تفاصيل الإشعار هنا..."
+          className="rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+        />
+        <p className="text-[10px] text-muted-foreground text-left" dir="ltr">
+          {body.length}/200
+        </p>
+      </div>
+
+      {/* Recipients */}
+      <div className="flex flex-col gap-2">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          يُرسَل إلى
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {ALL_ROLES.map((r) => {
+            const checked = roles.includes(r.key);
+            return (
+              <button
+                key={r.key}
+                type="button"
+                onClick={() => toggleRole(r.key)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  checked
+                    ? "bg-amber-500 text-white border-amber-500"
+                    : "border-border text-muted-foreground hover:border-amber-400 hover:text-amber-600"
+                }`}
+              >
+                {checked ? <CheckSquare className="h-3 w-3" /> : <Square className="h-3 w-3" />}
+                {r.label}
+              </button>
+            );
+          })}
+        </div>
+        {roles.length === 0 && (
+          <p className="text-[11px] text-red-500">⚠️ اختر مستقبلاً واحداً على الأقل</p>
+        )}
+      </div>
+
+      {/* Send row */}
+      <div className="flex items-center gap-3 pt-1">
+        {result && (
+          <span className={`text-xs font-medium ${result.ok ? "text-emerald-600" : "text-red-500"}`}>
+            {result.text}
+          </span>
+        )}
+        <div className="flex-1" />
+        <button
+          onClick={() => send.mutate()}
+          disabled={!title.trim() || !body.trim() || roles.length === 0 || send.isPending}
+          className="inline-flex items-center gap-1.5 h-9 px-5 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-40 transition-colors"
+        >
+          {send.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Bell className="h-3.5 w-3.5" />
+          )}
+          إرسال الإشعار
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { user: me } = useAuth();
   const qc = useQueryClient();
@@ -777,11 +912,16 @@ export default function AdminPage() {
       )}
 
       {/* Notification settings section */}
-      <div className="mt-8">
-        <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+      <div className="mt-8 space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
           <Bell className="h-4 w-4" />
-          إعدادات الإشعارات
+          الإشعارات
         </h2>
+
+        {/* Broadcast */}
+        <BroadcastSection />
+
+        {/* Settings */}
         <NotificationSettingsSection />
       </div>
 
