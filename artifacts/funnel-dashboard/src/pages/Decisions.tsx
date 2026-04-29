@@ -1,23 +1,15 @@
 import { useMemo, useState } from "react";
 import {
   CheckCircle2, AlertTriangle, XCircle, PauseCircle, Zap, TrendingDown,
-  ChevronDown, RefreshCw, Loader2, BarChart2, Target,
-  Eye, ShoppingCart, Filter,
+  RefreshCw, BarChart2, Target, Eye, ShoppingCart, Filter, Stethoscope,
 } from "lucide-react";
-import { useAccounts, useAccountOverview, useInsights } from "@/hooks/use-meta";
+import { useAccounts, useAccountOverview } from "@/hooks/use-meta";
 import {
   type CampaignSummaryFull,
   type DatePreset,
   rangeFromPreset,
 } from "@/lib/meta-api";
-import {
-  diagnoseCampaign,
-  diagnoseSegment,
-  MetricGrid,
-  ActionList,
-  COLOR_CFG,
-  FLAG_TEXT,
-} from "@/components/DiagnosisModal";
+import { CampaignDiagnosisModal } from "@/components/DiagnosisModal";
 import {
   Select,
   SelectContent,
@@ -60,17 +52,17 @@ function computeScore(c: CampaignSummaryFull): number {
 
 // ── Category ──────────────────────────────────────────────────
 type Category =
-  | "winner"    // رابح
-  | "near"      // قريب من الفور
-  | "fatigue"   // إرهاق جمهور
-  | "creative"  // كريتف ضعيف
-  | "tech"      // مشكلة تقنية
-  | "landing"   // صفحة هبوط
-  | "noconv"    // لا تحويلات
-  | "critical"  // حرجة
-  | "improve"   // يحتاج تحسين
-  | "paused"    // متوقفة
-  | "nodata";   // لا بيانات
+  | "winner"
+  | "near"
+  | "fatigue"
+  | "creative"
+  | "tech"
+  | "landing"
+  | "noconv"
+  | "critical"
+  | "improve"
+  | "paused"
+  | "nodata";
 
 const CAT_LABELS: Record<Category, string> = {
   winner:   "رابح ✅",
@@ -131,19 +123,18 @@ function getCategory(c: CampaignSummaryFull): Category {
   if (lpvRate > 0 && lpvRate < 60) return "tech";
   if (c.cr > 0 && c.cr < 1.5 && lpvRate >= 60) return "landing";
   if (c.cpa > CPA_WARN) return "critical";
-  if (c.cpa > CPA_NEAR) return "improve";
   return "improve";
 }
 
-function scoreColor(score: number): { ring: string; text: string; fill: string } {
-  if (score >= 80) return { ring: "#10b981", text: "text-emerald-600 dark:text-emerald-400", fill: "#10b981" };
-  if (score >= 60) return { ring: "#f59e0b", text: "text-amber-600 dark:text-amber-400", fill: "#f59e0b" };
-  if (score >= 40) return { ring: "#f97316", text: "text-orange-600 dark:text-orange-400", fill: "#f97316" };
-  return { ring: "#f43f5e", text: "text-rose-600 dark:text-rose-400", fill: "#f43f5e" };
+function scoreColor(score: number): { ring: string; text: string } {
+  if (score >= 80) return { ring: "#10b981", text: "text-emerald-600 dark:text-emerald-400" };
+  if (score >= 60) return { ring: "#f59e0b", text: "text-amber-600 dark:text-amber-400" };
+  if (score >= 40) return { ring: "#f97316", text: "text-orange-600 dark:text-orange-400" };
+  return { ring: "#f43f5e", text: "text-rose-600 dark:text-rose-400" };
 }
 
 function MetricBar({ label, value, pct, flag }: { label: string; value: string; pct: number; flag: "good" | "warn" | "bad" }) {
-  const barColor = flag === "good" ? "bg-emerald-500" : flag === "warn" ? "bg-amber-500" : "bg-rose-500";
+  const barColor  = flag === "good" ? "bg-emerald-500" : flag === "warn" ? "bg-amber-500" : "bg-rose-500";
   const textColor = flag === "good" ? "text-emerald-700 dark:text-emerald-400" : flag === "warn" ? "text-amber-700 dark:text-amber-400" : "text-rose-700 dark:text-rose-400";
   return (
     <div className="space-y-1">
@@ -160,7 +151,7 @@ function MetricBar({ label, value, pct, flag }: { label: string; value: string; 
 
 function ScoreCircle({ score }: { score: number }) {
   const { ring, text } = scoreColor(score);
-  const r = 18;
+  const r    = 18;
   const circ = 2 * Math.PI * r;
   const dash = (score / 100) * circ;
 
@@ -168,124 +159,35 @@ function ScoreCircle({ score }: { score: number }) {
     <div className="relative flex-shrink-0 flex items-center justify-center w-12 h-12">
       <svg className="absolute inset-0 -rotate-90" width="48" height="48" viewBox="0 0 48 48">
         <circle cx="24" cy="24" r={r} fill="none" stroke="currentColor" strokeWidth="3" className="text-muted/30" />
-        <circle
-          cx="24" cy="24" r={r}
-          fill="none" stroke={ring} strokeWidth="3.5"
-          strokeDasharray={`${dash} ${circ}`}
-          strokeLinecap="round"
-        />
+        <circle cx="24" cy="24" r={r} fill="none" stroke={ring} strokeWidth="3.5"
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
       </svg>
       <span className={`text-xs font-extrabold z-10 leading-none ${text}`}>{score}</span>
     </div>
   );
 }
 
-// ── Diagnosis Panel (loaded on expand) ────────────────────────
-function DiagnosisPanel({
-  campaignId, accountId, since, until,
-}: {
-  campaignId: string; accountId: string; since: string; until: string;
-}) {
-  const { data, isLoading } = useInsights({ campaign_id: campaignId, ad_account_id: accountId, since, until });
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground text-sm">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        جاري تحميل التشخيص...
-      </div>
-    );
-  }
-  if (!data) {
-    return <p className="text-center text-sm text-muted-foreground py-6">تعذّر تحميل البيانات</p>;
-  }
-
-  const diag = diagnoseCampaign(data.totals, data.daily);
-  const cfg = COLOR_CFG[diag.color];
-
-  return (
-    <div className="space-y-4 pt-2">
-      {/* Decision banner */}
-      <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${cfg.bg} ${cfg.border}`}>
-        <span className="text-xl">{diag.emoji}</span>
-        <div className="min-w-0">
-          <div className={`text-sm font-bold ${cfg.text}`}>{diag.decision}</div>
-          <div className="text-xs text-muted-foreground leading-snug mt-0.5">{diag.problem}</div>
-        </div>
-      </div>
-
-      {/* Funnel */}
-      {diag.funnel.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">الفانل</div>
-          <div className="space-y-1">
-            {diag.funnel.map((f, i) => (
-              <div key={i} className="flex items-center justify-between text-xs rounded-lg bg-muted/10 border border-border px-3 py-2">
-                <span className="text-muted-foreground">{f.label}</span>
-                <span className={`font-bold font-mono ${FLAG_TEXT[f.flag]}`} dir="ltr">{f.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Metrics grid */}
-      <MetricGrid metrics={diag.metrics} />
-
-      {/* Action plan */}
-      <ActionList actions={diag.actionPlan} color={diag.color} />
-
-      {/* Ad sets & ads */}
-      {data.by_adset.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">تشخيص Ad Sets</div>
-          {data.by_adset.map((seg) => {
-            const d = diagnoseSegment(seg);
-            const c = COLOR_CFG[d.color];
-            return (
-              <div key={seg.key} className={`rounded-xl border p-3 ${c.bg} ${c.border}`}>
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <p className="text-xs font-medium leading-snug flex-1">{seg.label}</p>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.badge}`}>{d.decision}</span>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 text-[10px] text-muted-foreground">
-                  <span>CPA: <b className={`font-mono ${FLAG_TEXT[d.metrics.find(m=>m.label==="CPA")?.flag ?? "bad"]}`} dir="ltr">{seg.cpa > 0 ? `${Math.round(seg.cpa)} EGP` : "—"}</b></span>
-                  <span>CTR: <b className="font-mono" dir="ltr">{seg.ctr.toFixed(2)}%</b></span>
-                  <span>Spend: <b className="font-mono" dir="ltr">{Math.round(seg.spend)} EGP</b></span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Campaign Card ─────────────────────────────────────────────
 function CampaignDecisionCard({
-  campaign, accountId, since, until,
+  campaign, onDiagnose,
 }: {
   campaign: CampaignSummaryFull;
-  accountId: string;
-  since: string;
-  until: string;
+  onDiagnose: (id: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const score   = computeScore(campaign);
   const cat     = getCategory(campaign);
   const catClr  = CAT_COLORS[cat];
   const CatIcon = getCategoryIcon(cat);
 
-  const lpvRate   = campaign.link_clicks > 0 ? (campaign.lpv / campaign.link_clicks) * 100 : 0;
-  const ctrFlag   = campaign.ctr >= 1.5 ? "good" : campaign.ctr >= 0.8 ? "warn" : "bad";
-  const cpaFlag   = campaign.cpa > 0 && campaign.cpa <= CPA_WIN ? "good" : campaign.cpa <= CPA_NEAR ? "warn" : "bad";
-  const lpvFlag   = lpvRate >= 70 ? "good" : lpvRate >= 50 ? "warn" : "bad";
-  const cpaText   = campaign.cpa > 0 ? `${Math.round(campaign.cpa)} EGP` : campaign.purchases === 0 ? "لا أوردر" : "—";
-  const isPaused  = cat === "paused" || cat === "nodata";
+  const lpvRate = campaign.link_clicks > 0 ? (campaign.lpv / campaign.link_clicks) * 100 : 0;
+  const ctrFlag = campaign.ctr >= 1.5 ? "good" : campaign.ctr >= 0.8 ? "warn" : "bad";
+  const cpaFlag = campaign.cpa > 0 && campaign.cpa <= CPA_WIN ? "good" : campaign.cpa <= CPA_NEAR ? "warn" : "bad";
+  const lpvFlag = lpvRate >= 70 ? "good" : lpvRate >= 50 ? "warn" : "bad";
+  const cpaText = campaign.cpa > 0 ? `${Math.round(campaign.cpa)} EGP` : campaign.purchases === 0 ? "لا أوردر" : "—";
+  const isPaused = cat === "paused" || cat === "nodata";
 
   return (
-    <div className={`rounded-2xl border overflow-hidden transition-all ${catClr.border} ${isPaused ? "opacity-60" : ""}`}>
+    <div className={`rounded-2xl border overflow-hidden flex flex-col transition-all ${catClr.border} ${isPaused ? "opacity-60" : ""}`}>
       {/* Card header */}
       <div className={`${catClr.bg} px-4 pt-4 pb-3`}>
         <div className="flex items-start gap-3">
@@ -301,7 +203,7 @@ function CampaignDecisionCard({
       </div>
 
       {/* Metrics */}
-      <div className="bg-card px-4 py-3 space-y-2.5">
+      <div className="bg-card px-4 py-3 space-y-2.5 flex-1">
         <MetricBar
           label="Outbound CTR"
           value={`${campaign.ctr.toFixed(2)}%`}
@@ -309,41 +211,44 @@ function CampaignDecisionCard({
           flag={ctrFlag}
         />
         <MetricBar
-          label={`LPV Rate (${campaign.link_clicks > 0 ? `${Math.round(lpvRate)}%` : "—"})`}
+          label="LPV Rate"
           value={lpvRate > 0 ? `${Math.round(lpvRate)}%` : "—"}
           pct={lpvRate}
           flag={lpvRate > 0 ? lpvFlag : "bad"}
         />
         <div className="flex items-center justify-between pt-1 border-t border-border/50">
           <div className="text-xs text-muted-foreground">
-            CPA: <span className={`font-bold font-mono ${cpaFlag === "good" ? "text-emerald-600 dark:text-emerald-400" : cpaFlag === "warn" ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400"}`} dir="ltr">{cpaText}</span>
+            CPA:{" "}
+            <span
+              className={`font-bold font-mono ${
+                cpaFlag === "good"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : cpaFlag === "warn"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-rose-600 dark:text-rose-400"
+              }`}
+              dir="ltr"
+            >
+              {cpaText}
+            </span>
           </div>
           <div className="text-xs text-muted-foreground">
-            إنفاق: <span className="font-mono font-medium" dir="ltr">{Math.round(campaign.spend).toLocaleString()} EGP</span>
+            إنفاق:{" "}
+            <span className="font-mono font-medium" dir="ltr">
+              {Math.round(campaign.spend).toLocaleString()} EGP
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Expand button */}
+      {/* Diagnose button */}
       <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/20 hover:bg-muted/40 transition-colors text-xs font-medium text-muted-foreground"
+        onClick={() => onDiagnose(campaign.id)}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-t border-border bg-muted/20 hover:bg-primary/10 hover:text-primary transition-colors text-xs font-semibold text-muted-foreground"
       >
-        <span>{expanded ? "إخفاء التحليل" : "عرض التحليل"}</span>
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <Stethoscope className="h-3.5 w-3.5" />
+        تشخيص كامل
       </button>
-
-      {/* Diagnosis panel */}
-      {expanded && (
-        <div className="border-t border-border bg-muted/5 px-4 py-4">
-          <DiagnosisPanel
-            campaignId={campaign.id}
-            accountId={accountId}
-            since={since}
-            until={until}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -390,14 +295,14 @@ function SummaryBar({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
 
 // ── Main Page ─────────────────────────────────────────────────
 const PRESET_LABELS: Record<DatePreset, string> = {
-  today: "اليوم",
-  yesterday: "أمس",
-  "7d": "آخر 7 أيام",
-  "14d": "آخر 14 يوم",
-  "28d": "آخر 28 يوم",
+  today:         "اليوم",
+  yesterday:     "أمس",
+  "7d":          "آخر 7 أيام",
+  "14d":         "آخر 14 يوم",
+  "28d":         "آخر 28 يوم",
   current_month: "الشهر الحالي",
-  prev_month: "الشهر السابق",
-  custom: "مخصص",
+  prev_month:    "الشهر السابق",
+  custom:        "مخصص",
 };
 
 type FilterKey = "all" | Category;
@@ -422,6 +327,7 @@ export default function DecisionsPage() {
   const [accountId, setAccountId] = useState<string | null>(null);
   const [preset, setPreset]       = useState<DatePreset>("7d");
   const [filter, setFilter]       = useState<FilterKey>("all");
+  const [diagId, setDiagId]       = useState<string | null>(null);
 
   const selectedAccountId = accountId ?? accounts[0]?.id ?? null;
   const range             = useMemo(() => rangeFromPreset(preset), [preset]);
@@ -453,11 +359,10 @@ export default function DecisionsPage() {
               تشخيص الحملات الإعلانية
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              تحليل — CTR · LPV Rate · CPA · القرار
+              CTR · LPV Rate · CPA · القرار لكل حملة
             </p>
           </div>
 
-          {/* Controls */}
           <div className="flex items-center gap-2 flex-wrap">
             {accounts.length > 1 && (
               <Select value={selectedAccountId ?? ""} onValueChange={setAccountId}>
@@ -511,20 +416,23 @@ export default function DecisionsPage() {
         {/* Loading */}
         {isLoading && (
           <div className="flex items-center justify-center py-20 gap-3 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
+            <RefreshCw className="h-5 w-5 animate-spin" />
             جاري تحميل الحملات...
           </div>
         )}
 
-        {/* Empty */}
+        {/* Empty — filter has no results */}
         {!isLoading && campaigns.length === 0 && allCampaigns.length > 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <Filter className="h-8 w-8 mx-auto mb-3 opacity-40" />
             <p className="text-sm">لا توجد حملات في هذا التصنيف</p>
-            <button onClick={() => setFilter("all")} className="mt-2 text-xs text-primary underline">عرض الكل</button>
+            <button onClick={() => setFilter("all")} className="mt-2 text-xs text-primary underline">
+              عرض الكل
+            </button>
           </div>
         )}
 
+        {/* Empty — no campaigns at all */}
         {!isLoading && allCampaigns.length === 0 && selectedAccountId && (
           <div className="text-center py-16 text-muted-foreground">
             <BarChart2 className="h-8 w-8 mx-auto mb-3 opacity-40" />
@@ -539,15 +447,25 @@ export default function DecisionsPage() {
               <CampaignDecisionCard
                 key={c.id}
                 campaign={c}
-                accountId={selectedAccountId!}
-                since={range.since}
-                until={range.until}
+                onDiagnose={setDiagId}
               />
             ))}
           </div>
         )}
 
       </div>
+
+      {/* Full diagnosis modal — same as Dashboard */}
+      {selectedAccountId && (
+        <CampaignDiagnosisModal
+          campaignId={diagId}
+          accountId={selectedAccountId}
+          since={range.since}
+          until={range.until}
+          open={diagId !== null}
+          onClose={() => setDiagId(null)}
+        />
+      )}
     </div>
   );
 }
