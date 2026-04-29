@@ -79,6 +79,11 @@ function NavBar() {
               Meta Ads
             </div>
 
+            {/* Bell on mobile (top bar) */}
+            <div className="sm:hidden flex items-center">
+              <NotificationBell />
+            </div>
+
             {/* Desktop nav — hidden on mobile */}
             <div className="hidden sm:flex items-center gap-1">
               {navItems.map((item) => {
