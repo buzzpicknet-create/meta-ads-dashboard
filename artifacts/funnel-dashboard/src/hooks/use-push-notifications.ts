@@ -10,7 +10,13 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
-export type PushState = "unsupported" | "denied" | "subscribed" | "unsubscribed" | "loading";
+export type PushState =
+  | "unsupported"   // browser doesn't support push
+  | "denied"        // user blocked notifications in browser settings
+  | "blocked"       // browser is blocking permission requests (quiet UI / site-blocked)
+  | "subscribed"
+  | "unsubscribed"
+  | "loading";
 
 export function usePushNotifications() {
   const [state, setState] = useState<PushState>("loading");
@@ -33,10 +39,34 @@ export function usePushNotifications() {
 
   const subscribe = useCallback(async () => {
     if (!("serviceWorker" in navigator)) return;
+
+    // Guard: if already denied in browser settings, don't try
+    if (Notification.permission === "denied") {
+      setState("denied");
+      return;
+    }
+
     setState("loading");
     try {
-      const perm = await Notification.requestPermission();
-      if (perm !== "granted") { setState("denied"); return; }
+      let perm: NotificationPermission;
+      try {
+        perm = await Notification.requestPermission();
+      } catch {
+        // Chrome throws when it can't show the permission dialog
+        // (quiet notification blocking, or site-blocked)
+        setState("blocked");
+        return;
+      }
+
+      if (perm === "denied") {
+        setState("denied");
+        return;
+      }
+      if (perm !== "granted") {
+        // User dismissed the dialog without choosing — set "blocked" so we show hint
+        setState("blocked");
+        return;
+      }
 
       const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
       await navigator.serviceWorker.ready;
@@ -53,6 +83,7 @@ export function usePushNotifications() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sub.toJSON()),
+        credentials: "include",
       });
 
       setState("subscribed");
@@ -71,6 +102,7 @@ export function usePushNotifications() {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ endpoint: sub.endpoint }),
+          credentials: "include",
         });
         await sub.unsubscribe();
       }
