@@ -27,19 +27,17 @@ export interface FrequencyAlert {
 
 function freqLevel(f: number): FrequencyLevel {
   if (f < 1.5)  return "fresh";
-  if (f < 2.5)  return "normal";
-  if (f < 3.5)  return "warning";
-  if (f < 5.0)  return "danger";
-  return "saturated";
+  if (f < 2.0)  return "normal";   // حرج
+  return "danger";                   // خطر — غيّر الكريتف
 }
 
 function freqLevelLabel(l: FrequencyLevel): string {
   switch (l) {
     case "fresh":     return "جمهور طازج";
-    case "normal":    return "تنبه — حضّر بديل";
-    case "warning":   return "غيّر الكريتف أو الجمهور الآن";
-    case "danger":    return "تشبع عالٍ — تدخّل فوراً";
-    case "saturated": return "جمهور مشبع — أوقف";
+    case "normal":    return "حرج — جهّز كريتف بديل";
+    case "warning":   return "خطر — غيّر الكريتف الآن";
+    case "danger":    return "خطر — غيّر الكريتف الآن";
+    case "saturated": return "خطر — غيّر الكريتف الآن";
   }
 }
 

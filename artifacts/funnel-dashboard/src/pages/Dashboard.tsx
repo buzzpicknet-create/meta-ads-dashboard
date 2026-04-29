@@ -1483,10 +1483,8 @@ function FreqBadge({ freq }: { freq: number | undefined }) {
   if (!freq || freq <= 0) return <span className="text-[10px] text-muted-foreground">—</span>;
   const cls =
     freq < 1.5  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
-    freq < 2.5  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-    freq < 3.5  ? "bg-orange-500/15 text-orange-700 dark:text-orange-400" :
-    freq < 5.0  ? "bg-rose-500/15 text-rose-700 dark:text-rose-400" :
-                  "bg-rose-700/20 text-rose-800 dark:text-rose-300";
+    freq < 2.0  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                  "bg-rose-500/15 text-rose-700 dark:text-rose-400";
   return (
     <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${cls}`}>
       {freq.toFixed(1)}x

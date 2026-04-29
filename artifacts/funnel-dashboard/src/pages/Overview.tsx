@@ -639,10 +639,8 @@ function OvFreqBadge({ freq }: { freq: number | undefined }) {
   if (!freq || freq <= 0) return <span className="text-[10px] text-muted-foreground">—</span>;
   const cls =
     freq < 1.5  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" :
-    freq < 2.5  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
-    freq < 3.5  ? "bg-orange-500/15 text-orange-700 dark:text-orange-400" :
-    freq < 5.0  ? "bg-rose-500/15 text-rose-700 dark:text-rose-400" :
-                  "bg-rose-700/20 text-rose-800 dark:text-rose-300";
+    freq < 2.0  ? "bg-amber-500/15 text-amber-700 dark:text-amber-400" :
+                  "bg-rose-500/15 text-rose-700 dark:text-rose-400";
   return (
     <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${cls}`}>
       {freq.toFixed(1)}x
@@ -692,14 +690,11 @@ function FrequencyDangerPanel({ campaigns }: { campaigns: CampaignSummaryFull[] 
   if (danger.length === 0) return null;
 
   function freqLabel(f: number) {
-    if (f < 2.5) return "تنبه — حضّر بديل";
-    if (f < 3.5) return "غيّر الكريتف الآن";
-    if (f < 5.0) return "تشبع عالٍ";
-    return "جمهور مشبع";
+    if (f < 2.0) return "حرج — جهّز كريتف بديل";
+    return "خطر — غيّر الكريتف الآن";
   }
   function freqCls(f: number) {
-    if (f < 2.5) return { row: "bg-amber-500/8 border-amber-500/20 text-amber-700 dark:text-amber-400", badge: "bg-amber-500/20 text-amber-800 dark:text-amber-300" };
-    if (f < 3.5) return { row: "bg-orange-500/8 border-orange-500/20 text-orange-700 dark:text-orange-400", badge: "bg-orange-500/20 text-orange-800 dark:text-orange-300" };
+    if (f < 2.0) return { row: "bg-amber-500/8 border-amber-500/20 text-amber-700 dark:text-amber-400", badge: "bg-amber-500/20 text-amber-800 dark:text-amber-300" };
     return { row: "bg-rose-500/8 border-rose-500/20 text-rose-700 dark:text-rose-400", badge: "bg-rose-500/20 text-rose-800 dark:text-rose-300" };
   }
 
@@ -964,7 +959,7 @@ function AccountHealthPanel({ totals, campaigns }: { totals: DerivedMetrics; cam
   const ctrStatus = (v: number): HealthStatus => v >= 2 ? "good" : v >= 1.5 ? "warn" : "danger";
   const cpcStatus = (v: number): HealthStatus => v <= 3 ? "good" : v <= 5 ? "warn" : "danger";
   const cpmStatus = (v: number): HealthStatus => v <= 50 ? "good" : v <= 70 ? "warn" : "danger";
-  const freqStatus = (v: number): HealthStatus => v <= 1.5 ? "good" : v <= 2.5 ? "warn" : "danger";
+  const freqStatus = (v: number): HealthStatus => v <= 1.5 ? "good" : v <= 2.0 ? "warn" : "danger";
   const cpaStatus = (v: number): HealthStatus => v === 0 ? "danger" : v <= 40 ? "good" : v <= 100 ? "warn" : "danger";
   const crStatus  = (v: number): HealthStatus => v >= 3 ? "good" : v >= 1.5 ? "warn" : "danger";
 
@@ -1058,7 +1053,7 @@ function AccountHealthPanel({ totals, campaigns }: { totals: DerivedMetrics; cam
         : "—",
       bench: "الهدف ≤ 1.5x",
       status: freqCampaigns.length === 0 ? "good" : freqStatus(Math.max(...active.map((c) => c.frequency ?? 0))),
-      statusLabel: freqCampaigns.length === 0 ? "جيد ✓" : Math.max(...active.map((c) => c.frequency ?? 0)) <= 2.5 ? "مرتفع — غيّر الكريتف" : "خطر — تشبع الجمهور",
+      statusLabel: freqCampaigns.length === 0 ? "جيد ✓" : Math.max(...active.map((c) => c.frequency ?? 0)) <= 2.0 ? "حرج — جهّز كريتف بديل" : "خطر — غيّر الكريتف الآن",
       problem: freqCampaigns.length > 0 ? "high-frequency" : undefined,
       metrics: { freq: active.filter((c) => (c.frequency ?? 0) > 0).length > 0 ? Math.max(...active.map((c) => c.frequency ?? 0)) : 0 },
       badCampaigns: freqCampaigns,
@@ -1995,7 +1990,7 @@ function AccountTabContent({
       alerts.push({ alertKey: "no-conversions:account", alertType: "no-conversions", severity: "danger", metricValue: 0, metricLabel: "لا أوردرات" });
 
     for (const c of active.filter((c) => (c.frequency ?? 0) > 1.5).slice(0, 5))
-      alerts.push({ alertKey: `high-frequency:campaign-${c.id}`, alertType: "high-frequency", severity: (c.frequency ?? 0) > 2.5 ? "danger" : "warn", metricValue: c.frequency ?? 0, metricLabel: `Freq ${(c.frequency ?? 0).toFixed(2)}x`, campaignId: c.id, campaignName: c.name });
+      alerts.push({ alertKey: `high-frequency:campaign-${c.id}`, alertType: "high-frequency", severity: (c.frequency ?? 0) > 2.0 ? "danger" : "warn", metricValue: c.frequency ?? 0, metricLabel: `Freq ${(c.frequency ?? 0).toFixed(2)}x`, campaignId: c.id, campaignName: c.name });
 
     snapshotAlerts(accountId, alerts).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps

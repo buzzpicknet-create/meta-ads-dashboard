@@ -91,7 +91,7 @@ function getCategory(c: CampaignSummaryFull): Category {
   if (vr >= HOOK_WEAK && c.ctr >= CTR_MIN && c.cpa > CPA_NEAR) return "sellfluct";
 
   // إرهاق جمهور: Frequency عالية + CTR منخفض
-  if (c.frequency > 2.5 && c.ctr < CTR_MIN) return "fatigue";
+  if (c.frequency > 2.0 && c.ctr < CTR_MIN) return "fatigue";
 
   // كريتف ضعيف: VR متوسط أو CTR ضعيف
   if (vr < HOOK_WEAK || c.ctr < CTR_MIN) return "creative";
@@ -139,8 +139,8 @@ function computeScore(c: CampaignSummaryFull): number {
   else if (lpvRate > 0 && lpvRate < 70) s -= 5;
 
   // Frequency (5 pts)
-  if (c.frequency > 3)         s -= 5;
-  else if (c.frequency > 2.5)  s -= 3;
+  if (c.frequency > 2.0)       s -= 5;
+  else if (c.frequency > 1.5)  s -= 3;
 
   return Math.max(0, Math.min(100, Math.round(s)));
 }
@@ -223,7 +223,7 @@ function CampaignDecisionCard({
   const ctrFlag:  "good"|"warn"|"bad" = campaign.ctr >= CTR_GOOD ? "good" : campaign.ctr >= CTR_MIN ? "warn" : "bad";
   const lprFlag:  "good"|"warn"|"bad" = lpr >= 70 ? "good" : lpr >= 50 ? "warn" : "bad";
   const cpaFlag:  "good"|"warn"|"bad" = campaign.cpa > 0 && campaign.cpa <= CPA_WIN ? "good" : campaign.cpa <= CPA_NEAR ? "warn" : "bad";
-  const freqFlag: "good"|"warn"|"bad" = campaign.frequency <= 2.5 ? "good" : campaign.frequency <= 3.5 ? "warn" : "bad";
+  const freqFlag: "good"|"warn"|"bad" = campaign.frequency <= 1.5 ? "good" : campaign.frequency <= 2.0 ? "warn" : "bad";
   const cpmFlag:  "good"|"warn"|"bad" = campaign.cpm < 30 ? "good" : campaign.cpm < 70 ? "warn" : "bad";
 
   const cpaText = campaign.cpa > 0
