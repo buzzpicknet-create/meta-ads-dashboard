@@ -406,8 +406,6 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
       actionPlan: [
         `حملة مش خسرانة، لكن لسه مش قوية كفاية للتوسيع.`,
         `اقفل الإعلانات الضعيفة وحوّل الميزانية للأفضل وابدأ جهّز كريتف جديدة بزوايا تانية.`,
-        `حوّل لـ Advantage+ Audience (Broad بدون أي تحديد).`,
-        `افتح Placement Breakdown: قارن Reels vs Feed. حوّل الميزانية للأرخص CPA.`,
       ],
     };
   }
