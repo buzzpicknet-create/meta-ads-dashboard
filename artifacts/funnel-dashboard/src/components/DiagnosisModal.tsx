@@ -635,6 +635,227 @@ export function CreativeTab({ ads }: { ads: Array<{ seg: SegmentEntry; diag: Seg
   );
 }
 
+// ── Performance Comparison Tab ─────────────────────────────────
+type CompareMode = "1d" | "3d" | "custom";
+
+interface PeriodMetrics {
+  spend: number; cpa: number; ctr: number; cr: number;
+  cpm: number; purchases: number; lpv: number;
+}
+
+function aggregateDaily(days: DailyPoint[]): PeriodMetrics {
+  const spend      = days.reduce((s, d) => s + d.spend, 0);
+  const purchases  = days.reduce((s, d) => s + d.purchases, 0);
+  const lpv        = days.reduce((s, d) => s + d.lpv, 0);
+  const impressions = days.reduce((s, d) => s + d.impressions, 0);
+  const link_clicks = days.reduce((s, d) => s + d.link_clicks, 0);
+  return {
+    spend, purchases, lpv,
+    cpa: purchases > 0 ? spend / purchases : 0,
+    ctr: impressions > 0 ? (link_clicks / impressions) * 100 : 0,
+    cr:  lpv > 0 ? (purchases / lpv) * 100 : 0,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+  };
+}
+
+interface TurningPoint { day: string; metric: string; direction: "up" | "down"; pct: number }
+
+function findTurningPoint(daily: DailyPoint[]): TurningPoint | null {
+  if (daily.length < 3) return null;
+  let maxChange = 0;
+  let result: TurningPoint | null = null;
+  for (let i = 1; i < daily.length; i++) {
+    const prev = daily[i - 1];
+    const curr = daily[i];
+    if (prev.purchases > 0 && curr.purchases > 0 && prev.cpa > 0) {
+      const pct = ((curr.cpa - prev.cpa) / prev.cpa) * 100;
+      if (pct > 15 && Math.abs(pct) > maxChange) {
+        maxChange = Math.abs(pct);
+        result = { day: curr.day, metric: "CPA", direction: "up", pct: Math.round(pct) };
+      }
+    }
+    const prevCtr = prev.impressions > 0 ? (prev.link_clicks / prev.impressions) * 100 : 0;
+    const currCtr = curr.impressions > 0 ? (curr.link_clicks / curr.impressions) * 100 : 0;
+    if (prevCtr > 0) {
+      const pct = ((currCtr - prevCtr) / prevCtr) * 100;
+      if (pct < -15 && Math.abs(pct) > maxChange) {
+        maxChange = Math.abs(pct);
+        result = { day: curr.day, metric: "CTR", direction: "down", pct: Math.round(Math.abs(pct)) };
+      }
+    }
+    const prevCr = prev.lpv > 0 ? (prev.purchases / prev.lpv) * 100 : 0;
+    const currCr = curr.lpv > 0 ? (curr.purchases / curr.lpv) * 100 : 0;
+    if (prevCr > 0) {
+      const pct = ((currCr - prevCr) / prevCr) * 100;
+      if (pct < -20 && Math.abs(pct) > maxChange) {
+        maxChange = Math.abs(pct);
+        result = { day: curr.day, metric: "Conv. Rate", direction: "down", pct: Math.round(Math.abs(pct)) };
+      }
+    }
+  }
+  return result;
+}
+
+function PerformanceCompareTab({ daily }: { daily: DailyPoint[] }) {
+  const [mode, setMode] = useState<CompareMode>("3d");
+  const [customDays, setCustomDays] = useState(7);
+
+  const sorted = useMemo(() => [...daily].sort((a, b) => a.day.localeCompare(b.day)), [daily]);
+  const windowSize = mode === "1d" ? 1 : mode === "3d" ? 3 : customDays;
+
+  const currentDays  = useMemo(() => sorted.slice(-windowSize), [sorted, windowSize]);
+  const previousDays = useMemo(() => sorted.slice(-(windowSize * 2), -windowSize), [sorted, windowSize]);
+
+  const current  = useMemo(() => aggregateDaily(currentDays), [currentDays]);
+  const previous = useMemo(() => aggregateDaily(previousDays), [previousDays]);
+  const turning  = useMemo(() => findTurningPoint(sorted), [sorted]);
+
+  const hasPrev = previousDays.length > 0;
+
+  const rows: { label: string; curr: string; prev: string; delta: number | null; lowerBetter: boolean | null }[] = [
+    { label: "CPA",          curr: current.cpa > 0  ? `${Math.round(current.cpa)} EGP`  : "—", prev: previous.cpa > 0  ? `${Math.round(previous.cpa)} EGP`  : "—", delta: current.cpa > 0 && previous.cpa > 0 ? (current.cpa - previous.cpa) / previous.cpa * 100 : null, lowerBetter: true  },
+    { label: "CTR",          curr: `${current.ctr.toFixed(2)}%`,   prev: `${previous.ctr.toFixed(2)}%`,   delta: previous.ctr  > 0 ? (current.ctr  - previous.ctr)  / previous.ctr  * 100 : null, lowerBetter: false },
+    { label: "Conv. Rate",   curr: `${current.cr.toFixed(2)}%`,    prev: `${previous.cr.toFixed(2)}%`,    delta: previous.cr   > 0 ? (current.cr   - previous.cr)   / previous.cr   * 100 : null, lowerBetter: false },
+    { label: "CPM",          curr: `${Math.round(current.cpm)} EGP`, prev: `${Math.round(previous.cpm)} EGP`, delta: previous.cpm > 0 ? (current.cpm - previous.cpm) / previous.cpm * 100 : null, lowerBetter: true  },
+    { label: "Purchases",    curr: `${current.purchases}`,         prev: `${previous.purchases}`,         delta: previous.purchases > 0 ? (current.purchases - previous.purchases) / previous.purchases * 100 : null, lowerBetter: false },
+    { label: "Spend",        curr: `${Math.round(current.spend)} EGP`, prev: `${Math.round(previous.spend)} EGP`, delta: previous.spend > 0 ? (current.spend - previous.spend) / previous.spend * 100 : null, lowerBetter: null  },
+  ];
+
+  const chartDays = sorted.slice(-Math.max(windowSize * 2, 7));
+  const maxCpa    = Math.max(...sorted.map(x => x.cpa).filter(x => x > 0), 1);
+
+  const currentLabel  = mode === "1d" ? "أمس" : `آخر ${windowSize} أيام`;
+  const previousLabel = mode === "1d" ? "اليوم السابق" : `${windowSize} أيام قبلهم`;
+
+  return (
+    <div className="space-y-3">
+      {/* Period buttons */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {(["1d", "3d", "custom"] as CompareMode[]).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+              mode === m
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:bg-muted/30"
+            }`}
+          >
+            {m === "1d" ? "أمس" : m === "3d" ? "آخر 3 أيام" : "مخصص"}
+          </button>
+        ))}
+        {mode === "custom" && (
+          <div className="flex items-center gap-2 mr-1">
+            <input
+              type="range" min={1} max={14} value={customDays}
+              onChange={(e) => setCustomDays(Number(e.target.value))}
+              className="w-24 accent-primary"
+            />
+            <span className="text-[11px] font-bold text-primary tabular-nums">{customDays} يوم</span>
+          </div>
+        )}
+      </div>
+
+      {/* Header row */}
+      <div className="grid grid-cols-3 text-[10px] text-center font-semibold px-1">
+        <div className="text-muted-foreground text-right">المقياس</div>
+        <div className="text-foreground">{currentLabel}</div>
+        <div className="text-muted-foreground">{previousLabel}</div>
+      </div>
+
+      {/* No data notice */}
+      {!hasPrev && (
+        <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6">
+          لا توجد بيانات كافية للمقارنة<br />
+          تحتاج على الأقل <span className="font-bold">{windowSize * 2} يوم</span> من البيانات
+        </div>
+      )}
+
+      {/* Comparison table */}
+      {hasPrev && (
+        <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
+          {rows.map(({ label, curr, prev, delta, lowerBetter }) => {
+            let deltaClr = "text-muted-foreground";
+            let icon = "";
+            if (delta !== null && lowerBetter !== null) {
+              const improved = lowerBetter ? delta < -2 : delta > 2;
+              const worsened = lowerBetter ? delta > 2  : delta < -2;
+              deltaClr = improved ? "text-emerald-600 dark:text-emerald-400"
+                       : worsened ? "text-rose-600 dark:text-rose-400"
+                       : "text-muted-foreground";
+              icon = delta > 0 ? "▲" : "▼";
+            }
+            return (
+              <div key={label} className="grid grid-cols-3 items-center px-3 py-2.5">
+                <div className="text-xs text-muted-foreground font-medium">{label}</div>
+                <div className="text-xs font-bold font-mono text-center" dir="ltr">{curr}</div>
+                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-mono text-muted-foreground" dir="ltr">{prev}</span>
+                  {delta !== null && (
+                    <span className={`text-[10px] font-bold ${deltaClr}`} dir="ltr">
+                      {icon} {Math.abs(delta).toFixed(0)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Turning point */}
+      {turning && (
+        <div className="rounded-xl border border-rose-500/25 bg-rose-500/5 px-3 py-3">
+          <div className="text-[9px] font-black uppercase tracking-widest text-rose-600 dark:text-rose-400 mb-1.5">
+            📉 نقطة التحول
+          </div>
+          <p className="text-xs text-foreground leading-relaxed">
+            {turning.direction === "up" ? "ارتفع" : "انخفض"}{" "}
+            <span className="font-bold">{turning.metric}</span> بنسبة{" "}
+            <span className="font-bold font-mono">{turning.pct}%</span> في يوم{" "}
+            <span className="font-bold font-mono" dir="ltr">{turning.day}</span>
+          </p>
+        </div>
+      )}
+
+      {/* Daily CPA chart */}
+      <div>
+        <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">
+          الأداء اليومي — CPA
+        </div>
+        <div className="space-y-1">
+          {chartDays.map((d) => {
+            const isCurrent = currentDays.some((c) => c.day === d.day);
+            const barPct    = d.cpa > 0 ? Math.min((d.cpa / maxCpa) * 100, 100) : 0;
+            const isHigh    = d.cpa > 45;
+            return (
+              <div key={d.day} className={`flex items-center gap-2 ${isCurrent ? "" : "opacity-40"}`}>
+                <div className="text-[10px] text-muted-foreground font-mono w-[4.5rem] shrink-0 text-left" dir="ltr">
+                  {d.day.slice(5)}
+                </div>
+                <div className="flex-1 h-4 rounded bg-muted/30 overflow-hidden">
+                  <div
+                    className={`h-full rounded transition-all ${isHigh ? "bg-rose-500" : "bg-emerald-500"}`}
+                    style={{ width: `${barPct}%` }}
+                  />
+                </div>
+                <div
+                  className={`text-[10px] font-mono font-bold w-16 text-left shrink-0 ${
+                    isHigh ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                  dir="ltr"
+                >
+                  {d.cpa > 0 ? `${Math.round(d.cpa)} EGP` : d.spend > 0 ? "لا أوردر" : "—"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── DiagnosisModal ─────────────────────────────────────────────
 export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign" }: { insights: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string }) {
   const result = useMemo(() => runDiagnosis(insights), [insights]);
@@ -674,11 +895,12 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="shrink-0 grid grid-cols-4 text-xs h-8">
-            <TabsTrigger value="campaign" className="text-[11px]">الحملة</TabsTrigger>
-            <TabsTrigger value="adsets" className="text-[11px]">Ad Sets ({result.adsets.length})</TabsTrigger>
-            <TabsTrigger value="ads" className="text-[11px]">الإعلانات ({result.ads.length})</TabsTrigger>
-            <TabsTrigger value="creative" className="text-[11px]">الكريتف</TabsTrigger>
+          <TabsList className="shrink-0 grid grid-cols-5 text-xs h-8">
+            <TabsTrigger value="campaign" className="text-[10px]">الحملة</TabsTrigger>
+            <TabsTrigger value="adsets" className="text-[10px]">Ad Sets ({result.adsets.length})</TabsTrigger>
+            <TabsTrigger value="ads" className="text-[10px]">الإعلانات ({result.ads.length})</TabsTrigger>
+            <TabsTrigger value="creative" className="text-[10px]">الكريتف</TabsTrigger>
+            <TabsTrigger value="compare" className="text-[10px]">مقارنة</TabsTrigger>
           </TabsList>
 
           <TabsContent value="campaign" className="flex-1 overflow-y-auto space-y-4 mt-3 pb-2">
@@ -768,6 +990,13 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
 
           <TabsContent value="creative" className="flex-1 overflow-y-auto mt-3 pb-2">
             <CreativeTab ads={result.ads} />
+          </TabsContent>
+
+          <TabsContent value="compare" className="flex-1 overflow-y-auto mt-3 pb-2">
+            {insights.daily.length === 0
+              ? <div className="text-sm text-muted-foreground text-center py-8">لا توجد بيانات يومية للمقارنة</div>
+              : <PerformanceCompareTab daily={insights.daily} />
+            }
           </TabsContent>
         </Tabs>
       </DialogContent>
