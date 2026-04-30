@@ -307,6 +307,26 @@ async function runMigrations() {
       ('/decisions', 'media_manager', false)
     ON CONFLICT (page_path, role) DO NOTHING
   `);
+  // Track one-time migrations
+  await query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  // Hide overview & campaign-analysis from non-admin roles — one-time migration
+  const hiddenMig = await query<{ id: string }>(
+    `SELECT id FROM schema_migrations WHERE id = 'hide_overview_analysis_2025'`
+  );
+  if (hiddenMig.length === 0) {
+    await query(`
+      UPDATE page_visibility
+      SET visible = false
+      WHERE page_path IN ('/overview', '/')
+        AND role IN ('media_buyer', 'media_manager')
+    `);
+    await query(`INSERT INTO schema_migrations (id) VALUES ('hide_overview_analysis_2025')`);
+  }
 
   // Create default admin user if no users exist
   const existingUsers = await query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM users WHERE deleted_at IS NULL`);
