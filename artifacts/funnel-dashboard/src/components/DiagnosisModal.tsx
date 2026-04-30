@@ -1150,7 +1150,7 @@ function PerformanceCompareTab({
 }
 
 // ── DiagnosisModal ─────────────────────────────────────────────
-export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign", accountId }: { insights: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string; accountId?: string }) {
+export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign", accountId, onTabChange }: { insights: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string; accountId?: string; onTabChange?: (tab: string) => void }) {
   const result     = useMemo(() => runDiagnosis(insights),     [insights]);
   const [expandedAdset, setExpandedAdset] = useState<string | null>(null);
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
@@ -1195,7 +1195,7 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
           </div>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+        <Tabs value={activeTab} onValueChange={(t) => { setActiveTab(t); onTabChange?.(t); }} className="flex-1 flex flex-col min-h-0">
           <TabsList className="shrink-0 grid grid-cols-5 text-xs h-8">
             <TabsTrigger value="campaign" className="text-[10px]">الحملة</TabsTrigger>
             <TabsTrigger value="adsets" className="text-[10px]">Ad Sets ({result.adsets.length})</TabsTrigger>
@@ -1378,6 +1378,9 @@ export function CampaignDiagnosisModal({
   onClose: () => void;
   defaultTab?: string;
 }) {
+  // Extended daily fetch is only needed when the compare tab is opened
+  const [compareOpened, setCompareOpened] = useState(false);
+
   // Extended since: go back an extra period so daily chart has comparison data
   const extendedSince = useMemo(() => {
     const periodDays = Math.max(
@@ -1389,7 +1392,8 @@ export function CampaignDiagnosisModal({
   }, [since, until]);
 
   const query    = useInsights({ campaign_id: campaignId, ad_account_id: accountId, since, until });
-  const extQuery = useInsights({ campaign_id: campaignId, ad_account_id: accountId, since: extendedSince, until });
+  // Only fetch extended range once the user opens the compare tab (avoids an extra Meta call)
+  const extQuery = useInsights({ campaign_id: compareOpened ? campaignId : null, ad_account_id: accountId, since: extendedSince, until });
 
   // Merge: keep original totals/adsets/ads, enrich `daily` with extended range
   const mergedInsights = useMemo(() => {
@@ -1451,6 +1455,7 @@ export function CampaignDiagnosisModal({
       onClose={onClose}
       defaultTab={defaultTab}
       accountId={accountId}
+      onTabChange={(tab) => { if (tab === "compare") setCompareOpened(true); }}
     />
   );
 }

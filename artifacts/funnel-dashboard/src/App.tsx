@@ -17,7 +17,15 @@ import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      gcTime:               2 * 60 * 60 * 1000, // keep data in memory for 2 hours
+      refetchOnWindowFocus: false,               // don't refetch when user alt-tabs back
+      refetchOnReconnect:   false,               // don't blast Meta on reconnect
+    },
+  },
+});
 
 const ALL_NAV_ITEMS = [
   { href: "/overview",  label: "نظرة عامة",        Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin", "media_buyer"] },

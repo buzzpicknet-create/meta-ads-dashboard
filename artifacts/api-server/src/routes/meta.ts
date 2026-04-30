@@ -29,6 +29,11 @@ const BREAKDOWN_TTL_MS = 8 * 60 * 1000; // 8 minutes
 const CAMPAIGNS_CACHE = new Map<string, { data: unknown; ts: number }>();
 const CAMPAIGNS_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// ── In-flight deduplication: collapse concurrent identical Meta requests ──────
+// Key = "campaign_id::since::until" → Promise of the result
+// This prevents N concurrent requests for the same data from all hitting Meta.
+const INSIGHTS_IN_FLIGHT = new Map<string, Promise<unknown>>();
+
 function isRateLimitError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
@@ -325,12 +330,22 @@ router.get("/meta/insights", async (req, res) => {
     return res.json({ ...(cached.data as object), account_id: accountId || undefined, from_cache: true });
   }
 
-  // ② Fetch from Meta
+  // ② Fetch from Meta — deduplicate concurrent identical requests
+  const inflight_key = `${campaign_id}::${since}::${until}`;
   try {
-    const data = await getCampaignInsights({ campaign_id, since, until });
+    let fetchPromise = INSIGHTS_IN_FLIGHT.get(inflight_key) as Promise<ReturnType<typeof getCampaignInsights>> | undefined;
+    if (!fetchPromise) {
+      fetchPromise = getCampaignInsights({ campaign_id, since, until });
+      INSIGHTS_IN_FLIGHT.set(inflight_key, fetchPromise);
+      fetchPromise.finally(() => INSIGHTS_IN_FLIGHT.delete(inflight_key));
+    } else {
+      logger.info({ campaign_id }, "Insights request deduplicated (in-flight)");
+    }
+    const data = await fetchPromise;
     await dbSetInsightsCache(campaign_id, since, until, data).catch(() => null);
     return res.json({ ...data, account_id: accountId || undefined });
   } catch (err) {
+    INSIGHTS_IN_FLIGHT.delete(inflight_key);
     if (isRateLimitError(err)) {
       if (cached) {
         logger.warn({ campaign_id, age_s: Math.round(cacheAge / 1000) }, "Meta rate-limited — serving stale insights cache");

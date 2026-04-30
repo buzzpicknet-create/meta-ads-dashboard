@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import compression from "compression";
 import cors from "cors";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -38,6 +39,7 @@ app.use(
   }),
 );
 
+app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
