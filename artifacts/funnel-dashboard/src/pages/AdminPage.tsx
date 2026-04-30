@@ -4,9 +4,10 @@ import {
   UserPlus, Trash2, KeyRound, Shield, Clapperboard, Activity,
   Loader2, X, ChevronDown, LogIn, Stethoscope, Film, LayoutDashboard,
   Clock, WifiOff, Bell, BellOff, ChevronUp, Save, CheckSquare, Square,
-  MousePointerClick, Eye, EyeOff, Send,
+  MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePageVisibility, useUpdatePageVisibility } from "@/hooks/use-page-visibility";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
@@ -855,6 +856,142 @@ function BroadcastSection() {
   );
 }
 
+// ── Page Visibility Section ────────────────────────────────────────────────────
+const CONTROLLABLE_PAGES = [
+  { path: "/overview",  label: "نظرة عامة" },
+  { path: "/",          label: "تحليل الحملة" },
+  { path: "/creative",  label: "مركز الكريتف" },
+  { path: "/activity",  label: "نشاط الفريق" },
+  { path: "/media",     label: "طلبات الميديا" },
+  { path: "/decisions", label: "القرارات" },
+] as const;
+
+const VISIBILITY_ROLES: { role: string; label: string }[] = [
+  { role: "admin",         label: "الأدمن" },
+  { role: "media_buyer",   label: "الميديا باير" },
+  { role: "media_manager", label: "مسئول الميديا" },
+];
+
+function VisToggle({
+  checked,
+  disabled,
+  onChange,
+  loading,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+  loading?: boolean;
+}) {
+  return (
+    <button
+      disabled={disabled || loading}
+      onClick={() => !disabled && onChange(!checked)}
+      className={[
+        "relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 transition-colors duration-200 focus:outline-none",
+        disabled
+          ? "cursor-not-allowed opacity-40 border-emerald-500 bg-emerald-500"
+          : checked
+          ? "cursor-pointer border-emerald-500 bg-emerald-500"
+          : "cursor-pointer border-muted bg-muted",
+      ].join(" ")}
+    >
+      {loading ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="h-3 w-3 animate-spin text-white" />
+        </span>
+      ) : (
+        <span
+          className={[
+            "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transform transition-transform duration-200 mt-0.5",
+            checked ? "translate-x-[-1.25rem]" : "translate-x-[-0.125rem]",
+          ].join(" ")}
+        />
+      )}
+    </button>
+  );
+}
+
+function PageVisibilitySection() {
+  const { data: visMap, isLoading } = usePageVisibility();
+  const update = useUpdatePageVisibility();
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+
+  function toggle(path: string, role: string, current: boolean) {
+    const key = `${path}|${role}`;
+    setPendingKey(key);
+    update.mutate(
+      { page_path: path, role, visible: !current },
+      {
+        onSettled: () => setPendingKey(null),
+        onError: (err) => alert(err instanceof Error ? err.message : "فشل التحديث"),
+      }
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-border bg-muted/30">
+        <p className="text-xs text-muted-foreground">
+          تحكم في الصفحات التي تظهر لكل دور — التغييرات تُطبّق فوراً
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-24">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" dir="rtl">
+            <thead>
+              <tr className="border-b border-border bg-muted/20">
+                <th className="text-right py-2.5 px-4 text-xs font-semibold text-muted-foreground">
+                  الصفحة
+                </th>
+                {VISIBILITY_ROLES.map((r) => (
+                  <th
+                    key={r.role}
+                    className="text-center py-2.5 px-4 text-xs font-semibold text-muted-foreground whitespace-nowrap"
+                  >
+                    {r.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {CONTROLLABLE_PAGES.map((page) => (
+                <tr key={page.path} className="hover:bg-muted/10 transition-colors">
+                  <td className="py-3 px-4 font-medium text-foreground">
+                    {page.label}
+                  </td>
+                  {VISIBILITY_ROLES.map((r) => {
+                    const visible = visMap?.[page.path]?.[r.role] ?? true;
+                    const isAdmin = r.role === "admin";
+                    const key = `${page.path}|${r.role}`;
+                    return (
+                      <td key={r.role} className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center">
+                          <VisToggle
+                            checked={visible}
+                            disabled={isAdmin}
+                            loading={pendingKey === key}
+                            onChange={(v) => toggle(page.path, r.role, !v)}
+                          />
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { user: me } = useAuth();
   const qc = useQueryClient();
@@ -946,6 +1083,15 @@ export default function AdminPage() {
           ))}
         </div>
       )}
+
+      {/* Page visibility section */}
+      <div className="mt-8 space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+          <SlidersHorizontal className="h-4 w-4" />
+          إعدادات الظهور
+        </h2>
+        <PageVisibilitySection />
+      </div>
 
       {/* Notification settings section */}
       <div className="mt-8 space-y-3">

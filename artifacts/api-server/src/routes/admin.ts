@@ -107,4 +107,69 @@ router.delete("/admin/users/:id", requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/page-visibility — returns the current user's page visibility (any logged-in user)
+router.get("/page-visibility", async (req, res) => {
+  const role = req.session?.role;
+  if (!role) return res.status(401).json({ error: "غير مصرح" });
+  try {
+    const rows = await query<{ page_path: string; visible: boolean }>(
+      `SELECT page_path, visible FROM page_visibility WHERE role = $1`,
+      [role]
+    );
+    const map: Record<string, boolean> = {};
+    for (const row of rows) {
+      map[row.page_path] = row.visible;
+    }
+    res.json({ visibility: map });
+  } catch {
+    res.status(500).json({ error: "فشل جلب إعدادات الظهور" });
+  }
+});
+
+// GET /api/admin/page-visibility — fetch all settings
+router.get("/admin/page-visibility", requireAdmin, async (_req, res) => {
+  try {
+    const rows = await query<{ page_path: string; role: string; visible: boolean }>(
+      `SELECT page_path, role, visible FROM page_visibility ORDER BY page_path, role`
+    );
+    res.json({ settings: rows });
+  } catch {
+    res.status(500).json({ error: "فشل جلب إعدادات الظهور" });
+  }
+});
+
+// PUT /api/admin/page-visibility — update one setting
+router.put("/admin/page-visibility", requireAdmin, async (req, res) => {
+  const { page_path, role, visible } = req.body as {
+    page_path?: string;
+    role?: string;
+    visible?: boolean;
+  };
+  const VALID_PATHS = ["/overview", "/", "/creative", "/activity", "/media", "/decisions"];
+  const VALID_ROLES = ["admin", "media_buyer", "media_manager"];
+  if (!page_path || !VALID_PATHS.includes(page_path)) {
+    return res.status(400).json({ error: "المسار غير صحيح" });
+  }
+  if (!role || !VALID_ROLES.includes(role)) {
+    return res.status(400).json({ error: "الدور غير صحيح" });
+  }
+  if (typeof visible !== "boolean") {
+    return res.status(400).json({ error: "قيمة visible يجب أن تكون boolean" });
+  }
+  // Prevent hiding admin's own pages (admin must always see everything)
+  if (role === "admin" && !visible) {
+    return res.status(400).json({ error: "لا يمكن إخفاء أي صفحة عن الأدمن" });
+  }
+  try {
+    await query(
+      `INSERT INTO page_visibility (page_path, role, visible) VALUES ($1, $2, $3)
+       ON CONFLICT (page_path, role) DO UPDATE SET visible = $3`,
+      [page_path, role, visible]
+    );
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "فشل تحديث الإعداد" });
+  }
+});
+
 export default router;

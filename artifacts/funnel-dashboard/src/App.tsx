@@ -15,6 +15,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target } from "lucide-react";
+import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 
 const queryClient = new QueryClient();
 
@@ -80,8 +81,15 @@ function NotificationBell() {
 function NavBar() {
   const { user, logout } = useAuth();
   const role = user?.role ?? "media_manager";
+  const visibilityMap = useMyPageVisibility();
 
-  const navItems = ALL_NAV_ITEMS.filter((item) => item.roles.includes(role));
+  const navItems = ALL_NAV_ITEMS.filter((item) => {
+    if (!item.roles.includes(role)) return false;
+    if (visibilityMap && Object.prototype.hasOwnProperty.call(visibilityMap, item.href)) {
+      return visibilityMap[item.href] === true;
+    }
+    return true;
+  });
 
   const routes = ALL_NAV_ITEMS.map((item) => {
     // eslint-disable-next-line react-hooks/rules-of-hooks

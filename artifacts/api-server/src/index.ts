@@ -273,6 +273,39 @@ async function runMigrations() {
     ON cpa_alert_log (campaign_id, account_id, alert_type, notified_at DESC)
   `);
 
+  // Page visibility settings per role
+  await query(`
+    CREATE TABLE IF NOT EXISTS page_visibility (
+      page_path TEXT NOT NULL,
+      role TEXT NOT NULL,
+      visible BOOLEAN NOT NULL DEFAULT true,
+      PRIMARY KEY (page_path, role)
+    )
+  `);
+  // Seed defaults (won't overwrite existing settings)
+  await query(`
+    INSERT INTO page_visibility (page_path, role, visible) VALUES
+      ('/overview',  'admin',         true),
+      ('/overview',  'media_buyer',   true),
+      ('/overview',  'media_manager', false),
+      ('/',          'admin',         true),
+      ('/',          'media_buyer',   true),
+      ('/',          'media_manager', false),
+      ('/creative',  'admin',         true),
+      ('/creative',  'media_buyer',   true),
+      ('/creative',  'media_manager', false),
+      ('/activity',  'admin',         true),
+      ('/activity',  'media_buyer',   true),
+      ('/activity',  'media_manager', false),
+      ('/media',     'admin',         true),
+      ('/media',     'media_buyer',   true),
+      ('/media',     'media_manager', true),
+      ('/decisions', 'admin',         true),
+      ('/decisions', 'media_buyer',   false),
+      ('/decisions', 'media_manager', false)
+    ON CONFLICT (page_path, role) DO NOTHING
+  `);
+
   // Create default admin user if no users exist
   const existingUsers = await query<{ cnt: string }>(`SELECT COUNT(*) as cnt FROM users WHERE deleted_at IS NULL`);
   if (Number(existingUsers[0]?.cnt ?? 0) === 0) {
