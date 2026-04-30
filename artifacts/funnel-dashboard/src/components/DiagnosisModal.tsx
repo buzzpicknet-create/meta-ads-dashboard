@@ -857,9 +857,10 @@ function PerformanceCompareTab({
     };
   }, [until, windowSize]);
 
-  const segEnabled = segScope !== "campaign" && Boolean(campaignId) && Boolean(accountId) && Boolean(until);
-  const subCurrentQuery = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subCurrentSince, until });
-  const subPrevQuery    = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subPrevSince,    until: subPrevUntil });
+  // Only fetch sub-period data when a segment is actually selected (avoids flooding Meta API)
+  const segEnabled = segScope !== "campaign" && selectedSeg !== null && Boolean(campaignId) && Boolean(accountId) && Boolean(until) && Boolean(subCurrentSince) && Boolean(subPrevSince);
+  const subCurrentQuery = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subCurrentSince || "2000-01-01", until: until || "2000-01-01" });
+  const subPrevQuery    = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subPrevSince    || "2000-01-01", until: subPrevUntil    || "2000-01-01" });
 
   // ── Segment-level metrics ──
   const segList = segScope === "adset" ? currentAdsets : currentAds;
@@ -1149,7 +1150,7 @@ function PerformanceCompareTab({
 }
 
 // ── DiagnosisModal ─────────────────────────────────────────────
-export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign", accountId }: { insights: CampaignInsights; prevInsights?: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string; accountId?: string }) {
+export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign", accountId }: { insights: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string; accountId?: string }) {
   const result     = useMemo(() => runDiagnosis(insights),     [insights]);
   const [expandedAdset, setExpandedAdset] = useState<string | null>(null);
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
@@ -1377,31 +1378,18 @@ export function CampaignDiagnosisModal({
   onClose: () => void;
   defaultTab?: string;
 }) {
-  // Compute periods for daily-extension and previous-period fetches
-  const { extendedSince, prevSince, prevUntil } = useMemo(() => {
+  // Extended since: go back an extra period so daily chart has comparison data
+  const extendedSince = useMemo(() => {
     const periodDays = Math.max(
       Math.ceil((new Date(until).getTime() - new Date(since).getTime()) / 86400000) + 1,
       1,
     );
-    // Extended since: go back extra periodDays so daily chart has comparison data
     const extMs = new Date(since).getTime() - periodDays * 86400000;
-    // Previous period: same length, ending one day before current `since`
-    const prevUntilDate = new Date(new Date(since).getTime() - 86400000);
-    const prevSinceDate = new Date(prevUntilDate.getTime() - (periodDays - 1) * 86400000);
-    return {
-      extendedSince: new Date(extMs).toISOString().slice(0, 10),
-      prevSince: prevSinceDate.toISOString().slice(0, 10),
-      prevUntil: prevUntilDate.toISOString().slice(0, 10),
-    };
+    return new Date(extMs).toISOString().slice(0, 10);
   }, [since, until]);
 
-  const query = useInsights({ campaign_id: campaignId, ad_account_id: accountId, since, until });
-
-  // Extended daily fetch (for daily chart in comparison tab)
+  const query    = useInsights({ campaign_id: campaignId, ad_account_id: accountId, since, until });
   const extQuery = useInsights({ campaign_id: campaignId, ad_account_id: accountId, since: extendedSince, until });
-
-  // Previous period fetch (for adset/ad comparison)
-  const prevQuery = useInsights({ campaign_id: campaignId, ad_account_id: accountId, since: prevSince, until: prevUntil });
 
   // Merge: keep original totals/adsets/ads, enrich `daily` with extended range
   const mergedInsights = useMemo(() => {
