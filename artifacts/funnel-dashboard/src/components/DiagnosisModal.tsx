@@ -1394,7 +1394,7 @@ export function CampaignDiagnosisModal({
   // Only fetch extended range once the user opens the compare tab (avoids an extra Meta call)
   const extQuery = useInsights({ campaign_id: compareOpened ? campaignId : null, ad_account_id: accountId, since: extendedSince, until });
 
-  // Merge: keep original totals/adsets/ads, enrich `daily` with extended range
+  // Merge: keep original totals/adsets/ads, enrich daily + daily_by_adset/ad with extended range
   const mergedInsights = useMemo(() => {
     if (!query.data) return null;
     const extDaily = extQuery.data?.daily ?? [];
@@ -1402,9 +1402,18 @@ export function CampaignDiagnosisModal({
     const mainDaySet = new Set(query.data.daily.map((d) => d.day));
     const extraDays = extDaily.filter((d) => !mainDaySet.has(d.day));
     if (extraDays.length === 0) return query.data;
+    const extraDaySet = new Set(extraDays.map((d) => d.day));
     return {
       ...query.data,
       daily: [...extraDays, ...query.data.daily].sort((a, b) => a.day.localeCompare(b.day)),
+      daily_by_adset: [
+        ...(extQuery.data?.daily_by_adset ?? []).filter((r) => extraDaySet.has(r.day)),
+        ...(query.data.daily_by_adset ?? []),
+      ],
+      daily_by_ad: [
+        ...(extQuery.data?.daily_by_ad ?? []).filter((r) => extraDaySet.has(r.day)),
+        ...(query.data.daily_by_ad ?? []),
+      ],
     };
   }, [query.data, extQuery.data]);
 

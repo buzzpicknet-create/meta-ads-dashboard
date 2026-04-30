@@ -323,10 +323,12 @@ router.get("/meta/insights", async (req, res) => {
   try { ({ since, until } = parseRange(req.query as Record<string, string>)); }
   catch (e) { return res.status(400).json({ error: String(e) }); }
 
-  // ① Check DB cache
+  // ① Check DB cache — also validate it has the new daily_by_adset/daily_by_ad fields
   const cached = await dbGetInsightsCache(campaign_id, since, until).catch(() => null);
+  const cachedData = cached?.data as Record<string, unknown> | undefined;
+  const cacheHasNewFields = Array.isArray(cachedData?.daily_by_adset);
   const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
-  if (cached && cacheAge < INSIGHTS_FRESH_MS) {
+  if (cached && cacheAge < INSIGHTS_FRESH_MS && cacheHasNewFields) {
     logger.info({ campaign_id, age_s: Math.round(cacheAge / 1000) }, "Insights served from DB cache (fresh)");
     return res.json({ ...(cached.data as object), account_id: accountId || undefined, from_cache: true });
   }
