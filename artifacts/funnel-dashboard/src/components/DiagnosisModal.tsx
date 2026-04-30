@@ -65,6 +65,12 @@ function f1(n: number) { return n.toFixed(1); }
 function f2(n: number) { return n.toFixed(2); }
 function flagCpa(cpa: number): Flag { return cpa > 0 && cpa <= CPA_SCALE_MAX ? "good" : cpa <= CPA_IMPROVE_MAX ? "warn" : "bad"; }
 function flagPct(v: number, good: number, warn: number): Flag { return v >= good ? "good" : v >= warn ? "warn" : "bad"; }
+function crTier(cr: number): { label: string; flag: Flag } {
+  if (cr >= 5) return { label: "جيد ✅", flag: "good" };
+  if (cr >= 4) return { label: "مقبول 🟡", flag: "warn" };
+  if (cr >= 3) return { label: "محتاج تحسين 🟠", flag: "warn" };
+  return { label: "محتاج تدخل فوري 🔴", flag: "bad" };
+}
 
 function isCtrDeclining(daily: DailyPoint[]): boolean {
   const rows = daily.filter((d) => d.impressions > 0).map((d) => (d.link_clicks / d.impressions) * 100);
@@ -89,7 +95,7 @@ export function diagnoseSegment(seg: SegmentEntry): SegDiag {
     { label: "Hook Rate",  value: `${f1(seg.hookRate)}%`, flag: flagPct(seg.hookRate, HOOK_MIN, 15) },
     { label: "Outbound CTR", value: `${f2(seg.ctr)}%`, flag: flagPct(seg.ctr, 2, CTR_MIN) },
     { label: "LPR",        value: lpvRate > 0 ? `${f1(lpvRate)}%` : "—", flag: lpvRate > 0 ? flagPct(lpvRate, LPR_MIN, 50) : "bad" },
-    { label: "CR (LPV)",   value: seg.cr > 0 ? `${f2(seg.cr)}%` : "—", flag: seg.cr > 0 ? flagPct(seg.cr, CR_MIN, 1) : "bad" },
+    { label: seg.cr > 0 ? `CR — ${crTier(seg.cr).label}` : "CR (LPV)", value: seg.cr > 0 ? `${f2(seg.cr)}%` : "—", flag: seg.cr > 0 ? crTier(seg.cr).flag : "bad" },
     { label: "Frequency",  value: f2(seg.frequency), flag: seg.frequency <= 2.5 ? "good" : seg.frequency <= 3.5 ? "warn" : "bad" },
     { label: "CPLPV",      value: cplpv > 0 ? `${f1(cplpv)} EGP` : "—", flag: cplpv > 0 ? (cplpv < 3 ? "good" : cplpv < 7 ? "warn" : "bad") : "bad" },
   ];
@@ -204,9 +210,9 @@ export function diagnoseSegment(seg: SegmentEntry): SegDiag {
       verdict: "landing", decision: "صفحة هبوط ضعيفة 🔴", mainIssue: `CR ${f2(seg.cr)}% — ${fmt(lostAtLpv, 0)} زيارة بدون شراء`,
       color: "red", metrics,
       actions: [
-        `الناس بتوصل الصفحة لكن مبتشتريش.`,
-        `راجع أسعارك أو عروض بينك وبين المنافسين.`,
-        `ضيف عناصر الضمان أو آراء عملاء.`,
+        `راجع أسعار منافسيك أو المرونة في التسعير.`,
+        `راجع صفحة اللاندينج — هل هي مقنعة بعروضك ولا لأ؟`,
+        `راجع وعودك في الميديا وتطابقها بمحتوى اللاندينج.`,
       ],
     };
   }
@@ -256,7 +262,7 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
     ] : []),
     { label: "Outbound CTR (نقر للخروج)", value: `${f2(totals.ctr)}%`, rate: `${f2(totals.ctr)}%`, flag: flagPct(totals.ctr, 2, CTR_MIN) as Flag },
     { label: "Landing Page Rate (LPR)", value: ctr2lp > 0 ? `${f1(ctr2lp)}%` : "—", rate: `${f1(ctr2lp)}%`, flag: flagPct(ctr2lp, LPR_MIN, 50) as Flag },
-    { label: "Conv. Rate — LPV→شراء", value: `${f2(totals.crLpv)}%`, rate: `${f2(totals.crLpv)}%`, flag: flagPct(totals.crLpv, CR_MIN, 1) as Flag },
+    { label: `Conv. Rate — LPV→شراء (${crTier(totals.crLpv).label})`, value: `${f2(totals.crLpv)}%`, rate: `${f2(totals.crLpv)}%`, flag: crTier(totals.crLpv).flag as Flag },
   ];
 
   const metrics: Metric[] = [
@@ -374,9 +380,9 @@ export function diagnoseCampaign(totals: DerivedMetrics | undefined, daily: Dail
       verdict: "landing", decision: "صفحة هبوط ضعيفة 🛒", problem: `CR ${f2(totals.crLpv)}% — ${fmt(lostAtLpv, 0)} زيارة بدون شراء`,
       color: "red", emoji: "🛒", funnel, metrics,
       actionPlan: [
-        `الناس بتوصل الصفحة لكن مبتشتريش.`,
-        `راجع أسعارك أو عروض بينك وبين المنافسين.`,
-        `ضيف عناصر الضمان أو آراء عملاء.`,
+        `راجع أسعار منافسيك أو المرونة في التسعير.`,
+        `راجع صفحة اللاندينج — هل هي مقنعة بعروضك ولا لأ؟`,
+        `راجع وعودك في الميديا وتطابقها بمحتوى اللاندينج.`,
       ],
     };
   }
