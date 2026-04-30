@@ -12,6 +12,7 @@ import type {
   SegmentEntry,
   CampaignInsights,
   DailyPoint,
+  DailySegmentPoint,
   DerivedMetrics,
 } from "@/lib/meta-api";
 import { useInsights } from "@/hooks/use-meta";
@@ -662,6 +663,38 @@ function aggregateDaily(days: DailyPoint[]): PeriodMetrics {
   };
 }
 
+/** Slice daily_by_adset / daily_by_ad for a set of days, aggregate, and return a metrics map keyed by id */
+function computeSegPeriod(
+  dailySegs: DailySegmentPoint[],
+  daySet: Set<string>,
+): Map<string, PeriodMetrics & { label: string }> {
+  const acc = new Map<string, { label: string; spend: number; impressions: number; link_clicks: number; lpv: number; purchases: number }>();
+  for (const row of dailySegs) {
+    if (!daySet.has(row.day)) continue;
+    const cur = acc.get(row.id) ?? { label: row.label, spend: 0, impressions: 0, link_clicks: 0, lpv: 0, purchases: 0 };
+    cur.spend       += row.spend;
+    cur.impressions += row.impressions;
+    cur.link_clicks += row.link_clicks;
+    cur.lpv         += row.lpv;
+    cur.purchases   += row.purchases;
+    acc.set(row.id, cur);
+  }
+  const result = new Map<string, PeriodMetrics & { label: string }>();
+  for (const [id, v] of acc) {
+    result.set(id, {
+      label: v.label,
+      spend: v.spend,
+      purchases: v.purchases,
+      lpv: v.lpv,
+      cpa: v.purchases > 0 ? v.spend / v.purchases : 0,
+      ctr: v.impressions > 0 ? (v.link_clicks / v.impressions) * 100 : 0,
+      cr:  v.lpv > 0 ? (v.purchases / v.lpv) * 100 : 0,
+      cpm: v.impressions > 0 ? (v.spend / v.impressions) * 1000 : 0,
+    });
+  }
+  return result;
+}
+
 interface TurningPoint { day: string; metric: string; direction: "up" | "down"; pct: number }
 
 function findTurningPoint(daily: DailyPoint[]): TurningPoint | null {
@@ -811,26 +844,22 @@ function generateAnalysis(
 
 function PerformanceCompareTab({
   daily,
+  daily_by_adset = [],
+  daily_by_ad = [],
   currentAdsets,
   currentAds,
-  campaignId,
-  accountId,
-  until,
 }: {
   daily: DailyPoint[];
+  daily_by_adset?: DailySegmentPoint[];
+  daily_by_ad?: DailySegmentPoint[];
   currentAdsets: Array<{ seg: SegmentEntry; diag: SegDiag }>;
   currentAds:    Array<{ seg: SegmentEntry; diag: SegDiag }>;
-  campaignId:  string | null;
-  accountId:   string | undefined;
-  until:       string;
 }) {
   const [mode, setMode] = useState<CompareMode>("3d");
   const [customDays, setCustomDays] = useState(7);
   const [segScope, setSegScope]   = useState<SegScope>("campaign");
   const [segSearch, setSegSearch] = useState("");
   const [selectedSeg, setSelectedSeg] = useState<string | null>(null);
-  const [retryIn, setRetryIn] = useState(0);
-  const retryAtRef = useRef<number>(0);
 
   // Reset segment selection when scope changes
   useEffect(() => { setSelectedSeg(null); setSegSearch(""); }, [segScope]);
@@ -845,24 +874,14 @@ function PerformanceCompareTab({
   const dailyCurrent  = useMemo(() => aggregateDaily(currentDays),  [currentDays]);
   const dailyPrevious = useMemo(() => aggregateDaily(previousDays), [previousDays]);
 
-  // ── Sub-period date ranges for adset/ad mode ──
-  const { subCurrentSince, subPrevSince, subPrevUntil } = useMemo(() => {
-    if (!until) return { subCurrentSince: "", subPrevSince: "", subPrevUntil: "" };
-    const untilD = new Date(until);
-    const curSince = new Date(untilD.getTime() - (windowSize - 1) * 86400000);
-    const prevUntilD = new Date(curSince.getTime() - 86400000);
-    const prevSinceD = new Date(prevUntilD.getTime() - (windowSize - 1) * 86400000);
-    return {
-      subCurrentSince: curSince.toISOString().slice(0, 10),
-      subPrevSince:    prevSinceD.toISOString().slice(0, 10),
-      subPrevUntil:    prevUntilD.toISOString().slice(0, 10),
-    };
-  }, [until, windowSize]);
+  // ── Sub-period adset/ad metrics — computed client-side from daily breakdown (zero extra API calls) ──
+  const currentDaySet  = useMemo(() => new Set(currentDays.map(d => d.day)),  [currentDays]);
+  const previousDaySet = useMemo(() => new Set(previousDays.map(d => d.day)), [previousDays]);
 
-  // Only fetch sub-period data when a segment is actually selected (avoids flooding Meta API)
-  const segEnabled = segScope !== "campaign" && selectedSeg !== null && Boolean(campaignId) && Boolean(accountId) && Boolean(until) && Boolean(subCurrentSince) && Boolean(subPrevSince);
-  const subCurrentQuery = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subCurrentSince || "2000-01-01", until: until || "2000-01-01" });
-  const subPrevQuery    = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subPrevSince    || "2000-01-01", until: subPrevUntil    || "2000-01-01" });
+  const dailysByScope = segScope === "adset" ? daily_by_adset : daily_by_ad;
+
+  const subCurrentMap = useMemo(() => computeSegPeriod(dailysByScope, currentDaySet),  [dailysByScope, currentDaySet]);
+  const subPrevMap    = useMemo(() => computeSegPeriod(dailysByScope, previousDaySet), [dailysByScope, previousDaySet]);
 
   // ── Segment-level metrics ──
   const segList = segScope === "adset" ? currentAdsets : currentAds;
@@ -871,69 +890,22 @@ function PerformanceCompareTab({
     [segList, segSearch],
   );
 
-  // In adset/ad mode use sub-period fetched data; fall back to full-period data while loading
-  const subCurrentSegs: SegmentEntry[] = segScope === "adset"
-    ? (subCurrentQuery.data?.by_adset ?? [])
-    : (subCurrentQuery.data?.by_ad    ?? []);
-  const subPrevSegs: SegmentEntry[] = segScope === "adset"
-    ? (subPrevQuery.data?.by_adset ?? [])
-    : (subPrevQuery.data?.by_ad    ?? []);
+  const currentSeg = selectedSeg && segScope !== "campaign" ? (subCurrentMap.get(selectedSeg) ?? null) : null;
+  const prevSeg    = selectedSeg && segScope !== "campaign" ? (subPrevMap.get(selectedSeg)    ?? null) : null;
 
-  const currentSeg: SegmentEntry | null = selectedSeg
-    ? (segScope !== "campaign"
-        ? (subCurrentSegs.find(s => s.id === selectedSeg) ?? segList.find(({ seg }) => seg.id === selectedSeg)?.seg ?? null)
-        : null)
-    : null;
-  const prevSeg: SegmentEntry | null = selectedSeg
-    ? (segScope !== "campaign"
-        ? (subPrevSegs.find(s => s.id === selectedSeg) ?? null)
-        : null)
-    : null;
-
-  // Use segment metrics when a segment is selected, otherwise use daily aggregation
-  const current  = currentSeg ? segToMetrics(currentSeg)  : dailyCurrent;
-  const previous = prevSeg    ? segToMetrics(prevSeg)      : (segScope === "campaign" ? dailyPrevious : null);
+  const effectiveCurrent  = currentSeg ?? dailyCurrent;
+  const effectivePrevious = prevSeg ?? (segScope === "campaign" ? dailyPrevious : null);
 
   const turning = useMemo(() => findTurningPoint(sorted), [sorted]);
 
-  const isSegLoading = segEnabled && selectedSeg !== null && (subCurrentQuery.isFetching || subPrevQuery.isFetching);
-  const isSegError   = segEnabled && selectedSeg !== null && !isSegLoading && (subCurrentQuery.isError || subPrevQuery.isError);
-
-  // Auto-retry after rate-limit backoff — counts down and refetches automatically
-  useEffect(() => {
-    if (!isSegError) { setRetryIn(0); return; }
-    if (retryAtRef.current > Date.now()) return; // already counting down
-    const errMsg = (subCurrentQuery.error instanceof Error ? subCurrentQuery.error.message : "") ||
-                   (subPrevQuery.error instanceof Error   ? subPrevQuery.error.message   : "");
-    const match = errMsg.match(/\[retry_in:(\d+)\]/);
-    const secs = match ? parseInt(match[1], 10) : 90;
-    retryAtRef.current = Date.now() + secs * 1000;
-    setRetryIn(secs);
-    const tick = setInterval(() => {
-      const remaining = Math.max(0, Math.ceil((retryAtRef.current - Date.now()) / 1000));
-      setRetryIn(remaining);
-      if (remaining === 0) {
-        clearInterval(tick);
-        subCurrentQuery.refetch();
-        subPrevQuery.refetch();
-      }
-    }, 1000);
-    return () => clearInterval(tick);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSegError]);
-
-  // When segment query fails fall back to campaign-level daily data so the table still renders
-  const effectiveCurrent  = isSegError ? dailyCurrent  : current;
-  const effectivePrevious = isSegError ? dailyPrevious : previous;
-
-  const hasPrev = (segScope === "campaign" || isSegError)
+  const hasPrev = segScope === "campaign"
     ? previousDays.length > 0
-    : (prevSeg !== null && !isSegLoading);
+    : prevSeg !== null;
 
   const analysis = useMemo(() => {
     if (!effectivePrevious) return [];
-    return generateAnalysis(effectiveCurrent, effectivePrevious, (segScope === "campaign" || isSegError) ? turning : null);
-  }, [effectiveCurrent, effectivePrevious, segScope, isSegError, turning]);
+    return generateAnalysis(effectiveCurrent, effectivePrevious, segScope === "campaign" ? turning : null);
+  }, [effectiveCurrent, effectivePrevious, segScope, turning]);
 
   const prev0 = effectivePrevious ?? { spend: 0, purchases: 0, cpa: 0, ctr: 0, cr: 0, cpm: 0, lpv: 0 };
   const ec = effectiveCurrent;
@@ -949,16 +921,20 @@ function PerformanceCompareTab({
   const chartDays = sorted.slice(-Math.max(windowSize * 2, 7));
   const maxCpa    = Math.max(...sorted.map(x => x.cpa).filter(x => x > 0), 1);
 
-  // Date labels for adset/ad mode
+  // Date labels
   const fmtDate = (d: string) => d ? d.slice(5).replace("-", "/") : "";
+  const curFirst = currentDays[0]?.day ?? "";
+  const curLast  = currentDays[currentDays.length - 1]?.day ?? "";
+  const prevFirst = previousDays[0]?.day ?? "";
+  const prevLast  = previousDays[previousDays.length - 1]?.day ?? "";
   const currentLabel = segScope !== "campaign"
     ? (selectedSeg
-        ? (mode === "1d" ? `${fmtDate(until)}` : `${fmtDate(subCurrentSince)} ← ${fmtDate(until)}`)
+        ? (mode === "1d" ? `${fmtDate(curLast)}` : `${fmtDate(curFirst)} ← ${fmtDate(curLast)}`)
         : (mode === "1d" ? "آخر يوم" : `آخر ${windowSize} أيام`))
     : (mode === "1d" ? "أمس" : `آخر ${windowSize} أيام`);
   const previousLabel = segScope !== "campaign"
     ? (selectedSeg
-        ? (mode === "1d" ? `${fmtDate(subPrevUntil)}` : `${fmtDate(subPrevSince)} ← ${fmtDate(subPrevUntil)}`)
+        ? (mode === "1d" ? `${fmtDate(prevLast)}` : `${fmtDate(prevFirst)} ← ${fmtDate(prevLast)}`)
         : "الفترة السابقة")
     : (mode === "1d" ? "اليوم السابق" : `${windowSize} أيام قبلهم`);
 
@@ -1057,45 +1033,14 @@ function PerformanceCompareTab({
         <div className="text-muted-foreground">{previousLabel}</div>
       </div>
 
-      {/* Loading indicator for segment sub-period fetch */}
-      {isSegLoading && (
-        <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6 flex items-center justify-center gap-2">
-          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-          جاري تحميل البيانات…
-        </div>
-      )}
-
-      {/* Rate-limit warning — auto-counts down and refetches; campaign-level data shown as fallback */}
-      {isSegError && (
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/20 text-[11px] text-amber-800 dark:text-amber-400 px-3 py-2 flex items-center justify-between gap-2">
-          {retryIn > 0 ? (
-            <span className="flex items-center gap-1.5">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              جاري جلب بيانات الـ adset/ad — هيحاول تاني في{" "}
-              <span className="font-bold tabular-nums w-6 text-center">{retryIn}</span>ث
-            </span>
-          ) : (
-            <span>⚠️ بيانات الـ adset/ad مش متاحة — بيعرض الحملة كاملة حالياً</span>
-          )}
-          <button
-            onClick={() => { retryAtRef.current = 0; subCurrentQuery.refetch(); subPrevQuery.refetch(); }}
-            className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-700 font-bold transition-colors"
-          >
-            <RefreshCw className="h-3 w-3" />
-            الآن
-          </button>
-        </div>
-      )}
-
       {/* No data notice */}
-      {!hasPrev && !isSegLoading && segScope === "campaign" && (
+      {!hasPrev && segScope === "campaign" && (
         <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6">
           لا توجد بيانات كافية للمقارنة<br />
           تحتاج على الأقل <span className="font-bold">{windowSize * 2} يوم</span> من البيانات
         </div>
       )}
-      {!hasPrev && !isSegLoading && segScope !== "campaign" && !selectedSeg && null /* handled above */}
-      {!hasPrev && !isSegLoading && segScope !== "campaign" && selectedSeg && (
+      {!hasPrev && segScope !== "campaign" && selectedSeg && (
         <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6">
           لا توجد بيانات للفترة السابقة لهذا {segScope === "adset" ? "Ad Set" : "الإعلان"}
         </div>
@@ -1401,11 +1346,10 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
               ? <div className="text-sm text-muted-foreground text-center py-8">لا توجد بيانات يومية للمقارنة</div>
               : <PerformanceCompareTab
                     daily={insights.daily}
+                    daily_by_adset={insights.daily_by_adset ?? []}
+                    daily_by_ad={insights.daily_by_ad ?? []}
                     currentAdsets={result.adsets}
                     currentAds={result.ads}
-                    campaignId={insights.campaign.id}
-                    accountId={accountId}
-                    until={insights.period.until}
                   />
             }
           </TabsContent>

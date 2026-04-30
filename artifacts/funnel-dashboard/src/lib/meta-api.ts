@@ -96,6 +96,17 @@ export interface SegmentEntry {
   issues?: AdIssue[];
 }
 
+export interface DailySegmentPoint {
+  id: string;
+  label: string;
+  day: string;
+  spend: number;
+  impressions: number;
+  link_clicks: number;
+  lpv: number;
+  purchases: number;
+}
+
 export interface CampaignInsights {
   campaign: {
     id: string;
@@ -109,6 +120,8 @@ export interface CampaignInsights {
   daily: DailyPoint[];
   by_adset: SegmentEntry[];
   by_ad: SegmentEntry[];
+  daily_by_adset: DailySegmentPoint[];
+  daily_by_ad: DailySegmentPoint[];
   fetched_at: string;
 }
 

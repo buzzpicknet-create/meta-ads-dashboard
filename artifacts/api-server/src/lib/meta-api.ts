@@ -394,6 +394,17 @@ export interface SegmentEntry {
   issues?: AdIssue[];
 }
 
+export interface DailySegmentPoint {
+  id: string;
+  label: string;
+  day: string;
+  spend: number;
+  impressions: number;
+  link_clicks: number;
+  lpv: number;
+  purchases: number;
+}
+
 export interface CampaignInsights {
   campaign: {
     id: string;
@@ -407,6 +418,8 @@ export interface CampaignInsights {
   daily: DailyPoint[];
   by_adset: SegmentEntry[];
   by_ad: SegmentEntry[];
+  daily_by_adset: DailySegmentPoint[];
+  daily_by_ad: DailySegmentPoint[];
   fetched_at: string;
 }
 
@@ -480,13 +493,14 @@ export async function getCampaignInsights(opts: {
     },
   );
 
-  // 3) Ad-level rows (we'll roll these up to adset / ad)
+  // 3) Ad-level rows with daily breakdown (time_increment=1 lets us compute any sub-period client-side)
   const adRows = await fbGet<FbInsightRow>(`/${opts.campaign_id}/insights`, {
     level: "ad",
     time_range,
+    time_increment: "1",
     fields: INSIGHT_FIELDS,
     action_attribution_windows: ATTRIBUTION_WINDOW,
-    limit: "500",
+    limit: "1000",
   });
 
   // 4) Ad delivery status & issues (effective_status, issues_info)
@@ -608,6 +622,46 @@ export async function getCampaignInsights(opts: {
     })
     .sort((a, b) => b.spend - a.spend);
 
+  // ---- Daily breakdown by adset (group by adset_id + day)
+  const adsetDayMap = new Map<string, { name: string; day: string; m: AggregatedMetrics }>();
+  for (const row of adRows) {
+    if (!row.adset_id || !row.date_start) continue;
+    const k = `${row.adset_id}|${row.date_start}`;
+    const cur = adsetDayMap.get(k) ?? { name: row.adset_name || row.adset_id, day: row.date_start, m: emptyMetrics() };
+    addRow(cur.m, row);
+    adsetDayMap.set(k, cur);
+  }
+  const daily_by_adset: DailySegmentPoint[] = [...adsetDayMap.entries()].map(([k, v]) => ({
+    id: k.split("|")[0],
+    label: v.name,
+    day: v.day,
+    spend: v.m.spend,
+    impressions: v.m.impressions,
+    link_clicks: v.m.link_clicks,
+    lpv: v.m.lpv,
+    purchases: v.m.purchases,
+  }));
+
+  // ---- Daily breakdown by ad (group by ad_id + day)
+  const adDayMap = new Map<string, { name: string; day: string; m: AggregatedMetrics }>();
+  for (const row of adRows) {
+    if (!row.ad_id || !row.date_start) continue;
+    const k = `${row.ad_id}|${row.date_start}`;
+    const cur = adDayMap.get(k) ?? { name: row.ad_name || row.ad_id, day: row.date_start, m: emptyMetrics() };
+    addRow(cur.m, row);
+    adDayMap.set(k, cur);
+  }
+  const daily_by_ad: DailySegmentPoint[] = [...adDayMap.entries()].map(([k, v]) => ({
+    id: k.split("|")[0],
+    label: v.name,
+    day: v.day,
+    spend: v.m.spend,
+    impressions: v.m.impressions,
+    link_clicks: v.m.link_clicks,
+    lpv: v.m.lpv,
+    purchases: v.m.purchases,
+  }));
+
   logger.info(
     {
       campaign_id: opts.campaign_id,
@@ -636,6 +690,8 @@ export async function getCampaignInsights(opts: {
     daily,
     by_adset,
     by_ad,
+    daily_by_adset,
+    daily_by_ad,
     fetched_at: new Date().toISOString(),
   };
 }
