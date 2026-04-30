@@ -1204,12 +1204,44 @@ export function CampaignDiagnosisModal({
   onClose: () => void;
   defaultTab?: string;
 }) {
+  // Compute extended since = go back an extra (period_days) so comparison tab has data
+  const extendedSince = useMemo(() => {
+    const days = Math.max(
+      Math.ceil((new Date(until).getTime() - new Date(since).getTime()) / 86400000) + 1,
+      7,
+    );
+    const ext = new Date(new Date(since).getTime() - days * 86400000);
+    return ext.toISOString().slice(0, 10);
+  }, [since, until]);
+
   const query = useInsights({
     campaign_id: campaignId,
     ad_account_id: accountId,
     since,
     until,
   });
+
+  // Secondary fetch for extended daily data (for comparison tab) — runs in background
+  const extQuery = useInsights({
+    campaign_id: campaignId,
+    ad_account_id: accountId,
+    since: extendedSince,
+    until,
+  });
+
+  // Merge: keep original totals/adsets/ads, but enrich `daily` with the extended range
+  const mergedInsights = useMemo(() => {
+    if (!query.data) return null;
+    const extDaily = extQuery.data?.daily ?? [];
+    if (extDaily.length === 0) return query.data;
+    const mainDaySet = new Set(query.data.daily.map((d) => d.day));
+    const extraDays = extDaily.filter((d) => !mainDaySet.has(d.day));
+    if (extraDays.length === 0) return query.data;
+    return {
+      ...query.data,
+      daily: [...extraDays, ...query.data.daily].sort((a, b) => a.day.localeCompare(b.day)),
+    };
+  }, [query.data, extQuery.data]);
 
   if (!open) return null;
 
@@ -1252,7 +1284,7 @@ export function CampaignDiagnosisModal({
 
   return (
     <DiagnosisModal
-      insights={query.data}
+      insights={mergedInsights!}
       open={open}
       onClose={onClose}
       defaultTab={defaultTab}
