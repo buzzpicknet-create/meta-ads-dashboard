@@ -2,7 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
-import { warmCreativeCache } from "./routes/meta";
+import { warmCreativeCache, proactiveInsightsRefresh } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
 import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
@@ -487,6 +487,31 @@ function startCpaAlertCron() {
 
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+// ── Proactive Cache Refresh Cron ──────────────────────────────────────────────
+// Runs every 30 minutes. Silently refreshes any DB cache entries that are
+// >20 min old so user requests always hit the DB instead of calling Meta live.
+const REFRESH_CRON_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+
+async function runProactiveRefreshCron() {
+  try {
+    const stats = await proactiveInsightsRefresh();
+    if (stats.insights + stats.campaigns + stats.overview > 0) {
+      logger.info(stats, "Proactive cache refresh complete");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Proactive cache refresh failed");
+  }
+}
+
+function startProactiveRefreshCron() {
+  // First run: 3 minutes after startup (after other crons have settled)
+  setTimeout(() => {
+    runProactiveRefreshCron();
+    setInterval(runProactiveRefreshCron, REFRESH_CRON_INTERVAL_MS);
+  }, 3 * 60 * 1000);
+  logger.info({ interval_min: 30 }, "Proactive cache refresh cron scheduled");
+}
+
 function startScanCron() {
   const runScan = () => {
     runMediaScan().catch((err) => logger.error({ err }, "Scheduled media scan failed"));
@@ -526,6 +551,7 @@ runMigrations()
       logger.info({ port }, "Server listening");
       startScanCron();
       startCpaAlertCron();
+      startProactiveRefreshCron();
       // Pre-warm creative cache in background (don't block server startup)
       startCreativeCacheWarmer();
     });

@@ -54,6 +54,11 @@ interface FbApiResponse<T> {
 // ── Global rate-limit state ────────────────────────────────────────────────
 // Tracks when we last hit a rate limit so subsequent callers can back off.
 let _rateLimitBackoffUntil = 0; // epoch ms — Meta API paused until this time
+
+/** Returns true if we are currently in a Meta rate-limit backoff window. */
+export function isRateLimitActive(): boolean {
+  return _rateLimitBackoffUntil > Date.now();
+}
 const RATE_LIMIT_BACKOFF_MS = 90_000; // 90 seconds initial backoff
 const RATE_LIMIT_CODES = new Set([80004, 17, 32]);
 

@@ -10,6 +10,7 @@ import {
   getAccountActivities,
   getAdsWithCreatives,
   getAdBreakdowns,
+  isRateLimitActive,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -527,5 +528,115 @@ router.get("/meta/breakdowns", async (req, res) => {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
+
+// ── Proactive Cache Refresh ───────────────────────────────────────────────────
+// Called by a 30-min background cron in index.ts.
+// Refreshes any DB cache entries that are >20 min old so user requests almost
+// always hit the DB instead of calling Meta directly.
+
+const PROACTIVE_REFRESH_DELAY_MS = 1_500; // 1.5 s gap between Meta calls
+
+async function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+export async function proactiveInsightsRefresh(): Promise<{
+  insights: number;
+  campaigns: number;
+  overview: number;
+  skipped: number;
+}> {
+  const stats = { insights: 0, campaigns: 0, overview: 0, skipped: 0 };
+
+  // ── 1) Stale insights rows ──────────────────────────────────────────────────
+  const staleInsights = await query<{
+    campaign_id: string;
+    period_since: string;
+    period_until: string;
+  }>(
+    `SELECT campaign_id, period_since, period_until
+     FROM meta_insights_cache
+     WHERE fetched_at < NOW() - INTERVAL '20 minutes'
+     ORDER BY fetched_at ASC
+     LIMIT 40`,
+    []
+  ).catch(() => [] as { campaign_id: string; period_since: string; period_until: string }[]);
+
+  for (const row of staleInsights) {
+    if (isRateLimitActive()) { stats.skipped++; continue; }
+    try {
+      const data = await getCampaignInsights({
+        campaign_id: row.campaign_id,
+        since: row.period_since,
+        until: row.period_until,
+      });
+      await dbSetInsightsCache(row.campaign_id, row.period_since, row.period_until, data).catch(() => null);
+      stats.insights++;
+    } catch {
+      stats.skipped++;
+    }
+    await sleep(PROACTIVE_REFRESH_DELAY_MS);
+  }
+
+  // ── 2) Stale campaigns rows ─────────────────────────────────────────────────
+  const staleCampaigns = await query<{
+    account_id: string;
+    period_since: string;
+    period_until: string;
+  }>(
+    `SELECT account_id, period_since, period_until
+     FROM meta_campaigns_cache
+     WHERE fetched_at < NOW() - INTERVAL '20 minutes'
+     LIMIT 10`,
+    []
+  ).catch(() => [] as { account_id: string; period_since: string; period_until: string }[]);
+
+  for (const row of staleCampaigns) {
+    if (isRateLimitActive()) { stats.skipped++; continue; }
+    try {
+      const campaigns = await listCampaigns({
+        since: row.period_since,
+        until: row.period_until,
+        adAccountId: row.account_id,
+      });
+      await dbSetCampaignsCache(row.account_id, row.period_since, row.period_until, campaigns).catch(() => null);
+      stats.campaigns++;
+    } catch {
+      stats.skipped++;
+    }
+    await sleep(PROACTIVE_REFRESH_DELAY_MS);
+  }
+
+  // ── 3) Stale overview rows ──────────────────────────────────────────────────
+  const staleOverview = await query<{
+    account_id: string;
+    period_since: string;
+    period_until: string;
+  }>(
+    `SELECT account_id, period_since, period_until
+     FROM meta_overview_cache
+     WHERE fetched_at < NOW() - INTERVAL '20 minutes'
+     LIMIT 10`,
+    []
+  ).catch(() => [] as { account_id: string; period_since: string; period_until: string }[]);
+
+  for (const row of staleOverview) {
+    if (isRateLimitActive()) { stats.skipped++; continue; }
+    try {
+      const data = await getAccountOverview({
+        adAccountId: row.account_id,
+        since: row.period_since,
+        until: row.period_until,
+      });
+      await dbSetOverviewCache(row.account_id, row.period_since, row.period_until, data).catch(() => null);
+      stats.overview++;
+    } catch {
+      stats.skipped++;
+    }
+    await sleep(PROACTIVE_REFRESH_DELAY_MS);
+  }
+
+  return stats;
+}
 
 export default router;
