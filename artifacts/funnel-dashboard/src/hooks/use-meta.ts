@@ -119,7 +119,12 @@ export function useInsights(opts: {
         until: opts.until,
       }),
     staleTime: ONE_HOUR,
-    retry: 1,
+    retry: (failureCount, error) => {
+      // Never retry on rate-limit — server backoff is 90s, retrying just queues another fail
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("rate limit") || msg.includes("مش متاحة") || msg.includes("429")) return false;
+      return failureCount < 1;
+    },
     retryDelay: 20_000,
     enabled: Boolean(
       opts.campaign_id && opts.since && opts.until && opts.ad_account_id,

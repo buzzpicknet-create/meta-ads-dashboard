@@ -69,12 +69,13 @@ async function fbGet<T>(
   pathOrUrl: string,
   params: Record<string, string> = {},
 ): Promise<T[]> {
-  // Honor any active backoff before making a new request
+  // Honor any active backoff — throw immediately so callers can serve from cache
+  // instead of blocking the HTTP connection for up to 90 seconds.
   const now = Date.now();
   if (_rateLimitBackoffUntil > now) {
-    const wait = _rateLimitBackoffUntil - now;
-    logger.warn({ wait_ms: wait }, "Meta rate-limit active — waiting before request");
-    await sleep(wait);
+    const remaining_s = Math.ceil((_rateLimitBackoffUntil - now) / 1000);
+    logger.warn({ remaining_s }, "Meta rate-limit active — rejecting request immediately (serve from cache)");
+    throw new Error(`Meta rate limit active, retry in ${remaining_s}s (17)`);
   }
 
   const url = pathOrUrl.startsWith("http")

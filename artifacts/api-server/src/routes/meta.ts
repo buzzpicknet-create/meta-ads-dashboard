@@ -337,7 +337,8 @@ router.get("/meta/insights", async (req, res) => {
     if (!fetchPromise) {
       fetchPromise = getCampaignInsights({ campaign_id, since, until });
       INSIGHTS_IN_FLIGHT.set(inflight_key, fetchPromise);
-      fetchPromise.finally(() => INSIGHTS_IN_FLIGHT.delete(inflight_key));
+      // Suppress unhandled-rejection on cleanup chain; real rejection is caught by `await fetchPromise`
+      fetchPromise.finally(() => INSIGHTS_IN_FLIGHT.delete(inflight_key)).catch(() => {});
     } else {
       logger.info({ campaign_id }, "Insights request deduplicated (in-flight)");
     }

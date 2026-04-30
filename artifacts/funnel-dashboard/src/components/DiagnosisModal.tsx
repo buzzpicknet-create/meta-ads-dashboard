@@ -898,10 +898,11 @@ function PerformanceCompareTab({
     return generateAnalysis(current, previous, segScope === "campaign" ? turning : null);
   }, [current, previous, segScope, turning]);
 
-  const isSegLoading = segEnabled && selectedSeg !== null && (subCurrentQuery.isLoading || subPrevQuery.isLoading);
+  const isSegLoading = segEnabled && selectedSeg !== null && (subCurrentQuery.isFetching || subPrevQuery.isFetching);
+  const isSegError   = segEnabled && selectedSeg !== null && !isSegLoading && (subCurrentQuery.isError || subPrevQuery.isError);
   const hasPrev = segScope === "campaign"
     ? previousDays.length > 0
-    : (prevSeg !== null && !isSegLoading);
+    : (prevSeg !== null && !isSegLoading && !isSegError);
 
   const prev0 = previous ?? { spend: 0, purchases: 0, cpa: 0, ctr: 0, cr: 0, cpm: 0, lpv: 0 };
   const rows: { label: string; curr: string; prev: string; delta: number | null; lowerBetter: boolean | null }[] = [
@@ -1029,6 +1030,25 @@ function PerformanceCompareTab({
         <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6 flex items-center justify-center gap-2">
           <RefreshCw className="h-3.5 w-3.5 animate-spin" />
           جاري تحميل البيانات…
+        </div>
+      )}
+
+      {/* Error state — rate limit or network failure */}
+      {isSegError && (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300 text-center py-5 px-4 space-y-2">
+          <div className="font-semibold">تعذّر تحميل البيانات</div>
+          <div className="text-[11px] opacity-80">
+            {subCurrentQuery.error instanceof Error && subCurrentQuery.error.message.includes("مش متاحة")
+              ? subCurrentQuery.error.message
+              : "Meta وصلت للحد المسموح — حاول تاني خلال دقيقة"}
+          </div>
+          <button
+            onClick={() => { subCurrentQuery.refetch(); subPrevQuery.refetch(); }}
+            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-700 text-[11px] font-bold transition-colors"
+          >
+            <RefreshCw className="h-3 w-3" />
+            أعد المحاولة
+          </button>
         </div>
       )}
 
