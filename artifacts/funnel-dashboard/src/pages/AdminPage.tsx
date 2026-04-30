@@ -863,7 +863,7 @@ const CONTROLLABLE_PAGES = [
   { path: "/creative",  label: "مركز الكريتف" },
   { path: "/activity",  label: "نشاط الفريق" },
   { path: "/media",     label: "طلبات الميديا" },
-  { path: "/decisions", label: "القرارات" },
+  { path: "/decisions", label: "تشخيص الحملات" },
 ] as const;
 
 const VISIBILITY_ROLES: { role: string; label: string }[] = [

@@ -20,13 +20,13 @@ import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 const queryClient = new QueryClient();
 
 const ALL_NAV_ITEMS = [
-  { href: "/overview",  label: "نظرة عامة",    Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin", "media_buyer"] },
-  { href: "/",          label: "تحليل الحملة", Icon: Activity,         useRoute: "/",          roles: ["admin", "media_buyer"] },
-  { href: "/creative",  label: "مركز الكريتف", Icon: Sparkles,        useRoute: "/creative",  roles: ["admin", "media_buyer"] },
-  { href: "/activity",  label: "نشاط الفريق",  Icon: ClipboardList,   useRoute: "/activity",  roles: ["admin", "media_buyer"] },
-  { href: "/media",     label: "طلبات الميديا", Icon: Clapperboard,   useRoute: "/media",     roles: ["admin", "media_buyer", "media_manager"] },
-  { href: "/decisions", label: "القرارات",      Icon: Target,          useRoute: "/decisions", roles: ["admin"] },
-  { href: "/admin",     label: "المستخدمون",   Icon: Settings,        useRoute: "/admin",      roles: ["admin"] },
+  { href: "/overview",  label: "نظرة عامة",        Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin", "media_buyer"] },
+  { href: "/",          label: "تحليل الحملة",     Icon: Activity,        useRoute: "/",          roles: ["admin", "media_buyer"] },
+  { href: "/decisions", label: "تشخيص الحملات",   Icon: Target,          useRoute: "/decisions", roles: ["admin"] },
+  { href: "/media",     label: "طلبات الميديا",    Icon: Clapperboard,    useRoute: "/media",     roles: ["admin", "media_buyer", "media_manager"] },
+  { href: "/activity",  label: "نشاط الفريق",      Icon: ClipboardList,   useRoute: "/activity",  roles: ["admin", "media_buyer"] },
+  { href: "/creative",  label: "مركز الكريتف",     Icon: Sparkles,        useRoute: "/creative",  roles: ["admin", "media_buyer"] },
+  { href: "/admin",     label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",      roles: ["admin"] },
 ];
 
 function NotificationBell() {
