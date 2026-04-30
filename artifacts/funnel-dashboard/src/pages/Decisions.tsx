@@ -227,6 +227,7 @@ function CampaignDecisionCard({
   const cpaFlag:  "good"|"warn"|"bad" = campaign.cpa > 0 && campaign.cpa <= CPA_WIN ? "good" : campaign.cpa <= CPA_NEAR ? "warn" : "bad";
   const freqFlag: "good"|"warn"|"bad" = campaign.frequency <= 1.5 ? "good" : campaign.frequency <= 2.0 ? "warn" : "bad";
   const cpmFlag:  "good"|"warn"|"bad" = campaign.cpm < 30 ? "good" : campaign.cpm < 70 ? "warn" : "bad";
+  const crInfo = crTier(campaign.cr);
 
   const cpaText = campaign.cpa > 0
     ? `${Math.round(campaign.cpa)} EGP`
@@ -290,7 +291,17 @@ function CampaignDecisionCard({
           />
         )}
 
-        {/* ⑤ Mini stats row: Frequency · CPM · Purchases */}
+        {/* ⑤ Conversion Rate */}
+        {campaign.cr > 0 && (
+          <MetricBar
+            label={`Conversion Rate — ${crInfo.label}`}
+            value={`${campaign.cr.toFixed(2)}%`}
+            pct={Math.min((campaign.cr / 8) * 100, 100)}
+            flag={crInfo.flag}
+          />
+        )}
+
+        {/* ⑥ Mini stats row: Frequency · CPM · Purchases */}
         <div className="flex items-center justify-between gap-1.5 pt-1">
           <StatBadge label="Freq." value={campaign.frequency.toFixed(1)} flag={freqFlag} />
           <StatBadge label="CPM" value={`${Math.round(campaign.cpm)}`} flag={cpmFlag} />
@@ -341,6 +352,12 @@ function fmtNum(n: number, decimals = 0) {
 function delta(curr: number, prev: number) {
   if (!prev) return null;
   return ((curr - prev) / prev) * 100;
+}
+function crTier(cr: number): { label: string; flag: "good" | "warn" | "bad" } {
+  if (cr >= 5) return { label: "جيد ✅", flag: "good" };
+  if (cr >= 4) return { label: "مقبول 🟡", flag: "warn" };
+  if (cr >= 3) return { label: "محتاج تحسين 🟠", flag: "warn" };
+  return { label: "محتاج تدخل فوري 🔴", flag: "bad" };
 }
 
 // ── Collapsible Section ────────────────────────────────────────
