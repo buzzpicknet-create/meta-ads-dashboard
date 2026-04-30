@@ -696,6 +696,115 @@ function findTurningPoint(daily: DailyPoint[]): TurningPoint | null {
   return result;
 }
 
+interface Insight { icon: string; text: string }
+
+function generateAnalysis(
+  current: PeriodMetrics,
+  previous: PeriodMetrics,
+  turning: TurningPoint | null,
+): Insight[] {
+  if (previous.spend === 0) return [];
+
+  const d = (curr: number, prev: number) => prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+  const cpaDelta  = d(current.cpa,       previous.cpa);
+  const ctrDelta  = d(current.ctr,       previous.ctr);
+  const crDelta   = d(current.cr,        previous.cr);
+  const cpmDelta  = d(current.cpm,       previous.cpm);
+  const purchDelta = d(current.purchases, previous.purchases);
+  const spendDelta = d(current.spend,    previous.spend);
+
+  const abs = Math.round;
+  const insights: Insight[] = [];
+
+  // ── كل حاجة تحسّنت ──────────────────────────────────────────
+  if (cpaDelta < -10 && ctrDelta > 5 && crDelta > 5) {
+    insights.push({ icon: "🚀", text: `الحملة شغالة في أحسن حالاتها — الـ CPA نزل ${abs(Math.abs(cpaDelta))}%، الـ CTR تحسّن ${abs(ctrDelta)}%، والـ Conversion Rate زاد ${abs(crDelta)}%. ده وقت مثالي تفكر فيه في التوسيع تدريجياً.` });
+    insights.push({ icon: "💡", text: "زوّد الميزانية 20% وراقب 48 ساعة — لو الـ CPA فضل تمام، كرر. ما تتسرعش وتضاعف دفعة واحدة عشان الـ Algorithm هيعيد التعلم." });
+    return insights;
+  }
+
+  // ── CPA ارتفع + CR انخفض → مشكلة لاندينج أو منافسة ──────────
+  if (cpaDelta > 15 && crDelta < -10) {
+    insights.push({ icon: "🔍", text: `الـ CPA ارتفع ${abs(cpaDelta)}% مع انخفاض الـ Conversion Rate ${abs(Math.abs(crDelta))}% — ده بيقولك إن الناس لسه بيجوا على صفحتك لكن مبيشتروش زي الأول. المشكلة مش في الإعلان.` });
+    insights.push({ icon: "⚔️", text: "أغلب الأسباب: منافس ظهر بسعر أقل أو عرض أقوى. افتح موقع منافسيك دلوقتي وشوف لو في تخفيض أو عرض جديد في الفترة دي. لو لقيت، لازم ترد عليه قبل ما يأكل سوقك." });
+    insights.push({ icon: "🛠️", text: "حل سريع: قوّي عرضك في اللاندينج — ضمان واضح، شحن مجاني لو ممكن، أو عرض لفترة محدودة. غيّر الـ Headline للأكثر تركيزاً على الفايدة مش المنتج." });
+    return insights;
+  }
+
+  // ── CTR انخفض + CPA ارتفع → تعب الكريتف ────────────────────
+  if (ctrDelta < -15 && cpaDelta > 5) {
+    insights.push({ icon: "😴", text: `الـ CTR نزل ${abs(Math.abs(ctrDelta))}% — الميديا بدأت تفقد تأثيرها. الناس بتشوف الإعلان ومش بتتفاعل زي أول، وده أوضح علامة على تعب الكريتف.` });
+    if (cpmDelta > 10) {
+      insights.push({ icon: "📈", text: `الـ CPM كمان ارتفع ${abs(cpmDelta)}% — يعني الـ Algorithm بيتعب أكتر عشان يوصّل إعلانك لنفس الناس بسبب تراجع التفاعل. ده بيرفع تكلفتك أكتر.` });
+    }
+    insights.push({ icon: "🎬", text: "الحل اللي بيشتغل: كريتف جديد بزاوية مختلفة خالص — مش تعديل بسيط، بداية جديدة. جرّب افتتاحية بالمشكلة أو بنتيجة العميل مباشرة. الـ Hook الأولى 3 ثواني هي اللي بتحدد كل حاجة." });
+    return insights;
+  }
+
+  // ── CTR انخفض وحده بدون تأثير كبير على CPA ─────────────────
+  if (ctrDelta < -10 && Math.abs(cpaDelta) < 10) {
+    insights.push({ icon: "⚠️", text: `الـ CTR بدأ ينزل ${abs(Math.abs(ctrDelta))}% لكن الـ CPA لسه ثابت — ده إنذار مبكر. لو فضل الـ CTR ينزل، الـ CPA هيتأثر بعدين.` });
+    insights.push({ icon: "🕐", text: "عندك وقت تتحرك دلوقتي قبل ما تحسّها على الـ CPA. ابدأ تجهّز كريتف بديل أو جرّب Hook جديد على نفس الإعلان (أول 3 ثواني بس)." });
+    return insights;
+  }
+
+  // ── CPM ارتفع بشكل واضح مع ثبات CTR و CR ────────────────────
+  if (cpmDelta > 25 && Math.abs(ctrDelta) < 10 && Math.abs(crDelta) < 10) {
+    insights.push({ icon: "💰", text: `الـ CPM ارتفع ${abs(cpmDelta)}% لكن الـ CTR والـ CR ثابتين — المشكلة مش في إعلانك. المزاد أشرس. منافسين زادوا ميزانياتهم أو في موسم زيادة إنفاق على الجمهور ده.` });
+    insights.push({ icon: "🧭", text: "في الحالة دي، ما تتفرنشش على الكريتف. الكريتف تمام. فكّر في توسيع الـ Audience أو تجربة Lookalike جديد عشان تلاقي تخفيض في CPM." });
+    return insights;
+  }
+
+  // ── CPA ارتفع + CPM ارتفع + CTR و CR ثابت → مشكلة المزاد ───
+  if (cpaDelta > 15 && cpmDelta > 15 && Math.abs(ctrDelta) < 10 && Math.abs(crDelta) < 10) {
+    insights.push({ icon: "🏛️", text: `الـ CPA ارتفع ${abs(cpaDelta)}% بسبب الـ CPM اللي ارتفع ${abs(cpmDelta)}% — والـ CTR والـ CR لسه زي الأول. ده معناه إن مشكلتك في المزاد مش في الكريتف ولا اللاندينج.` });
+    insights.push({ icon: "🎯", text: "الحل: جرّب Advantage+ Audience (Broad) عشان الـ Algorithm يلاقي جمهور بـ CPM أرخص. كمان راجع Placement — ممكن Reels أرخص من Feed في الفترة دي." });
+    return insights;
+  }
+
+  // ── الأوردرات قلّت بشكل كبير ──────────────────────────────
+  if (purchDelta < -30 && current.purchases > 0) {
+    insights.push({ icon: "📉", text: `الأوردرات نزلت ${abs(Math.abs(purchDelta))}% — رقم محتاج وقفة وتحليل.` });
+    if (cpaDelta > 15) {
+      insights.push({ icon: "🚨", text: `والـ CPA كمان ارتفع ${abs(cpaDelta)}% — ده مش مجرد تقلب طبيعي. الحملة بتعاني على جانبين: الحجم والكفاءة في نفس الوقت. راجع كل المقاييس من التشخيص الأساسي.` });
+    } else {
+      insights.push({ icon: "🔎", text: "الـ CPA لسه معقول لكن الحجم قلّ. ممكن الـ Budget اتقلّص أو الجمهور اتشبّع. فكّر في توسيع الـ Audience أو رفع الميزانية شوية وشوف لو الـ Volume يرجع." });
+    }
+    return insights;
+  }
+
+  // ── CPA ارتفع ارتفاع خفيف ──────────────────────────────────
+  if (cpaDelta > 5 && cpaDelta <= 15) {
+    insights.push({ icon: "👀", text: `الـ CPA ارتفع ${abs(cpaDelta)}% — ارتفاع خفيف، لسه في المنطقة المقبولة. مش وقت الذعر لكن وقت الانتباه.` });
+    insights.push({ icon: "⏱️", text: "راقب خلال 24-48 ساعة الجاية — لو استمر في الارتفاع ابدأ تتحرك (راجع الكريتف والـ Audience). لو استقر أو رجع يبقى تقلب طبيعي." });
+    if (spendDelta > 20) {
+      insights.push({ icon: "💡", text: `لاحظت إن الإنفاق زاد ${abs(spendDelta)}% في نفس الوقت — ممكن الارتفاع في الـ CPA مجرد نتيجة زيادة الميزانية وإن الـ Algorithm لسه بيتكيف.` });
+    }
+    return insights;
+  }
+
+  // ── CPA تحسّن وحده ─────────────────────────────────────────
+  if (cpaDelta < -10) {
+    insights.push({ icon: "✅", text: `الـ CPA نزل ${abs(Math.abs(cpaDelta))}% — تحسن واضح في الكفاءة.` });
+    if (purchDelta > 10) {
+      insights.push({ icon: "🚀", text: `والأوردرات زادت ${abs(purchDelta)}% كمان — ده أفضل سيناريو. الحملة في حالة ممتازة للتوسيع التدريجي.` });
+    } else {
+      insights.push({ icon: "🔬", text: "الكفاءة بتتحسن لكن الحجم لسه ثابت. فضّل تراقب يومين قبل ما تزوّد الميزانية — عشان تتأكد إن التحسين حقيقي ومش مجرد يوم كويس." });
+    }
+    return insights;
+  }
+
+  // ── أداء مستقر بدون تغيير جوهري ───────────────────────────
+  insights.push({ icon: "📊", text: "الأداء مستقر بشكل عام بين الفترتين — مفيش تغيير جوهري في أي مقياس رئيسي." });
+  insights.push({ icon: "🧐", text: "الاستقرار مش دايماً خبر سيء — لكن دي فرصة تاخد فيها initiative وتجرب كريتف جديد أو audience جديد قبل ما الأداء يبدأ يتراجع." });
+
+  if (turning) {
+    insights.push({ icon: "📍", text: `لاحظت إن في نقطة تحول في ${turning.day} — ${turning.metric} ${turning.direction === "up" ? "ارتفع" : "انخفض"} فجأة ${turning.pct}%. ده يستحق تراجع في الإعلانات أو التغييرات اللي حصلت في اليوم ده.` });
+  }
+
+  return insights;
+}
+
 function PerformanceCompareTab({ daily }: { daily: DailyPoint[] }) {
   const [mode, setMode] = useState<CompareMode>("3d");
   const [customDays, setCustomDays] = useState(7);
@@ -709,6 +818,7 @@ function PerformanceCompareTab({ daily }: { daily: DailyPoint[] }) {
   const current  = useMemo(() => aggregateDaily(currentDays), [currentDays]);
   const previous = useMemo(() => aggregateDaily(previousDays), [previousDays]);
   const turning  = useMemo(() => findTurningPoint(sorted), [sorted]);
+  const analysis = useMemo(() => generateAnalysis(current, previous, turning), [current, previous, turning]);
 
   const hasPrev = previousDays.length > 0;
 
@@ -815,6 +925,24 @@ function PerformanceCompareTab({ daily }: { daily: DailyPoint[] }) {
             <span className="font-bold font-mono">{turning.pct}%</span> في يوم{" "}
             <span className="font-bold font-mono" dir="ltr">{turning.day}</span>
           </p>
+        </div>
+      )}
+
+      {/* AI analyst commentary */}
+      {hasPrev && analysis.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+            <span>🧠</span>
+            <span>تحليل الفترة — بعقل ميدياباير</span>
+          </div>
+          <div className="rounded-xl border border-primary/20 bg-primary/5 overflow-hidden divide-y divide-primary/10">
+            {analysis.map((item, i) => (
+              <div key={i} className="flex items-start gap-3 px-3 py-3">
+                <span className="text-base shrink-0 leading-none mt-0.5">{item.icon}</span>
+                <p className="text-xs leading-[1.85] text-foreground flex-1">{item.text}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
