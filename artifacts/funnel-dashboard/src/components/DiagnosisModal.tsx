@@ -892,26 +892,33 @@ function PerformanceCompareTab({
   const current  = currentSeg ? segToMetrics(currentSeg)  : dailyCurrent;
   const previous = prevSeg    ? segToMetrics(prevSeg)      : (segScope === "campaign" ? dailyPrevious : null);
 
-  const turning  = useMemo(() => findTurningPoint(sorted), [sorted]);
-  const analysis = useMemo(() => {
-    if (!previous) return [];
-    return generateAnalysis(current, previous, segScope === "campaign" ? turning : null);
-  }, [current, previous, segScope, turning]);
+  const turning = useMemo(() => findTurningPoint(sorted), [sorted]);
 
   const isSegLoading = segEnabled && selectedSeg !== null && (subCurrentQuery.isFetching || subPrevQuery.isFetching);
   const isSegError   = segEnabled && selectedSeg !== null && !isSegLoading && (subCurrentQuery.isError || subPrevQuery.isError);
-  const hasPrev = segScope === "campaign"
-    ? previousDays.length > 0
-    : (prevSeg !== null && !isSegLoading && !isSegError);
 
-  const prev0 = previous ?? { spend: 0, purchases: 0, cpa: 0, ctr: 0, cr: 0, cpm: 0, lpv: 0 };
+  // When segment query fails fall back to campaign-level daily data so the table still renders
+  const effectiveCurrent  = isSegError ? dailyCurrent  : current;
+  const effectivePrevious = isSegError ? dailyPrevious : previous;
+
+  const hasPrev = (segScope === "campaign" || isSegError)
+    ? previousDays.length > 0
+    : (prevSeg !== null && !isSegLoading);
+
+  const analysis = useMemo(() => {
+    if (!effectivePrevious) return [];
+    return generateAnalysis(effectiveCurrent, effectivePrevious, (segScope === "campaign" || isSegError) ? turning : null);
+  }, [effectiveCurrent, effectivePrevious, segScope, isSegError, turning]);
+
+  const prev0 = effectivePrevious ?? { spend: 0, purchases: 0, cpa: 0, ctr: 0, cr: 0, cpm: 0, lpv: 0 };
+  const ec = effectiveCurrent;
   const rows: { label: string; curr: string; prev: string; delta: number | null; lowerBetter: boolean | null }[] = [
-    { label: "CPA",        curr: current.cpa > 0 ? `${Math.round(current.cpa)} EGP` : "—",        prev: prev0.cpa > 0 ? `${Math.round(prev0.cpa)} EGP` : "—",       delta: current.cpa > 0 && prev0.cpa > 0 ? (current.cpa - prev0.cpa) / prev0.cpa * 100 : null, lowerBetter: true  },
-    { label: "CTR",        curr: `${current.ctr.toFixed(2)}%`,                                     prev: `${prev0.ctr.toFixed(2)}%`,                                  delta: prev0.ctr > 0 ? (current.ctr - prev0.ctr) / prev0.ctr * 100 : null,                   lowerBetter: false },
-    { label: "Conv. Rate", curr: `${current.cr.toFixed(2)}%`,                                      prev: `${prev0.cr.toFixed(2)}%`,                                   delta: prev0.cr > 0 ? (current.cr - prev0.cr) / prev0.cr * 100 : null,                      lowerBetter: false },
-    { label: "CPM",        curr: `${Math.round(current.cpm)} EGP`,                                 prev: `${Math.round(prev0.cpm)} EGP`,                              delta: prev0.cpm > 0 ? (current.cpm - prev0.cpm) / prev0.cpm * 100 : null,                  lowerBetter: true  },
-    { label: "Purchases",  curr: `${current.purchases}`,                                           prev: `${prev0.purchases}`,                                        delta: prev0.purchases > 0 ? (current.purchases - prev0.purchases) / prev0.purchases * 100 : null, lowerBetter: false },
-    { label: "Spend",      curr: `${Math.round(current.spend)} EGP`,                               prev: `${Math.round(prev0.spend)} EGP`,                            delta: prev0.spend > 0 ? (current.spend - prev0.spend) / prev0.spend * 100 : null,            lowerBetter: null  },
+    { label: "CPA",        curr: ec.cpa > 0 ? `${Math.round(ec.cpa)} EGP` : "—",       prev: prev0.cpa > 0 ? `${Math.round(prev0.cpa)} EGP` : "—",       delta: ec.cpa > 0 && prev0.cpa > 0 ? (ec.cpa - prev0.cpa) / prev0.cpa * 100 : null, lowerBetter: true  },
+    { label: "CTR",        curr: `${ec.ctr.toFixed(2)}%`,                               prev: `${prev0.ctr.toFixed(2)}%`,                                  delta: prev0.ctr > 0 ? (ec.ctr - prev0.ctr) / prev0.ctr * 100 : null,                   lowerBetter: false },
+    { label: "Conv. Rate", curr: `${ec.cr.toFixed(2)}%`,                                prev: `${prev0.cr.toFixed(2)}%`,                                   delta: prev0.cr > 0 ? (ec.cr - prev0.cr) / prev0.cr * 100 : null,                      lowerBetter: false },
+    { label: "CPM",        curr: `${Math.round(ec.cpm)} EGP`,                           prev: `${Math.round(prev0.cpm)} EGP`,                              delta: prev0.cpm > 0 ? (ec.cpm - prev0.cpm) / prev0.cpm * 100 : null,                  lowerBetter: true  },
+    { label: "Purchases",  curr: `${ec.purchases}`,                                     prev: `${prev0.purchases}`,                                        delta: prev0.purchases > 0 ? (ec.purchases - prev0.purchases) / prev0.purchases * 100 : null, lowerBetter: false },
+    { label: "Spend",      curr: `${Math.round(ec.spend)} EGP`,                         prev: `${Math.round(prev0.spend)} EGP`,                            delta: prev0.spend > 0 ? (ec.spend - prev0.spend) / prev0.spend * 100 : null,            lowerBetter: null  },
   ];
 
   const chartDays = sorted.slice(-Math.max(windowSize * 2, 7));
@@ -1033,21 +1040,16 @@ function PerformanceCompareTab({
         </div>
       )}
 
-      {/* Error state — rate limit or network failure */}
+      {/* Error state — rate limit / network; degrade to campaign-level data instead of blocking */}
       {isSegError && (
-        <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300 text-center py-5 px-4 space-y-2">
-          <div className="font-semibold">تعذّر تحميل البيانات</div>
-          <div className="text-[11px] opacity-80">
-            {subCurrentQuery.error instanceof Error && subCurrentQuery.error.message.includes("مش متاحة")
-              ? subCurrentQuery.error.message
-              : "Meta وصلت للحد المسموح — حاول تاني خلال دقيقة"}
-          </div>
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/20 text-[11px] text-amber-800 dark:text-amber-400 px-3 py-2 flex items-center justify-between gap-2">
+          <span>⚠️ بيانات الـ adset/ad مش متاحة دلوقتي — بيعرض مقارنة الحملة كاملة</span>
           <button
             onClick={() => { subCurrentQuery.refetch(); subPrevQuery.refetch(); }}
-            className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-700 text-[11px] font-bold transition-colors"
+            className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-700 font-bold transition-colors"
           >
             <RefreshCw className="h-3 w-3" />
-            أعد المحاولة
+            إعادة محاولة
           </button>
         </div>
       )}
