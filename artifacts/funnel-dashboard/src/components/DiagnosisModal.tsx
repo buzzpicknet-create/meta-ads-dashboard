@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { logDiagnosisRun } from "@/hooks/use-activity-logger";
-import { ChevronDown, Stethoscope, RefreshCw } from "lucide-react";
+import { ChevronDown, Stethoscope, RefreshCw, Search, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -988,9 +988,17 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
   const [expandedAdset, setExpandedAdset] = useState<string | null>(null);
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(defaultTab);
+  const [adsetFilter, setAdsetFilter] = useState("");
+  const [adFilter, setAdFilter]       = useState("");
   const loggedRef = useRef<string | null>(null);
 
-  useEffect(() => { if (open) setActiveTab(defaultTab); }, [open, defaultTab]);
+  useEffect(() => {
+    if (open) {
+      setActiveTab(defaultTab);
+      setAdsetFilter("");
+      setAdFilter("");
+    }
+  }, [open, defaultTab]);
 
   useEffect(() => {
     if (open && loggedRef.current !== insights.campaign.id) {
@@ -1080,38 +1088,86 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
             <ActionList actions={camp.actionPlan} color={camp.color} />
           </TabsContent>
 
-          <TabsContent value="adsets" className="flex-1 overflow-y-auto space-y-2 mt-3 pb-2">
-            {result.adsets.length === 0
-              ? <div className="text-sm text-muted-foreground text-center py-6">لا توجد بيانات Ad Sets</div>
-              : [...result.adsets]
-                  .sort((a, b) => b.seg.spend - a.seg.spend)
-                  .map(({ seg, diag }) => (
-                    <SegmentRow
-                      key={seg.id}
-                      seg={seg}
-                      diag={diag}
-                      expanded={expandedAdset === seg.id}
-                      onToggle={() => setExpandedAdset(expandedAdset === seg.id ? null : seg.id)}
-                    />
-                  ))
-            }
+          <TabsContent value="adsets" className="flex-1 flex flex-col min-h-0 mt-3">
+            {result.adsets.length > 0 && (
+              <div className="shrink-0 relative mb-2">
+                <Search className="absolute end-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <input
+                  value={adsetFilter}
+                  onChange={(e) => setAdsetFilter(e.target.value)}
+                  placeholder="ابحث باسم Ad Set…"
+                  dir="rtl"
+                  className="w-full h-8 pe-8 ps-3 text-xs rounded-lg border border-border bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+                />
+                {adsetFilter && (
+                  <button onClick={() => setAdsetFilter("")} className="absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto space-y-2 pb-2">
+              {result.adsets.length === 0
+                ? <div className="text-sm text-muted-foreground text-center py-6">لا توجد بيانات Ad Sets</div>
+                : (() => {
+                    const filtered = [...result.adsets]
+                      .sort((a, b) => b.seg.spend - a.seg.spend)
+                      .filter(({ seg }) => !adsetFilter || seg.label.toLowerCase().includes(adsetFilter.toLowerCase()));
+                    return filtered.length === 0
+                      ? <div className="text-sm text-muted-foreground text-center py-6">لا توجد نتائج للبحث</div>
+                      : filtered.map(({ seg, diag }) => (
+                          <SegmentRow
+                            key={seg.id}
+                            seg={seg}
+                            diag={diag}
+                            expanded={expandedAdset === seg.id}
+                            onToggle={() => setExpandedAdset(expandedAdset === seg.id ? null : seg.id)}
+                          />
+                        ));
+                  })()
+              }
+            </div>
           </TabsContent>
 
-          <TabsContent value="ads" className="flex-1 overflow-y-auto space-y-2 mt-3 pb-2">
-            {result.ads.length === 0
-              ? <div className="text-sm text-muted-foreground text-center py-6">لا توجد بيانات إعلانات</div>
-              : [...result.ads]
-                  .sort((a, b) => b.seg.spend - a.seg.spend)
-                  .map(({ seg, diag }) => (
-                    <SegmentRow
-                      key={seg.id}
-                      seg={seg}
-                      diag={diag}
-                      expanded={expandedAd === seg.id}
-                      onToggle={() => setExpandedAd(expandedAd === seg.id ? null : seg.id)}
-                    />
-                  ))
-            }
+          <TabsContent value="ads" className="flex-1 flex flex-col min-h-0 mt-3">
+            {result.ads.length > 0 && (
+              <div className="shrink-0 relative mb-2">
+                <Search className="absolute end-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <input
+                  value={adFilter}
+                  onChange={(e) => setAdFilter(e.target.value)}
+                  placeholder="ابحث باسم الإعلان…"
+                  dir="rtl"
+                  className="w-full h-8 pe-8 ps-3 text-xs rounded-lg border border-border bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+                />
+                {adFilter && (
+                  <button onClick={() => setAdFilter("")} className="absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto space-y-2 pb-2">
+              {result.ads.length === 0
+                ? <div className="text-sm text-muted-foreground text-center py-6">لا توجد بيانات إعلانات</div>
+                : (() => {
+                    const filtered = [...result.ads]
+                      .sort((a, b) => b.seg.spend - a.seg.spend)
+                      .filter(({ seg }) => !adFilter || seg.label.toLowerCase().includes(adFilter.toLowerCase()));
+                    return filtered.length === 0
+                      ? <div className="text-sm text-muted-foreground text-center py-6">لا توجد نتائج للبحث</div>
+                      : filtered.map(({ seg, diag }) => (
+                          <SegmentRow
+                            key={seg.id}
+                            seg={seg}
+                            diag={diag}
+                            expanded={expandedAd === seg.id}
+                            onToggle={() => setExpandedAd(expandedAd === seg.id ? null : seg.id)}
+                          />
+                        ));
+                  })()
+              }
+            </div>
           </TabsContent>
 
           <TabsContent value="creative" className="flex-1 overflow-y-auto mt-3 pb-2">
