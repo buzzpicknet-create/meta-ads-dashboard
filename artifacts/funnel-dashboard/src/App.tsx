@@ -84,11 +84,12 @@ function NavBar() {
   const visibilityMap = useMyPageVisibility();
 
   const navItems = ALL_NAV_ITEMS.filter((item) => {
-    if (!item.roles.includes(role)) return false;
+    // If the dynamic visibility map has a setting for this page, it overrides the hardcoded roles
     if (visibilityMap && Object.prototype.hasOwnProperty.call(visibilityMap, item.href)) {
       return visibilityMap[item.href] === true;
     }
-    return true;
+    // Fall back to hardcoded roles if no DB setting exists yet
+    return item.roles.includes(role);
   });
 
   const routes = ALL_NAV_ITEMS.map((item) => {
@@ -217,7 +218,20 @@ function MediaManagerRouter() {
   );
 }
 
-function FullRouter({ isAdmin }: { isAdmin: boolean }) {
+function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
+  const visibilityMap = useMyPageVisibility();
+
+  // A page is accessible if: admin always yes, OR visibility map says yes for this role
+  function canAccess(path: string) {
+    if (isAdmin) return true;
+    if (visibilityMap && Object.prototype.hasOwnProperty.call(visibilityMap, path)) {
+      return visibilityMap[path] === true;
+    }
+    // Fallback: allow if role was originally allowed in ALL_NAV_ITEMS
+    const item = ALL_NAV_ITEMS.find((i) => i.href === path);
+    return item ? item.roles.includes(role) : false;
+  }
+
   return (
     <>
       <NavBar />
@@ -227,7 +241,7 @@ function FullRouter({ isAdmin }: { isAdmin: boolean }) {
         <Route path="/activity" component={ActivityPage} />
         <Route path="/media" component={MediaRequestsPage} />
         <Route path="/admin" component={isAdmin ? AdminPage : NotFound} />
-        <Route path="/decisions" component={isAdmin ? DecisionsPage : NotFound} />
+        <Route path="/decisions" component={canAccess("/decisions") ? DecisionsPage : NotFound} />
         <Route path="/" component={Dashboard} />
         <Route component={NotFound} />
       </Switch>
@@ -258,7 +272,7 @@ function AppRoutes() {
       <ActivityTracker />
       {user.role === "media_manager"
         ? <MediaManagerRouter />
-        : <FullRouter isAdmin={user.role === "admin"} />}
+        : <FullRouter isAdmin={user.role === "admin"} role={user.role} />}
     </>
   );
 }
