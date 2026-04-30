@@ -1359,6 +1359,36 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
   );
 }
 
+// ── RetryCountdown — shows a live countdown and calls onDone when it reaches 0 ──
+function RetryCountdown({ seconds, onDone }: { seconds: number; onDone: () => void }) {
+  const [remaining, setRemaining] = useState(seconds);
+  const doneRef = useRef(false);
+  useEffect(() => {
+    doneRef.current = false;
+    setRemaining(seconds);
+    const tick = setInterval(() => {
+      setRemaining((r) => {
+        if (r <= 1) {
+          clearInterval(tick);
+          if (!doneRef.current) { doneRef.current = true; onDone(); }
+          return 0;
+        }
+        return r - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seconds]);
+  return (
+    <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1.5">
+      <RefreshCw className="h-3 w-3 animate-spin" />
+      هيحاول تاني خلال{" "}
+      <span className="font-bold tabular-nums w-5 text-center">{remaining}</span>
+      ث
+    </p>
+  );
+}
+
 // ── CampaignDiagnosisModal — self-fetching wrapper ─────────────
 export function CampaignDiagnosisModal({
   campaignId,
@@ -1439,6 +1469,10 @@ export function CampaignDiagnosisModal({
   }
 
   if (query.error || !query.data) {
+    const errMsg = query.error instanceof Error ? query.error.message : "";
+    const rlMatch = errMsg.match(/\[retry_in:(\d+)\]/);
+    const retryInSec = rlMatch ? parseInt(rlMatch[1], 10) : 0;
+    const isRateLimit = !!rlMatch || errMsg.includes("rate limit") || errMsg.includes("429");
     return (
       <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
         <DialogContent className="max-w-xl w-full" dir="rtl">
@@ -1448,8 +1482,22 @@ export function CampaignDiagnosisModal({
               تعذّر تحميل البيانات
             </DialogTitle>
           </DialogHeader>
-          <div className="text-sm text-muted-foreground py-8 text-center">
-            تعذّر تحميل بيانات الحملة. حاول مرة أخرى.
+          <div className="py-8 text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {isRateLimit
+                ? `Meta وصلت الحد المسموح به من الطلبات.`
+                : "تعذّر تحميل بيانات الحملة."}
+            </p>
+            {isRateLimit && retryInSec > 0 && (
+              <RetryCountdown seconds={retryInSec} onDone={() => query.refetch()} />
+            )}
+            <button
+              onClick={() => query.refetch()}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              إعادة المحاولة
+            </button>
           </div>
         </DialogContent>
       </Dialog>
