@@ -553,11 +553,18 @@ export default function DecisionsPage() {
 
   const [accountId, setAccountId] = useState<string | null>(null);
   const [preset, setPreset]       = useState<DatePreset>("7d");
+  const [customRange, setCustomRange] = useState(() => rangeFromPreset("7d"));
   const [filter, setFilter]       = useState<FilterKey>("all");
+  const [activeOnly, setActiveOnly] = useState(false);
   const [diagId, setDiagId]       = useState<string | null>(null);
 
   const selectedAccountId = accountId ?? accounts[0]?.id ?? null;
-  const range             = useMemo(() => rangeFromPreset(preset), [preset]);
+  const range = useMemo(
+    () => (preset === "custom" ? customRange : rangeFromPreset(preset)),
+    [preset, customRange],
+  );
+
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const { data: overview, isLoading } = useAccountOverview({
     ad_account_id: selectedAccountId,
@@ -568,9 +575,12 @@ export default function DecisionsPage() {
   const campaigns = useMemo((): CampaignSummaryFull[] => {
     if (!overview) return [];
     return overview.campaigns
-      .filter((c) => filter === "all" || getCategory(c) === filter)
+      .filter((c) => {
+        if (activeOnly && c.effective_status !== "ACTIVE") return false;
+        return filter === "all" || getCategory(c) === filter;
+      })
       .sort((a, b) => computeScore(b) - computeScore(a));
-  }, [overview, filter]);
+  }, [overview, filter, activeOnly]);
 
   const allCampaigns = overview?.campaigns ?? [];
 
@@ -590,7 +600,21 @@ export default function DecisionsPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Active Only toggle */}
+            <button
+              onClick={() => setActiveOnly((v) => !v)}
+              className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
+                activeOnly
+                  ? "bg-emerald-500 border-emerald-500 text-white"
+                  : "bg-muted/40 border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${activeOnly ? "bg-white" : "bg-emerald-500"}`} />
+              نشط فقط
+            </button>
+
+            {/* Account selector */}
             {accounts.length > 1 && (
               <Select value={selectedAccountId ?? ""} onValueChange={setAccountId}>
                 <SelectTrigger className="h-8 text-xs w-44">
@@ -603,18 +627,45 @@ export default function DecisionsPage() {
                 </SelectContent>
               </Select>
             )}
+
+            {/* Date preset */}
             <Select value={preset} onValueChange={(v) => setPreset(v as DatePreset)}>
               <SelectTrigger className="h-8 text-xs w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(PRESET_LABELS) as DatePreset[])
-                  .filter((k) => k !== "custom")
-                  .map((k) => (
-                    <SelectItem key={k} value={k} className="text-xs">{PRESET_LABELS[k]}</SelectItem>
-                  ))}
+                {(Object.keys(PRESET_LABELS) as DatePreset[]).map((k) => (
+                  <SelectItem key={k} value={k} className="text-xs">{PRESET_LABELS[k]}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
+
+            {/* Custom date range inputs */}
+            {preset === "custom" && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={customRange.since}
+                  max={customRange.until || today}
+                  onChange={(e) => setCustomRange((r) => ({ ...r, since: e.target.value }))}
+                  className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <span className="text-xs text-muted-foreground">←</span>
+                <input
+                  type="date"
+                  value={customRange.until}
+                  min={customRange.since}
+                  max={today}
+                  onChange={(e) => setCustomRange((r) => ({ ...r, until: e.target.value }))}
+                  className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {customRange.since && customRange.until && (
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    {Math.round((new Date(customRange.until).getTime() - new Date(customRange.since).getTime()) / 86400000) + 1} يوم
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
