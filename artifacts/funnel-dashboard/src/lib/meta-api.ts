@@ -208,9 +208,12 @@ async function jsonFetch<T>(url: string): Promise<T> {
     throw new Error(`Invalid JSON from ${url}: ${text.slice(0, 200)}`);
   }
   if (!res.ok) {
-    const errMsg =
-      (data as { error?: string })?.error ||
-      `HTTP ${res.status}: ${text.slice(0, 200)}`;
+    const errData = data as { error?: string; retry_in_s?: number };
+    const baseMsg = errData?.error || `HTTP ${res.status}: ${text.slice(0, 200)}`;
+    // Encode retry time so UI can show a countdown without extra state
+    const errMsg = errData?.retry_in_s
+      ? `${baseMsg} [retry_in:${errData.retry_in_s}]`
+      : baseMsg;
     throw new Error(errMsg);
   }
   return data as T;

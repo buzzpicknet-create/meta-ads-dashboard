@@ -829,6 +829,8 @@ function PerformanceCompareTab({
   const [segScope, setSegScope]   = useState<SegScope>("campaign");
   const [segSearch, setSegSearch] = useState("");
   const [selectedSeg, setSelectedSeg] = useState<string | null>(null);
+  const [retryIn, setRetryIn] = useState(0);
+  const retryAtRef = useRef<number>(0);
 
   // Reset segment selection when scope changes
   useEffect(() => { setSelectedSeg(null); setSegSearch(""); }, [segScope]);
@@ -896,6 +898,29 @@ function PerformanceCompareTab({
 
   const isSegLoading = segEnabled && selectedSeg !== null && (subCurrentQuery.isFetching || subPrevQuery.isFetching);
   const isSegError   = segEnabled && selectedSeg !== null && !isSegLoading && (subCurrentQuery.isError || subPrevQuery.isError);
+
+  // Auto-retry after rate-limit backoff — counts down and refetches automatically
+  useEffect(() => {
+    if (!isSegError) { setRetryIn(0); return; }
+    if (retryAtRef.current > Date.now()) return; // already counting down
+    const errMsg = (subCurrentQuery.error instanceof Error ? subCurrentQuery.error.message : "") ||
+                   (subPrevQuery.error instanceof Error   ? subPrevQuery.error.message   : "");
+    const match = errMsg.match(/\[retry_in:(\d+)\]/);
+    const secs = match ? parseInt(match[1], 10) : 90;
+    retryAtRef.current = Date.now() + secs * 1000;
+    setRetryIn(secs);
+    const tick = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((retryAtRef.current - Date.now()) / 1000));
+      setRetryIn(remaining);
+      if (remaining === 0) {
+        clearInterval(tick);
+        subCurrentQuery.refetch();
+        subPrevQuery.refetch();
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSegError]);
 
   // When segment query fails fall back to campaign-level daily data so the table still renders
   const effectiveCurrent  = isSegError ? dailyCurrent  : current;
@@ -1040,16 +1065,24 @@ function PerformanceCompareTab({
         </div>
       )}
 
-      {/* Error state — rate limit / network; degrade to campaign-level data instead of blocking */}
+      {/* Rate-limit warning — auto-counts down and refetches; campaign-level data shown as fallback */}
       {isSegError && (
         <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/20 text-[11px] text-amber-800 dark:text-amber-400 px-3 py-2 flex items-center justify-between gap-2">
-          <span>⚠️ بيانات الـ adset/ad مش متاحة دلوقتي — بيعرض مقارنة الحملة كاملة</span>
+          {retryIn > 0 ? (
+            <span className="flex items-center gap-1.5">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              جاري جلب بيانات الـ adset/ad — هيحاول تاني في{" "}
+              <span className="font-bold tabular-nums w-6 text-center">{retryIn}</span>ث
+            </span>
+          ) : (
+            <span>⚠️ بيانات الـ adset/ad مش متاحة — بيعرض الحملة كاملة حالياً</span>
+          )}
           <button
-            onClick={() => { subCurrentQuery.refetch(); subPrevQuery.refetch(); }}
+            onClick={() => { retryAtRef.current = 0; subCurrentQuery.refetch(); subPrevQuery.refetch(); }}
             className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-700 font-bold transition-colors"
           >
             <RefreshCw className="h-3 w-3" />
-            إعادة محاولة
+            الآن
           </button>
         </div>
       )}

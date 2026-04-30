@@ -353,10 +353,14 @@ router.get("/meta/insights", async (req, res) => {
         logger.warn({ campaign_id, age_s: Math.round(cacheAge / 1000) }, "Meta rate-limited — serving stale insights cache");
         return res.json({ ...(cached.data as object), account_id: accountId || undefined, from_cache: true, rate_limited: true });
       }
-      logger.warn({ campaign_id }, "Meta rate-limited — no insights cache available");
+      const retryMsg = err instanceof Error ? err.message : "";
+      const retryMatch = retryMsg.match(/retry in (\d+)s/);
+      const retry_in_s = retryMatch ? parseInt(retryMatch[1], 10) : 90;
+      logger.warn({ campaign_id, retry_in_s }, "Meta rate-limited — no insights cache available");
       return res.status(429).json({
-        error: "الحملة مش متاحة دلوقتي — Meta وصلت للحد المسموح مؤقتاً. البيانات هتظهر تاني خلال دقيقتين.",
+        error: "الحملة مش متاحة دلوقتي — Meta وصلت للحد المسموح مؤقتاً.",
         rate_limited: true,
+        retry_in_s,
       });
     }
     logger.error({ err }, "Insights fetch failed");
