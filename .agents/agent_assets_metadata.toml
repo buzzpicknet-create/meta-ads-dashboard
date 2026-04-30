@@ -1,0 +1,20 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "tEBKAsNJvXkDLPX2iZ6-q"
+uri = "file://diagnosis_logic_campaign.csv"
+type = "table"
+title = "حالات الحملة الكاملة — Campaign Level (12 حالة)"
+
+[[outputs]]
+id = "xg_ST_mkLpHKDEqGowdyd"
+uri = "file://diagnosis_logic_segment.csv"
+type = "table"
+title = "حالات Ad Set & Ad — Segment Level (14 حالة)"
+
+[[outputs]]
+id = "bLsocsecqltMR8oKrbzpx"
+uri = "file://diagnosis_logic_thresholds.csv"
+type = "table"
+title = "الثوابت والأرقام — Thresholds"

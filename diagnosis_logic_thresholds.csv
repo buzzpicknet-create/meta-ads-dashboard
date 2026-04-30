@@ -1,0 +1,13 @@
+الثابت,القيمة الحالية,الوصف
+CPA_SCALE_MAX,45 EGP,أقصى CPA للحالة الرابحة (Scale)
+CPA_IMPROVE_MAX,80 EGP,حد الإيقاف — CPA فوقه = خسارة مؤكدة
+HOOK_MIN,25%,الحد الأدنى المطلوب للـ Hook Rate (جيد)
+ميت Hook,< 15%,Hook Rate أقل من كده = الكريتف مش بيوقف السكرول خالص
+CTR_MIN,1%,الحد الأدنى المطلوب للـ Outbound CTR
+LPR_MIN,70%,الحد الأدنى للـ Landing Page Rate
+CR_MIN,2%,الحد الأدنى لـ Conversion Rate (LPV → شراء)
+Learning Phase (حملة),< 50 تحويل,الـ Algorithm لسه بيتعلم على مستوى الحملة
+Learning Phase (Ad Set/Ad),< 10 تحويل,الـ Algorithm لسه بيتعلم على مستوى الـ Segment
+Frequency تحذير - Fatigue,> 2.5,إرهاق الجمهور — الشرط لتفعيل حالة الإرهاق في الحملة
+Frequency حرج (Badge أصفر),> 1.5,تلوين الـ Badge بالأصفر في جميع الصفحات
+Frequency خطر (Badge أحمر),> 2.0,تلوين الـ Badge بالأحمر في جميع الصفحات
