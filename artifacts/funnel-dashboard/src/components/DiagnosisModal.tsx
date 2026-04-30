@@ -813,18 +813,16 @@ function PerformanceCompareTab({
   daily,
   currentAdsets,
   currentAds,
-  prevAdsets,
-  prevAds,
-  periodLabel,
-  prevLabel,
+  campaignId,
+  accountId,
+  until,
 }: {
   daily: DailyPoint[];
   currentAdsets: Array<{ seg: SegmentEntry; diag: SegDiag }>;
   currentAds:    Array<{ seg: SegmentEntry; diag: SegDiag }>;
-  prevAdsets:    Array<{ seg: SegmentEntry }>;
-  prevAds:       Array<{ seg: SegmentEntry }>;
-  periodLabel: string;
-  prevLabel:   string;
+  campaignId:  string | null;
+  accountId:   string | undefined;
+  until:       string;
 }) {
   const [mode, setMode] = useState<CompareMode>("3d");
   const [customDays, setCustomDays] = useState(7);
@@ -845,15 +843,49 @@ function PerformanceCompareTab({
   const dailyCurrent  = useMemo(() => aggregateDaily(currentDays),  [currentDays]);
   const dailyPrevious = useMemo(() => aggregateDaily(previousDays), [previousDays]);
 
-  // ── Segment-level metrics from period fetches ──
+  // ── Sub-period date ranges for adset/ad mode ──
+  const { subCurrentSince, subPrevSince, subPrevUntil } = useMemo(() => {
+    if (!until) return { subCurrentSince: "", subPrevSince: "", subPrevUntil: "" };
+    const untilD = new Date(until);
+    const curSince = new Date(untilD.getTime() - (windowSize - 1) * 86400000);
+    const prevUntilD = new Date(curSince.getTime() - 86400000);
+    const prevSinceD = new Date(prevUntilD.getTime() - (windowSize - 1) * 86400000);
+    return {
+      subCurrentSince: curSince.toISOString().slice(0, 10),
+      subPrevSince:    prevSinceD.toISOString().slice(0, 10),
+      subPrevUntil:    prevUntilD.toISOString().slice(0, 10),
+    };
+  }, [until, windowSize]);
+
+  const segEnabled = segScope !== "campaign" && Boolean(campaignId) && Boolean(accountId) && Boolean(until);
+  const subCurrentQuery = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subCurrentSince, until });
+  const subPrevQuery    = useInsights({ campaign_id: segEnabled ? campaignId : null, ad_account_id: accountId, since: subPrevSince,    until: subPrevUntil });
+
+  // ── Segment-level metrics ──
   const segList = segScope === "adset" ? currentAdsets : currentAds;
-  const prevSegList = segScope === "adset" ? prevAdsets : prevAds;
   const filteredSegs = useMemo(
     () => segList.filter(({ seg }) => !segSearch || seg.label.toLowerCase().includes(segSearch.toLowerCase())),
     [segList, segSearch],
   );
-  const currentSeg = selectedSeg ? segList.find(({ seg }) => seg.id === selectedSeg)?.seg   ?? null : null;
-  const prevSeg    = selectedSeg ? prevSegList.find(({ seg }) => seg.id === selectedSeg)?.seg ?? null : null;
+
+  // In adset/ad mode use sub-period fetched data; fall back to full-period data while loading
+  const subCurrentSegs: SegmentEntry[] = segScope === "adset"
+    ? (subCurrentQuery.data?.by_adset ?? [])
+    : (subCurrentQuery.data?.by_ad    ?? []);
+  const subPrevSegs: SegmentEntry[] = segScope === "adset"
+    ? (subPrevQuery.data?.by_adset ?? [])
+    : (subPrevQuery.data?.by_ad    ?? []);
+
+  const currentSeg: SegmentEntry | null = selectedSeg
+    ? (segScope !== "campaign"
+        ? (subCurrentSegs.find(s => s.id === selectedSeg) ?? segList.find(({ seg }) => seg.id === selectedSeg)?.seg ?? null)
+        : null)
+    : null;
+  const prevSeg: SegmentEntry | null = selectedSeg
+    ? (segScope !== "campaign"
+        ? (subPrevSegs.find(s => s.id === selectedSeg) ?? null)
+        : null)
+    : null;
 
   // Use segment metrics when a segment is selected, otherwise use daily aggregation
   const current  = currentSeg ? segToMetrics(currentSeg)  : dailyCurrent;
@@ -865,9 +897,10 @@ function PerformanceCompareTab({
     return generateAnalysis(current, previous, segScope === "campaign" ? turning : null);
   }, [current, previous, segScope, turning]);
 
+  const isSegLoading = segEnabled && selectedSeg !== null && (subCurrentQuery.isLoading || subPrevQuery.isLoading);
   const hasPrev = segScope === "campaign"
     ? previousDays.length > 0
-    : prevSeg !== null;
+    : (prevSeg !== null && !isSegLoading);
 
   const prev0 = previous ?? { spend: 0, purchases: 0, cpa: 0, ctr: 0, cr: 0, cpm: 0, lpv: 0 };
   const rows: { label: string; curr: string; prev: string; delta: number | null; lowerBetter: boolean | null }[] = [
@@ -882,11 +915,17 @@ function PerformanceCompareTab({
   const chartDays = sorted.slice(-Math.max(windowSize * 2, 7));
   const maxCpa    = Math.max(...sorted.map(x => x.cpa).filter(x => x > 0), 1);
 
-  const currentLabel  = segScope !== "campaign" && currentSeg
-    ? periodLabel
+  // Date labels for adset/ad mode
+  const fmtDate = (d: string) => d ? d.slice(5).replace("-", "/") : "";
+  const currentLabel = segScope !== "campaign"
+    ? (selectedSeg
+        ? (mode === "1d" ? `${fmtDate(until)}` : `${fmtDate(subCurrentSince)} ← ${fmtDate(until)}`)
+        : (mode === "1d" ? "آخر يوم" : `آخر ${windowSize} أيام`))
     : (mode === "1d" ? "أمس" : `آخر ${windowSize} أيام`);
-  const previousLabel = segScope !== "campaign" && currentSeg
-    ? prevLabel
+  const previousLabel = segScope !== "campaign"
+    ? (selectedSeg
+        ? (mode === "1d" ? `${fmtDate(subPrevUntil)}` : `${fmtDate(subPrevSince)} ← ${fmtDate(subPrevUntil)}`)
+        : "الفترة السابقة")
     : (mode === "1d" ? "اليوم السابق" : `${windowSize} أيام قبلهم`);
 
   return (
@@ -950,34 +989,32 @@ function PerformanceCompareTab({
         </div>
       )}
 
-      {/* ── Period buttons (campaign mode only) ── */}
-      {segScope === "campaign" && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {(["1d", "3d", "custom"] as CompareMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-colors ${
-                mode === m
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:bg-muted/30"
-              }`}
-            >
-              {m === "1d" ? "أمس" : m === "3d" ? "آخر 3 أيام" : "مخصص"}
-            </button>
-          ))}
-          {mode === "custom" && (
-            <div className="flex items-center gap-2 mr-1">
-              <input
-                type="range" min={1} max={14} value={customDays}
-                onChange={(e) => setCustomDays(Number(e.target.value))}
-                className="w-24 accent-primary"
-              />
-              <span className="text-[11px] font-bold text-primary tabular-nums">{customDays} يوم</span>
-            </div>
-          )}
-        </div>
-      )}
+      {/* ── Period buttons (all modes) ── */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {(["1d", "3d", "custom"] as CompareMode[]).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+              mode === m
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:bg-muted/30"
+            }`}
+          >
+            {m === "1d" ? "آخر يوم" : m === "3d" ? "آخر 3 أيام" : "مخصص"}
+          </button>
+        ))}
+        {mode === "custom" && (
+          <div className="flex items-center gap-2 mr-1">
+            <input
+              type="range" min={1} max={30} value={customDays}
+              onChange={(e) => setCustomDays(Number(e.target.value))}
+              className="w-24 accent-primary"
+            />
+            <span className="text-[11px] font-bold text-primary tabular-nums">{customDays} يوم</span>
+          </div>
+        )}
+      </div>
 
       {/* Header row */}
       <div className="grid grid-cols-3 text-[10px] text-center font-semibold px-1">
@@ -986,15 +1023,23 @@ function PerformanceCompareTab({
         <div className="text-muted-foreground">{previousLabel}</div>
       </div>
 
+      {/* Loading indicator for segment sub-period fetch */}
+      {isSegLoading && (
+        <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6 flex items-center justify-center gap-2">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          جاري تحميل البيانات…
+        </div>
+      )}
+
       {/* No data notice */}
-      {!hasPrev && segScope === "campaign" && (
+      {!hasPrev && !isSegLoading && segScope === "campaign" && (
         <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6">
           لا توجد بيانات كافية للمقارنة<br />
           تحتاج على الأقل <span className="font-bold">{windowSize * 2} يوم</span> من البيانات
         </div>
       )}
-      {!hasPrev && segScope !== "campaign" && !selectedSeg && null /* handled above */}
-      {!hasPrev && segScope !== "campaign" && selectedSeg && (
+      {!hasPrev && !isSegLoading && segScope !== "campaign" && !selectedSeg && null /* handled above */}
+      {!hasPrev && !isSegLoading && segScope !== "campaign" && selectedSeg && (
         <div className="rounded-xl border border-border bg-muted/10 text-xs text-muted-foreground text-center py-6">
           لا توجد بيانات للفترة السابقة لهذا {segScope === "adset" ? "Ad Set" : "الإعلان"}
         </div>
@@ -1104,9 +1149,8 @@ function PerformanceCompareTab({
 }
 
 // ── DiagnosisModal ─────────────────────────────────────────────
-export function DiagnosisModal({ insights, prevInsights, open, onClose, defaultTab = "campaign" }: { insights: CampaignInsights; prevInsights?: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string }) {
+export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign", accountId }: { insights: CampaignInsights; prevInsights?: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string; accountId?: string }) {
   const result     = useMemo(() => runDiagnosis(insights),     [insights]);
-  const prevResult = useMemo(() => prevInsights ? runDiagnosis(prevInsights) : null, [prevInsights]);
   const [expandedAdset, setExpandedAdset] = useState<string | null>(null);
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(defaultTab);
@@ -1297,16 +1341,15 @@ export function DiagnosisModal({ insights, prevInsights, open, onClose, defaultT
           </TabsContent>
 
           <TabsContent value="compare" className="flex-1 overflow-y-auto mt-3 pb-2">
-            {insights.daily.length === 0 && !prevInsights
+            {false
               ? <div className="text-sm text-muted-foreground text-center py-8">لا توجد بيانات يومية للمقارنة</div>
               : <PerformanceCompareTab
                     daily={insights.daily}
                     currentAdsets={result.adsets}
                     currentAds={result.ads}
-                    prevAdsets={prevResult?.adsets.map(({ seg }) => ({ seg })) ?? []}
-                    prevAds={prevResult?.ads.map(({ seg }) => ({ seg })) ?? []}
-                    periodLabel={`${insights.period.since} ← ${insights.period.until}`}
-                    prevLabel={prevInsights ? `${prevInsights.period.since} ← ${prevInsights.period.until}` : "الفترة السابقة"}
+                    campaignId={insights.campaign.id}
+                    accountId={accountId}
+                    until={insights.period.until}
                   />
             }
           </TabsContent>
@@ -1416,10 +1459,10 @@ export function CampaignDiagnosisModal({
   return (
     <DiagnosisModal
       insights={mergedInsights!}
-      prevInsights={prevQuery.data ?? undefined}
       open={open}
       onClose={onClose}
       defaultTab={defaultTab}
+      accountId={accountId}
     />
   );
 }
