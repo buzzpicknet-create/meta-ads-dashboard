@@ -4,7 +4,7 @@ import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
 import { warmCreativeCache } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
-import { initVapid, sendPushToRoles } from "./lib/push";
+import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
 import bcrypt from "bcryptjs";
 
@@ -205,6 +205,8 @@ async function runMigrations() {
     ON user_activity_logs(user_id, created_at DESC)
   `);
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
+  // Account-specific notification: link user to a specific ad account
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ad_account_id VARCHAR(50)`);
   await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS account_id VARCHAR(50)`);
   await query(`
     CREATE TABLE IF NOT EXISTS push_config (
@@ -410,10 +412,10 @@ async function runCpaAlertCron() {
         const key = `${w.id}:winner`;
         if (recentSet.has(key)) continue;
 
-        await sendPushToRoles(CPA_RECIPIENT_ROLES, {
+        await sendPushForCpaAlert(accountId, CPA_RECIPIENT_ROLES, {
           title: "🚀 حملة جاهزة للتوسع",
           body: `${w.name} — CPA ${w.cpa.toFixed(0)} ج.م (${w.purchases} أوردر) — ضاعف الميزانية الآن`,
-          url: "/overview",
+          url: "/decisions",
         });
         await query(
           `INSERT INTO cpa_alert_log (campaign_id, account_id, alert_type, campaign_name, cpa) VALUES ($1,$2,'winner',$3,$4)`,
@@ -430,10 +432,10 @@ async function runCpaAlertCron() {
         const cpaText = w.purchases === 0
           ? `إنفاق ${w.spend.toFixed(0)} ج.م بدون أوردرات`
           : `CPA ${w.cpa.toFixed(0)} ج.م`;
-        await sendPushToRoles(CPA_RECIPIENT_ROLES, {
+        await sendPushForCpaAlert(accountId, CPA_RECIPIENT_ROLES, {
           title: "⚠️ حملة تحتاج تدخل فوري",
           body: `${w.name} — ${cpaText} — راجع الحملة وقلل الميزانية`,
-          url: "/overview",
+          url: "/decisions",
         });
         await query(
           `INSERT INTO cpa_alert_log (campaign_id, account_id, alert_type, campaign_name, cpa) VALUES ($1,$2,'warning',$3,$4)`,

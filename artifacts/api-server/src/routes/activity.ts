@@ -62,8 +62,9 @@ router.get("/admin/user-activity", requireAdmin, async (_req, res) => {
       username: string;
       role: string;
       last_seen_at: string | null;
+      ad_account_id: string | null;
     }>(
-      `SELECT id, username, role, last_seen_at
+      `SELECT id, username, role, last_seen_at, ad_account_id
        FROM users
        WHERE deleted_at IS NULL
        ORDER BY last_seen_at DESC NULLS LAST, created_at DESC`

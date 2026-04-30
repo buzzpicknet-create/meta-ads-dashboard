@@ -31,6 +31,7 @@ interface UserWithActivity extends User {
   last_seen_at: string | null;
   push_sub_count: number;
   recent_activity: ActivityEntry[];
+  ad_account_id: string | null;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -335,6 +336,27 @@ function UserActivityCard({
   onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [editingAccount, setEditingAccount] = useState(false);
+  const [accountInput, setAccountInput] = useState(u.ad_account_id ?? "");
+  const qc = useQueryClient();
+
+  const saveAccount = useMutation({
+    mutationFn: async (val: string) => {
+      const r = await fetch(`${API}/admin/users/${u.id}/account`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ad_account_id: val.trim() || null }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "فشل التحديث");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-user-activity"] });
+      setEditingAccount(false);
+    },
+    onError: (err) => alert(err instanceof Error ? err.message : "فشل التحديث"),
+  });
 
   const statsMap = u.recent_activity.reduce<Record<string, number>>((acc, e) => {
     acc[e.action] = (acc[e.action] ?? 0) + 1;
@@ -349,12 +371,52 @@ function UserActivityCard({
           <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0">
             <span className="text-sm font-bold uppercase">{u.username[0]}</span>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="text-sm font-medium">{u.username}</p>
               <RoleBadge role={u.role} />
             </div>
             <OnlineIndicator lastSeen={u.last_seen_at} />
+            {/* Ad account assignment */}
+            {editingAccount ? (
+              <div className="flex items-center gap-1.5 mt-1.5" dir="ltr">
+                <input
+                  autoFocus
+                  value={accountInput}
+                  onChange={(e) => setAccountInput(e.target.value)}
+                  placeholder="رقم الحساب الإعلاني"
+                  dir="ltr"
+                  className="h-7 px-2 text-xs rounded-md border border-border bg-background font-mono w-44 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  onClick={() => saveAccount.mutate(accountInput)}
+                  disabled={saveAccount.isPending}
+                  className="h-7 px-2 rounded-md text-xs font-medium bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
+                >
+                  {saveAccount.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                </button>
+                <button
+                  onClick={() => { setEditingAccount(false); setAccountInput(u.ad_account_id ?? ""); }}
+                  className="h-7 px-2 rounded-md text-xs text-muted-foreground hover:bg-muted"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setAccountInput(u.ad_account_id ?? ""); setEditingAccount(true); }}
+                className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors group"
+              >
+                {u.ad_account_id ? (
+                  <span className="font-mono bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">
+                    {u.ad_account_id}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground/60">بدون حساب إعلاني محدد</span>
+                )}
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+              </button>
+            )}
           </div>
         </div>
 

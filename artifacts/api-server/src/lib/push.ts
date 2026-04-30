@@ -122,6 +122,35 @@ export async function sendPushToRoles(roles: string[], payload: PushPayload) {
   }
 }
 
+/**
+ * Sends CPA alerts scoped to a specific ad account.
+ * - Admin users (ad_account_id IS NULL) receive all alerts regardless of account.
+ * - Non-admin users only receive alerts if their ad_account_id matches the campaign's account.
+ */
+export async function sendPushForCpaAlert(
+  campaignAccountId: string,
+  roles: string[],
+  payload: PushPayload
+) {
+  if (!vapidPublicKey) return;
+  try {
+    const subs = await query<PushSubscriptionRow>(
+      `SELECT ps.* FROM push_subscriptions ps
+       JOIN users u ON u.id = ps.user_id
+       WHERE u.role = ANY($1)
+         AND u.deleted_at IS NULL
+         AND (
+           u.ad_account_id IS NULL
+           OR u.ad_account_id = $2
+         )`,
+      [roles, campaignAccountId]
+    );
+    await sendToSubs(subs, payload);
+  } catch (err) {
+    logger.warn({ err }, "sendPushForCpaAlert failed");
+  }
+}
+
 export async function sendPushForEvent(eventType: string, payload: PushPayload) {
   if (!vapidPublicKey) return;
   try {

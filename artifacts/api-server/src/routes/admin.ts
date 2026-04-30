@@ -107,6 +107,22 @@ router.delete("/admin/users/:id", requireAdmin, async (req, res) => {
   }
 });
 
+// PATCH /api/admin/users/:id/account — assign or clear ad_account_id for a user
+router.patch("/admin/users/:id/account", requireAdmin, async (req, res) => {
+  const id = Number(req.params["id"]);
+  const { ad_account_id } = req.body as { ad_account_id?: string | null };
+  try {
+    const rows = await query<{ id: number }>(
+      `UPDATE users SET ad_account_id = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING id`,
+      [ad_account_id?.trim() || null, id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: "المستخدم غير موجود" });
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "فشل تحديث الحساب الإعلاني" });
+  }
+});
+
 // GET /api/page-visibility — returns the current user's page visibility (any logged-in user)
 router.get("/page-visibility", async (req, res) => {
   const role = req.session?.role;
