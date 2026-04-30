@@ -1,12 +1,14 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   CheckCircle2, AlertTriangle, XCircle, PauseCircle, Zap, TrendingDown,
   RefreshCw, BarChart2, Target, Eye, ShoppingCart, Filter, Stethoscope,
-  FlameKindling, TrendingUp,
+  FlameKindling, TrendingUp, ChevronDown, DollarSign, MousePointer2,
+  Percent,
 } from "lucide-react";
 import { useAccounts, useAccountOverview } from "@/hooks/use-meta";
 import {
   type CampaignSummaryFull,
+  type DerivedMetrics,
   type DatePreset,
   rangeFromPreset,
 } from "@/lib/meta-api";
@@ -332,6 +334,155 @@ function CampaignDecisionCard({
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────
+function fmtNum(n: number, decimals = 0) {
+  return n.toLocaleString("ar-EG", { maximumFractionDigits: decimals });
+}
+function delta(curr: number, prev: number) {
+  if (!prev) return null;
+  return ((curr - prev) / prev) * 100;
+}
+
+// ── Collapsible Section ────────────────────────────────────────
+function CollapsibleSection({
+  title, defaultOpen = true, children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="space-y-3">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between group"
+      >
+        <span className="text-sm font-bold text-foreground tracking-wide">{title}</span>
+        <ChevronDown
+          className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${open ? "" : "-rotate-90"}`}
+        />
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+}
+
+// ── KPI Card ──────────────────────────────────────────────────
+interface KpiCardProps {
+  label: string;
+  value: string;
+  sub?: string;
+  delta: number | null;
+  lowerIsBetter?: boolean;
+  Icon: typeof Target;
+  iconColor: string;
+}
+function KpiCard({ label, value, sub, delta: d, lowerIsBetter = false, Icon, iconColor }: KpiCardProps) {
+  const isPositive = d !== null && d > 0;
+  const isNegative = d !== null && d < 0;
+  const isGood = lowerIsBetter ? isNegative : isPositive;
+  const isBad  = lowerIsBetter ? isPositive : isNegative;
+
+  const deltaColor = isGood ? "text-emerald-600 dark:text-emerald-400" : isBad ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground";
+  const deltaArrow = isPositive ? "↑" : isNegative ? "↓" : "";
+  const deltaAbs   = d !== null ? Math.abs(d).toFixed(0) : null;
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col gap-0.5 text-right flex-1 min-w-0">
+          <p className="text-xs text-muted-foreground font-medium">{label}</p>
+          <p className="text-2xl font-black tracking-tight leading-none mt-1">{value}</p>
+          {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
+        </div>
+        <div className={`shrink-0 rounded-full p-2.5 ${iconColor}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+      {deltaAbs !== null && (
+        <div className={`text-[11px] font-bold ${deltaColor}`} dir="ltr">
+          {deltaArrow} {deltaAbs}%
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Performance KPIs ──────────────────────────────────────────
+function PerformanceKPIs({
+  totals, prev,
+}: {
+  totals: DerivedMetrics;
+  prev: DerivedMetrics;
+}) {
+  const cr = totals.lpv > 0 ? totals.crLpv : totals.crClick;
+  const prevCr = prev.lpv > 0 ? prev.crLpv : prev.crClick;
+
+  const kpis: KpiCardProps[] = [
+    {
+      label: "CPA",
+      value: `${fmtNum(totals.cpa, 0)} EGP`,
+      sub: `CPC ${fmtNum(totals.cpc, 1)} EGP`,
+      delta: delta(totals.cpa, prev.cpa),
+      lowerIsBetter: true,
+      Icon: Target,
+      iconColor: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    },
+    {
+      label: "الأوردرات",
+      value: fmtNum(totals.purchases),
+      sub: `${fmtNum(totals.lpv)} زيارة`,
+      delta: delta(totals.purchases, prev.purchases),
+      lowerIsBetter: false,
+      Icon: ShoppingCart,
+      iconColor: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    },
+    {
+      label: "إجمالي الإنفاق",
+      value: `${fmtNum(totals.spend, 0)} EGP`,
+      sub: `CPM ${fmtNum(totals.cpm, 0)} EGP`,
+      delta: delta(totals.spend, prev.spend),
+      lowerIsBetter: true,
+      Icon: DollarSign,
+      iconColor: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    },
+    {
+      label: "Conversion Rate",
+      value: `${cr.toFixed(2)}%`,
+      sub: "أوردر → LPV",
+      delta: delta(cr, prevCr),
+      lowerIsBetter: false,
+      Icon: Percent,
+      iconColor: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    },
+    {
+      label: "CPM",
+      value: `${fmtNum(totals.cpm, 0)} EGP`,
+      sub: `${fmtNum(totals.impressions)} ظهور`,
+      delta: delta(totals.cpm, prev.cpm),
+      lowerIsBetter: true,
+      Icon: Eye,
+      iconColor: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    },
+    {
+      label: "CTR",
+      value: `${totals.ctr.toFixed(2)}%`,
+      sub: `CPC ${fmtNum(totals.cpc, 1)} EGP`,
+      delta: delta(totals.ctr, prev.ctr),
+      lowerIsBetter: false,
+      Icon: MousePointer2,
+      iconColor: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      {kpis.map((k) => <KpiCard key={k.label} {...k} />)}
+    </div>
+  );
+}
+
 // ── Summary Bar ───────────────────────────────────────────────
 const SUMMARY_ORDER: Category[] = [
   "winner", "near", "sellfluct", "improve",
@@ -467,67 +618,81 @@ export default function DecisionsPage() {
           </div>
         </div>
 
-        {/* Summary badges */}
-        {allCampaigns.length > 0 && <SummaryBar campaigns={allCampaigns} />}
-
-        {/* Filter tabs */}
-        <div className="flex gap-1.5 flex-wrap" role="tablist">
-          {FILTER_TABS.map(({ key, label }) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={filter === key}
-              onClick={() => setFilter(key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
-                ${filter === key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Loading */}
-        {isLoading && (
-          <div className="flex items-center justify-center py-20 gap-3 text-muted-foreground">
-            <RefreshCw className="h-5 w-5 animate-spin" />
-            جاري تحميل الحملات...
-          </div>
+        {/* ── Section 1: مؤشرات الأداء ── */}
+        {overview && (
+          <CollapsibleSection title="مؤشرات الأداء">
+            <PerformanceKPIs totals={overview.totals} prev={overview.prev_totals} />
+          </CollapsibleSection>
         )}
 
-        {/* Empty — filter */}
-        {!isLoading && campaigns.length === 0 && allCampaigns.length > 0 && (
-          <div className="text-center py-16 text-muted-foreground">
-            <Filter className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">لا توجد حملات في هذا التصنيف</p>
-            <button onClick={() => setFilter("all")} className="mt-2 text-xs text-primary underline">
-              عرض الكل
-            </button>
-          </div>
+        {/* ── Section 2: ملخص الحملات ── */}
+        {allCampaigns.length > 0 && (
+          <CollapsibleSection title="ملخص الحملات">
+            <SummaryBar campaigns={allCampaigns} />
+          </CollapsibleSection>
         )}
 
-        {/* Empty — no campaigns */}
-        {!isLoading && allCampaigns.length === 0 && selectedAccountId && (
-          <div className="text-center py-16 text-muted-foreground">
-            <BarChart2 className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">لا توجد حملات في هذه الفترة</p>
-          </div>
-        )}
-
-        {/* Grid */}
-        {campaigns.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {campaigns.map((c) => (
-              <CampaignDecisionCard
-                key={c.id}
-                campaign={c}
-                onDiagnose={setDiagId}
-              />
+        {/* ── Section 3: تحليل الحملات ── */}
+        <CollapsibleSection title="تحليل الحملات">
+          {/* Filter tabs */}
+          <div className="flex gap-1.5 flex-wrap mb-4" role="tablist">
+            {FILTER_TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={filter === key}
+                onClick={() => setFilter(key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors
+                  ${filter === key
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+              >
+                {label}
+              </button>
             ))}
           </div>
-        )}
+
+          {/* Loading */}
+          {isLoading && (
+            <div className="flex items-center justify-center py-20 gap-3 text-muted-foreground">
+              <RefreshCw className="h-5 w-5 animate-spin" />
+              جاري تحميل الحملات...
+            </div>
+          )}
+
+          {/* Empty — filter */}
+          {!isLoading && campaigns.length === 0 && allCampaigns.length > 0 && (
+            <div className="text-center py-16 text-muted-foreground">
+              <Filter className="h-8 w-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">لا توجد حملات في هذا التصنيف</p>
+              <button onClick={() => setFilter("all")} className="mt-2 text-xs text-primary underline">
+                عرض الكل
+              </button>
+            </div>
+          )}
+
+          {/* Empty — no campaigns */}
+          {!isLoading && allCampaigns.length === 0 && selectedAccountId && (
+            <div className="text-center py-16 text-muted-foreground">
+              <BarChart2 className="h-8 w-8 mx-auto mb-3 opacity-40" />
+              <p className="text-sm">لا توجد حملات في هذه الفترة</p>
+            </div>
+          )}
+
+          {/* Grid */}
+          {campaigns.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {campaigns.map((c) => (
+                <CampaignDecisionCard
+                  key={c.id}
+                  campaign={c}
+                  onDiagnose={setDiagId}
+                />
+              ))}
+            </div>
+          )}
+        </CollapsibleSection>
 
       </div>
 
