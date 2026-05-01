@@ -1370,15 +1370,21 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
 // ── Build campaign context string for AI ─────────────────────────────────────
 function buildCampaignContext(insights: CampaignInsights): string {
   const t = insights.totals;
-  const n = (v: number, d = 0) => v.toLocaleString("ar-EG", { maximumFractionDigits: d });
-  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+  const n  = (v: number, d = 0) => v.toLocaleString("ar-EG", { maximumFractionDigits: d });
+  // All rate metrics from API are already ×100 (e.g. hookRate=45.3 means 45.3%)
+  // So we just add the % sign directly — no multiplication needed
+  const p  = (v: number) => `${v.toFixed(1)}%`;
+  // For manually-computed ratios (counts / counts) which are still 0-1 scale:
+  const pRatio = (v: number) => `${(v * 100).toFixed(1)}%`;
+
+  // Flags use the same scale as stored (×100 scale for rates)
   const flag = (v: number, good: number, warn: number, higherIsBetter = true) => {
     if (higherIsBetter) return v >= good ? "✅" : v >= warn ? "⚠️" : "❌";
     return v <= good ? "✅" : v <= warn ? "⚠️" : "❌";
   };
 
+  // ThruPlay: v100 and video_plays are raw counts → ratio is 0-1
   const thruplayRate = t.v100 / Math.max(t.video_plays, 1);
-  const cpaFlag = t.purchases > 0 ? "" : " (لا تحويلات)";
 
   const lines: string[] = [
     `الحملة: ${insights.campaign.name}`,
@@ -1391,28 +1397,28 @@ function buildCampaignContext(insights: CampaignInsights): string {
     `CPM: ${n(t.cpm, 0)} EGP ${flag(t.cpm, 300, 600, false)}`,
     ``,
     `[مرحلة الانتباه]`,
-    `Hook Rate (3s): ${pct(t.hookRate)} ${flag(t.hookRate, 0.3, 0.2)}  ← نسبة من شاف أول 3 ثواني`,
-    `ThruPlay Rate:  ${pct(thruplayRate)} ${flag(thruplayRate, 0.15, 0.08)}  ← نسبة من كمّل الفيديو أو 15 ثانية`,
+    `Hook Rate (3s): ${p(t.hookRate)} ${flag(t.hookRate, 30, 20)}  ← نسبة من شاف أول 3 ثواني`,
+    `ThruPlay Rate:  ${pRatio(thruplayRate)} ${flag(thruplayRate * 100, 15, 8)}  ← نسبة من كمّل الفيديو أو 15 ثانية`,
     ``,
     `[مرحلة النقر]`,
-    `CTR (Link):  ${pct(t.ctr)} ${flag(t.ctr, 0.02, 0.012)}  ← نسبة النقر على الرابط`,
+    `CTR (Link):  ${p(t.ctr)} ${flag(t.ctr, 2.0, 1.2)}  ← نسبة النقر على الرابط`,
     `CPC: ${n(t.cpc, 0)} EGP`,
     ``,
     `[مرحلة الـ Landing Page]`,
-    `LPR (Landing Page Rate): ${pct(t.lpvRate)} ${flag(t.lpvRate, 0.8, 0.65)}  ← من نقر ووصل للصفحة`,
+    `LPR (Landing Page Rate): ${p(t.lpvRate)} ${flag(t.lpvRate, 80, 65)}  ← من نقر ووصل للصفحة`,
     ``,
     `[مرحلة التحويل]`,
-    `CR (من LP): ${pct(t.crLpv)} ${flag(t.crLpv, 0.04, 0.02)}  ← من وصل للصفحة واشترى`,
-    `CR (من Click): ${pct(t.crClick)}`,
+    `CR (من LP): ${p(t.crLpv)} ${flag(t.crLpv, 4, 2)}  ← من وصل للصفحة واشترى`,
+    `CR (من Click): ${p(t.crClick)}`,
     ``,
     `━━ النتائج ━━`,
     `الإنفاق: ${n(t.spend, 0)} EGP`,
-    `الأوردرات: ${n(t.purchases, 0)}${cpaFlag}`,
-    `CPA: ${t.purchases > 0 ? n(t.cpa, 0) + " EGP" : "لا يوجد"}`,
+    `الأوردرات: ${n(t.purchases, 0)}`,
+    `CPA: ${t.purchases > 0 ? n(t.cpa, 0) + " EGP" : "لا تحويلات"}`,
     ``,
   ];
 
-  // Ad Sets with full funnel metrics
+  // Ad Sets — rates already ×100, lpr/cr computed from counts (0-1 → use pRatio)
   if (insights.by_adset.length > 0) {
     lines.push(`━━ Ad Sets (${insights.by_adset.length} — مرتّبة بالإنفاق) ━━`);
     [...insights.by_adset]
@@ -1420,41 +1426,41 @@ function buildCampaignContext(insights: CampaignInsights): string {
       .slice(0, 8)
       .forEach((s) => {
         const cpaStr = s.purchases > 0 ? `${n(s.cpa, 0)} EGP` : "لا تحويل";
-        const lpr = s.lpv / Math.max(s.link_clicks, 1);
-        const cr = s.purchases / Math.max(s.lpv, 1);
+        const lpr = pRatio(s.lpv / Math.max(s.link_clicks, 1));
+        const cr  = pRatio(s.purchases / Math.max(s.lpv, 1));
         lines.push(
           `• "${s.label}"\n` +
           `  إنفاق: ${n(s.spend, 0)} EGP | أوردرات: ${s.purchases} | CPA: ${cpaStr}\n` +
-          `  Hook: ${pct(s.hookRate)} | CTR: ${pct(s.ctr)} | LPR: ${pct(lpr)} | CR: ${pct(cr)}`
+          `  Hook: ${p(s.hookRate)} | CTR: ${p(s.ctr)} | LPR: ${lpr} | CR: ${cr}`
         );
       });
     lines.push("");
   }
 
-  // Ads sorted by spend with full funnel metrics
+  // Ads — same approach
   if (insights.by_ad.length > 0) {
     const topAds = [...insights.by_ad].sort((a, b) => b.spend - a.spend).slice(0, 8);
     lines.push(`━━ الإعلانات (${topAds.length} من ${insights.by_ad.length} — الأعلى إنفاقاً) ━━`);
     topAds.forEach((a) => {
       const cpaStr = a.purchases > 0 ? `${n(a.cpa, 0)} EGP` : "لا تحويل";
-      const lpr = a.lpv / Math.max(a.link_clicks, 1);
-      const cr = a.purchases / Math.max(a.lpv, 1);
+      const lpr = pRatio(a.lpv / Math.max(a.link_clicks, 1));
+      const cr  = pRatio(a.purchases / Math.max(a.lpv, 1));
       lines.push(
         `• "${a.label}"\n` +
         `  إنفاق: ${n(a.spend, 0)} EGP | أوردرات: ${a.purchases} | CPA: ${cpaStr}\n` +
-        `  Hook: ${pct(a.hookRate)} | CTR: ${pct(a.ctr)} | LPR: ${pct(lpr)} | CR: ${pct(cr)}`
+        `  Hook: ${p(a.hookRate)} | CTR: ${p(a.ctr)} | LPR: ${lpr} | CR: ${cr}`
       );
     });
 
-    // Also show best Hook and best CTR ads if different from top spend
+    // Surface best Hook & best CTR ads if not already in top-spend list
     const bestHook = [...insights.by_ad].sort((a, b) => b.hookRate - a.hookRate)[0];
     const bestCTR  = [...insights.by_ad].sort((a, b) => b.ctr - a.ctr)[0];
     const topIds   = new Set(topAds.map((a) => a.id));
     if (bestHook && !topIds.has(bestHook.id)) {
-      lines.push(`\n[أعلى Hook Rate في الحملة] "${bestHook.label}" — Hook: ${pct(bestHook.hookRate)} | إنفاق: ${n(bestHook.spend, 0)} EGP`);
+      lines.push(`\n[أعلى Hook Rate في الحملة] "${bestHook.label}" — Hook: ${p(bestHook.hookRate)} | إنفاق: ${n(bestHook.spend, 0)} EGP`);
     }
     if (bestCTR && !topIds.has(bestCTR.id) && bestCTR.id !== bestHook?.id) {
-      lines.push(`[أعلى CTR في الحملة] "${bestCTR.label}" — CTR: ${pct(bestCTR.ctr)} | إنفاق: ${n(bestCTR.spend, 0)} EGP`);
+      lines.push(`[أعلى CTR في الحملة] "${bestCTR.label}" — CTR: ${p(bestCTR.ctr)} | إنفاق: ${n(bestCTR.spend, 0)} EGP`);
     }
   }
 
