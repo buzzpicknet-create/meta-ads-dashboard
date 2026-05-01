@@ -1234,11 +1234,10 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={(t) => { setActiveTab(t); onTabChange?.(t); if (t === "ai") setAiTabOpened(true); }} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="shrink-0 grid grid-cols-6 text-xs h-8">
+          <TabsList className="shrink-0 grid grid-cols-5 text-xs h-8">
             <TabsTrigger value="campaign" className="text-[10px]">الحملة</TabsTrigger>
             <TabsTrigger value="adsets" className="text-[10px]">Ad Sets ({result.adsets.length})</TabsTrigger>
             <TabsTrigger value="ads" className="text-[10px]">الإعلانات ({result.ads.length})</TabsTrigger>
-            <TabsTrigger value="creative" className="text-[10px]">الكريتف</TabsTrigger>
             <TabsTrigger value="compare" className="text-[10px]">مقارنة</TabsTrigger>
             <TabsTrigger value="ai" className="text-[10px] gap-1">
               <Bot className="h-3 w-3" />
@@ -1377,10 +1376,6 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
                   })()
               }
             </div>
-          </TabsContent>
-
-          <TabsContent value="creative" className="flex-1 overflow-y-auto mt-3 pb-2">
-            <CreativeTab ads={result.ads} />
           </TabsContent>
 
           <TabsContent value="compare" className="flex-1 overflow-y-auto mt-3 pb-2">
