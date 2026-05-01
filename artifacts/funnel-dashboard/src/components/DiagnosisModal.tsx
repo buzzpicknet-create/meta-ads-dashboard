@@ -1495,6 +1495,33 @@ function buildCampaignContext(
     lines.push(``);
   }
 
+  // Daily breakdown — gives AI ability to compare any sub-period (last 48h, last 3 days, etc.)
+  const sortedDaily = [...insights.daily].sort((a, b) => a.day.localeCompare(b.day));
+  if (sortedDaily.length > 0) {
+    lines.push(`━━ البيانات اليومية (يوم بيوم — ${sortedDaily.length} يوم) ━━`);
+    lines.push(`[اليوم | الإنفاق | الأوردرات | CPA | نسبة النقر | الظهورات | نسبة الوصول للصفحة]`);
+    sortedDaily.forEach((d) => {
+      const dayCpa  = d.purchases > 0 ? `${n(d.cpa, 0)} EGP` : "—";
+      const dayCtr  = d.impressions > 0 ? `${((d.link_clicks / d.impressions) * 100).toFixed(1)}%` : "—";
+      const dayLpr  = d.link_clicks > 0 ? `${((d.lpv / d.link_clicks) * 100).toFixed(1)}%` : "—";
+      lines.push(`${d.day} | ${n(d.spend, 0)} EGP | ${d.purchases} أوردر | ${dayCpa} | ${dayCtr} | ${n(d.impressions)} ظهور | ${dayLpr}`);
+    });
+    lines.push(``);
+
+    // Also include prev period daily if available
+    const sortedPrevDaily = prevInsights ? [...prevInsights.daily].sort((a, b) => a.day.localeCompare(b.day)) : [];
+    if (sortedPrevDaily.length > 0) {
+      lines.push(`━━ البيانات اليومية للفترة السابقة (${sortedPrevDaily.length} يوم) ━━`);
+      sortedPrevDaily.forEach((d) => {
+        const dayCpa  = d.purchases > 0 ? `${n(d.cpa, 0)} EGP` : "—";
+        const dayCtr  = d.impressions > 0 ? `${((d.link_clicks / d.impressions) * 100).toFixed(1)}%` : "—";
+        const dayLpr  = d.link_clicks > 0 ? `${((d.lpv / d.link_clicks) * 100).toFixed(1)}%` : "—";
+        lines.push(`${d.day} | ${n(d.spend, 0)} EGP | ${d.purchases} أوردر | ${dayCpa} | ${dayCtr} | ${n(d.impressions)} ظهور | ${dayLpr}`);
+      });
+      lines.push(``);
+    }
+  }
+
   // Ad Sets — rates already ×100, lpr/cr computed from counts (0-1 → use pRatio)
   if (insights.by_adset.length > 0) {
     lines.push(`━━ Ad Sets (${insights.by_adset.length} — مرتّبة بالإنفاق) ━━`);
