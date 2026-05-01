@@ -1222,7 +1222,7 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); setExpandedAdset(null); setExpandedAd(null); } }}>
-      <DialogContent className="max-w-xl w-full max-h-[90vh] flex flex-col" dir="rtl">
+      <DialogContent className="max-w-3xl w-full max-h-[92vh] flex flex-col" dir="rtl">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-sm">
             <Stethoscope className="h-4 w-4 text-primary shrink-0" />
