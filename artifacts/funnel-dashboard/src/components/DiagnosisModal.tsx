@@ -1159,13 +1159,29 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
   const [adFilter, setAdFilter]       = useState("");
   const loggedRef = useRef<string | null>(null);
 
+  // Chat state lifted here so it persists when switching tabs
+  const [chatMessages, setChatMessages]         = useState<ChatMessage[]>([]);
+  const [chatStreaming, setChatStreaming]         = useState(false);
+  const [chatStreamingText, setChatStreamingText] = useState("");
+  const prevCampaignIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (open) {
       setActiveTab(defaultTab);
       setAdsetFilter("");
       setAdFilter("");
+      // Reset chat only when a different campaign is opened
+      if (prevCampaignIdRef.current !== insights.campaign.id) {
+        prevCampaignIdRef.current = insights.campaign.id;
+        setChatMessages([]);
+        setChatStreaming(false);
+        setChatStreamingText("");
+      }
     }
-  }, [open, defaultTab]);
+    if (!open) {
+      prevCampaignIdRef.current = null;
+    }
+  }, [open, defaultTab, insights.campaign.id]);
 
   useEffect(() => {
     if (open && loggedRef.current !== insights.campaign.id) {
@@ -1359,7 +1375,15 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
           </TabsContent>
 
           <TabsContent value="ai" className="flex-1 flex flex-col min-h-0 mt-3">
-            <AiChatTab insights={insights} />
+            <AiChatTab
+              insights={insights}
+              messages={chatMessages}
+              setMessages={setChatMessages}
+              streaming={chatStreaming}
+              setStreaming={setChatStreaming}
+              streamingText={chatStreamingText}
+              setStreamingText={setChatStreamingText}
+            />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -1551,11 +1575,17 @@ function renderInline(text: string): React.ReactNode {
 }
 
 // ── AiChatTab — AI assistant tab for campaign diagnosis ──────────────────────
-function AiChatTab({ insights }: { insights: CampaignInsights }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+interface AiChatTabProps {
+  insights: CampaignInsights;
+  messages: ChatMessage[];
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  streaming: boolean;
+  setStreaming: React.Dispatch<React.SetStateAction<boolean>>;
+  streamingText: string;
+  setStreamingText: React.Dispatch<React.SetStateAction<string>>;
+}
+function AiChatTab({ insights, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText }: AiChatTabProps) {
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
