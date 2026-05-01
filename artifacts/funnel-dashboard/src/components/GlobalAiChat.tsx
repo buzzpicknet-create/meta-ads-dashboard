@@ -1,18 +1,101 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Bot, Send, Trash2, X, MessageSquare, User } from "lucide-react";
+import { Bot, Send, Trash2, X, MessageSquare, User, Loader2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useAuth } from "@/contexts/AuthContext";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const API = `${BASE}/api`;
 
 interface ChatMessage { role: "user" | "assistant"; content: string }
+
+interface ActivityLog {
+  action: string;
+  action_label: string;
+  page: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+interface ActivityUser {
+  id: number;
+  username: string;
+  role: string;
+  last_seen_at: string | null;
+  ad_account_id: string | null;
+  recent_activity: ActivityLog[];
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: "أدمن",
+  media_buyer: "ميدياباير",
+  media_manager: "ميدياكيزتر",
+};
+
+function formatRelative(dateStr: string): string {
+  const now = Date.now();
+  const ts = new Date(dateStr).getTime();
+  const diffMs = now - ts;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "الآن";
+  if (diffMin < 60) return `منذ ${diffMin} دقيقة`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `منذ ${diffHr} ساعة`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay === 1) return "أمس";
+  if (diffDay < 7) return `منذ ${diffDay} أيام`;
+  return new Date(dateStr).toLocaleDateString("ar-EG", { day: "numeric", month: "short" });
+}
+
+function buildActivityContext(users: ActivityUser[]): string {
+  const lines: string[] = [
+    "أنت مساعد Meta Ads ولديك وصول كامل لبيانات نشاط الفريق التالية. أجب بناءً على هذه البيانات الحقيقية.",
+    "",
+    "## بيانات نشاط الفريق (حقيقية من النظام):",
+    "",
+  ];
+
+  for (const u of users) {
+    lines.push(`### ${u.username} — ${ROLE_LABELS[u.role] ?? u.role}`);
+    lines.push(`- آخر ظهور: ${u.last_seen_at ? formatRelative(u.last_seen_at) : "لم يسجّل الدخول بعد"}`);
+
+    if (u.recent_activity.length === 0) {
+      lines.push("- لا يوجد نشاط مسجّل");
+    } else {
+      lines.push(`- إجمالي السجلات المتاحة: ${u.recent_activity.length}`);
+      lines.push("- آخر الأنشطة:");
+      for (const log of u.recent_activity.slice(0, 15)) {
+        let entry = `  • ${log.action_label}`;
+        if (log.page) entry += ` في "${log.page}"`;
+        if (log.meta?.campaign) entry += ` (حملة: ${log.meta.campaign})`;
+        entry += ` — ${formatRelative(log.created_at)}`;
+        lines.push(entry);
+      }
+    }
+    lines.push("");
+  }
+
+  lines.push("---");
+  lines.push("بناءً على هذه البيانات الحقيقية، أجب على أسئلة المستخدم عن أداء الفريق، نشاطهم، وأي تحليلات مطلوبة.");
+
+  return lines.join("\n");
+}
 
 const GENERAL_CONTEXT = `أنت مساعد Meta Ads عام. المستخدم لم يختر حملة محددة.
 أجب على أسئلته العامة عن استراتيجيات Meta Ads، تحسين الأداء، قراءة المؤشرات، وأفضل الممارسات.
 إذا سأل عن أرقام محددة لحملة، اطلب منه فتح التشخيص من صفحة "تحليل الحملة" أو "تشخيص الحملات".`;
 
-const SUGGESTED = [
+const SUGGESTED_GENERAL = [
   "ما هو Hook Rate المثالي؟",
   "كيف أحسّن الـ CPA؟",
   "متى أوقف الحملة؟",
   "كيف أتعامل مع Frequency عالية؟",
+];
+
+const SUGGESTED_ADMIN = [
+  "من أكثر شخص نشط في الفريق؟",
+  "من فتح أكثر تشخيصات هذا الأسبوع؟",
+  "هل الفريق شغال بانتظام؟",
+  "من آخر شخص سجّل دخول؟",
 ];
 
 function renderInline(text: string): React.ReactNode {
@@ -95,11 +178,18 @@ function RenderMarkdown({ text }: { text: string }) {
 }
 
 export function GlobalAiChat() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+
+  const [activityUsers, setActivityUsers] = useState<ActivityUser[] | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -111,6 +201,26 @@ export function GlobalAiChat() {
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 100);
   }, [open]);
+
+  // Fetch activity data when admin opens the chat (once per session)
+  useEffect(() => {
+    if (!open || !isAdmin || activityUsers !== null) return;
+    setActivityLoading(true);
+    fetch(`${API}/admin/user-activity`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.users) setActivityUsers(data.users as ActivityUser[]);
+      })
+      .catch(() => {})
+      .finally(() => setActivityLoading(false));
+  }, [open, isAdmin, activityUsers]);
+
+  const buildContext = useCallback((): string => {
+    if (isAdmin && activityUsers && activityUsers.length > 0) {
+      return buildActivityContext(activityUsers);
+    }
+    return GENERAL_CONTEXT;
+  }, [isAdmin, activityUsers]);
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -125,10 +235,10 @@ export function GlobalAiChat() {
     abortRef.current = ctrl;
 
     try {
-      const resp = await fetch("/api/ai/chat", {
+      const resp = await fetch(`${API}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignContext: GENERAL_CONTEXT, messages: newMessages }),
+        body: JSON.stringify({ campaignContext: buildContext(), messages: newMessages }),
         signal: ctrl.signal,
       });
 
@@ -164,7 +274,7 @@ export function GlobalAiChat() {
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, messages, streaming]);
+  }, [input, messages, streaming, buildContext]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -178,6 +288,8 @@ export function GlobalAiChat() {
   };
 
   const hasUnread = messages.length > 0;
+  const suggested = isAdmin ? SUGGESTED_ADMIN : SUGGESTED_GENERAL;
+  const hasActivityData = isAdmin && activityUsers && activityUsers.length > 0;
 
   return (
     <>
@@ -206,10 +318,17 @@ export function GlobalAiChat() {
                 </div>
                 <div>
                   <SheetTitle className="text-sm font-semibold leading-tight">مساعد الإعلانات</SheetTitle>
-                  <p className="text-[10px] text-muted-foreground">أسئلة عامة عن Meta Ads</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {hasActivityData
+                      ? `يرى بيانات ${activityUsers!.length} عضو في الفريق`
+                      : "أسئلة عامة عن Meta Ads"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                {activityLoading && (
+                  <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin ml-1" />
+                )}
                 {messages.length > 0 && (
                   <button
                     onClick={clearChat}
@@ -235,12 +354,23 @@ export function GlobalAiChat() {
 
               {/* Empty state */}
               {messages.length === 0 && !streaming && (
-                <div className="flex flex-col items-center gap-4 py-8">
-                  <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
-                    اسألني أي سؤال عام عن Meta Ads وهجاوبك. لتحليل حملة معينة، افتح التشخيص من صفحة "تحليل الحملة"
-                  </p>
+                <div className="flex flex-col items-center gap-4 py-6">
+                  {hasActivityData ? (
+                    <div className="w-full rounded-xl bg-primary/5 border border-primary/15 px-4 py-3 text-center">
+                      <p className="text-[11px] text-primary/80 leading-relaxed">
+                        لديّ بيانات النشاط الحقيقية لـ {activityUsers!.length} عضو في فريقك.
+                        اسألني عن أدائهم، أكثرهم نشاطاً، أو أي تحليل تحتاجه.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
+                      {activityLoading
+                        ? "جارٍ تحميل بيانات الفريق…"
+                        : "اسألني أي سؤال عن Meta Ads وهجاوبك."}
+                    </p>
+                  )}
                   <div className="grid grid-cols-2 gap-2 w-full">
-                    {SUGGESTED.map((q) => (
+                    {suggested.map((q) => (
                       <button
                         key={q}
                         onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
@@ -320,7 +450,7 @@ export function GlobalAiChat() {
                   onKeyDown={handleKeyDown}
                   dir="rtl"
                   rows={1}
-                  placeholder="اسأل عن Meta Ads… (Enter للإرسال)"
+                  placeholder={hasActivityData ? "اسأل عن نشاط الفريق… (Enter للإرسال)" : "اسأل عن Meta Ads… (Enter للإرسال)"}
                   disabled={streaming}
                   className="flex-1 resize-none bg-transparent text-[13px] focus:outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 leading-relaxed"
                   style={{ maxHeight: "100px", overflowY: "auto" }}
