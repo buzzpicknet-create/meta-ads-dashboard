@@ -1575,23 +1575,37 @@ function buildCampaignContext(
 interface ChatMessage { role: "user" | "assistant"; content: string }
 
 // ── Simple markdown renderer for AI responses ─────────────────────────────────
+function renderInline(text: string): React.ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**"))
+      return <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
+    if (part.startsWith("*") && part.endsWith("*"))
+      return <em key={i} className="not-italic text-muted-foreground">{part.slice(1, -1)}</em>;
+    return part;
+  });
+}
+
 function RenderMarkdown({ text }: { text: string }) {
   const lines = text.split("\n");
   const elements: React.ReactNode[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    // blank line
     if (line.trim() === "") { i++; continue; }
-    // heading: ### or ## or **text**:
+
+    // heading: ### ## #
     if (/^#{1,3}\s/.test(line)) {
       const content = line.replace(/^#{1,3}\s/, "");
       elements.push(
-        <p key={i} className="font-bold text-[11px] text-foreground mt-2 mb-0.5">{renderInline(content)}</p>
+        <p key={i} className="font-bold text-[13px] text-foreground mt-3 mb-1 leading-snug border-b border-border/40 pb-1">
+          {renderInline(content)}
+        </p>
       );
       i++; continue;
     }
-    // bullet list block
+
+    // bullet list
     if (/^[-•*]\s/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^[-•*]\s/.test(lines[i])) {
@@ -1599,31 +1613,34 @@ function RenderMarkdown({ text }: { text: string }) {
         i++;
       }
       elements.push(
-        <ul key={`ul-${i}`} className="space-y-1 my-1 pe-2">
+        <ul key={`ul-${i}`} className="space-y-2 my-2">
           {items.map((item, j) => (
-            <li key={j} className="flex gap-1.5 items-start">
-              <span className="text-primary mt-0.5 shrink-0 text-[10px]">•</span>
-              <span>{renderInline(item)}</span>
+            <li key={j} className="flex gap-2.5 items-start leading-relaxed">
+              <span className="shrink-0 mt-[5px] w-1.5 h-1.5 rounded-full bg-primary/70" />
+              <span className="flex-1 text-[13px] text-foreground/90">{renderInline(item)}</span>
             </li>
           ))}
         </ul>
       );
       continue;
     }
-    // numbered list block
-    if (/^\d+[.)]\s/.test(line)) {
+
+    // numbered list — latin (1. 2.) or arabic-indic (١. ٢.)
+    if (/^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/.test(line)) {
       const items: string[] = [];
       let num = 1;
-      while (i < lines.length && /^\d+[.)]\s/.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+[.)]\s/, ""));
+      while (i < lines.length && /^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/, ""));
         i++;
       }
       elements.push(
-        <ol key={`ol-${i}`} className="space-y-1 my-1 pe-2">
+        <ol key={`ol-${i}`} className="space-y-2 my-2">
           {items.map((item, j) => (
-            <li key={j} className="flex gap-1.5 items-start">
-              <span className="text-primary font-bold shrink-0 tabular-nums text-[10px] mt-0.5">{j + num}.</span>
-              <span>{renderInline(item)}</span>
+            <li key={j} className="flex gap-2.5 items-start leading-relaxed">
+              <span className="shrink-0 min-w-[22px] h-[22px] rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center mt-[1px]">
+                {j + num}
+              </span>
+              <span className="flex-1 text-[13px] text-foreground/90 pt-0.5">{renderInline(item)}</span>
             </li>
           ))}
         </ol>
@@ -1631,27 +1648,14 @@ function RenderMarkdown({ text }: { text: string }) {
       num += items.length;
       continue;
     }
-    // normal paragraph
+
+    // paragraph
     elements.push(
-      <p key={i} className="leading-relaxed">{renderInline(line)}</p>
+      <p key={i} className="text-[13px] text-foreground/90 leading-[1.7]">{renderInline(line)}</p>
     );
     i++;
   }
-  return <div className="space-y-1 text-xs">{elements}</div>;
-}
-
-function renderInline(text: string): React.ReactNode {
-  // bold: **text** or *text*
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
-    }
-    if (part.startsWith("*") && part.endsWith("*")) {
-      return <em key={i}>{part.slice(1, -1)}</em>;
-    }
-    return part;
-  });
+  return <div className="space-y-1.5">{elements}</div>;
 }
 
 // ── AiChatTab — AI assistant tab for campaign diagnosis ──────────────────────
@@ -1759,25 +1763,29 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   ];
 
   return (
-    <div className="flex flex-col min-h-0 h-full">
-      {/* Messages area — fixed height, scrolls internally */}
-      <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ overscrollBehavior: "contain" }}>
-        <div className="space-y-3 py-1">
+    <div className="flex flex-col min-h-0 h-full gap-0">
+      {/* Messages area */}
+      <div className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
+        <div className="flex flex-col gap-4 py-3 px-1">
+
+          {/* Empty state */}
           {messages.length === 0 && !streaming && (
-            <div className="flex flex-col items-center gap-3 py-4">
-              <div className="flex items-center gap-2 text-primary">
-                <Bot className="h-5 w-5" />
-                <span className="text-sm font-bold">مساعد الإعلانات</span>
+            <div className="flex flex-col items-center gap-4 py-6">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+                <Bot className="h-6 w-6 text-primary" />
               </div>
-              <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
-                اسألني أي سؤال عن الحملة دي وهجاوبك بناءً على بياناتها الفعلية
-              </p>
-              <div className="grid grid-cols-2 gap-1.5 w-full">
+              <div className="text-center space-y-1">
+                <p className="text-sm font-semibold text-foreground">مساعد الإعلانات</p>
+                <p className="text-xs text-muted-foreground leading-relaxed max-w-[240px]">
+                  اسألني أي سؤال عن الحملة دي وهجاوبك بناءً على بياناتها الفعلية
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 w-full">
                 {SUGGESTED.map((q) => (
                   <button
                     key={q}
                     onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
-                    className="text-[11px] text-start px-2.5 py-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors leading-snug"
+                    className="text-xs text-end px-3 py-2.5 rounded-xl border border-border bg-card hover:bg-muted/60 hover:border-primary/30 transition-all leading-snug text-foreground/80"
                   >
                     {q}
                   </button>
@@ -1786,18 +1794,29 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
             </div>
           )}
 
+          {/* Messages */}
           {messages.map((msg, i) => (
-            <div key={i} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
-              <div className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center mt-0.5 ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border border-border"}`}>
-                {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
+            <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"} items-end`}>
+              {/* Avatar */}
+              <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 ${
+                msg.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted border border-border/60"
+              }`}>
+                {msg.role === "user"
+                  ? <User className="h-3.5 w-3.5" />
+                  : <Bot className="h-3.5 w-3.5 text-primary" />}
               </div>
+
+              {/* Bubble */}
               <div
-                className={`min-w-0 rounded-xl px-3 py-2 break-words overflow-hidden ${
+                className={`min-w-0 rounded-2xl break-words overflow-hidden ${
                   msg.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-tr-sm text-xs leading-relaxed"
-                    : "bg-muted/50 border border-border rounded-tl-sm"
+                    ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
+                    : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
                 }`}
-                style={{ maxWidth: "calc(100% - 32px)", wordBreak: "break-word", overflowWrap: "anywhere" }}
+                style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
+                dir="rtl"
               >
                 {msg.role === "user"
                   ? msg.content
@@ -1806,29 +1825,32 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
             </div>
           ))}
 
+          {/* Streaming bubble */}
           {streaming && streamingText && (
-            <div className="flex gap-2 flex-row">
-              <div className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center mt-0.5 bg-muted border border-border">
+            <div className="flex gap-2.5 flex-row items-end">
+              <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
                 <Bot className="h-3.5 w-3.5 text-primary" />
               </div>
               <div
-                className="min-w-0 rounded-xl rounded-tl-sm px-3 py-2 bg-muted/50 border border-border break-words overflow-hidden"
-                style={{ maxWidth: "calc(100% - 32px)", wordBreak: "break-word", overflowWrap: "anywhere" }}
+                className="min-w-0 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm px-4 py-3 break-words overflow-hidden"
+                style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
+                dir="rtl"
               >
                 <RenderMarkdown text={streamingText} />
-                <span className="inline-block w-1 h-3 bg-primary animate-pulse mr-0.5 rounded-sm align-middle" />
+                <span className="inline-block w-[3px] h-[14px] bg-primary/70 animate-pulse rounded-full align-middle ms-0.5" />
               </div>
             </div>
           )}
 
+          {/* Loading dots */}
           {streaming && !streamingText && (
-            <div className="flex gap-2">
-              <div className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-muted border border-border">
+            <div className="flex gap-2.5 flex-row items-end">
+              <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
                 <Bot className="h-3.5 w-3.5 text-primary" />
               </div>
-              <div className="flex items-center gap-1 px-3 py-2.5 rounded-xl bg-muted/50 border border-border rounded-tl-sm">
-                {[0, 1, 2].map((i) => (
-                  <span key={i} className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+              <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
+                {[0, 1, 2].map((k) => (
+                  <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
                 ))}
               </div>
             </div>
@@ -1838,41 +1860,46 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
         </div>
       </div>
 
-      {/* Input area — fixed at bottom */}
-      <div className="shrink-0 flex gap-2 items-end border-t border-border pt-2 mt-2">
-        {messages.length > 0 && (
-          <button
-            onClick={clearChat}
-            className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive transition-colors"
-            title="مسح المحادثة"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          dir="rtl"
-          rows={1}
-          placeholder="اسأل عن الحملة… (Enter للإرسال)"
-          disabled={streaming}
-          className="flex-1 resize-none rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground disabled:opacity-50 leading-relaxed"
-          style={{ maxHeight: "80px", overflowY: "auto" }}
-          onInput={(e) => {
-            const t = e.currentTarget;
-            t.style.height = "auto";
-            t.style.height = Math.min(t.scrollHeight, 80) + "px";
-          }}
-        />
-        <button
-          onClick={send}
-          disabled={!input.trim() || streaming}
-          className="shrink-0 h-8 w-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Send className="h-3.5 w-3.5" />
-        </button>
+      {/* Input area */}
+      <div className="shrink-0 border-t border-border/60 pt-3 mt-1">
+        <div className="flex gap-2 items-end">
+          {messages.length > 0 && (
+            <button
+              onClick={clearChat}
+              className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/5 transition-all"
+              title="مسح المحادثة"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <div className="flex-1 flex items-end gap-2 rounded-xl border border-border bg-card focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all px-3 py-2">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              dir="rtl"
+              rows={1}
+              placeholder="اسأل عن الحملة… (Enter للإرسال)"
+              disabled={streaming}
+              className="flex-1 resize-none bg-transparent text-[13px] focus:outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 leading-relaxed"
+              style={{ maxHeight: "100px", overflowY: "auto" }}
+              onInput={(e) => {
+                const t = e.currentTarget;
+                t.style.height = "auto";
+                t.style.height = Math.min(t.scrollHeight, 100) + "px";
+              }}
+            />
+            <button
+              onClick={send}
+              disabled={!input.trim() || streaming}
+              className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
+            >
+              <Send className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground/50 text-center mt-1.5">Shift+Enter لسطر جديد</p>
       </div>
     </div>
   );
