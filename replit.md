@@ -33,6 +33,15 @@ Arabic RTL Meta Ads dashboard. All amounts in EGP. UI fully Arabic RTL.
 - **`/activity` — نشاط الفريق (Team Activity Monitor)**: Shows unresolved alerts (with age + urgency), action logging form per alert, and 14-day action history with outcome tracking.
 - **`/how-to` — دليل الحلول (Diagnostic Guide)**: Actionable fix guides per metric problem + What-If Calculator.
 
+### AI Chat Assistant (مساعد الإعلانات)
+- **Tab "مساعد"** in CampaignDiagnosisModal — 6th tab with AI chat
+- **Endpoint**: `POST /api/ai/chat` — streaming SSE, accepts `{ campaignContext, messages }`
+- **Model**: `gpt-5.4` via Replit AI Integrations (OpenAI) — no user API key needed
+- **System prompt**: Arabic Meta Ads expert (Hook Rate, ThruPlay, CTR, CR, CPA, ROAS, Frequency rules)
+- **Campaign context**: auto-built from CampaignInsights (totals + top 5 adsets + top 5 ads)
+- **UI**: streaming chat bubble UI with suggested questions, typing indicator, clear chat button
+- **Lib**: `lib/integrations-openai-ai-server` — OpenAI SDK wrapper
+
 ### Key files
 - `src/pages/Dashboard.tsx` — Campaign dashboard
 - `src/pages/Overview.tsx` — Account overview (includes AccountHealthPanel, auto-snapshot logic)
