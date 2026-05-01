@@ -1163,6 +1163,7 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
   const [chatMessages, setChatMessages]         = useState<ChatMessage[]>([]);
   const [chatStreaming, setChatStreaming]         = useState(false);
   const [chatStreamingText, setChatStreamingText] = useState("");
+  const [aiTabOpened, setAiTabOpened]           = useState(false);
   const prevCampaignIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1176,12 +1177,33 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
         setChatMessages([]);
         setChatStreaming(false);
         setChatStreamingText("");
+        setAiTabOpened(false);
       }
     }
     if (!open) {
       prevCampaignIdRef.current = null;
     }
   }, [open, defaultTab, insights.campaign.id]);
+
+  // Compute previous period dates (same duration, immediately before current period)
+  const prevPeriod = useMemo(() => {
+    const days = insights.period.days;
+    const sinceMs   = new Date(insights.period.since).getTime();
+    const prevUntilMs = sinceMs - 86400000;
+    const prevSinceMs = prevUntilMs - (days - 1) * 86400000;
+    return {
+      since: new Date(prevSinceMs).toISOString().slice(0, 10),
+      until: new Date(prevUntilMs).toISOString().slice(0, 10),
+    };
+  }, [insights.period]);
+
+  // Lazy fetch — only triggers when user opens AI tab (avoids extra Meta API call)
+  const prevQuery = useInsights({
+    campaign_id: aiTabOpened && accountId ? insights.campaign.id : null,
+    ad_account_id: accountId,
+    since: prevPeriod.since,
+    until: prevPeriod.until,
+  });
 
   useEffect(() => {
     if (open && loggedRef.current !== insights.campaign.id) {
@@ -1211,7 +1233,7 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
           </div>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(t) => { setActiveTab(t); onTabChange?.(t); }} className="flex-1 flex flex-col min-h-0">
+        <Tabs value={activeTab} onValueChange={(t) => { setActiveTab(t); onTabChange?.(t); if (t === "ai") setAiTabOpened(true); }} className="flex-1 flex flex-col min-h-0">
           <TabsList className="shrink-0 grid grid-cols-6 text-xs h-8">
             <TabsTrigger value="campaign" className="text-[10px]">الحملة</TabsTrigger>
             <TabsTrigger value="adsets" className="text-[10px]">Ad Sets ({result.adsets.length})</TabsTrigger>
@@ -1377,6 +1399,8 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
           <TabsContent value="ai" className="flex-1 flex flex-col min-h-0 mt-3">
             <AiChatTab
               insights={insights}
+              prevInsights={prevQuery.data ?? null}
+              prevPeriod={prevPeriod}
               messages={chatMessages}
               setMessages={setChatMessages}
               streaming={chatStreaming}
@@ -1392,7 +1416,11 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
 }
 
 // ── Build campaign context string for AI ─────────────────────────────────────
-function buildCampaignContext(insights: CampaignInsights): string {
+function buildCampaignContext(
+  insights: CampaignInsights,
+  prevInsights: CampaignInsights | null = null,
+  prevPeriod: { since: string; until: string } | null = null,
+): string {
   const t = insights.totals;
   const n  = (v: number, d = 0) => v.toLocaleString("ar-EG", { maximumFractionDigits: d });
   // All rate metrics from API are already ×100 (e.g. hookRate=45.3 means 45.3%)
@@ -1407,40 +1435,65 @@ function buildCampaignContext(insights: CampaignInsights): string {
     return v <= good ? "✅" : v <= warn ? "⚠️" : "❌";
   };
 
+  // delta helper: shows change vs previous period with arrow
+  const delta = (curr: number, prev: number, higherIsBetter = true, isPercent = false) => {
+    if (prev === 0) return "";
+    const diff = curr - prev;
+    const pctChange = (diff / prev) * 100;
+    const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "─";
+    const good = higherIsBetter ? diff > 0 : diff < 0;
+    const sign = good ? "+" : "";
+    const val = isPercent ? `${sign}${diff.toFixed(1)}نقطة` : `${sign}${pctChange.toFixed(0)}%`;
+    return ` (${arrow}${val} عن الفترة السابقة)`;
+  };
+
   // ThruPlay: v100 and video_plays are raw counts → ratio is 0-1
   const thruplayRate = t.v100 / Math.max(t.video_plays, 1);
+
+  const pt = prevInsights?.totals ?? null;
+  const prevThruplay = pt ? pt.v100 / Math.max(pt.video_plays, 1) : 0;
 
   const lines: string[] = [
     `الحملة: ${insights.campaign.name}`,
     `الحالة: ${insights.campaign.effective_status === "ACTIVE" ? "🟢 نشطة" : "🔴 متوقفة"}`,
     `الهدف: ${insights.campaign.objective}`,
-    `الفترة: ${insights.period.since} → ${insights.period.until} (${insights.period.days} يوم)`,
+    `الفترة الحالية: ${insights.period.since} → ${insights.period.until} (${insights.period.days} يوم)`,
+    pt ? `الفترة السابقة: ${prevPeriod?.since} → ${prevPeriod?.until} (${insights.period.days} يوم)` : `الفترة السابقة: جارٍ التحميل أو غير متاحة`,
     ``,
-    `━━ الفانل — مستوى الحملة ━━`,
-    `الظهورات: ${n(t.impressions)} | الوصول: ${n(t.reach)} | Frequency: ${t.frequency.toFixed(2)} ${flag(t.frequency, 2, 3, false)}`,
-    `CPM: ${n(t.cpm, 0)} EGP ${flag(t.cpm, 300, 600, false)}`,
+    `━━ الفانل — الفترة الحالية${pt ? " (مقارنة بالفترة السابقة)" : ""} ━━`,
+    `الظهورات: ${n(t.impressions)}${pt ? delta(t.impressions, pt.impressions) : ""} | التكرار: ${t.frequency.toFixed(2)}${pt ? delta(t.frequency, pt.frequency, false, true) : ""} ${flag(t.frequency, 2, 3, false)}`,
+    `تكلفة الألف ظهور (CPM): ${n(t.cpm, 0)} EGP${pt ? delta(t.cpm, pt.cpm, false) : ""} ${flag(t.cpm, 300, 600, false)}`,
     ``,
     `[مرحلة الانتباه]`,
-    `Hook Rate (3s): ${p(t.hookRate)} ${flag(t.hookRate, 30, 20)}  ← نسبة من شاف أول 3 ثواني`,
-    `ThruPlay Rate:  ${pRatio(thruplayRate)} ${flag(thruplayRate * 100, 15, 8)}  ← نسبة من كمّل الفيديو أو 15 ثانية`,
+    `نسبة الجذب (أول 3ث): ${p(t.hookRate)}${pt ? delta(t.hookRate, pt.hookRate, true, true) : ""} ${flag(t.hookRate, 30, 20)}`,
+    `نسبة المشاهدة الكاملة: ${pRatio(thruplayRate)}${pt ? delta(thruplayRate * 100, prevThruplay * 100, true, true) : ""} ${flag(thruplayRate * 100, 15, 8)}`,
     ``,
     `[مرحلة النقر]`,
-    `CTR (Link):  ${p(t.ctr)} ${flag(t.ctr, 2.0, 1.2)}  ← نسبة النقر على الرابط`,
-    `CPC: ${n(t.cpc, 0)} EGP`,
+    `نسبة النقر (CTR): ${p(t.ctr)}${pt ? delta(t.ctr, pt.ctr, true, true) : ""} ${flag(t.ctr, 2.0, 1.2)}`,
+    `تكلفة النقرة (CPC): ${n(t.cpc, 0)} EGP${pt ? delta(t.cpc, pt.cpc, false) : ""}`,
     ``,
-    `[مرحلة الـ Landing Page]`,
-    `LPR (Landing Page Rate): ${p(t.lpvRate)} ${flag(t.lpvRate, 80, 65)}  ← من نقر ووصل للصفحة`,
+    `[مرحلة الوصول للصفحة]`,
+    `نسبة الوصول للصفحة: ${p(t.lpvRate)}${pt ? delta(t.lpvRate, pt.lpvRate, true, true) : ""} ${flag(t.lpvRate, 80, 65)}`,
     ``,
     `[مرحلة التحويل]`,
-    `CR (من LP): ${p(t.crLpv)} ${flag(t.crLpv, 4, 2)}  ← من وصل للصفحة واشترى`,
-    `CR (من Click): ${p(t.crClick)}`,
+    `معدل التحويل (من الصفحة): ${p(t.crLpv)}${pt ? delta(t.crLpv, pt.crLpv, true, true) : ""} ${flag(t.crLpv, 4, 2)}`,
+    `معدل التحويل (من النقرة): ${p(t.crClick)}${pt ? delta(t.crClick, pt.crClick, true, true) : ""}`,
     ``,
     `━━ النتائج ━━`,
-    `الإنفاق: ${n(t.spend, 0)} EGP`,
-    `الأوردرات: ${n(t.purchases, 0)}`,
-    `CPA: ${t.purchases > 0 ? n(t.cpa, 0) + " EGP" : "لا تحويلات"}`,
+    `الإنفاق: ${n(t.spend, 0)} EGP${pt ? delta(t.spend, pt.spend) : ""}`,
+    `الأوردرات: ${n(t.purchases, 0)}${pt ? delta(t.purchases, pt.purchases) : ""}`,
+    `تكلفة التحويل (CPA): ${t.purchases > 0 ? n(t.cpa, 0) + " EGP" + (pt && pt.purchases > 0 ? delta(t.cpa, pt.cpa, false) : "") : "لا تحويلات"}`,
     ``,
   ];
+
+  // Previous period summary block (if available)
+  if (pt) {
+    lines.push(`━━ الفترة السابقة — ملخص ━━`);
+    lines.push(`الإنفاق: ${n(pt.spend, 0)} EGP | الأوردرات: ${n(pt.purchases, 0)} | CPA: ${pt.purchases > 0 ? n(pt.cpa, 0) + " EGP" : "لا تحويلات"}`);
+    lines.push(`نسبة الجذب: ${p(pt.hookRate)} | نسبة النقر: ${p(pt.ctr)} | نسبة الوصول للصفحة: ${p(pt.lpvRate)} | معدل التحويل: ${p(pt.crLpv)}`);
+    lines.push(`تكلفة الألف ظهور: ${n(pt.cpm, 0)} EGP | التكرار: ${pt.frequency.toFixed(2)}`);
+    lines.push(``);
+  }
 
   // Ad Sets — rates already ×100, lpr/cr computed from counts (0-1 → use pRatio)
   if (insights.by_adset.length > 0) {
@@ -1577,6 +1630,8 @@ function renderInline(text: string): React.ReactNode {
 // ── AiChatTab — AI assistant tab for campaign diagnosis ──────────────────────
 interface AiChatTabProps {
   insights: CampaignInsights;
+  prevInsights: CampaignInsights | null;
+  prevPeriod: { since: string; until: string };
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   streaming: boolean;
@@ -1584,12 +1639,12 @@ interface AiChatTabProps {
   streamingText: string;
   setStreamingText: React.Dispatch<React.SetStateAction<string>>;
 }
-function AiChatTab({ insights, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText }: AiChatTabProps) {
+function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText }: AiChatTabProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const campaignContext = useMemo(() => buildCampaignContext(insights), [insights]);
+  const campaignContext = useMemo(() => buildCampaignContext(insights, prevInsights, prevPeriod), [insights, prevInsights, prevPeriod]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
