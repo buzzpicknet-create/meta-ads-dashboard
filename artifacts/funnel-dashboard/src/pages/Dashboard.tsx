@@ -2271,11 +2271,35 @@ export default function Dashboard() {
 
   const accountCampaigns = useMemo(() => campaigns.data?.campaigns ?? [], [campaigns.data?.campaigns]);
 
+  // Read pre-selected campaign from global search (stored in sessionStorage)
+  const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(() => {
+    try {
+      const stored = sessionStorage.getItem("global_selected_campaign");
+      if (stored) {
+        const { campaignId } = JSON.parse(stored);
+        sessionStorage.removeItem("global_selected_campaign");
+        return campaignId as string;
+      }
+    } catch {}
+    return null;
+  });
+
+  // Apply pending campaign once campaigns load
   useEffect(() => {
-    if (!selectedAccountId) return;
-    const top = [...accountCampaigns].filter((c) => c.spend > 0).sort((a, b) => b.spend - a.spend)[0];
-    setSelectedCampaignId(top?.id || null);
-  }, [accountCampaigns, selectedAccountId]);
+    if (pendingCampaignId && accountCampaigns.length > 0) {
+      const match = accountCampaigns.find((c) => c.id === pendingCampaignId);
+      if (match) {
+        setSelectedCampaignId(pendingCampaignId);
+        setPendingCampaignId(null);
+        return;
+      }
+    }
+    if (!pendingCampaignId) {
+      if (!selectedAccountId) return;
+      const top = [...accountCampaigns].filter((c) => c.spend > 0).sort((a, b) => b.spend - a.spend)[0];
+      setSelectedCampaignId(top?.id || null);
+    }
+  }, [accountCampaigns, selectedAccountId, pendingCampaignId]);
 
   useEffect(() => {
     const available = accounts.data?.accounts || [];
