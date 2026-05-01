@@ -16,7 +16,6 @@ import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
-import { GlobalCampaignSearch } from "@/components/GlobalCampaignSearch";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 
 const queryClient = new QueryClient({
@@ -149,11 +148,6 @@ function NavBar() {
                   </Link>
                 );
               })}
-            </div>
-
-            {/* Global campaign search — desktop only */}
-            <div className="hidden sm:block">
-              <GlobalCampaignSearch />
             </div>
 
             {/* User + Notifications + Logout */}

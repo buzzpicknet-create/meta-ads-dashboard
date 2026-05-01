@@ -1,9 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useRef, type ReactNode } from "react";
 import {
   CheckCircle2, AlertTriangle, XCircle, PauseCircle, Zap, TrendingDown,
   RefreshCw, BarChart2, Target, Eye, ShoppingCart, Filter, Stethoscope,
   FlameKindling, TrendingUp, ChevronDown, DollarSign, MousePointer2,
-  Percent,
+  Percent, Search, X,
 } from "lucide-react";
 import { useAccounts, useAccountOverview } from "@/hooks/use-meta";
 import {
@@ -574,6 +574,7 @@ export default function DecisionsPage() {
   const [filter, setFilter]       = useState<FilterKey>("all");
   const [activeOnly, setActiveOnly] = useState(false);
   const [diagId, setDiagId]       = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const selectedAccountId = accountId ?? accounts[0]?.id ?? null;
   const range = useMemo(
@@ -594,10 +595,14 @@ export default function DecisionsPage() {
     return overview.campaigns
       .filter((c) => {
         if (activeOnly && c.effective_status !== "ACTIVE") return false;
-        return filter === "all" || getCategory(c) === filter;
+        if (filter !== "all" && getCategory(c) !== filter) return false;
+        if (searchQuery.trim()) {
+          return c.name.toLowerCase().includes(searchQuery.trim().toLowerCase());
+        }
+        return true;
       })
       .sort((a, b) => computeScore(b) - computeScore(a));
-  }, [overview, filter, activeOnly]);
+  }, [overview, filter, activeOnly, searchQuery]);
 
   const allCampaigns = overview?.campaigns ?? [];
 
@@ -686,8 +691,36 @@ export default function DecisionsPage() {
           </div>
         </div>
 
-        {/* ── Section 1: مؤشرات الأداء ── */}
+        {/* ── Campaign search bar ── */}
         {overview && (
+          <div className="relative max-w-md">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              dir="rtl"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="ابحث عن حملة بالاسم…"
+              className="w-full h-10 rounded-xl border border-border bg-card pr-9 pl-9 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all shadow-sm"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {searchQuery.trim() && (
+              <span className="absolute -bottom-5 right-1 text-[10px] text-muted-foreground">
+                {campaigns.length} نتيجة
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* ── Section 1: مؤشرات الأداء ── */}
+        {overview && !searchQuery.trim() && (
           <CollapsibleSection title="مؤشرات الأداء">
             <PerformanceKPIs totals={overview.totals} prev={overview.prev_totals} />
           </CollapsibleSection>
