@@ -1370,54 +1370,92 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
 // ── Build campaign context string for AI ─────────────────────────────────────
 function buildCampaignContext(insights: CampaignInsights): string {
   const t = insights.totals;
-  const fmt2 = (n: number, d = 0) => n.toLocaleString("ar-EG", { maximumFractionDigits: d });
-  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  const n = (v: number, d = 0) => v.toLocaleString("ar-EG", { maximumFractionDigits: d });
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+  const flag = (v: number, good: number, warn: number, higherIsBetter = true) => {
+    if (higherIsBetter) return v >= good ? "✅" : v >= warn ? "⚠️" : "❌";
+    return v <= good ? "✅" : v <= warn ? "⚠️" : "❌";
+  };
+
+  const thruplayRate = t.v100 / Math.max(t.video_plays, 1);
+  const cpaFlag = t.purchases > 0 ? "" : " (لا تحويلات)";
 
   const lines: string[] = [
     `الحملة: ${insights.campaign.name}`,
-    `الحالة: ${insights.campaign.effective_status === "ACTIVE" ? "نشطة" : "متوقفة"}`,
+    `الحالة: ${insights.campaign.effective_status === "ACTIVE" ? "🟢 نشطة" : "🔴 متوقفة"}`,
+    `الهدف: ${insights.campaign.objective}`,
     `الفترة: ${insights.period.since} → ${insights.period.until} (${insights.period.days} يوم)`,
     ``,
-    `=== إجماليات الحملة ===`,
-    `الإنفاق: ${fmt2(t.spend, 0)} EGP`,
-    `الأوردرات: ${fmt2(t.purchases, 0)}`,
-    `CPA: ${t.purchases > 0 ? fmt2(t.cpa, 0) + " EGP" : "لا تحويلات"}`,
-    `الوصول (Reach): ${fmt2(t.reach, 0)}`,
-    `الظهورات (Impressions): ${fmt2(t.impressions, 0)}`,
-    `CPM: ${fmt2(t.cpm, 1)} EGP`,
-    `CTR: ${pct(t.ctr)}`,
-    `Hook Rate: ${pct(t.hookRate)}`,
-    `ThruPlay Rate: ${pct(t.v100 / Math.max(t.video_plays, 1))}`,
-    `Landing Page Rate: ${pct(t.lpvRate)}`,
-    `CR (من LP): ${pct(t.crLpv)}`,
-    `Frequency: ${t.frequency.toFixed(2)}`,
-    `CPC: ${fmt2(t.cpc, 1)} EGP`,
+    `━━ الفانل — مستوى الحملة ━━`,
+    `الظهورات: ${n(t.impressions)} | الوصول: ${n(t.reach)} | Frequency: ${t.frequency.toFixed(2)} ${flag(t.frequency, 2, 3, false)}`,
+    `CPM: ${n(t.cpm, 0)} EGP ${flag(t.cpm, 300, 600, false)}`,
+    ``,
+    `[مرحلة الانتباه]`,
+    `Hook Rate (3s): ${pct(t.hookRate)} ${flag(t.hookRate, 0.3, 0.2)}  ← نسبة من شاف أول 3 ثواني`,
+    `ThruPlay Rate:  ${pct(thruplayRate)} ${flag(thruplayRate, 0.15, 0.08)}  ← نسبة من كمّل الفيديو أو 15 ثانية`,
+    ``,
+    `[مرحلة النقر]`,
+    `CTR (Link):  ${pct(t.ctr)} ${flag(t.ctr, 0.02, 0.012)}  ← نسبة النقر على الرابط`,
+    `CPC: ${n(t.cpc, 0)} EGP`,
+    ``,
+    `[مرحلة الـ Landing Page]`,
+    `LPR (Landing Page Rate): ${pct(t.lpvRate)} ${flag(t.lpvRate, 0.8, 0.65)}  ← من نقر ووصل للصفحة`,
+    ``,
+    `[مرحلة التحويل]`,
+    `CR (من LP): ${pct(t.crLpv)} ${flag(t.crLpv, 0.04, 0.02)}  ← من وصل للصفحة واشترى`,
+    `CR (من Click): ${pct(t.crClick)}`,
+    ``,
+    `━━ النتائج ━━`,
+    `الإنفاق: ${n(t.spend, 0)} EGP`,
+    `الأوردرات: ${n(t.purchases, 0)}${cpaFlag}`,
+    `CPA: ${t.purchases > 0 ? n(t.cpa, 0) + " EGP" : "لا يوجد"}`,
     ``,
   ];
 
+  // Ad Sets with full funnel metrics
   if (insights.by_adset.length > 0) {
-    lines.push(`=== Ad Sets (${insights.by_adset.length}) ===`);
+    lines.push(`━━ Ad Sets (${insights.by_adset.length} — مرتّبة بالإنفاق) ━━`);
     [...insights.by_adset]
       .sort((a, b) => b.spend - a.spend)
-      .slice(0, 5)
+      .slice(0, 8)
       .forEach((s) => {
+        const cpaStr = s.purchases > 0 ? `${n(s.cpa, 0)} EGP` : "لا تحويل";
+        const lpr = s.lpv / Math.max(s.link_clicks, 1);
+        const cr = s.purchases / Math.max(s.lpv, 1);
         lines.push(
-          `• ${s.label} | إنفاق: ${fmt2(s.spend, 0)} EGP | أوردرات: ${s.purchases} | CPA: ${s.purchases > 0 ? fmt2(s.cpa, 0) + " EGP" : "-"} | Hook: ${pct(s.hookRate)} | CTR: ${pct(s.ctr)}`
+          `• "${s.label}"\n` +
+          `  إنفاق: ${n(s.spend, 0)} EGP | أوردرات: ${s.purchases} | CPA: ${cpaStr}\n` +
+          `  Hook: ${pct(s.hookRate)} | CTR: ${pct(s.ctr)} | LPR: ${pct(lpr)} | CR: ${pct(cr)}`
         );
       });
     lines.push("");
   }
 
+  // Ads sorted by spend with full funnel metrics
   if (insights.by_ad.length > 0) {
-    lines.push(`=== الإعلانات الأعلى إنفاقاً (${Math.min(insights.by_ad.length, 5)} من ${insights.by_ad.length}) ===`);
-    [...insights.by_ad]
-      .sort((a, b) => b.spend - a.spend)
-      .slice(0, 5)
-      .forEach((a) => {
-        lines.push(
-          `• ${a.label} | إنفاق: ${fmt2(a.spend, 0)} EGP | أوردرات: ${a.purchases} | CPA: ${a.purchases > 0 ? fmt2(a.cpa, 0) + " EGP" : "-"} | Hook: ${pct(a.hookRate)} | CTR: ${pct(a.ctr)}`
-        );
-      });
+    const topAds = [...insights.by_ad].sort((a, b) => b.spend - a.spend).slice(0, 8);
+    lines.push(`━━ الإعلانات (${topAds.length} من ${insights.by_ad.length} — الأعلى إنفاقاً) ━━`);
+    topAds.forEach((a) => {
+      const cpaStr = a.purchases > 0 ? `${n(a.cpa, 0)} EGP` : "لا تحويل";
+      const lpr = a.lpv / Math.max(a.link_clicks, 1);
+      const cr = a.purchases / Math.max(a.lpv, 1);
+      lines.push(
+        `• "${a.label}"\n` +
+        `  إنفاق: ${n(a.spend, 0)} EGP | أوردرات: ${a.purchases} | CPA: ${cpaStr}\n` +
+        `  Hook: ${pct(a.hookRate)} | CTR: ${pct(a.ctr)} | LPR: ${pct(lpr)} | CR: ${pct(cr)}`
+      );
+    });
+
+    // Also show best Hook and best CTR ads if different from top spend
+    const bestHook = [...insights.by_ad].sort((a, b) => b.hookRate - a.hookRate)[0];
+    const bestCTR  = [...insights.by_ad].sort((a, b) => b.ctr - a.ctr)[0];
+    const topIds   = new Set(topAds.map((a) => a.id));
+    if (bestHook && !topIds.has(bestHook.id)) {
+      lines.push(`\n[أعلى Hook Rate في الحملة] "${bestHook.label}" — Hook: ${pct(bestHook.hookRate)} | إنفاق: ${n(bestHook.spend, 0)} EGP`);
+    }
+    if (bestCTR && !topIds.has(bestCTR.id) && bestCTR.id !== bestHook?.id) {
+      lines.push(`[أعلى CTR في الحملة] "${bestCTR.label}" — CTR: ${pct(bestCTR.ctr)} | إنفاق: ${n(bestCTR.spend, 0)} EGP`);
+    }
   }
 
   return lines.join("\n");
