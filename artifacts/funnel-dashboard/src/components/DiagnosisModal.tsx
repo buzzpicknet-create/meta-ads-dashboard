@@ -1426,6 +1426,86 @@ function buildCampaignContext(insights: CampaignInsights): string {
 // ── AI Chat Message type ─────────────────────────────────────────────────────
 interface ChatMessage { role: "user" | "assistant"; content: string }
 
+// ── Simple markdown renderer for AI responses ─────────────────────────────────
+function RenderMarkdown({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // blank line
+    if (line.trim() === "") { i++; continue; }
+    // heading: ### or ## or **text**:
+    if (/^#{1,3}\s/.test(line)) {
+      const content = line.replace(/^#{1,3}\s/, "");
+      elements.push(
+        <p key={i} className="font-bold text-[11px] text-foreground mt-2 mb-0.5">{renderInline(content)}</p>
+      );
+      i++; continue;
+    }
+    // bullet list block
+    if (/^[-•*]\s/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-•*]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-•*]\s/, ""));
+        i++;
+      }
+      elements.push(
+        <ul key={`ul-${i}`} className="space-y-1 my-1 pe-2">
+          {items.map((item, j) => (
+            <li key={j} className="flex gap-1.5 items-start">
+              <span className="text-primary mt-0.5 shrink-0 text-[10px]">•</span>
+              <span>{renderInline(item)}</span>
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+    // numbered list block
+    if (/^\d+[.)]\s/.test(line)) {
+      const items: string[] = [];
+      let num = 1;
+      while (i < lines.length && /^\d+[.)]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+[.)]\s/, ""));
+        i++;
+      }
+      elements.push(
+        <ol key={`ol-${i}`} className="space-y-1 my-1 pe-2">
+          {items.map((item, j) => (
+            <li key={j} className="flex gap-1.5 items-start">
+              <span className="text-primary font-bold shrink-0 tabular-nums text-[10px] mt-0.5">{j + num}.</span>
+              <span>{renderInline(item)}</span>
+            </li>
+          ))}
+        </ol>
+      );
+      num += items.length;
+      continue;
+    }
+    // normal paragraph
+    elements.push(
+      <p key={i} className="leading-relaxed">{renderInline(line)}</p>
+    );
+    i++;
+  }
+  return <div className="space-y-1 text-xs">{elements}</div>;
+}
+
+function renderInline(text: string): React.ReactNode {
+  // bold: **text** or *text*
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("*") && part.endsWith("*")) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
+}
+
 // ── AiChatTab — AI assistant tab for campaign diagnosis ──────────────────────
 function AiChatTab({ insights }: { insights: CampaignInsights }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1523,73 +1603,87 @@ function AiChatTab({ insights }: { insights: CampaignInsights }) {
   ];
 
   return (
-    <div className="flex flex-col h-full gap-2">
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto space-y-3 pb-1 px-0.5">
-        {messages.length === 0 && !streaming && (
-          <div className="flex flex-col items-center gap-4 py-6">
-            <div className="flex items-center gap-2 text-primary">
-              <Bot className="h-6 w-6" />
-              <span className="text-sm font-bold">مساعد الإعلانات</span>
+    <div className="flex flex-col min-h-0 h-full">
+      {/* Messages area — fixed height, scrolls internally */}
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ overscrollBehavior: "contain" }}>
+        <div className="space-y-3 py-1">
+          {messages.length === 0 && !streaming && (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="flex items-center gap-2 text-primary">
+                <Bot className="h-5 w-5" />
+                <span className="text-sm font-bold">مساعد الإعلانات</span>
+              </div>
+              <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
+                اسألني أي سؤال عن الحملة دي وهجاوبك بناءً على بياناتها الفعلية
+              </p>
+              <div className="grid grid-cols-2 gap-1.5 w-full">
+                {SUGGESTED.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
+                    className="text-[11px] text-start px-2.5 py-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors leading-snug"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[280px]">
-              اسألني أي سؤال عن الحملة دي وهجاوبك بناءً على بياناتها الفعلية
-            </p>
-            <div className="grid grid-cols-2 gap-2 w-full">
-              {SUGGESTED.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
-                  className="text-[11px] text-start px-3 py-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors leading-snug"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+          )}
 
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
-            <div className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center mt-0.5 ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border border-border"}`}>
-              {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+              <div className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center mt-0.5 ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border border-border"}`}>
+                {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
+              </div>
+              <div
+                className={`min-w-0 rounded-xl px-3 py-2 break-words overflow-hidden ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-tr-sm text-xs leading-relaxed"
+                    : "bg-muted/50 border border-border rounded-tl-sm"
+                }`}
+                style={{ maxWidth: "calc(100% - 32px)", wordBreak: "break-word", overflowWrap: "anywhere" }}
+              >
+                {msg.role === "user"
+                  ? msg.content
+                  : <RenderMarkdown text={msg.content} />}
+              </div>
             </div>
-            <div className={`text-xs leading-relaxed rounded-xl px-3 py-2.5 max-w-[85%] whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted/60 border border-border rounded-tl-sm"}`}>
-              {msg.content}
-            </div>
-          </div>
-        ))}
+          ))}
 
-        {streaming && streamingText && (
-          <div className="flex gap-2 flex-row">
-            <div className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center mt-0.5 bg-muted border border-border">
-              <Bot className="h-3.5 w-3.5 text-primary" />
+          {streaming && streamingText && (
+            <div className="flex gap-2 flex-row">
+              <div className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center mt-0.5 bg-muted border border-border">
+                <Bot className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div
+                className="min-w-0 rounded-xl rounded-tl-sm px-3 py-2 bg-muted/50 border border-border break-words overflow-hidden"
+                style={{ maxWidth: "calc(100% - 32px)", wordBreak: "break-word", overflowWrap: "anywhere" }}
+              >
+                <RenderMarkdown text={streamingText} />
+                <span className="inline-block w-1 h-3 bg-primary animate-pulse mr-0.5 rounded-sm align-middle" />
+              </div>
             </div>
-            <div className="text-xs leading-relaxed rounded-xl px-3 py-2.5 max-w-[85%] bg-muted/60 border border-border rounded-tl-sm whitespace-pre-wrap">
-              {streamingText}
-              <span className="inline-block w-1 h-3 bg-primary animate-pulse mr-0.5 rounded-sm" />
-            </div>
-          </div>
-        )}
+          )}
 
-        {streaming && !streamingText && (
-          <div className="flex gap-2">
-            <div className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-muted border border-border">
-              <Bot className="h-3.5 w-3.5 text-primary" />
+          {streaming && !streamingText && (
+            <div className="flex gap-2">
+              <div className="shrink-0 h-6 w-6 rounded-full flex items-center justify-center bg-muted border border-border">
+                <Bot className="h-3.5 w-3.5 text-primary" />
+              </div>
+              <div className="flex items-center gap-1 px-3 py-2.5 rounded-xl bg-muted/50 border border-border rounded-tl-sm">
+                {[0, 1, 2].map((i) => (
+                  <span key={i} className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-1 px-3 py-2.5 rounded-xl bg-muted/60 border border-border rounded-tl-sm">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
-              ))}
-            </div>
-          </div>
-        )}
+          )}
 
-        <div ref={bottomRef} />
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      {/* Input area */}
-      <div className="shrink-0 flex gap-2 items-end border-t border-border pt-2">
+      {/* Input area — fixed at bottom */}
+      <div className="shrink-0 flex gap-2 items-end border-t border-border pt-2 mt-2">
         {messages.length > 0 && (
           <button
             onClick={clearChat}
@@ -1608,8 +1702,13 @@ function AiChatTab({ insights }: { insights: CampaignInsights }) {
           rows={1}
           placeholder="اسأل عن الحملة… (Enter للإرسال)"
           disabled={streaming}
-          className="flex-1 resize-none rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground disabled:opacity-50 leading-relaxed max-h-24"
-          style={{ fieldSizing: "content" } as React.CSSProperties}
+          className="flex-1 resize-none rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground disabled:opacity-50 leading-relaxed"
+          style={{ maxHeight: "80px", overflowY: "auto" }}
+          onInput={(e) => {
+            const t = e.currentTarget;
+            t.style.height = "auto";
+            t.style.height = Math.min(t.scrollHeight, 80) + "px";
+          }}
         />
         <button
           onClick={send}
