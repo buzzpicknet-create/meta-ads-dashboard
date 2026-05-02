@@ -328,6 +328,16 @@ export function GlobalAiChat() {
     try { setAttachment(await readFileAsAttachment(file)); } catch (err) { alert(err instanceof Error ? err.message : "خطأ"); }
   };
 
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItem = items.find((item) => item.type.startsWith("image/"));
+    if (!imageItem) return;
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    try { setAttachment(await readFileAsAttachment(file)); } catch {}
+  }, []);
+
   const clearChat = () => {
     abortRef.current?.abort();
     setMessages([]);
@@ -516,6 +526,7 @@ export function GlobalAiChat() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   dir="rtl"
                   rows={1}
                   placeholder="اسأل عن Meta Ads… (Enter للإرسال)"

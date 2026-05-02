@@ -1722,6 +1722,16 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     try { setAttachment(await readFileAsAttachment(file)); } catch (err) { alert(err instanceof Error ? err.message : "خطأ"); }
   };
 
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItem = items.find((item) => item.type.startsWith("image/"));
+    if (!imageItem) return;
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    try { setAttachment(await readFileAsAttachment(file)); } catch {}
+  }, []);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if ((!text && !attachment) || streaming) return;
@@ -1964,6 +1974,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               dir="rtl"
               rows={1}
               placeholder="اسأل عن الحملة… (Enter للإرسال)"
