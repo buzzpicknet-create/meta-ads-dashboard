@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { logDiagnosisRun } from "@/hooks/use-activity-logger";
-import { ChevronDown, Stethoscope, RefreshCw, Search, X, Send, Bot, User, Trash2, Paperclip } from "lucide-react";
+import { ChevronDown, Stethoscope, RefreshCw, Search, X, Send, Bot, User, Trash2, Paperclip, History, Plus, Clock, ChevronRight, MessageSquare } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,9 @@ import type {
   DerivedMetrics,
 } from "@/lib/meta-api";
 import { useInsights } from "@/hooks/use-meta";
+
+const _BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const CHAT_API = `${_BASE}/api`;
 
 // ── Types ─────────────────────────────────────────────────────
 export type Flag = "good" | "warn" | "bad";
@@ -1402,6 +1405,8 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
               setStreaming={setChatStreaming}
               streamingText={chatStreamingText}
               setStreamingText={setChatStreamingText}
+              campaignId={insights.campaign.id}
+              campaignName={insights.campaign.name}
             />
           </TabsContent>
         </Tabs>
@@ -1566,8 +1571,22 @@ function buildCampaignContext(
   return lines.join("\n");
 }
 
-// ── AI Chat Message type ─────────────────────────────────────────────────────
+// ── AI Chat types ─────────────────────────────────────────────────────────────
 interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string }
+interface ConvSummary { id: number; title: string; created_at: string; updated_at: string }
+
+function fmtRelative(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "الآن";
+  if (m < 60) return `منذ ${m} دقيقة`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `منذ ${h} ساعة`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return "أمس";
+  if (d < 7) return `منذ ${d} أيام`;
+  return new Date(dateStr).toLocaleDateString("ar-EG", { day: "numeric", month: "short" });
+}
 
 // ── Simple markdown renderer for AI responses ─────────────────────────────────
 function renderInline(text: string): React.ReactNode {
@@ -1664,6 +1683,8 @@ interface AiChatTabProps {
   setStreaming: React.Dispatch<React.SetStateAction<boolean>>;
   streamingText: string;
   setStreamingText: React.Dispatch<React.SetStateAction<string>>;
+  campaignId: string;
+  campaignName: string;
 }
 interface Attachment {
   base64?: string;
@@ -1701,9 +1722,14 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
   });
 }
 
-function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText }: AiChatTabProps) {
+function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText, campaignId, campaignName }: AiChatTabProps) {
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [view, setView] = useState<"chat" | "history">("chat");
+  const [convId, setConvId] = useState<number | null>(null);
+  const [conversations, setConversations] = useState<ConvSummary[]>([]);
+  const [histLoading, setHistLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1713,6 +1739,87 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText]);
+
+  // Load conversation list for this campaign
+  const loadConversations = useCallback(async () => {
+    setHistLoading(true);
+    try {
+      const r = await fetch(`${CHAT_API}/chat/conversations?campaign_id=${encodeURIComponent(campaignId)}`);
+      if (r.ok) {
+        const d = await r.json() as { conversations: ConvSummary[] };
+        setConversations(d.conversations);
+      }
+    } finally {
+      setHistLoading(false);
+    }
+  }, [campaignId]);
+
+  // Ensure a conversation exists (create if needed), returns convId
+  const ensureConversation = useCallback(async (firstMsg: string): Promise<number | null> => {
+    if (convId !== null) return convId;
+    try {
+      const title = firstMsg.length > 60 ? firstMsg.slice(0, 57) + "…" : firstMsg || campaignName;
+      const r = await fetch(`${CHAT_API}/chat/conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, campaign_id: campaignId }),
+      });
+      if (!r.ok) return null;
+      const d = await r.json() as { id: number };
+      setConvId(d.id);
+      return d.id;
+    } catch { return null; }
+  }, [convId, campaignId, campaignName]);
+
+  // Save messages to DB
+  const saveToDB = useCallback(async (cid: number, msgs: ChatMessage[]) => {
+    try {
+      await fetch(`${CHAT_API}/chat/conversations/${cid}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: msgs }),
+      });
+    } catch {}
+  }, []);
+
+  // Load a conversation from history
+  const loadConversation = useCallback(async (conv: ConvSummary) => {
+    try {
+      const r = await fetch(`${CHAT_API}/chat/conversations/${conv.id}/messages`);
+      if (!r.ok) return;
+      const d = await r.json() as { messages: ChatMessage[] };
+      setConvId(conv.id);
+      setMessages(d.messages);
+      setView("chat");
+      setTimeout(() => inputRef.current?.focus(), 80);
+    } catch {}
+  }, [setMessages]);
+
+  // Delete a conversation
+  const deleteConversation = useCallback(async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeletingId(id);
+    try {
+      await fetch(`${CHAT_API}/chat/conversations/${id}`, { method: "DELETE" });
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (convId === id) {
+        setConvId(null);
+        setMessages([]);
+      }
+    } finally { setDeletingId(null); }
+  }, [convId, setMessages]);
+
+  // Start a brand new conversation
+  const startNewChat = useCallback(() => {
+    abortRef.current?.abort();
+    setConvId(null);
+    setMessages([]);
+    setStreamingText("");
+    setStreaming(false);
+    setAttachment(null);
+    setView("chat");
+    setTimeout(() => inputRef.current?.focus(), 80);
+  }, [setMessages, setStreamingText, setStreaming]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1754,16 +1861,14 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       if (att?.isImage)  { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)     { body.fileText = att.text; body.fileName = att.name; }
 
-      const resp = await fetch("/api/ai/chat", {
+      const resp = await fetch(`${CHAT_API}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
 
-      if (!resp.ok || !resp.body) {
-        throw new Error(`HTTP ${resp.status}`);
-      }
+      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
@@ -1772,23 +1877,28 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const text = decoder.decode(value, { stream: true });
-        const lines = text.split("\n");
-        for (const line of lines) {
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
           if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
             if (data.error) throw new Error(data.error);
             if (data.done) break;
-            if (data.content) {
-              accumulated += data.content;
-              setStreamingText(accumulated);
-            }
+            if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
       }
 
-      setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
+      const finalMessages: ChatMessage[] = [...newMessages, { role: "assistant", content: accumulated }];
+      setMessages(finalMessages);
+
+      // Auto-save to DB
+      const cid = await ensureConversation(userText);
+      if (cid !== null) {
+        await saveToDB(cid, finalMessages);
+        // Refresh conversation list in background
+        loadConversations().catch(() => {});
+      }
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {
         setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ. حاول تاني." }]);
@@ -1799,29 +1909,80 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, messages, streaming, campaignContext]);
+  }, [input, messages, streaming, campaignContext, ensureConversation, saveToDB, loadConversations, setMessages, setStreaming, setStreamingText]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  const clearChat = () => {
-    abortRef.current?.abort();
-    setMessages([]);
-    setStreamingText("");
-    setStreaming(false);
-    setAttachment(null);
-  };
+  // History view
+  if (view === "history") {
+    return (
+      <div className="flex flex-col min-h-0 h-full">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setView("chat")}
+              className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <span className="text-sm font-semibold text-foreground">سجل المحادثات</span>
+          </div>
+          <button
+            onClick={startNewChat}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-xs font-medium"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            محادثة جديدة
+          </button>
+        </div>
 
-  const SUGGESTED = [
-    "ايه أهم مشكلة في الحملة دي؟",
-    "نصيحتك في الـ Budget؟",
-    "الإعلان الأحسن أداء ليه؟",
-    "ازاي أحسن الـ CPA؟",
-  ];
+        {/* List */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5" style={{ overscrollBehavior: "contain" }}>
+          {histLoading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-5 h-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+            </div>
+          )}
+          {!histLoading && conversations.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <MessageSquare className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">لا توجد محادثات محفوظة</p>
+              <p className="text-xs text-muted-foreground/60">ابدأ محادثة وسيتم حفظها تلقائياً</p>
+            </div>
+          )}
+          {conversations.map((conv) => (
+            <button
+              key={conv.id}
+              onClick={() => loadConversation(conv)}
+              className={`w-full text-end flex items-start gap-2.5 px-3 py-2.5 rounded-xl border transition-all group ${
+                convId === conv.id
+                  ? "border-primary/40 bg-primary/5"
+                  : "border-border/60 bg-card hover:border-primary/20 hover:bg-muted/40"
+              }`}
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-foreground truncate leading-snug">{conv.title}</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Clock className="h-3 w-3 text-muted-foreground/50" />
+                  <span className="text-[11px] text-muted-foreground/60">{fmtRelative(conv.updated_at)}</span>
+                </div>
+              </div>
+              <button
+                onClick={(e) => deleteConversation(conv.id, e)}
+                disabled={deletingId === conv.id}
+                className="shrink-0 mt-0.5 h-6 w-6 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-50"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-0 h-full gap-0">
@@ -1842,7 +2003,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2 w-full">
-                {SUGGESTED.map((q) => (
+                {["ايه أهم مشكلة في الحملة دي؟", "نصيحتك في الـ Budget؟", "الإعلان الأحسن أداء ليه؟", "ازاي أحسن الـ CPA؟"].map((q) => (
                   <button
                     key={q}
                     onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
@@ -1858,18 +2019,11 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
           {/* Messages */}
           {messages.map((msg, i) => (
             <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"} items-end`}>
-              {/* Avatar */}
               <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 ${
-                msg.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted border border-border/60"
+                msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border border-border/60"
               }`}>
-                {msg.role === "user"
-                  ? <User className="h-3.5 w-3.5" />
-                  : <Bot className="h-3.5 w-3.5 text-primary" />}
+                {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
               </div>
-
-              {/* Bubble */}
               <div
                 className={`min-w-0 rounded-2xl break-words overflow-hidden ${
                   msg.role === "user"
@@ -1880,17 +2034,9 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
                 dir="rtl"
               >
                 {msg.imagePreviewUrl && (
-                  <img
-                    src={msg.imagePreviewUrl}
-                    alt="مرفق"
-                    className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20"
-                    style={{ maxHeight: 200 }}
-                    onClick={() => window.open(msg.imagePreviewUrl, "_blank")}
-                  />
+                  <img src={msg.imagePreviewUrl} alt="مرفق" className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20" style={{ maxHeight: 200 }} onClick={() => window.open(msg.imagePreviewUrl, "_blank")} />
                 )}
-                {msg.role === "user"
-                  ? msg.content && <span>{msg.content}</span>
-                  : <RenderMarkdown text={msg.content} />}
+                {msg.role === "user" ? msg.content && <span>{msg.content}</span> : <RenderMarkdown text={msg.content} />}
               </div>
             </div>
           ))}
@@ -1901,11 +2047,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
                 <Bot className="h-3.5 w-3.5 text-primary" />
               </div>
-              <div
-                className="min-w-0 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm px-4 py-3 break-words overflow-hidden"
-                style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
-                dir="rtl"
-              >
+              <div className="min-w-0 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm px-4 py-3 break-words overflow-hidden" style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }} dir="rtl">
                 <RenderMarkdown text={streamingText} />
                 <span className="inline-block w-[3px] h-[14px] bg-primary/70 animate-pulse rounded-full align-middle ms-0.5" />
               </div>
@@ -1932,7 +2074,6 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border/60 pt-3 mt-1">
-        {/* Attachment preview */}
         {attachment && (
           <div className="mb-2 flex items-center gap-2">
             {attachment.isImage && attachment.previewUrl ? (
@@ -1955,15 +2096,26 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
         )}
 
         <div className="flex gap-2 items-end">
+          {/* History button */}
+          <button
+            onClick={() => { loadConversations(); setView("history"); }}
+            className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all"
+            title="سجل المحادثات"
+          >
+            <History className="h-3.5 w-3.5" />
+          </button>
+
+          {/* New chat button — only when there are messages */}
           {messages.length > 0 && (
             <button
-              onClick={clearChat}
-              className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 hover:bg-destructive/5 transition-all"
-              title="مسح المحادثة"
+              onClick={startNewChat}
+              className="shrink-0 h-9 w-9 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all"
+              title="محادثة جديدة"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5" />
             </button>
           )}
+
           <div className="flex-1 flex items-end gap-2 rounded-xl border border-border bg-card focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all px-3 py-2">
             <input
               ref={fileInputRef}

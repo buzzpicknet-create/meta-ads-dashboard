@@ -17,18 +17,31 @@ interface MsgRow {
   created_at: string;
 }
 
-// GET /api/chat/conversations — list user conversations
+// GET /api/chat/conversations — list user conversations (optionally filter by campaign_id)
 router.get("/chat/conversations", async (req, res) => {
   try {
     const userId = req.session.userId!;
-    const rows = await query<ConvRow>(
-      `SELECT id, title, created_at, updated_at
-       FROM chat_conversations
-       WHERE user_id = $1
-       ORDER BY updated_at DESC
-       LIMIT 60`,
-      [userId]
-    );
+    const campaignId = String(req.query["campaign_id"] || "").trim() || null;
+    let rows: ConvRow[];
+    if (campaignId) {
+      rows = await query<ConvRow>(
+        `SELECT id, title, created_at, updated_at
+         FROM chat_conversations
+         WHERE user_id = $1 AND campaign_id = $2
+         ORDER BY updated_at DESC
+         LIMIT 60`,
+        [userId, campaignId]
+      );
+    } else {
+      rows = await query<ConvRow>(
+        `SELECT id, title, created_at, updated_at
+         FROM chat_conversations
+         WHERE user_id = $1 AND campaign_id IS NULL
+         ORDER BY updated_at DESC
+         LIMIT 60`,
+        [userId]
+      );
+    }
     res.json({ conversations: rows });
   } catch (err) {
     req.log.error({ err }, "chat/conversations GET error");
@@ -40,12 +53,12 @@ router.get("/chat/conversations", async (req, res) => {
 router.post("/chat/conversations", async (req, res) => {
   try {
     const userId = req.session.userId!;
-    const { title } = req.body as { title?: string };
+    const { title, campaign_id } = req.body as { title?: string; campaign_id?: string };
     const rows = await query<ConvRow>(
-      `INSERT INTO chat_conversations (user_id, title)
-       VALUES ($1, $2)
+      `INSERT INTO chat_conversations (user_id, title, campaign_id)
+       VALUES ($1, $2, $3)
        RETURNING id, title, created_at, updated_at`,
-      [userId, (title ?? "محادثة جديدة").slice(0, 120)]
+      [userId, (title ?? "محادثة جديدة").slice(0, 120), campaign_id ?? null]
     );
     res.json(rows[0]);
   } catch (err) {
