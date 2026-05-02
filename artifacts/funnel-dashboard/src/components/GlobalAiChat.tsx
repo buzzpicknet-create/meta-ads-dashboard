@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Bot, Send, Trash2, X, MessageSquare, User, Paperclip } from "lucide-react";
+import {
+  Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
+  History, Plus, ChevronRight, Clock,
+} from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -7,6 +10,8 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
 
 interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string }
+
+interface ConvSummary { id: number; title: string; created_at: string; updated_at: string }
 
 interface ActivityLog {
   action: string;
@@ -46,6 +51,35 @@ function formatRelative(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("ar-EG", { day: "numeric", month: "short" });
 }
 
+function groupConversations(convs: ConvSummary[]): { label: string; items: ConvSummary[] }[] {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterday = today - 86400000;
+  const week = today - 6 * 86400000;
+  const month = today - 29 * 86400000;
+
+  const groups: Record<string, ConvSummary[]> = {
+    اليوم: [],
+    أمس: [],
+    "آخر 7 أيام": [],
+    "آخر 30 يوم": [],
+    أقدم: [],
+  };
+
+  for (const c of convs) {
+    const t = new Date(c.updated_at).getTime();
+    if (t >= today) groups["اليوم"]!.push(c);
+    else if (t >= yesterday) groups["أمس"]!.push(c);
+    else if (t >= week) groups["آخر 7 أيام"]!.push(c);
+    else if (t >= month) groups["آخر 30 يوم"]!.push(c);
+    else groups["أقدم"]!.push(c);
+  }
+
+  return Object.entries(groups)
+    .filter(([, items]) => items.length > 0)
+    .map(([label, items]) => ({ label, items }));
+}
+
 function buildActivityContext(users: ActivityUser[]): string {
   const lines: string[] = [
     "أنت مساعد Meta Ads ولديك وصول كامل لبيانات نشاط الفريق التالية. أجب بناءً على هذه البيانات الحقيقية.",
@@ -57,7 +91,6 @@ function buildActivityContext(users: ActivityUser[]): string {
   for (const u of users) {
     lines.push(`### ${u.username} — ${ROLE_LABELS[u.role] ?? u.role}`);
     lines.push(`- آخر ظهور: ${u.last_seen_at ? formatRelative(u.last_seen_at) : "لم يسجّل الدخول بعد"}`);
-
     if (u.recent_activity.length === 0) {
       lines.push("- لا يوجد نشاط مسجّل");
     } else {
@@ -76,7 +109,6 @@ function buildActivityContext(users: ActivityUser[]): string {
 
   lines.push("---");
   lines.push("بناءً على هذه البيانات الحقيقية، أجب على أسئلة المستخدم عن أداء الفريق، نشاطهم، وأي تحليلات مطلوبة.");
-
   return lines.join("\n");
 }
 
@@ -89,13 +121,6 @@ const SUGGESTED_GENERAL = [
   "كيف أحسّن الـ CPA؟",
   "متى أوقف الحملة؟",
   "كيف أتعامل مع Frequency عالية؟",
-];
-
-const SUGGESTED_ADMIN = [
-  "من أكثر شخص نشط في الفريق؟",
-  "من فتح أكثر تشخيصات هذا الأسبوع؟",
-  "هل الفريق شغال بانتظام؟",
-  "من آخر شخص سجّل دخول؟",
 ];
 
 function renderInline(text: string): React.ReactNode {
@@ -129,8 +154,8 @@ function RenderMarkdown({ text }: { text: string }) {
 
     if (/^[-•*]\s/.test(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^[-•*]\s/.test(lines[i])) {
-        items.push(lines[i].replace(/^[-•*]\s/, ""));
+      while (i < lines.length && /^[-•*]\s/.test(lines[i]!)) {
+        items.push(lines[i]!.replace(/^[-•*]\s/, ""));
         i++;
       }
       elements.push(
@@ -149,8 +174,8 @@ function RenderMarkdown({ text }: { text: string }) {
     if (/^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/.test(line)) {
       const items: string[] = [];
       let num = 1;
-      while (i < lines.length && /^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/.test(lines[i])) {
-        items.push(lines[i].replace(/^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/, ""));
+      while (i < lines.length && /^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/.test(lines[i]!)) {
+        items.push(lines[i]!.replace(/^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/, ""));
         i++;
       }
       elements.push(
@@ -209,16 +234,23 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
   });
 }
 
+type View = "chat" | "history";
+
 export function GlobalAiChat() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<View>("chat");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [convId, setConvId] = useState<number | null>(null);
+  const [conversations, setConversations] = useState<ConvSummary[]>([]);
+  const [convLoading, setConvLoading] = useState(false);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const [activityUsers, setActivityUsers] = useState<ActivityUser[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -233,8 +265,8 @@ export function GlobalAiChat() {
   }, [messages, streamingText]);
 
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 100);
-  }, [open]);
+    if (open && view === "chat") setTimeout(() => inputRef.current?.focus(), 100);
+  }, [open, view]);
 
   // Fetch activity data when admin opens the chat (once per session)
   useEffect(() => {
@@ -242,12 +274,24 @@ export function GlobalAiChat() {
     setActivityLoading(true);
     fetch(`${API}/admin/user-activity`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.users) setActivityUsers(data.users as ActivityUser[]);
-      })
+      .then((data) => { if (data?.users) setActivityUsers(data.users as ActivityUser[]); })
       .catch(() => {})
       .finally(() => setActivityLoading(false));
   }, [open, isAdmin, activityUsers]);
+
+  // Load conversation list when chat opens (or when switching to history view)
+  const loadConversations = useCallback(() => {
+    setConvLoading(true);
+    fetch(`${API}/chat/conversations`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { conversations: [] }))
+      .then((data) => setConversations(data.conversations ?? []))
+      .catch(() => {})
+      .finally(() => setConvLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (open) loadConversations();
+  }, [open, loadConversations]);
 
   const buildContext = useCallback((): string => {
     if (isAdmin && activityUsers && activityUsers.length > 0) {
@@ -256,10 +300,50 @@ export function GlobalAiChat() {
     return GENERAL_CONTEXT;
   }, [isAdmin, activityUsers]);
 
+  // Ensure there is an active conversation, creating one if needed
+  const ensureConversation = useCallback(async (firstMessage: string): Promise<number> => {
+    if (convId !== null) return convId;
+    const title = firstMessage.slice(0, 80) || "محادثة جديدة";
+    const resp = await fetch(`${API}/chat/conversations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ title }),
+    });
+    const conv = await resp.json() as ConvSummary;
+    setConvId(conv.id);
+    setConversations((prev) => [conv, ...prev]);
+    return conv.id;
+  }, [convId]);
+
+  // Save a pair of messages to DB
+  const saveToDB = useCallback(async (cid: number, userContent: string, assistantContent: string) => {
+    try {
+      await fetch(`${API}/chat/conversations/${cid}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          messages: [
+            { role: "user", content: userContent },
+            { role: "assistant", content: assistantContent },
+          ],
+        }),
+      });
+      // Refresh conversation list order
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => c.id === cid);
+        if (idx < 0) return prev;
+        const updated = { ...prev[idx]!, updated_at: new Date().toISOString() };
+        return [updated, ...prev.filter((_, i) => i !== idx)];
+      });
+    } catch {}
+  }, []);
+
   const send = useCallback(async () => {
     const text = input.trim();
     if ((!text && !attachment) || streaming) return;
-    const userText = text || (attachment?.isImage ? "" : `📎 ${attachment?.name}`);
+    const userText = text || (attachment?.isImage ? "[صورة مرفقة]" : `📎 ${attachment?.name}`);
     setInput("");
     const att = attachment;
     setAttachment(null);
@@ -272,8 +356,11 @@ export function GlobalAiChat() {
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    let accumulated = "";
 
     try {
+      const activeCid = await ensureConversation(userText);
+
       const body: Record<string, unknown> = { campaignContext: buildContext(), messages: newMessages };
       if (att?.isImage) { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)    { body.fileText = att.text; body.fileName = att.name; }
@@ -283,13 +370,13 @@ export function GlobalAiChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: ctrl.signal,
+        credentials: "include",
       });
 
       if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
-      let accumulated = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -307,6 +394,10 @@ export function GlobalAiChat() {
       }
 
       setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
+
+      // Save to DB in background
+      void saveToDB(activeCid, userText, accumulated);
+
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {
         setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ. حاول تاني." }]);
@@ -317,7 +408,7 @@ export function GlobalAiChat() {
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, messages, streaming, buildContext]);
+  }, [input, messages, streaming, buildContext, ensureConversation, saveToDB, attachment]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -340,17 +431,55 @@ export function GlobalAiChat() {
     try { setAttachment(await readFileAsAttachment(file)); } catch {}
   }, []);
 
-  const clearChat = () => {
+  const startNewChat = useCallback(() => {
     abortRef.current?.abort();
     setMessages([]);
     setStreamingText("");
     setStreaming(false);
     setAttachment(null);
-  };
+    setConvId(null);
+    setView("chat");
+  }, []);
+
+  const clearCurrentChat = useCallback(() => {
+    abortRef.current?.abort();
+    setMessages([]);
+    setStreamingText("");
+    setStreaming(false);
+    setAttachment(null);
+    setConvId(null);
+  }, []);
+
+  const loadConversation = useCallback(async (conv: ConvSummary) => {
+    setConvLoading(true);
+    try {
+      const resp = await fetch(`${API}/chat/conversations/${conv.id}/messages`, { credentials: "include" });
+      if (!resp.ok) return;
+      const data = await resp.json() as { messages: { role: string; content: string }[] };
+      const loaded: ChatMessage[] = (data.messages ?? []).map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      setMessages(loaded);
+      setConvId(conv.id);
+      setView("chat");
+    } catch {}
+    finally { setConvLoading(false); }
+  }, []);
+
+  const deleteConversation = useCallback(async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeletingId(id);
+    try {
+      await fetch(`${API}/chat/conversations/${id}`, { method: "DELETE", credentials: "include" });
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (convId === id) { setMessages([]); setConvId(null); }
+    } catch {}
+    finally { setDeletingId(null); }
+  }, [convId]);
 
   const hasUnread = messages.length > 0;
-  const suggested = SUGGESTED_GENERAL;
-  const hasActivityData = isAdmin && activityUsers && activityUsers.length > 0;
+  const grouped = groupConversations(conversations);
 
   return (
     <>
@@ -370,22 +499,63 @@ export function GlobalAiChat() {
       {/* Chat Sheet */}
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="left" className="w-full sm:w-[420px] p-0 flex flex-col" dir="rtl">
-          {/* Header */}
+
+          {/* ── Header ── */}
           <SheetHeader className="shrink-0 px-4 py-3 border-b border-border/60">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Bot className="h-5 w-5 text-primary" />
-                </div>
+                {view === "history" ? (
+                  <button
+                    onClick={() => setView("chat")}
+                    className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                    title="رجوع للمحادثة"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Bot className="h-5 w-5 text-primary" />
+                  </div>
+                )}
                 <div>
-                  <SheetTitle className="text-sm font-semibold leading-tight">مساعد الإعلانات</SheetTitle>
-                  <p className="text-[10px] text-muted-foreground">أسئلة عامة عن Meta Ads</p>
+                  <SheetTitle className="text-sm font-semibold leading-tight">
+                    {view === "history" ? "المحادثات السابقة" : "مساعد الإعلانات"}
+                  </SheetTitle>
+                  <p className="text-[10px] text-muted-foreground">
+                    {view === "history"
+                      ? `${conversations.length} محادثة محفوظة`
+                      : "أسئلة عامة عن Meta Ads"}
+                  </p>
                 </div>
               </div>
+
               <div className="flex items-center gap-1">
-                {messages.length > 0 && (
+                {/* New chat */}
+                {view === "chat" && (
                   <button
-                    onClick={clearChat}
+                    onClick={startNewChat}
+                    className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                    title="محادثة جديدة"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                )}
+                {/* History toggle */}
+                <button
+                  onClick={() => setView((v) => v === "history" ? "chat" : "history")}
+                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${
+                    view === "history"
+                      ? "text-primary bg-primary/10"
+                      : "text-muted-foreground hover:text-primary hover:bg-primary/10"
+                  }`}
+                  title="المحادثات السابقة"
+                >
+                  <History className="h-4 w-4" />
+                </button>
+                {/* Clear current chat */}
+                {view === "chat" && messages.length > 0 && (
+                  <button
+                    onClick={clearCurrentChat}
                     className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-all"
                     title="مسح المحادثة"
                   >
@@ -402,167 +572,243 @@ export function GlobalAiChat() {
             </div>
           </SheetHeader>
 
-          {/* Messages */}
-          <div className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
-            <div className="flex flex-col gap-4 py-4 px-4">
+          {/* ── History View ── */}
+          {view === "history" ? (
+            <div className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
+              {/* New conversation shortcut */}
+              <div className="px-3 pt-3 pb-1">
+                <button
+                  onClick={startNewChat}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-dashed border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 transition-colors text-sm font-medium"
+                >
+                  <Plus className="h-4 w-4 shrink-0" />
+                  <span>محادثة جديدة</span>
+                </button>
+              </div>
 
-              {/* Empty state */}
-              {messages.length === 0 && !streaming && (
-                <div className="flex flex-col items-center gap-4 py-6">
-                    <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
-                    اسألني أي سؤال عن Meta Ads وهجاوبك. لتحليل حملة معينة، افتح التشخيص من صفحة "تحليل الحملة"
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 w-full">
-                    {suggested.map((q) => (
-                      <button
-                        key={q}
-                        onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
-                        className="text-xs text-end px-3 py-2.5 rounded-xl border border-border bg-card hover:bg-muted/60 hover:border-primary/30 transition-all leading-snug text-foreground/80"
-                      >
-                        {q}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Message bubbles */}
-              {messages.map((msg, i) => (
-                <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"} items-end`}>
-                  <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 ${
-                    msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border border-border/60"
-                  }`}>
-                    {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
-                  </div>
-                  <div
-                    className={`min-w-0 rounded-2xl break-words overflow-hidden ${
-                      msg.role === "user"
-                        ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
-                        : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
-                    }`}
-                    style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
-                    dir="rtl"
-                  >
-                    {msg.imagePreviewUrl && (
-                      <img
-                        src={msg.imagePreviewUrl}
-                        alt="مرفق"
-                        className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20"
-                        style={{ maxHeight: 220 }}
-                        onClick={() => window.open(msg.imagePreviewUrl, "_blank")}
-                      />
-                    )}
-                    {msg.role === "user"
-                      ? msg.content && <span>{msg.content}</span>
-                      : <RenderMarkdown text={msg.content} />}
-                  </div>
-                </div>
-              ))}
-
-              {/* Streaming */}
-              {streaming && streamingText && (
-                <div className="flex gap-2.5 flex-row items-end">
-                  <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
-                    <Bot className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <div
-                    className="min-w-0 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm px-4 py-3 break-words overflow-hidden"
-                    style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
-                    dir="rtl"
-                  >
-                    <RenderMarkdown text={streamingText} />
-                    <span className="inline-block w-[3px] h-[14px] bg-primary/70 animate-pulse rounded-full align-middle ms-0.5" />
-                  </div>
-                </div>
-              )}
-
-              {streaming && !streamingText && (
-                <div className="flex gap-2.5 flex-row items-end">
-                  <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
-                    <Bot className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
+              {convLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="flex gap-1.5">
                     {[0, 1, 2].map((k) => (
                       <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
                     ))}
                   </div>
                 </div>
-              )}
-
-              <div ref={bottomRef} />
-            </div>
-          </div>
-
-          {/* Input */}
-          <div className="shrink-0 border-t border-border/60 px-4 pt-3 pb-4">
-            {/* Attachment preview */}
-            {attachment && (
-              <div className="mb-2 flex items-center gap-2">
-                {attachment.isImage && attachment.previewUrl ? (
-                  <div className="relative inline-flex">
-                    <img src={attachment.previewUrl} alt={attachment.name} className="h-16 w-auto max-w-[120px] rounded-lg border border-border object-cover" />
-                    <button onClick={() => setAttachment(null)} className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80">
-                      <X className="h-2.5 w-2.5" />
-                    </button>
+              ) : conversations.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-16 px-6 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
+                    <Clock className="h-6 w-6 text-muted-foreground" />
                   </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
-                    <Paperclip className="h-3 w-3 shrink-0" />
-                    <span className="max-w-[200px] truncate">{attachment.name}</span>
-                    <button onClick={() => setAttachment(null)} className="text-muted-foreground hover:text-destructive mr-1">
-                      <X className="h-3 w-3" />
-                    </button>
+                  <p className="text-sm text-muted-foreground">لا توجد محادثات محفوظة بعد</p>
+                  <p className="text-xs text-muted-foreground/60">ابدأ محادثة جديدة وسيتم حفظها تلقائياً</p>
+                </div>
+              ) : (
+                <div className="px-3 pb-4">
+                  {grouped.map(({ label, items }) => (
+                    <div key={label}>
+                      <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-1 pt-4 pb-1.5">
+                        {label}
+                      </p>
+                      <div className="space-y-0.5">
+                        {items.map((conv) => (
+                          <div
+                            key={conv.id}
+                            onClick={() => loadConversation(conv)}
+                            className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${
+                              convId === conv.id
+                                ? "bg-primary/10 text-primary"
+                                : "hover:bg-muted/60"
+                            }`}
+                          >
+                            <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${convId === conv.id ? "text-primary" : "text-muted-foreground"}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] truncate leading-tight">
+                                {conv.title}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                                {formatRelative(conv.updated_at)}
+                              </p>
+                            </div>
+                            <button
+                              onClick={(e) => deleteConversation(conv.id, e)}
+                              disabled={deletingId === conv.id}
+                              className="shrink-0 opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-30"
+                              title="حذف المحادثة"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* ── Chat View ── */}
+              <div className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
+                <div className="flex flex-col gap-4 py-4 px-4">
+
+                  {/* Empty state */}
+                  {messages.length === 0 && !streaming && (
+                    <div className="flex flex-col items-center gap-4 py-6">
+                      <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
+                        اسألني أي سؤال عن Meta Ads وهجاوبك. لتحليل حملة معينة، افتح التشخيص من صفحة "تحليل الحملة"
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 w-full">
+                        {SUGGESTED_GENERAL.map((q) => (
+                          <button
+                            key={q}
+                            onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
+                            className="text-xs text-end px-3 py-2.5 rounded-xl border border-border bg-card hover:bg-muted/60 hover:border-primary/30 transition-all leading-snug text-foreground/80"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Message bubbles */}
+                  {messages.map((msg, i) => (
+                    <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"} items-end`}>
+                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 ${
+                        msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border border-border/60"
+                      }`}>
+                        {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
+                      </div>
+                      <div
+                        className={`min-w-0 rounded-2xl break-words overflow-hidden ${
+                          msg.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
+                            : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
+                        }`}
+                        style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
+                        dir="rtl"
+                      >
+                        {msg.imagePreviewUrl && (
+                          <img
+                            src={msg.imagePreviewUrl}
+                            alt="مرفق"
+                            className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20"
+                            style={{ maxHeight: 220 }}
+                            onClick={() => window.open(msg.imagePreviewUrl, "_blank")}
+                          />
+                        )}
+                        {msg.role === "user"
+                          ? msg.content && <span>{msg.content}</span>
+                          : <RenderMarkdown text={msg.content} />}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Streaming */}
+                  {streaming && streamingText && (
+                    <div className="flex gap-2.5 flex-row items-end">
+                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
+                        <Bot className="h-3.5 w-3.5 text-primary" />
+                      </div>
+                      <div
+                        className="min-w-0 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm px-4 py-3 break-words overflow-hidden"
+                        style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
+                        dir="rtl"
+                      >
+                        <RenderMarkdown text={streamingText} />
+                        <span className="inline-block w-[3px] h-[14px] bg-primary/70 animate-pulse rounded-full align-middle ms-0.5" />
+                      </div>
+                    </div>
+                  )}
+
+                  {streaming && !streamingText && (
+                    <div className="flex gap-2.5 flex-row items-end">
+                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
+                        <Bot className="h-3.5 w-3.5 text-primary" />
+                      </div>
+                      <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
+                        {[0, 1, 2].map((k) => (
+                          <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div ref={bottomRef} />
+                </div>
+              </div>
+
+              {/* ── Input ── */}
+              <div className="shrink-0 border-t border-border/60 px-4 pt-3 pb-4">
+                {attachment && (
+                  <div className="mb-2 flex items-center gap-2">
+                    {attachment.isImage && attachment.previewUrl ? (
+                      <div className="relative inline-flex">
+                        <img src={attachment.previewUrl} alt={attachment.name} className="h-16 w-auto max-w-[120px] rounded-lg border border-border object-cover" />
+                        <button onClick={() => setAttachment(null)} className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80">
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+                        <Paperclip className="h-3 w-3 shrink-0" />
+                        <span className="max-w-[200px] truncate">{attachment.name}</span>
+                        <button onClick={() => setAttachment(null)} className="text-muted-foreground hover:text-destructive mr-1">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            <div className="flex gap-2 items-end">
-              <div className="flex-1 flex items-end gap-2 rounded-xl border border-border bg-card focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all px-3 py-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/gif,image/webp,text/plain,text/csv,application/json,.txt,.csv,.json"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={streaming}
-                  className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 mb-0.5"
-                  title="إرفاق صورة أو ملف"
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                </button>
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onPaste={handlePaste}
-                  dir="rtl"
-                  rows={1}
-                  placeholder="اسأل عن Meta Ads… (Enter للإرسال)"
-                  disabled={streaming}
-                  className="flex-1 resize-none bg-transparent text-[13px] focus:outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 leading-relaxed"
-                  style={{ maxHeight: "100px", overflowY: "auto" }}
-                  onInput={(e) => {
-                    const t = e.currentTarget;
-                    t.style.height = "auto";
-                    t.style.height = Math.min(t.scrollHeight, 100) + "px";
-                  }}
-                />
-                <button
-                  onClick={send}
-                  disabled={(!input.trim() && !attachment) || streaming}
-                  className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1 flex items-end gap-2 rounded-xl border border-border bg-card focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all px-3 py-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp,text/plain,text/csv,application/json,.txt,.csv,.json"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={streaming}
+                      className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 mb-0.5"
+                      title="إرفاق صورة أو ملف"
+                    >
+                      <Paperclip className="h-3.5 w-3.5" />
+                    </button>
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onPaste={handlePaste}
+                      dir="rtl"
+                      rows={1}
+                      placeholder="اسأل عن Meta Ads… (Enter للإرسال)"
+                      disabled={streaming}
+                      className="flex-1 resize-none bg-transparent text-[13px] focus:outline-none placeholder:text-muted-foreground/60 disabled:opacity-50 leading-relaxed"
+                      style={{ maxHeight: "100px", overflowY: "auto" }}
+                      onInput={(e) => {
+                        const t = e.currentTarget;
+                        t.style.height = "auto";
+                        t.style.height = Math.min(t.scrollHeight, 100) + "px";
+                      }}
+                    />
+                    <button
+                      onClick={send}
+                      disabled={(!input.trim() && !attachment) || streaming}
+                      className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground/50 text-center mt-1.5">Shift+Enter لسطر جديد</p>
               </div>
-            </div>
-            <p className="text-[10px] text-muted-foreground/50 text-center mt-1.5">Shift+Enter لسطر جديد</p>
-          </div>
+            </>
+          )}
         </SheetContent>
       </Sheet>
     </>

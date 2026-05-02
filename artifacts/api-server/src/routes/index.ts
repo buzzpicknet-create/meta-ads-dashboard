@@ -9,6 +9,7 @@ import adminRouter from "./admin";
 import activityRouter from "./activity";
 import pushRouter from "./push";
 import aiRouter from "./ai";
+import chatRouter from "./chat";
 
 const router = Router();
 
@@ -33,5 +34,6 @@ router.use(adminRouter);
 router.use(activityRouter);
 router.use(pushRouter);
 router.use(aiRouter);
+router.use(chatRouter);
 
 export default router;
