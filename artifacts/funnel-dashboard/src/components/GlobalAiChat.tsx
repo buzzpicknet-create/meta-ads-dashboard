@@ -288,7 +288,7 @@ export function GlobalAiChat() {
   };
 
   const hasUnread = messages.length > 0;
-  const suggested = isAdmin ? SUGGESTED_ADMIN : SUGGESTED_GENERAL;
+  const suggested = SUGGESTED_GENERAL;
   const hasActivityData = isAdmin && activityUsers && activityUsers.length > 0;
 
   return (
