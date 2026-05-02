@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Bot, Send, Trash2, X, MessageSquare, User, Loader2 } from "lucide-react";
+import { Bot, Send, Trash2, X, MessageSquare, User } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -318,17 +318,10 @@ export function GlobalAiChat() {
                 </div>
                 <div>
                   <SheetTitle className="text-sm font-semibold leading-tight">مساعد الإعلانات</SheetTitle>
-                  <p className="text-[10px] text-muted-foreground">
-                    {hasActivityData
-                      ? `يرى بيانات ${activityUsers!.length} عضو في الفريق`
-                      : "أسئلة عامة عن Meta Ads"}
-                  </p>
+                  <p className="text-[10px] text-muted-foreground">أسئلة عامة عن Meta Ads</p>
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                {activityLoading && (
-                  <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin ml-1" />
-                )}
                 {messages.length > 0 && (
                   <button
                     onClick={clearChat}
@@ -355,20 +348,9 @@ export function GlobalAiChat() {
               {/* Empty state */}
               {messages.length === 0 && !streaming && (
                 <div className="flex flex-col items-center gap-4 py-6">
-                  {hasActivityData ? (
-                    <div className="w-full rounded-xl bg-primary/5 border border-primary/15 px-4 py-3 text-center">
-                      <p className="text-[11px] text-primary/80 leading-relaxed">
-                        لديّ بيانات النشاط الحقيقية لـ {activityUsers!.length} عضو في فريقك.
-                        اسألني عن أدائهم، أكثرهم نشاطاً، أو أي تحليل تحتاجه.
-                      </p>
-                    </div>
-                  ) : (
                     <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
-                      {activityLoading
-                        ? "جارٍ تحميل بيانات الفريق…"
-                        : "اسألني أي سؤال عن Meta Ads وهجاوبك."}
-                    </p>
-                  )}
+                    اسألني أي سؤال عن Meta Ads وهجاوبك. لتحليل حملة معينة، افتح التشخيص من صفحة "تحليل الحملة"
+                  </p>
                   <div className="grid grid-cols-2 gap-2 w-full">
                     {suggested.map((q) => (
                       <button
