@@ -1,0 +1,84 @@
+Build a UTM Builder component in React + Tailwind CSS with the following exact logic and UI:
+## Purpose
+A media buyer tool that generates UTM-tagged URLs for Google Ads campaigns automatically from a product URL + creative angle name.
+## UTM Structure
+- utm_source = "Google" (always hardcoded)
+- utm_medium = creative angle name, slugified (spaces → dashes)
+- utm_campaign = product handle (extracted from product URL)
+## Helper Functions
+```ts
+// Extract Shopify product handle from full URL or raw string
+function extractHandle(input: string): string {
+  const s = input.trim();
+  const m = s.match(/\/products\/([^?&#/\s]+)/);
+  if (m) return m[1];
+  if (/^[a-zA-Z0-9-]+$/.test(s)) return s.toLowerCase();
+  return s.replace(/\s+/g, "-").toLowerCase();
+}
+// Slugify angle name
+function slugify(text: string): string {
+  return text.trim().replace(/\s+/g, "-");
+}
+
+Generated Outputs (from handle + angleSlug)
+Final URL (paste in ad's Final URL field):
+
+https://YOUR-STORE.com/products/{handle}?utm_source=Google&utm_medium={angleSlug}&utm_campaign={handle}
+
+Google Ads Tracking Template (paste in Campaign → Settings → URL suffix or Tracking template):
+
+{lpurl}?utm_source=Google&utm_medium={angleSlug}&utm_campaign={handle}
+
+Note: if angle is empty, use {adname} as fallback for utm_medium.
+
+UI Layout
+Inputs (2-column grid on desktop, stacked on mobile)
+Left field: "رابط المنتج" — text input, dir="ltr", placeholder: full product URL
+Below field: show extracted handle in small text when valid
+Right field: "اسم الزاوية (الكريتيف)" — text input, placeholder: "before-after or زاوية-الألم or ad1"
+Below field: show utm_medium value in small text when typed
+UTM Pills (shown when both fields have values)
+Three read-only colored pill badges in a flex-wrap row:
+
+Green pill: utm_source=Google
+Blue pill: utm_medium={angleSlug}
+Purple pill: utm_campaign={handle}
+Final URL Box (emerald theme)
+Header: "رابط الإعلان النهائي — Final URL" + ExternalLink icon
+Copy button top-right: changes to "تم النسخ ✓" with green bg for 2 seconds after click
+URL displayed in monospace code block, dir="ltr", selectable
+Tracking Template Box (amber theme)
+Header: "Google Ads — Tracking Template"
+Subtext: "ضعه في حقل URL suffix أو Tracking template في Google Ads على مستوى الحملة"
+Copy button top-right: same behavior as above
+Template displayed in monospace code block
+Empty State (when no inputs yet)
+Centered dashed border box with Link2 icon and hint text
+State
+const [productUrl, setProductUrl] = useState("");
+const [angle, setAngle] = useState("");
+const [copiedFinal, setCopiedFinal] = useState(false);
+const [copiedTemplate, setCopiedTemplate] = useState(false);
+
+Copy behavior
+function copy(text: string, which: "final" | "template") {
+  navigator.clipboard.writeText(text).then(() => {
+    if (which === "final") { setCopiedFinal(true); setTimeout(() => setCopiedFinal(false), 2000); }
+    else { setCopiedTemplate(true); setTimeout(() => setCopiedTemplate(false), 2000); }
+  });
+}
+
+Props
+{ storeBaseUrl?: string }  // default: "https://your-store.com"
+
+Icons needed (lucide-react)
+Link2, Copy, CheckCheck, ExternalLink
+
+Color themes
+Wrapper card: border-emerald-200 bg-emerald-50
+Final URL box: border-2 border-emerald-300 bg-white
+Tracking Template box: border-amber-200 bg-amber-50
+Copy button (idle): white bg, colored border
+Copy button (copied): solid colored bg, white text
+Make it RTL-friendly (Arabic labels, dir="rtl" wrapper), no AI involved — pure deterministic URL generation.
+
