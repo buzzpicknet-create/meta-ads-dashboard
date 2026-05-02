@@ -20,11 +20,19 @@ const router: IRouter = Router();
 
 // ── In-memory cache for slow creative-intelligence endpoint ──────────────────
 const CREATIVE_CACHE = new Map<string, { data: unknown; ts: number }>();
-const CREATIVE_TTL_MS = 8 * 60 * 1000; // 8 minutes
+const CREATIVE_TTL_MS = 30 * 60 * 1000; // 30 minutes (was 8)
 
 // ── In-memory cache for breakdown data ───────────────────────────────────────
 const BREAKDOWN_CACHE = new Map<string, { data: unknown; ts: number }>();
-const BREAKDOWN_TTL_MS = 8 * 60 * 1000; // 8 minutes
+const BREAKDOWN_TTL_MS = 30 * 60 * 1000; // 30 minutes (was 8)
+
+// ── In-memory cache for activities ───────────────────────────────────────────
+const ACTIVITIES_CACHE = new Map<string, { data: unknown; ts: number }>();
+const ACTIVITIES_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// ── In-memory cache for adsets ────────────────────────────────────────────────
+const ADSETS_CACHE = new Map<string, { data: unknown; ts: number }>();
+const ADSETS_TTL_MS = 60 * 60 * 1000; // 60 minutes (adsets rarely change)
 
 // ── Campaigns cache — fallback when Meta rate-limits this ad account ──────────
 const CAMPAIGNS_CACHE = new Map<string, { data: unknown; ts: number }>();
@@ -304,8 +312,17 @@ router.get("/meta/adsets", async (req, res) => {
   try {
     const accountId = String(req.query["ad_account_id"] || "").trim();
     if (!accountId) return res.status(400).json({ error: "ad_account_id required" });
+
+    const hit = ADSETS_CACHE.get(accountId);
+    if (hit && Date.now() - hit.ts < ADSETS_TTL_MS) {
+      logger.info({ accountId, cached: true }, "Adsets served from cache");
+      return res.json(hit.data);
+    }
+
     const adsets = await listAdSetRefs(accountId);
-    res.json({ ad_account_id: accountId, fetched_at: new Date().toISOString(), adsets });
+    const payload = { ad_account_id: accountId, fetched_at: new Date().toISOString(), adsets };
+    ADSETS_CACHE.set(accountId, { data: payload, ts: Date.now() });
+    res.json(payload);
   } catch (err) {
     logger.error({ err }, "Adsets fetch failed");
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -466,16 +483,23 @@ router.get("/meta/activities", async (req, res) => {
       days: (req.query["days"] as string | undefined) ?? "14",
     });
 
+    const cacheKey = `${accountId}::${since}::${until}`;
+    const hit = ACTIVITIES_CACHE.get(cacheKey);
+    if (hit && Date.now() - hit.ts < ACTIVITIES_TTL_MS) {
+      logger.info({ accountId, cached: true, since, until }, "Activities served from cache");
+      return res.json(hit.data);
+    }
+
     const activities = await getAccountActivities({ adAccountId: accountId, since, until });
-
-    logger.info({ account_id: accountId, count: activities.length, since, until }, "Fetched account activities");
-
-    res.json({
+    const payload = {
       account_id: accountId,
       period: { since, until },
       fetched_at: new Date().toISOString(),
       activities,
-    });
+    };
+    ACTIVITIES_CACHE.set(cacheKey, { data: payload, ts: Date.now() });
+    logger.info({ account_id: accountId, count: activities.length, since, until }, "Fetched account activities");
+    res.json(payload);
   } catch (err) {
     logger.error({ err }, "Activities fetch failed");
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -562,9 +586,9 @@ export async function proactiveInsightsRefresh(): Promise<{
   }>(
     `SELECT campaign_id, period_since, period_until
      FROM meta_insights_cache
-     WHERE fetched_at < NOW() - INTERVAL '20 minutes'
-     ORDER BY fetched_at ASC
-     LIMIT 40`,
+     WHERE fetched_at < NOW() - INTERVAL '45 minutes'
+     ORDER BY fetched_at DESC
+     LIMIT 10`,
     []
   ).catch(() => [] as { campaign_id: string; period_since: string; period_until: string }[]);
 
@@ -592,8 +616,8 @@ export async function proactiveInsightsRefresh(): Promise<{
   }>(
     `SELECT account_id, period_since, period_until
      FROM meta_campaigns_cache
-     WHERE fetched_at < NOW() - INTERVAL '20 minutes'
-     LIMIT 10`,
+     WHERE fetched_at < NOW() - INTERVAL '45 minutes'
+     LIMIT 5`,
     []
   ).catch(() => [] as { account_id: string; period_since: string; period_until: string }[]);
 
@@ -621,8 +645,8 @@ export async function proactiveInsightsRefresh(): Promise<{
   }>(
     `SELECT account_id, period_since, period_until
      FROM meta_overview_cache
-     WHERE fetched_at < NOW() - INTERVAL '20 minutes'
-     LIMIT 10`,
+     WHERE fetched_at < NOW() - INTERVAL '45 minutes'
+     LIMIT 5`,
     []
   ).catch(() => [] as { account_id: string; period_since: string; period_until: string }[]);
 
