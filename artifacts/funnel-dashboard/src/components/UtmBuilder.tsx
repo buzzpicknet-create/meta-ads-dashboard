@@ -9,33 +9,51 @@ function extractHandle(input: string): string {
   return s.replace(/\s+/g, "-").toLowerCase();
 }
 
+function extractBaseUrl(input: string): string {
+  const s = input.trim();
+  try {
+    const url = new URL(s.startsWith("http") ? s : `https://${s}`);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "";
+  }
+}
+
+function extractCleanProductUrl(input: string): string {
+  const s = input.trim();
+  const m = s.match(/(https?:\/\/[^/]+\/products\/[^?&#\s]+)/);
+  if (m) return m[1];
+  return "";
+}
+
 function slugify(text: string): string {
   return text.trim().replace(/\s+/g, "-");
 }
 
-interface UtmBuilderProps {
-  storeBaseUrl?: string;
-}
-
-export function UtmBuilder({ storeBaseUrl = "https://your-store.com" }: UtmBuilderProps) {
+export function UtmBuilder() {
   const [productUrl, setProductUrl] = useState("");
   const [angle, setAngle] = useState("");
   const [copiedFinal, setCopiedFinal] = useState(false);
   const [copiedDynamic, setCopiedDynamic] = useState(false);
 
   const handle = productUrl.trim() ? extractHandle(productUrl) : "";
+  const baseUrl = productUrl.trim() ? extractBaseUrl(productUrl) : "";
+  const cleanProductUrl = productUrl.trim() ? extractCleanProductUrl(productUrl) : "";
   const angleSlug = angle.trim() ? slugify(angle) : "creative";
-  const hasInputs = !!handle && !!productUrl.trim();
+  const hasInputs = !!handle && !!baseUrl;
+
+  // Use clean product URL (without existing query params) as the base
+  const productBase = cleanProductUrl || (baseUrl ? `${baseUrl}/products/${handle}` : "");
 
   // Static URL (manual angle name)
   const finalUrl =
-    `${storeBaseUrl}/products/${handle}` +
+    `${productBase}` +
     `?utm_source=facebook&utm_medium=paid_social` +
     `&utm_campaign=${handle}&utm_content=${angleSlug}`;
 
   // Dynamic URL using Meta's dynamic parameters
   const dynamicUrl =
-    `${storeBaseUrl}/products/${handle}` +
+    `${productBase}` +
     `?utm_source=facebook&utm_medium={{placement}}` +
     `&utm_campaign={{campaign.name}}&utm_content={{ad.name}}`;
 
