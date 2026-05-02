@@ -1567,7 +1567,7 @@ function buildCampaignContext(
 }
 
 // ── AI Chat Message type ─────────────────────────────────────────────────────
-interface ChatMessage { role: "user" | "assistant"; content: string }
+interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string }
 
 // ── Simple markdown renderer for AI responses ─────────────────────────────────
 function renderInline(text: string): React.ReactNode {
@@ -1735,11 +1735,13 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   const send = useCallback(async () => {
     const text = input.trim();
     if ((!text && !attachment) || streaming) return;
-    const userText = text || (attachment?.isImage ? "📎 صورة مرفقة" : `📎 ${attachment?.name}`);
+    const userText = text || (attachment?.isImage ? "" : `📎 ${attachment?.name}`);
     setInput("");
     const att = attachment;
     setAttachment(null);
-    const newMessages: ChatMessage[] = [...messages, { role: "user", content: userText }];
+    const newMsg: ChatMessage = { role: "user", content: userText };
+    if (att?.isImage && att.previewUrl) newMsg.imagePreviewUrl = att.previewUrl;
+    const newMessages: ChatMessage[] = [...messages, newMsg];
     setMessages(newMessages);
     setStreaming(true);
     setStreamingText("");
@@ -1877,8 +1879,17 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
                 style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
                 dir="rtl"
               >
+                {msg.imagePreviewUrl && (
+                  <img
+                    src={msg.imagePreviewUrl}
+                    alt="مرفق"
+                    className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20"
+                    style={{ maxHeight: 200 }}
+                    onClick={() => window.open(msg.imagePreviewUrl, "_blank")}
+                  />
+                )}
                 {msg.role === "user"
-                  ? msg.content
+                  ? msg.content && <span>{msg.content}</span>
                   : <RenderMarkdown text={msg.content} />}
               </div>
             </div>

@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
 
-interface ChatMessage { role: "user" | "assistant"; content: string }
+interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string }
 
 interface ActivityLog {
   action: string;
@@ -259,11 +259,13 @@ export function GlobalAiChat() {
   const send = useCallback(async () => {
     const text = input.trim();
     if ((!text && !attachment) || streaming) return;
-    const userText = text || (attachment?.isImage ? "📎 صورة مرفقة" : `📎 ${attachment?.name}`);
+    const userText = text || (attachment?.isImage ? "" : `📎 ${attachment?.name}`);
     setInput("");
     const att = attachment;
     setAttachment(null);
-    const newMessages: ChatMessage[] = [...messages, { role: "user", content: userText }];
+    const newMsg: ChatMessage = { role: "user", content: userText };
+    if (att?.isImage && att.previewUrl) newMsg.imagePreviewUrl = att.previewUrl;
+    const newMessages: ChatMessage[] = [...messages, newMsg];
     setMessages(newMessages);
     setStreaming(true);
     setStreamingText("");
@@ -441,7 +443,18 @@ export function GlobalAiChat() {
                     style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
                     dir="rtl"
                   >
-                    {msg.role === "user" ? msg.content : <RenderMarkdown text={msg.content} />}
+                    {msg.imagePreviewUrl && (
+                      <img
+                        src={msg.imagePreviewUrl}
+                        alt="مرفق"
+                        className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20"
+                        style={{ maxHeight: 220 }}
+                        onClick={() => window.open(msg.imagePreviewUrl, "_blank")}
+                      />
+                    )}
+                    {msg.role === "user"
+                      ? msg.content && <span>{msg.content}</span>
+                      : <RenderMarkdown text={msg.content} />}
                   </div>
                 </div>
               ))}
