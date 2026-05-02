@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { logDiagnosisRun } from "@/hooks/use-activity-logger";
-import { ChevronDown, Stethoscope, RefreshCw, Search, X, Send, Bot, User, Trash2 } from "lucide-react";
+import { ChevronDown, Stethoscope, RefreshCw, Search, X, Send, Bot, User, Trash2, Paperclip } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -1665,10 +1665,48 @@ interface AiChatTabProps {
   streamingText: string;
   setStreamingText: React.Dispatch<React.SetStateAction<string>>;
 }
+interface Attachment {
+  base64?: string;
+  mimeType?: string;
+  previewUrl?: string;
+  text?: string;
+  name: string;
+  isImage: boolean;
+}
+
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const TEXT_TYPES  = ["text/plain", "text/csv", "application/json"];
+
+function readFileAsAttachment(file: File): Promise<Attachment> {
+  return new Promise((resolve, reject) => {
+    const isImage = IMAGE_TYPES.includes(file.type);
+    const isText  = TEXT_TYPES.includes(file.type) || file.name.endsWith(".txt") || file.name.endsWith(".csv");
+    if (!isImage && !isText) { reject(new Error("نوع الملف غير مدعوم")); return; }
+
+    const reader = new FileReader();
+    if (isImage) {
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const base64  = dataUrl.split(",")[1] ?? "";
+        resolve({ base64, mimeType: file.type, previewUrl: dataUrl, name: file.name, isImage: true });
+      };
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = (e) => {
+        resolve({ text: e.target?.result as string, name: file.name, isImage: false });
+      };
+      reader.readAsText(file);
+    }
+    reader.onerror = () => reject(new Error("فشل قراءة الملف"));
+  });
+}
+
 function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText }: AiChatTabProps) {
   const [input, setInput] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const campaignContext = useMemo(() => buildCampaignContext(insights, prevInsights, prevPeriod), [insights, prevInsights, prevPeriod]);
 
@@ -1676,11 +1714,22 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText]);
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!fileInputRef.current) fileInputRef.current = e.target;
+    e.target.value = "";
+    if (!file) return;
+    try { setAttachment(await readFileAsAttachment(file)); } catch (err) { alert(err instanceof Error ? err.message : "خطأ"); }
+  };
+
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming) return;
+    if ((!text && !attachment) || streaming) return;
+    const userText = text || (attachment?.isImage ? "📎 صورة مرفقة" : `📎 ${attachment?.name}`);
     setInput("");
-    const newMessages: ChatMessage[] = [...messages, { role: "user", content: text }];
+    const att = attachment;
+    setAttachment(null);
+    const newMessages: ChatMessage[] = [...messages, { role: "user", content: userText }];
     setMessages(newMessages);
     setStreaming(true);
     setStreamingText("");
@@ -1689,10 +1738,14 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     abortRef.current = ctrl;
 
     try {
+      const body: Record<string, unknown> = { campaignContext, messages: newMessages };
+      if (att?.isImage)  { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
+      if (att?.text)     { body.fileText = att.text; body.fileName = att.name; }
+
       const resp = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignContext, messages: newMessages }),
+        body: JSON.stringify(body),
         signal: ctrl.signal,
       });
 
@@ -1748,6 +1801,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     setMessages([]);
     setStreamingText("");
     setStreaming(false);
+    setAttachment(null);
   };
 
   const SUGGESTED = [
@@ -1857,6 +1911,28 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
 
       {/* Input area */}
       <div className="shrink-0 border-t border-border/60 pt-3 mt-1">
+        {/* Attachment preview */}
+        {attachment && (
+          <div className="mb-2 flex items-center gap-2">
+            {attachment.isImage && attachment.previewUrl ? (
+              <div className="relative inline-flex">
+                <img src={attachment.previewUrl} alt={attachment.name} className="h-16 w-auto max-w-[120px] rounded-lg border border-border object-cover" />
+                <button onClick={() => setAttachment(null)} className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80">
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+                <Paperclip className="h-3 w-3 shrink-0" />
+                <span className="max-w-[160px] truncate">{attachment.name}</span>
+                <button onClick={() => setAttachment(null)} className="text-muted-foreground hover:text-destructive ml-1">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex gap-2 items-end">
           {messages.length > 0 && (
             <button
@@ -1868,6 +1944,21 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
             </button>
           )}
           <div className="flex-1 flex items-end gap-2 rounded-xl border border-border bg-card focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all px-3 py-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp,text/plain,text/csv,application/json,.txt,.csv,.json"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={streaming}
+              className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 mb-0.5"
+              title="إرفاق صورة أو ملف"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+            </button>
             <textarea
               ref={inputRef}
               value={input}
@@ -1887,7 +1978,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
             />
             <button
               onClick={send}
-              disabled={!input.trim() || streaming}
+              disabled={(!input.trim() && !attachment) || streaming}
               className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
             >
               <Send className="h-3.5 w-3.5" />

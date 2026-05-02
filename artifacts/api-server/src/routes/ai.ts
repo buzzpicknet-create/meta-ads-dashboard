@@ -227,10 +227,19 @@ interface ChatMessage {
 interface AiChatBody {
   campaignContext: string;
   messages: ChatMessage[];
+  imageBase64?: string;
+  imageMimeType?: string;
+  fileText?: string;
+  fileName?: string;
 }
 
+type OpenAiMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "auto" } }> }
+  | { role: "assistant"; content: string };
+
 router.post("/ai/chat", async (req: Request, res: Response) => {
-  const { campaignContext, messages } = req.body as AiChatBody;
+  const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName } = req.body as AiChatBody;
 
   if (!campaignContext || !Array.isArray(messages) || messages.length === 0) {
     res.status(400).json({ error: "campaignContext and messages are required" });
@@ -245,15 +254,39 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   try {
     const systemWithContext = `${SYSTEM_PROMPT}\n\n══════════════════════════════════════\nبيانات الحملة الحالية (استخدمها في كل تشخيص)\n══════════════════════════════════════\n${campaignContext}`;
 
-    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+    const builtMessages: OpenAiMessage[] = [
       { role: "system", content: systemWithContext },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
     ];
+
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      const isLast = i === messages.length - 1;
+
+      if (m.role === "user" && isLast && (imageBase64 || fileText)) {
+        const textContent = fileText
+          ? `${m.content}\n\n[محتوى الملف "${fileName ?? "file"}"]\n${fileText}`
+          : m.content;
+
+        if (imageBase64 && imageMimeType) {
+          builtMessages.push({
+            role: "user",
+            content: [
+              { type: "text", text: textContent },
+              { type: "image_url", image_url: { url: `data:${imageMimeType};base64,${imageBase64}`, detail: "auto" } },
+            ],
+          });
+        } else {
+          builtMessages.push({ role: "user", content: textContent });
+        }
+      } else {
+        builtMessages.push({ role: m.role, content: m.content });
+      }
+    }
 
     const stream = await openai.chat.completions.create({
       model: "gpt-5.4",
       max_completion_tokens: 8192,
-      messages: chatMessages,
+      messages: builtMessages,
       stream: true,
     });
 
