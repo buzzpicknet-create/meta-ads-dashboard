@@ -356,9 +356,11 @@ export function GlobalAiChat() {
       .finally(() => setActivityLoading(false));
   }, [open, isAdmin, activityUsers]);
 
-  // Fetch campaigns context when chat opens (once per session, for all users)
+  // Fetch campaigns context when chat opens (retries each open if previous attempt failed)
   useEffect(() => {
-    if (!open || campaignsCtx !== null || campaignsLoading) return;
+    if (!open || campaignsLoading) return;
+    // Only skip if we already have real campaign data (not the fallback)
+    if (campaignsCtx !== null && campaignsCtx !== GENERAL_CONTEXT) return;
     setCampaignsLoading(true);
 
     const until = new Date();
@@ -375,6 +377,7 @@ export function GlobalAiChat() {
           return;
         }
         const allCampaigns: CampaignData[] = [];
+        let anySuccess = false;
         for (const acc of accounts) {
           try {
             const r = await fetch(
@@ -382,14 +385,20 @@ export function GlobalAiChat() {
               { credentials: "include" }
             );
             if (r.ok) {
+              anySuccess = true;
               const d = await r.json() as { campaigns?: CampaignData[] };
               if (d.campaigns) allCampaigns.push(...d.campaigns);
             }
           } catch {}
         }
-        setCampaignsCtx(buildCampaignsContext(allCampaigns));
+        // Only set context if we got real data; otherwise leave as null to retry next open
+        if (anySuccess) {
+          setCampaignsCtx(buildCampaignsContext(allCampaigns));
+        } else {
+          setCampaignsCtx(null);
+        }
       })
-      .catch(() => { setCampaignsCtx(GENERAL_CONTEXT); })
+      .catch(() => { setCampaignsCtx(null); })
       .finally(() => setCampaignsLoading(false));
   }, [open, campaignsCtx, campaignsLoading]);
 
@@ -408,10 +417,18 @@ export function GlobalAiChat() {
   }, [open, loadConversations]);
 
   const buildContext = useCallback((): string => {
-    if (isAdmin && activityUsers && activityUsers.length > 0) {
-      return buildActivityContext(activityUsers);
+    const parts: string[] = [];
+
+    if (campaignsCtx && campaignsCtx !== GENERAL_CONTEXT) {
+      parts.push(campaignsCtx);
     }
-    return campaignsCtx ?? GENERAL_CONTEXT;
+
+    if (isAdmin && activityUsers && activityUsers.length > 0) {
+      parts.push(buildActivityContext(activityUsers));
+    }
+
+    if (parts.length > 0) return parts.join("\n\n===\n\n");
+    return GENERAL_CONTEXT;
   }, [isAdmin, activityUsers, campaignsCtx]);
 
   // Ensure there is an active conversation, creating one if needed
