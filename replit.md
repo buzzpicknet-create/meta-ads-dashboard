@@ -30,6 +30,7 @@ Arabic RTL Meta Ads dashboard. All amounts in EGP. UI fully Arabic RTL.
 
 - **`/` — تحليل الحملة (Campaign Dashboard)**: Interactive decision system — KPI cards, Alert System, Priority Engine, What-if Simulator, Breakdown Analysis, Daily Trend chart. Driven by `useInsights` / `useCampaigns`.
 - **`/overview` — نظرة عامة (Account Overview)**: Per-account tabs showing health status (green/yellow/red), 6 KPIs with prev-period delta, `AccountHealthPanel` (6-metric diagnostic panel with campaign breakdown), Priority Engine, Best/Worst campaigns, daily trend chart. Auto-snapshots alerts to DB on every data load. Driven by `useAccountOverview`.
+- **`/budget` — توزيع الميزانية (Budget Pacing Monitor)**: Per-campaign monthly budget targets stored in DB. Shows current-month spend vs. target, expected spend (with dashed marker), projected end-of-month spend, daily budget needed to hit target, and color-coded pacing status (on_track/overpacing/underpacing). Inline editor lets users set/edit monthly budget target per campaign. Summary KPI cards show account-level aggregates. Visible to admin + media_buyer.
 - **`/activity` — نشاط الفريق (Team Activity Monitor)**: Shows unresolved alerts (with age + urgency), action logging form per alert, and 14-day action history with outcome tracking.
 - **`/how-to` — دليل الحلول (Diagnostic Guide)**: Actionable fix guides per metric problem + What-If Calculator.
 

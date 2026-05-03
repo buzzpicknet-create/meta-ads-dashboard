@@ -275,6 +275,18 @@ async function runMigrations() {
     ON cpa_alert_log (campaign_id, account_id, alert_type, notified_at DESC)
   `);
 
+  // Budget targets — monthly spend goals per campaign
+  await query(`
+    CREATE TABLE IF NOT EXISTS budget_targets (
+      campaign_id VARCHAR(100) NOT NULL,
+      account_id  VARCHAR(50)  NOT NULL,
+      monthly_budget DOUBLE PRECISION NOT NULL DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (campaign_id, account_id)
+    )
+  `);
+
   // Page visibility settings per role
   await query(`
     CREATE TABLE IF NOT EXISTS page_visibility (
@@ -304,7 +316,10 @@ async function runMigrations() {
       ('/media',     'media_manager', true),
       ('/decisions', 'admin',         true),
       ('/decisions', 'media_buyer',   false),
-      ('/decisions', 'media_manager', false)
+      ('/decisions', 'media_manager', false),
+      ('/budget',    'admin',         true),
+      ('/budget',    'media_buyer',   true),
+      ('/budget',    'media_manager', false)
     ON CONFLICT (page_path, role) DO NOTHING
   `);
   // Track one-time migrations

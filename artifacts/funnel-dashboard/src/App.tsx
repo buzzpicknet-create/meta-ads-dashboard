@@ -11,10 +11,11 @@ import CreativePage from "@/pages/Creative";
 import LoginPage from "@/pages/Login";
 import AdminPage from "@/pages/AdminPage";
 import DecisionsPage from "@/pages/Decisions";
+import BudgetPacingPage from "@/pages/BudgetPacing";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Wallet } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 
@@ -32,6 +33,7 @@ const ALL_NAV_ITEMS = [
   { href: "/overview",  label: "نظرة عامة",        Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin", "media_buyer"] },
   { href: "/",          label: "تحليل الحملة",     Icon: Activity,        useRoute: "/",          roles: ["admin", "media_buyer"] },
   { href: "/decisions", label: "تشخيص الحملات",   Icon: Target,          useRoute: "/decisions", roles: ["admin"] },
+  { href: "/budget",    label: "توزيع الميزانية", Icon: Wallet,          useRoute: "/budget",    roles: ["admin", "media_buyer"] },
   { href: "/media",     label: "طلبات الميديا",    Icon: Clapperboard,    useRoute: "/media",     roles: ["admin", "media_buyer", "media_manager"] },
   { href: "/activity",  label: "نشاط الفريق",      Icon: ClipboardList,   useRoute: "/activity",  roles: ["admin", "media_buyer"] },
   { href: "/creative",  label: "مركز الكريتف",     Icon: Sparkles,        useRoute: "/creative",  roles: ["admin", "media_buyer"] },
@@ -251,6 +253,7 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
         <Route path="/media" component={MediaRequestsPage} />
         <Route path="/admin" component={isAdmin ? AdminPage : NotFound} />
         <Route path="/decisions" component={canAccess("/decisions") ? DecisionsPage : NotFound} />
+        <Route path="/budget" component={canAccess("/budget") ? BudgetPacingPage : NotFound} />
         <Route path="/" component={Dashboard} />
         <Route component={NotFound} />
       </Switch>
