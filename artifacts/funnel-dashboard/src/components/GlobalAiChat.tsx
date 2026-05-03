@@ -142,7 +142,16 @@ interface CampaignData {
   ctr: number;
 }
 
-function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: CampaignData[]): string {
+interface DailyPoint {
+  day: string;
+  spend: number;
+  impressions: number;
+  purchases: number;
+  cpa: number;
+  link_clicks: number;
+}
+
+function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: CampaignData[], dailyRows: DailyPoint[]): string {
   if (campaigns30d.length === 0 && campaigns7d.length === 0) return GENERAL_CONTEXT;
 
   const fmt = (n: number, dec = 0) =>
@@ -217,9 +226,41 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
     lines.push("");
   }
 
+  // Daily breakdown table (last 14 days sorted ascending)
+  if (dailyRows.length > 0) {
+    const sorted = [...dailyRows].sort((a, b) => a.day.localeCompare(b.day)).slice(-14);
+    lines.push("## الأداء اليومي (آخر 14 يوم):");
+    lines.push("");
+    lines.push("| التاريخ | الإنفاق (EGP) | الطلبات | CPA (EGP) | النقرات |");
+    lines.push("|---------|--------------|---------|-----------|---------|");
+    for (const d of sorted) {
+      const dayLabel = new Date(d.day).toLocaleDateString("ar-EG", { weekday: "short", month: "numeric", day: "numeric" });
+      lines.push(
+        `| ${dayLabel} | ${fmt(d.spend)} | ${fmt(d.purchases)} | ${d.cpa > 0 ? fmt(d.cpa) : "—"} | ${fmt(d.link_clicks)} |`
+      );
+    }
+    lines.push("");
+
+    // Highlight trend: compare last 3 days vs previous 3 days
+    if (sorted.length >= 6) {
+      const last3 = sorted.slice(-3);
+      const prev3 = sorted.slice(-6, -3);
+      const avgCpaLast = last3.reduce((s, d) => s + d.cpa, 0) / last3.length;
+      const avgCpaPrev = prev3.reduce((s, d) => s + d.cpa, 0) / prev3.length;
+      const cpaChange = avgCpaPrev > 0 ? ((avgCpaLast - avgCpaPrev) / avgCpaPrev) * 100 : 0;
+      const avgSpendLast = last3.reduce((s, d) => s + d.spend, 0) / last3.length;
+      const avgSpendPrev = prev3.reduce((s, d) => s + d.spend, 0) / prev3.length;
+      const spendChange = avgSpendPrev > 0 ? ((avgSpendLast - avgSpendPrev) / avgSpendPrev) * 100 : 0;
+      lines.push("### تحليل الاتجاه (آخر 3 أيام مقابل السابقة):");
+      lines.push(`- متوسط CPA: ${fmt(avgCpaLast)} EGP → ${cpaChange > 2 ? `ارتفع ↑${cpaChange.toFixed(0)}%` : cpaChange < -2 ? `انخفض ↓${Math.abs(cpaChange).toFixed(0)}%` : "ثابت"}`);
+      lines.push(`- متوسط الإنفاق اليومي: ${fmt(avgSpendLast)} EGP → ${spendChange > 2 ? `ارتفع ↑${spendChange.toFixed(0)}%` : spendChange < -2 ? `انخفض ↓${Math.abs(spendChange).toFixed(0)}%` : "ثابت"}`);
+      lines.push("");
+    }
+  }
+
   lines.push("---");
   lines.push(
-    "بناءً على هذه البيانات الحقيقية، قدّم إجابات مباشرة وحاسمة: اذكر أسماء الحملات الفائزة والخاسرة بالأرقام، وضح التحسن أو التراجع بالمقارنة بين الفترتين، واقترح خطوات تنفيذية فورية."
+    "بناءً على هذه البيانات الحقيقية (تشمل مقارنة 7/30 يوم وأداء يومي تفصيلي)، قدّم إجابات مباشرة وحاسمة بالأرقام. حدّد الحملات الفائزة والخاسرة، وضّح الاتجاهات اليومية، واقترح خطوات تنفيذية فورية. لا تقل 'لا أعرف' — استنتج من الأرقام الموجودة."
   );
 
   return lines.join("\n");
@@ -406,14 +447,16 @@ export function GlobalAiChat() {
 
         const all30: CampaignData[] = [];
         const all7: CampaignData[] = [];
+        const allDaily: DailyPoint[] = [];
         let anySuccess = false;
 
-        // Fetch both periods in parallel for each account
+        // Fetch campaigns (7d + 30d) and daily overview in parallel for each account
         await Promise.all(accounts.map(async (acc) => {
           try {
-            const [r30, r7] = await Promise.all([
+            const [r30, r7, rDaily] = await Promise.all([
               fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s30}&until=${u}`, { credentials: "include" }),
               fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s7}&until=${u}`,  { credentials: "include" }),
+              fetch(`${API}/meta/account-overview?ad_account_id=${acc.id}&since=${s30}&until=${u}`, { credentials: "include" }),
             ]);
             if (r30.ok) {
               anySuccess = true;
@@ -425,11 +468,15 @@ export function GlobalAiChat() {
               const d = await r7.json() as { campaigns?: CampaignData[] };
               if (d.campaigns) all7.push(...d.campaigns);
             }
+            if (rDaily.ok) {
+              const d = await rDaily.json() as { daily?: DailyPoint[] };
+              if (d.daily) allDaily.push(...d.daily);
+            }
           } catch {}
         }));
 
         if (anySuccess) {
-          setCampaignsCtx(buildCampaignsContext(all30, all7));
+          setCampaignsCtx(buildCampaignsContext(all30, all7, allDaily));
         } else {
           setCampaignsCtx(null);
         }
