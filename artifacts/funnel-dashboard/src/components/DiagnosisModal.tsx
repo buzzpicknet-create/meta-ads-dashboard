@@ -1744,7 +1744,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   const loadConversations = useCallback(async () => {
     setHistLoading(true);
     try {
-      const r = await fetch(`${CHAT_API}/chat/conversations?campaign_id=${encodeURIComponent(campaignId)}`);
+      const r = await fetch(`${CHAT_API}/chat/conversations?campaign_id=${encodeURIComponent(campaignId)}`, { credentials: "include" });
       if (r.ok) {
         const d = await r.json() as { conversations: ConvSummary[] };
         setConversations(d.conversations);
@@ -1762,6 +1762,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       const r = await fetch(`${CHAT_API}/chat/conversations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ title, campaign_id: campaignId }),
       });
       if (!r.ok) return null;
@@ -1777,6 +1778,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       await fetch(`${CHAT_API}/chat/conversations/${cid}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ messages: msgs }),
       });
     } catch {}
@@ -1785,7 +1787,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   // Load a conversation from history
   const loadConversation = useCallback(async (conv: ConvSummary) => {
     try {
-      const r = await fetch(`${CHAT_API}/chat/conversations/${conv.id}/messages`);
+      const r = await fetch(`${CHAT_API}/chat/conversations/${conv.id}/messages`, { credentials: "include" });
       if (!r.ok) return;
       const d = await r.json() as { messages: ChatMessage[] };
       setConvId(conv.id);
@@ -1800,7 +1802,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     e.stopPropagation();
     setDeletingId(id);
     try {
-      await fetch(`${CHAT_API}/chat/conversations/${id}`, { method: "DELETE" });
+      await fetch(`${CHAT_API}/chat/conversations/${id}`, { method: "DELETE", credentials: "include" });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (convId === id) {
         setConvId(null);
@@ -1864,6 +1866,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       const resp = await fetch(`${CHAT_API}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
