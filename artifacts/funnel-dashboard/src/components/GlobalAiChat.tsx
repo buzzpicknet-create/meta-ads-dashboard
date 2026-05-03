@@ -142,12 +142,18 @@ interface CampaignData {
   ctr: number;
 }
 
-function buildCampaignsContext(campaigns: CampaignData[]): string {
-  if (campaigns.length === 0) return GENERAL_CONTEXT;
+function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: CampaignData[]): string {
+  if (campaigns30d.length === 0 && campaigns7d.length === 0) return GENERAL_CONTEXT;
 
   const fmt = (n: number, dec = 0) =>
     n.toLocaleString("ar-EG", { maximumFractionDigits: dec });
   const fmtPct = (n: number) => `${n.toFixed(2)}%`;
+  const delta = (recent: number, older: number): string => {
+    if (older === 0) return "";
+    const pct = ((recent - older) / older) * 100;
+    if (Math.abs(pct) < 2) return " (ثابت)";
+    return pct > 0 ? ` (↑ ${pct.toFixed(0)}%)` : ` (↓ ${Math.abs(pct).toFixed(0)}%)`;
+  };
 
   const statusMap: Record<string, string> = {
     ACTIVE: "نشطة ✅",
@@ -157,41 +163,63 @@ function buildCampaignsContext(campaigns: CampaignData[]): string {
     CAMPAIGN_PAUSED: "موقوفة ⏸",
   };
 
-  const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
-  const totalPurchases = campaigns.reduce((s, c) => s + c.purchases, 0);
-  const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
-  const activeCampaigns = campaigns.filter(
+  // Build lookup map for 7d by campaign id
+  const map7d = new Map<string, CampaignData>(campaigns7d.map((c) => [c.id, c]));
+
+  const base = campaigns30d.length > 0 ? campaigns30d : campaigns7d;
+  const totalSpend30 = campaigns30d.reduce((s, c) => s + c.spend, 0);
+  const totalPurchases30 = campaigns30d.reduce((s, c) => s + c.purchases, 0);
+  const avgCpa30 = totalPurchases30 > 0 ? totalSpend30 / totalPurchases30 : 0;
+
+  const totalSpend7 = campaigns7d.reduce((s, c) => s + c.spend, 0);
+  const totalPurchases7 = campaigns7d.reduce((s, c) => s + c.purchases, 0);
+  const avgCpa7 = totalPurchases7 > 0 ? totalSpend7 / totalPurchases7 : 0;
+
+  const activeCampaigns = base.filter(
     (c) => c.effective_status === "ACTIVE" || c.effective_status === "CAMPAIGN_PAUSED"
   );
 
   const lines: string[] = [
-    "أنت مساعد Meta Ads متخصص ولديك وصول كامل لبيانات الحملات الإعلانية التالية (آخر 30 يوم). أجب بناءً على هذه البيانات الحقيقية وقدّم توصيات عملية.",
+    "أنت مساعد Meta Ads متخصص ولديك بيانات الحملات لفترتين: آخر 7 أيام وآخر 30 يوم.",
+    "قاعدة مهمة: دائماً أجب بشكل مباشر وحاسم بناءً على الأرقام الموجودة. لا تقل 'لا أعرف' أو 'البيانات غير كافية' — استخدم ما عندك واستنتج منه.",
     "",
-    `## ملخص إجمالي (آخر 30 يوم):`,
-    `- إجمالي الإنفاق: ${fmt(totalSpend)} EGP`,
-    `- إجمالي الطلبات: ${fmt(totalPurchases)}`,
-    `- متوسط CPA: ${avgCpa > 0 ? fmt(avgCpa) + " EGP" : "—"}`,
-    `- الحملات النشطة: ${activeCampaigns.length} من ${campaigns.length}`,
+    "## ملخص الأداء:",
     "",
-    `## تفاصيل الحملات (${campaigns.length} حملة):`,
+    "| المؤشر | آخر 7 أيام | آخر 30 يوم | التغيير |",
+    "|--------|-----------|------------|---------|",
+    `| الإنفاق | ${fmt(totalSpend7)} EGP | ${fmt(totalSpend30)} EGP | ${delta(totalSpend7, totalSpend30 / 30 * 7)} |`,
+    `| الطلبات | ${fmt(totalPurchases7)} | ${fmt(totalPurchases30)} | ${delta(totalPurchases7, totalPurchases30 / 30 * 7)} |`,
+    `| متوسط CPA | ${avgCpa7 > 0 ? fmt(avgCpa7) + " EGP" : "—"} | ${avgCpa30 > 0 ? fmt(avgCpa30) + " EGP" : "—"} | ${avgCpa7 > 0 && avgCpa30 > 0 ? delta(avgCpa7, avgCpa30) : ""} |`,
+    "",
+    `الحملات النشطة: ${activeCampaigns.length} من ${base.length}`,
+    "",
+    `## تفاصيل كل حملة (7 أيام | 30 يوم):`,
     "",
   ];
 
-  for (const c of campaigns) {
-    lines.push(`### ${c.name}`);
-    lines.push(`- الحالة: ${statusMap[c.effective_status] ?? c.effective_status}`);
-    lines.push(`- الإنفاق: ${fmt(c.spend)} EGP`);
-    lines.push(`- الطلبات: ${fmt(c.purchases)}`);
-    lines.push(`- CPA: ${c.cpa > 0 ? fmt(c.cpa) + " EGP" : "—"}`);
-    lines.push(`- الانطباعات: ${fmt(c.impressions)}`);
-    lines.push(`- CTR: ${fmtPct(c.ctr)}`);
-    lines.push(`- الهدف: ${c.objective}`);
+  for (const c30 of base) {
+    const c7 = map7d.get(c30.id);
+    lines.push(`### ${c30.name}`);
+    lines.push(`- الحالة: ${statusMap[c30.effective_status] ?? c30.effective_status}`);
+    lines.push(`- الهدف: ${c30.objective}`);
+
+    if (c7) {
+      lines.push(`- الإنفاق: ${fmt(c7.spend)} EGP (7ي) | ${fmt(c30.spend)} EGP (30ي)${delta(c7.spend, c30.spend / 30 * 7)}`);
+      lines.push(`- الطلبات: ${fmt(c7.purchases)} (7ي) | ${fmt(c30.purchases)} (30ي)${delta(c7.purchases, c30.purchases / 30 * 7)}`);
+      lines.push(`- CPA: ${c7.cpa > 0 ? fmt(c7.cpa) + " EGP" : "—"} (7ي) | ${c30.cpa > 0 ? fmt(c30.cpa) + " EGP" : "—"} (30ي)${c7.cpa > 0 && c30.cpa > 0 ? delta(c7.cpa, c30.cpa) : ""}`);
+      lines.push(`- CTR: ${fmtPct(c7.ctr)} (7ي) | ${fmtPct(c30.ctr)} (30ي)`);
+    } else {
+      lines.push(`- الإنفاق: ${fmt(c30.spend)} EGP`);
+      lines.push(`- الطلبات: ${fmt(c30.purchases)}`);
+      lines.push(`- CPA: ${c30.cpa > 0 ? fmt(c30.cpa) + " EGP" : "—"}`);
+      lines.push(`- CTR: ${fmtPct(c30.ctr)}`);
+    }
     lines.push("");
   }
 
   lines.push("---");
   lines.push(
-    "بناءً على هذه البيانات الحقيقية، أجب على أسئلة المستخدم عن الحملات، قارن أداءها، حدّد المشاكل، واقترح توصيات عملية."
+    "بناءً على هذه البيانات الحقيقية، قدّم إجابات مباشرة وحاسمة: اذكر أسماء الحملات الفائزة والخاسرة بالأرقام، وضح التحسن أو التراجع بالمقارنة بين الفترتين، واقترح خطوات تنفيذية فورية."
   );
 
   return lines.join("\n");
@@ -356,44 +384,52 @@ export function GlobalAiChat() {
       .finally(() => setActivityLoading(false));
   }, [open, isAdmin, activityUsers]);
 
-  // Fetch campaigns context when chat opens (retries each open if previous attempt failed)
+  // Fetch campaigns context (7d + 30d) when chat opens; retries each open if previous attempt failed
   useEffect(() => {
     if (!open || campaignsLoading) return;
-    // Only skip if we already have real campaign data (not the fallback)
     if (campaignsCtx !== null && campaignsCtx !== GENERAL_CONTEXT) return;
     setCampaignsLoading(true);
 
     const until = new Date();
-    const since = new Date(until);
-    since.setDate(since.getDate() - 30);
+    const since30 = new Date(until); since30.setDate(since30.getDate() - 30);
+    const since7  = new Date(until); since7.setDate(since7.getDate() - 7);
     const fmtDate = (d: Date) => d.toISOString().split("T")[0]!;
+    const u = fmtDate(until);
+    const s30 = fmtDate(since30);
+    const s7  = fmtDate(since7);
 
     fetch(`${API}/meta/accounts`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then(async (data) => {
         const accounts: { id: string }[] = data?.accounts ?? [];
-        if (accounts.length === 0) {
-          setCampaignsCtx(GENERAL_CONTEXT);
-          return;
-        }
-        const allCampaigns: CampaignData[] = [];
+        if (accounts.length === 0) { setCampaignsCtx(GENERAL_CONTEXT); return; }
+
+        const all30: CampaignData[] = [];
+        const all7: CampaignData[] = [];
         let anySuccess = false;
-        for (const acc of accounts) {
+
+        // Fetch both periods in parallel for each account
+        await Promise.all(accounts.map(async (acc) => {
           try {
-            const r = await fetch(
-              `${API}/meta/campaigns?ad_account_id=${acc.id}&since=${fmtDate(since)}&until=${fmtDate(until)}`,
-              { credentials: "include" }
-            );
-            if (r.ok) {
+            const [r30, r7] = await Promise.all([
+              fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s30}&until=${u}`, { credentials: "include" }),
+              fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s7}&until=${u}`,  { credentials: "include" }),
+            ]);
+            if (r30.ok) {
               anySuccess = true;
-              const d = await r.json() as { campaigns?: CampaignData[] };
-              if (d.campaigns) allCampaigns.push(...d.campaigns);
+              const d = await r30.json() as { campaigns?: CampaignData[] };
+              if (d.campaigns) all30.push(...d.campaigns);
+            }
+            if (r7.ok) {
+              anySuccess = true;
+              const d = await r7.json() as { campaigns?: CampaignData[] };
+              if (d.campaigns) all7.push(...d.campaigns);
             }
           } catch {}
-        }
-        // Only set context if we got real data; otherwise leave as null to retry next open
+        }));
+
         if (anySuccess) {
-          setCampaignsCtx(buildCampaignsContext(allCampaigns));
+          setCampaignsCtx(buildCampaignsContext(all30, all7));
         } else {
           setCampaignsCtx(null);
         }
