@@ -392,6 +392,7 @@ export function GlobalAiChat() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [searching, setSearching] = useState(false);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -602,6 +603,8 @@ export function GlobalAiChat() {
             const data = JSON.parse(line.slice(6));
             if (data.error) throw new Error(data.error);
             if (data.done) break;
+            if (data.searching === true) { setSearching(true); }
+            if (data.searching === false) { setSearching(false); }
             if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
@@ -619,6 +622,7 @@ export function GlobalAiChat() {
     } finally {
       setStreaming(false);
       setStreamingText("");
+      setSearching(false);
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
@@ -956,11 +960,20 @@ export function GlobalAiChat() {
                       <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
                         <Bot className="h-3.5 w-3.5 text-primary" />
                       </div>
-                      <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
-                        {[0, 1, 2].map((k) => (
-                          <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
-                        ))}
-                      </div>
+                      {searching ? (
+                        <div className="flex items-center gap-2 px-4 py-3 rounded-2xl rounded-bl-sm bg-primary/5 border border-primary/20 shadow-sm">
+                          <span className="text-xs text-primary/80 font-medium">جاري البحث في البيانات…</span>
+                          {[0, 1, 2].map((k) => (
+                            <span key={k} className="w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
+                          {[0, 1, 2].map((k) => (
+                            <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -1,5 +1,11 @@
 import { Router, type Request, type Response } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import {
+  listAdAccounts,
+  listCampaigns,
+  getCampaignInsights,
+  getAccountOverview,
+} from "../lib/meta-api.js";
 
 const router = Router();
 
@@ -34,6 +40,13 @@ const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Fac
   - "الأسبوع الأول" = أول 7 صفوف
 لو الجدول عنده بيانات للفترة السابقة كمان، تقدر تقارن يوم بيوم أو تجمع فترات.
 لما حد يسألك عن "آخر 48 ساعة"، اجمع آخر يومين من الجدول وقارنهم بالأيام اللي قبلهم.
+
+🔧 أدوات متاحة لك:
+لما تحتاج بيانات مش موجودة في الـ context، استخدم الأدوات المتاحة:
+- get_campaigns: قائمة الحملات مع أداءها لأي فترة
+- get_campaign_daily: الأداء اليومي لحملة معينة
+- get_account_daily: الأداء اليومي للحساب كله
+- get_adsets: المجموعات الإعلانية لحملة معينة
 
 كل حملة بتمر بمراحل متسلسلة. المشكلة في أي مرحلة بتأثر على كل اللي بعدها:
 
@@ -219,6 +232,189 @@ Frequency (في 7 أيام):
 ٢. ليه — ربط الأرقام ببعضها
 ٣. إيه اللي المفروض يتعمل`;
 
+// ── Tool definitions ────────────────────────────────────────────────────────
+const TOOLS = [
+  {
+    type: "function" as const,
+    function: {
+      name: "get_campaigns",
+      description: "جيب قائمة كل الحملات الإعلانية مع أداءها (إنفاق، طلبات، CPA، CTR، الحالة) لفترة زمنية محددة. استخدم لما تحتاج مقارنة الحملات أو معرفة الأرقام الإجمالية.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 30" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_campaign_daily",
+      description: "جيب الأداء اليومي لحملة معينة يوم بيوم (إنفاق، طلبات، CPA، نسبة النقر، ظهورات، نسبة الجذب). استخدم لما تحتاج تحليل تريند حملة معينة أو مقارنة أيام.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 14" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_account_daily",
+      description: "جيب الأداء اليومي للحساب كله مجتمعاً يوم بيوم (إنفاق، طلبات، CPA). استخدم لمقارنة أيام أو تحليل اتجاه الأداء العام.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 14" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_adsets",
+      description: "جيب المجموعات الإعلانية (Ad Sets) لحملة معينة مع أداء كل مجموعة. استخدم لمقارنة الجماهير أو اكتشاف أي مجموعة بتهدر الميزانية.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 7" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
+] as const;
+
+// ── Tool executor ────────────────────────────────────────────────────────────
+async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : 14));
+  const until = new Date();
+  const since = new Date(until);
+  since.setDate(since.getDate() - days);
+  const fmtDate = (d: Date) => d.toISOString().split("T")[0]!;
+  const u = fmtDate(until);
+  const s = fmtDate(since);
+
+  const fmt = (n: number, dec = 0) => n.toFixed(dec);
+
+  try {
+    const accounts = await listAdAccounts();
+    if (accounts.length === 0) return "لا توجد حسابات إعلانية مرتبطة.";
+
+    if (name === "get_campaigns") {
+      const rows: string[] = [`## الحملات (آخر ${days} يوم):\n`];
+      rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
+      rows.push("|--------|--------|--------------|---------|-----------|------|");
+      for (const acc of accounts) {
+        const campaigns = await listCampaigns({ since: s, until: u, adAccountId: acc.id });
+        for (const c of campaigns) {
+          rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
+        }
+      }
+      return rows.join("\n");
+    }
+
+    if (name === "get_campaign_daily") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return "campaign_id مطلوب.";
+      const insights = await getCampaignInsights({ campaign_id, since: s, until: u });
+      if (!insights.daily || insights.daily.length === 0) return "لا توجد بيانات يومية لهذه الحملة في الفترة المحددة.";
+
+      const rows: string[] = [`## الأداء اليومي للحملة (آخر ${days} يوم):\n`];
+      rows.push("| التاريخ | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة النقر% | الظهورات |");
+      rows.push("|---------|--------------|---------|-----------|-------------|----------|");
+      for (const d of insights.daily) {
+        const dayCtr = d.impressions > 0 ? fmt((d.link_clicks / d.impressions) * 100, 2) : "—";
+        rows.push(`| ${d.day} | ${fmt(d.spend)} | ${d.purchases} | ${d.cpa > 0 ? fmt(d.cpa) : "—"} | ${dayCtr} | ${d.impressions.toLocaleString()} |`);
+      }
+
+      // Summary
+      const t = insights.totals;
+      rows.push(`\n### ملخص الحملة (${days} يوم):`);
+      rows.push(`- إجمالي الإنفاق: ${fmt(t.spend)} EGP`);
+      rows.push(`- إجمالي الطلبات: ${t.purchases}`);
+      rows.push(`- متوسط CPA: ${t.cpa > 0 ? fmt(t.cpa) + " EGP" : "—"}`);
+      rows.push(`- نسبة النقر: ${fmt(t.ctr, 2)}%`);
+      rows.push(`- نسبة الجذب: ${fmt(t.hookRate, 2)}%`);
+      rows.push(`- نسبة الوصول للصفحة: ${fmt(t.lpvRate, 2)}%`);
+      rows.push(`- معدل التحويل: ${fmt(t.crLpv, 2)}%`);
+      rows.push(`- التكرار: ${fmt(t.frequency, 2)}`);
+
+      return rows.join("\n");
+    }
+
+    if (name === "get_account_daily") {
+      const rows: string[] = [`## الأداء اليومي للحساب كله (آخر ${days} يوم):\n`];
+      rows.push("| التاريخ | الإنفاق (EGP) | الطلبات | CPA (EGP) | النقرات |");
+      rows.push("|---------|--------------|---------|-----------|---------|");
+      const allDaily: { day: string; spend: number; purchases: number; cpa: number; link_clicks: number }[] = [];
+      for (const acc of accounts) {
+        const overview = await getAccountOverview({ adAccountId: acc.id, since: s, until: u });
+        allDaily.push(...overview.daily);
+      }
+      // Aggregate by day if multiple accounts
+      const byDay = new Map<string, { spend: number; purchases: number; link_clicks: number }>();
+      for (const d of allDaily) {
+        const cur = byDay.get(d.day) ?? { spend: 0, purchases: 0, link_clicks: 0 };
+        cur.spend += d.spend;
+        cur.purchases += d.purchases;
+        cur.link_clicks += d.link_clicks ?? 0;
+        byDay.set(d.day, cur);
+      }
+      const sorted = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
+      for (const [day, d] of sorted) {
+        const cpa = d.purchases > 0 ? d.spend / d.purchases : 0;
+        rows.push(`| ${day} | ${fmt(d.spend)} | ${d.purchases} | ${cpa > 0 ? fmt(cpa) : "—"} | ${d.link_clicks} |`);
+      }
+      if (sorted.length >= 4) {
+        const half = Math.floor(sorted.length / 2);
+        const recent = sorted.slice(-half);
+        const older = sorted.slice(0, half);
+        const recentSpend = recent.reduce((s, [, d]) => s + d.spend, 0) / recent.length;
+        const olderSpend = older.reduce((s, [, d]) => s + d.spend, 0) / older.length;
+        const recentCpa = recent.reduce((s, [, d]) => s + (d.purchases > 0 ? d.spend / d.purchases : 0), 0) / recent.filter(([, d]) => d.purchases > 0).length;
+        const olderCpa = older.reduce((s, [, d]) => s + (d.purchases > 0 ? d.spend / d.purchases : 0), 0) / older.filter(([, d]) => d.purchases > 0).length;
+        rows.push(`\n### تحليل الاتجاه (النصف الأخير مقابل الأول):`);
+        rows.push(`- متوسط الإنفاق اليومي: ${fmt(recentSpend)} → ${recentSpend > olderSpend ? "↑ ارتفع" : "↓ انخفض"} (كان ${fmt(olderSpend)})`);
+        if (!isNaN(recentCpa) && !isNaN(olderCpa)) {
+          rows.push(`- متوسط CPA: ${fmt(recentCpa)} → ${recentCpa > olderCpa ? "↑ ارتفع (تراجع في الأداء)" : "↓ انخفض (تحسن في الأداء)"} (كان ${fmt(olderCpa)})`);
+        }
+      }
+      return rows.join("\n");
+    }
+
+    if (name === "get_adsets") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return "campaign_id مطلوب.";
+      const insights = await getCampaignInsights({ campaign_id, since: s, until: u });
+      if (!insights.by_adset || insights.by_adset.length === 0) return "لا توجد بيانات مجموعات إعلانية لهذه الحملة.";
+
+      const rows: string[] = [`## المجموعات الإعلانية للحملة (آخر ${days} يوم):\n`];
+      rows.push("| المجموعة | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة النقر% | التكرار |");
+      rows.push("|----------|--------------|---------|-----------|-------------|---------|");
+      const sorted = [...insights.by_adset].sort((a, b) => b.spend - a.spend);
+      for (const as of sorted) {
+        rows.push(`| ${as.label} | ${fmt(as.spend)} | ${as.purchases} | ${as.cpa > 0 ? fmt(as.cpa) : "—"} | ${fmt(as.ctr, 2)} | ${fmt(as.frequency, 2)} |`);
+      }
+      return rows.join("\n");
+    }
+
+    return "أداة غير معروفة.";
+  } catch (err) {
+    return `خطأ في جلب البيانات: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -236,8 +432,10 @@ interface AiChatBody {
 type OpenAiMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "auto" } }> }
-  | { role: "assistant"; content: string };
+  | { role: "assistant"; content: string | null; tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> }
+  | { role: "tool"; content: string; tool_call_id: string };
 
+// ── Route ────────────────────────────────────────────────────────────────────
 router.post("/ai/chat", async (req: Request, res: Response) => {
   const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName } = req.body as AiChatBody;
 
@@ -259,14 +457,13 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     ];
 
     for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
+      const m = messages[i]!;
       const isLast = i === messages.length - 1;
 
       if (m.role === "user" && isLast && (imageBase64 || fileText)) {
         const textContent = fileText
           ? `${m.content}\n\n[محتوى الملف "${fileName ?? "file"}"]\n${fileText}`
           : m.content;
-
         if (imageBase64 && imageMimeType) {
           builtMessages.push({
             role: "user",
@@ -283,18 +480,82 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       }
     }
 
+    // ── Tool use loop (non-streaming until tools resolved) ──────────────────
+    const MAX_TOOL_ROUNDS = 4;
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const resp = await openai.chat.completions.create({
+        model: "gpt-5.4",
+        max_completion_tokens: 8192,
+        messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
+        tools: [...TOOLS] as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
+        tool_choice: "auto",
+        stream: false,
+      });
+
+      const choice = resp.choices[0];
+      if (!choice) break;
+
+      // Filter to function-type tool calls only
+      const toolCalls = (choice.message.tool_calls ?? []).filter(
+        (tc): tc is typeof tc & { type: "function"; function: { name: string; arguments: string } } =>
+          tc.type === "function" && "function" in tc
+      );
+
+      // No tool calls → stream the final answer
+      if (toolCalls.length === 0) {
+        const finalContent = choice.message.content ?? "";
+        // Stream word-by-word for UX
+        const words = finalContent.split(/(?<=\s)/);
+        for (const word of words) {
+          res.write(`data: ${JSON.stringify({ content: word })}\n\n`);
+        }
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.end();
+        return;
+      }
+
+      // Has tool calls → notify client (separate field, not content)
+      res.write(`data: ${JSON.stringify({ searching: true })}\n\n`);
+
+      // Push assistant message with tool calls
+      builtMessages.push({
+        role: "assistant",
+        content: choice.message.content ?? null,
+        tool_calls: toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: { name: tc.function.name, arguments: tc.function.arguments },
+        })),
+      });
+
+      // Execute all tool calls in parallel
+      await Promise.all(
+        toolCalls.map(async (tc) => {
+          const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+          const result = await executeTool(tc.function.name, args);
+          builtMessages.push({
+            role: "tool",
+            content: result,
+            tool_call_id: tc.id,
+          });
+        })
+      );
+
+      // Done fetching — client can hide the indicator
+      res.write(`data: ${JSON.stringify({ searching: false })}\n\n`);
+    }
+
+    // Fallback: if we ran out of rounds, do a final streaming call without tools
     const stream = await openai.chat.completions.create({
       model: "gpt-5.4",
       max_completion_tokens: 8192,
-      messages: builtMessages,
+      messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
       stream: true,
     });
 
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content;
-      if (content) {
-        res.write(`data: ${JSON.stringify({ content })}\n\n`);
-      }
+      if (content) res.write(`data: ${JSON.stringify({ content })}\n\n`);
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
