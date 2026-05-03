@@ -112,9 +112,7 @@ function buildActivityContext(users: ActivityUser[]): string {
   return lines.join("\n");
 }
 
-const GENERAL_CONTEXT = `أنت مساعد Meta Ads عام. المستخدم لم يختر حملة محددة.
-أجب على أسئلته العامة عن استراتيجيات Meta Ads، تحسين الأداء، قراءة المؤشرات، وأفضل الممارسات.
-إذا سأل عن أرقام محددة لحملة، اطلب منه فتح التشخيص من صفحة "تحليل الحملة" أو "تشخيص الحملات".`;
+const GENERAL_CONTEXT = `أنت مساعد Meta Ads عام. أجب على أسئلة المستخدم عن استراتيجيات Meta Ads، تحسين الأداء، قراءة المؤشرات، وأفضل الممارسات.`;
 
 const SUGGESTED_GENERAL = [
   "ما هو Hook Rate المثالي؟",
@@ -122,6 +120,82 @@ const SUGGESTED_GENERAL = [
   "متى أوقف الحملة؟",
   "كيف أتعامل مع Frequency عالية؟",
 ];
+
+const SUGGESTED_WITH_DATA = [
+  "ايه أعلى حملة في CPA؟",
+  "قارنلي الحملات النشطة",
+  "ايه أفضل حملة أداءً؟",
+  "الحملات اللي محتاجة تدخل؟",
+];
+
+interface CampaignData {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  objective: string;
+  spend: number;
+  purchases: number;
+  cpa: number;
+  impressions: number;
+  link_clicks: number;
+  ctr: number;
+}
+
+function buildCampaignsContext(campaigns: CampaignData[]): string {
+  if (campaigns.length === 0) return GENERAL_CONTEXT;
+
+  const fmt = (n: number, dec = 0) =>
+    n.toLocaleString("ar-EG", { maximumFractionDigits: dec });
+  const fmtPct = (n: number) => `${n.toFixed(2)}%`;
+
+  const statusMap: Record<string, string> = {
+    ACTIVE: "نشطة ✅",
+    PAUSED: "موقوفة ⏸",
+    ARCHIVED: "مؤرشفة",
+    DELETED: "محذوفة",
+    CAMPAIGN_PAUSED: "موقوفة ⏸",
+  };
+
+  const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0);
+  const totalPurchases = campaigns.reduce((s, c) => s + c.purchases, 0);
+  const avgCpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
+  const activeCampaigns = campaigns.filter(
+    (c) => c.effective_status === "ACTIVE" || c.effective_status === "CAMPAIGN_PAUSED"
+  );
+
+  const lines: string[] = [
+    "أنت مساعد Meta Ads متخصص ولديك وصول كامل لبيانات الحملات الإعلانية التالية (آخر 30 يوم). أجب بناءً على هذه البيانات الحقيقية وقدّم توصيات عملية.",
+    "",
+    `## ملخص إجمالي (آخر 30 يوم):`,
+    `- إجمالي الإنفاق: ${fmt(totalSpend)} EGP`,
+    `- إجمالي الطلبات: ${fmt(totalPurchases)}`,
+    `- متوسط CPA: ${avgCpa > 0 ? fmt(avgCpa) + " EGP" : "—"}`,
+    `- الحملات النشطة: ${activeCampaigns.length} من ${campaigns.length}`,
+    "",
+    `## تفاصيل الحملات (${campaigns.length} حملة):`,
+    "",
+  ];
+
+  for (const c of campaigns) {
+    lines.push(`### ${c.name}`);
+    lines.push(`- الحالة: ${statusMap[c.effective_status] ?? c.effective_status}`);
+    lines.push(`- الإنفاق: ${fmt(c.spend)} EGP`);
+    lines.push(`- الطلبات: ${fmt(c.purchases)}`);
+    lines.push(`- CPA: ${c.cpa > 0 ? fmt(c.cpa) + " EGP" : "—"}`);
+    lines.push(`- الانطباعات: ${fmt(c.impressions)}`);
+    lines.push(`- CTR: ${fmtPct(c.ctr)}`);
+    lines.push(`- الهدف: ${c.objective}`);
+    lines.push("");
+  }
+
+  lines.push("---");
+  lines.push(
+    "بناءً على هذه البيانات الحقيقية، أجب على أسئلة المستخدم عن الحملات، قارن أداءها، حدّد المشاكل، واقترح توصيات عملية."
+  );
+
+  return lines.join("\n");
+}
 
 function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
@@ -255,6 +329,9 @@ export function GlobalAiChat() {
   const [activityUsers, setActivityUsers] = useState<ActivityUser[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
 
+  const [campaignsCtx, setCampaignsCtx] = useState<string | null>(null);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -279,6 +356,43 @@ export function GlobalAiChat() {
       .finally(() => setActivityLoading(false));
   }, [open, isAdmin, activityUsers]);
 
+  // Fetch campaigns context when chat opens (once per session, for all users)
+  useEffect(() => {
+    if (!open || campaignsCtx !== null || campaignsLoading) return;
+    setCampaignsLoading(true);
+
+    const until = new Date();
+    const since = new Date(until);
+    since.setDate(since.getDate() - 30);
+    const fmtDate = (d: Date) => d.toISOString().split("T")[0]!;
+
+    fetch(`${API}/meta/accounts`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(async (data) => {
+        const accounts: { id: string }[] = data?.accounts ?? [];
+        if (accounts.length === 0) {
+          setCampaignsCtx(GENERAL_CONTEXT);
+          return;
+        }
+        const allCampaigns: CampaignData[] = [];
+        for (const acc of accounts) {
+          try {
+            const r = await fetch(
+              `${API}/meta/campaigns?ad_account_id=${acc.id}&since=${fmtDate(since)}&until=${fmtDate(until)}`,
+              { credentials: "include" }
+            );
+            if (r.ok) {
+              const d = await r.json() as { campaigns?: CampaignData[] };
+              if (d.campaigns) allCampaigns.push(...d.campaigns);
+            }
+          } catch {}
+        }
+        setCampaignsCtx(buildCampaignsContext(allCampaigns));
+      })
+      .catch(() => { setCampaignsCtx(GENERAL_CONTEXT); })
+      .finally(() => setCampaignsLoading(false));
+  }, [open, campaignsCtx, campaignsLoading]);
+
   // Load conversation list when chat opens (or when switching to history view)
   const loadConversations = useCallback(() => {
     setConvLoading(true);
@@ -297,8 +411,8 @@ export function GlobalAiChat() {
     if (isAdmin && activityUsers && activityUsers.length > 0) {
       return buildActivityContext(activityUsers);
     }
-    return GENERAL_CONTEXT;
-  }, [isAdmin, activityUsers]);
+    return campaignsCtx ?? GENERAL_CONTEXT;
+  }, [isAdmin, activityUsers, campaignsCtx]);
 
   // Ensure there is an active conversation, creating one if needed
   const ensureConversation = useCallback(async (firstMessage: string): Promise<number> => {
@@ -654,11 +768,27 @@ export function GlobalAiChat() {
                   {/* Empty state */}
                   {messages.length === 0 && !streaming && (
                     <div className="flex flex-col items-center gap-4 py-6">
-                      <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
-                        اسألني أي سؤال عن Meta Ads وهجاوبك. لتحليل حملة معينة، افتح التشخيص من صفحة "تحليل الحملة"
-                      </p>
+                      {campaignsLoading ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="flex gap-1.5">
+                            {[0, 1, 2].map((k) => (
+                              <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground">جاري تحميل بيانات الحملات…</p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
+                          {campaignsCtx && campaignsCtx !== GENERAL_CONTEXT
+                            ? "عندي بيانات حملاتك — اسألني أي سؤال عنها"
+                            : "اسألني أي سؤال عن Meta Ads وهجاوبك"}
+                        </p>
+                      )}
                       <div className="grid grid-cols-2 gap-2 w-full">
-                        {SUGGESTED_GENERAL.map((q) => (
+                        {(campaignsCtx && campaignsCtx !== GENERAL_CONTEXT
+                          ? SUGGESTED_WITH_DATA
+                          : SUGGESTED_GENERAL
+                        ).map((q) => (
                           <button
                             key={q}
                             onClick={() => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }}
