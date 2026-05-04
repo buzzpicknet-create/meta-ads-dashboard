@@ -5,7 +5,9 @@ import {
   listCampaigns,
   getCampaignInsights,
   getAccountOverview,
+  isRateLimitActive,
 } from "../lib/meta-api.js";
+import { query } from "../lib/db.js";
 
 const router = Router();
 
@@ -294,18 +296,130 @@ const TOOLS = [
   },
 ] as const;
 
-// ── Tool executor ────────────────────────────────────────────────────────────
+// ── Rate-limit error detection (mirrors meta.ts) ─────────────────────────────
+function isRateLimitErr(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("80004") ||
+    msg.includes("(17)") ||
+    msg.toLowerCase().includes("too many calls") ||
+    msg.toLowerCase().includes("user request limit") ||
+    msg.toLowerCase().includes("rate limit")
+  );
+}
+
+// 30 min — same freshness window as the dashboard routes
+const TOOL_CACHE_FRESH_MS = 30 * 60 * 1000;
+
+// ── Tool executor (cache-first: DB → Meta API → stale fallback) ───────────────
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   const days = Number(args.days ?? (name === "get_campaigns" ? 30 : 14));
-  const until = new Date();
-  const since = new Date(until);
-  since.setDate(since.getDate() - days);
-  const fmtDate = (d: Date) => d.toISOString().split("T")[0]!;
-  const u = fmtDate(until);
-  const s = fmtDate(since);
+  // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
+  const untilD = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const sinceD = new Date(untilD);
+  sinceD.setUTCDate(sinceD.getUTCDate() - days);
+  const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
+  const u = fmtDate(untilD);
+  const s = fmtDate(sinceD);
 
   const fmt = (n: number, dec = 0) => n.toFixed(dec);
 
+  // ── Cache-aware getCampaignInsights ─────────────────────────────────────────
+  async function fetchInsightsCached(campaign_id: string): Promise<Awaited<ReturnType<typeof getCampaignInsights>>> {
+    const cached = await query<{ data: unknown; fetched_at: string }>(
+      `SELECT data, fetched_at FROM meta_insights_cache
+       WHERE campaign_id=$1 AND period_since=$2 AND period_until=$3`,
+      [campaign_id, s, u]
+    ).catch(() => [] as { data: unknown; fetched_at: string }[]);
+    const hit = cached[0];
+
+    // Fresh cache → serve immediately, no Meta call
+    if (hit && Date.now() - new Date(hit.fetched_at).getTime() < TOOL_CACHE_FRESH_MS) {
+      return hit.data as Awaited<ReturnType<typeof getCampaignInsights>>;
+    }
+    // Rate-limit is active → serve stale cache rather than blocking 90s
+    if (isRateLimitActive() && hit) {
+      return hit.data as Awaited<ReturnType<typeof getCampaignInsights>>;
+    }
+    // Fetch from Meta
+    try {
+      const data = await getCampaignInsights({ campaign_id, since: s, until: u });
+      await query(
+        `INSERT INTO meta_insights_cache (campaign_id, period_since, period_until, data, fetched_at)
+         VALUES ($1,$2,$3,$4,NOW())
+         ON CONFLICT (campaign_id, period_since, period_until)
+         DO UPDATE SET data=$4, fetched_at=NOW()`,
+        [campaign_id, s, u, JSON.stringify(data)]
+      ).catch(() => null);
+      return data;
+    } catch (err) {
+      // Rate-limited mid-request → return stale cache if available
+      if (isRateLimitErr(err) && hit) return hit.data as Awaited<ReturnType<typeof getCampaignInsights>>;
+      throw err;
+    }
+  }
+
+  // ── Cache-aware listCampaigns ───────────────────────────────────────────────
+  async function fetchCampaignsCached(adAccountId: string): Promise<Awaited<ReturnType<typeof listCampaigns>>> {
+    const accountId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
+    const cached = await query<{ campaigns: unknown; fetched_at: string }>(
+      `SELECT campaigns, fetched_at FROM meta_campaigns_cache
+       WHERE account_id=$1 AND period_since=$2 AND period_until=$3`,
+      [accountId, s, u]
+    ).catch(() => [] as { campaigns: unknown; fetched_at: string }[]);
+    const hit = cached[0];
+
+    if (hit && Date.now() - new Date(hit.fetched_at).getTime() < TOOL_CACHE_FRESH_MS) {
+      return hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>;
+    }
+    if (isRateLimitActive() && hit) return hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>;
+    try {
+      const campaigns = await listCampaigns({ since: s, until: u, adAccountId });
+      await query(
+        `INSERT INTO meta_campaigns_cache (account_id, period_since, period_until, campaigns, fetched_at)
+         VALUES ($1,$2,$3,$4,NOW())
+         ON CONFLICT (account_id, period_since, period_until)
+         DO UPDATE SET campaigns=$4, fetched_at=NOW()`,
+        [accountId, s, u, JSON.stringify(campaigns)]
+      ).catch(() => null);
+      return campaigns;
+    } catch (err) {
+      if (isRateLimitErr(err) && hit) return hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>;
+      throw err;
+    }
+  }
+
+  // ── Cache-aware getAccountOverview ──────────────────────────────────────────
+  async function fetchOverviewCached(adAccountId: string): Promise<Awaited<ReturnType<typeof getAccountOverview>>> {
+    const accountId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
+    const cached = await query<{ data: unknown; fetched_at: string }>(
+      `SELECT data, fetched_at FROM meta_overview_cache
+       WHERE account_id=$1 AND period_since=$2 AND period_until=$3`,
+      [accountId, s, u]
+    ).catch(() => [] as { data: unknown; fetched_at: string }[]);
+    const hit = cached[0];
+
+    if (hit && Date.now() - new Date(hit.fetched_at).getTime() < TOOL_CACHE_FRESH_MS) {
+      return hit.data as Awaited<ReturnType<typeof getAccountOverview>>;
+    }
+    if (isRateLimitActive() && hit) return hit.data as Awaited<ReturnType<typeof getAccountOverview>>;
+    try {
+      const data = await getAccountOverview({ adAccountId, since: s, until: u });
+      await query(
+        `INSERT INTO meta_overview_cache (account_id, period_since, period_until, data, fetched_at)
+         VALUES ($1,$2,$3,$4,NOW())
+         ON CONFLICT (account_id, period_since, period_until)
+         DO UPDATE SET data=$4, fetched_at=NOW()`,
+        [accountId, s, u, JSON.stringify(data)]
+      ).catch(() => null);
+      return data;
+    } catch (err) {
+      if (isRateLimitErr(err) && hit) return hit.data as Awaited<ReturnType<typeof getAccountOverview>>;
+      throw err;
+    }
+  }
+
+  // ── Tool dispatch ───────────────────────────────────────────────────────────
   try {
     const accounts = await listAdAccounts();
     if (accounts.length === 0) return "لا توجد حسابات إعلانية مرتبطة.";
@@ -315,7 +429,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
       rows.push("|--------|--------|--------------|---------|-----------|------|");
       for (const acc of accounts) {
-        const campaigns = await listCampaigns({ since: s, until: u, adAccountId: acc.id });
+        const campaigns = await fetchCampaignsCached(acc.id);
         for (const c of campaigns) {
           rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
         }
@@ -326,7 +440,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     if (name === "get_campaign_daily") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return "campaign_id مطلوب.";
-      const insights = await getCampaignInsights({ campaign_id, since: s, until: u });
+      const insights = await fetchInsightsCached(campaign_id);
       if (!insights.daily || insights.daily.length === 0) return "لا توجد بيانات يومية لهذه الحملة في الفترة المحددة.";
 
       const rows: string[] = [`## الأداء اليومي للحملة (آخر ${days} يوم):\n`];
@@ -336,8 +450,6 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         const dayCtr = d.impressions > 0 ? fmt((d.link_clicks / d.impressions) * 100, 2) : "—";
         rows.push(`| ${d.day} | ${fmt(d.spend)} | ${d.purchases} | ${d.cpa > 0 ? fmt(d.cpa) : "—"} | ${dayCtr} | ${d.impressions.toLocaleString()} |`);
       }
-
-      // Summary
       const t = insights.totals;
       rows.push(`\n### ملخص الحملة (${days} يوم):`);
       rows.push(`- إجمالي الإنفاق: ${fmt(t.spend)} EGP`);
@@ -348,7 +460,6 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       rows.push(`- نسبة الوصول للصفحة: ${fmt(t.lpvRate, 2)}%`);
       rows.push(`- معدل التحويل: ${fmt(t.crLpv, 2)}%`);
       rows.push(`- التكرار: ${fmt(t.frequency, 2)}`);
-
       return rows.join("\n");
     }
 
@@ -358,10 +469,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       rows.push("|---------|--------------|---------|-----------|---------|");
       const allDaily: { day: string; spend: number; purchases: number; cpa: number; link_clicks: number }[] = [];
       for (const acc of accounts) {
-        const overview = await getAccountOverview({ adAccountId: acc.id, since: s, until: u });
+        const overview = await fetchOverviewCached(acc.id);
         allDaily.push(...overview.daily);
       }
-      // Aggregate by day if multiple accounts
       const byDay = new Map<string, { spend: number; purchases: number; link_clicks: number }>();
       for (const d of allDaily) {
         const cur = byDay.get(d.day) ?? { spend: 0, purchases: 0, link_clicks: 0 };
@@ -395,7 +505,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     if (name === "get_adsets") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return "campaign_id مطلوب.";
-      const insights = await getCampaignInsights({ campaign_id, since: s, until: u });
+      const insights = await fetchInsightsCached(campaign_id);
       if (!insights.by_adset || insights.by_adset.length === 0) return "لا توجد بيانات مجموعات إعلانية لهذه الحملة.";
 
       const rows: string[] = [`## المجموعات الإعلانية للحملة (آخر ${days} يوم):\n`];
