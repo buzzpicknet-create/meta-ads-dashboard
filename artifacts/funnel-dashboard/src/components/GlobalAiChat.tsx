@@ -190,7 +190,7 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
 
   const lines: string[] = [
     "أنت مساعد Meta Ads متخصص ولديك بيانات الحملات لفترتين: آخر 7 أيام وآخر 30 يوم.",
-    "قاعدة مهمة: دائماً أجب بشكل مباشر وحاسم بناءً على الأرقام الموجودة. لا تقل 'لا أعرف' أو 'البيانات غير كافية' — استخدم ما عندك واستنتج منه.",
+    "قاعدة مهمة: لو السؤال عن حملة بعينها أو أداء يومي تفصيلي — استخدم الأدوات المتاحة (get_campaign_daily أو get_adsets) مباشرةً باستخدام الـ id الموجود في كل حملة أدناه. لا تستنتج من البيانات الإجمالية بدل الرجوع للأداة.",
     "",
     "## ملخص الأداء:",
     "",
@@ -208,7 +208,7 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
 
   for (const c30 of base) {
     const c7 = map7d.get(c30.id);
-    lines.push(`### ${c30.name}`);
+    lines.push(`### ${c30.name} (id: ${c30.id})`);
     lines.push(`- الحالة: ${statusMap[c30.effective_status] ?? c30.effective_status}`);
     lines.push(`- الهدف: ${c30.objective}`);
 
@@ -260,7 +260,7 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
 
   lines.push("---");
   lines.push(
-    "بناءً على هذه البيانات الحقيقية (تشمل مقارنة 7/30 يوم وأداء يومي تفصيلي)، قدّم إجابات مباشرة وحاسمة بالأرقام. حدّد الحملات الفائزة والخاسرة، وضّح الاتجاهات اليومية، واقترح خطوات تنفيذية فورية. لا تقل 'لا أعرف' — استنتج من الأرقام الموجودة."
+    "البيانات أعلاه هي ملخص 7/30 يوم لكل الحملات والأداء اليومي الإجمالي للحساب. لو سُئلت عن حملة محددة أو أداء يومي لحملة بعينها، استخدم الأدوات: get_campaign_daily(campaign_id) أو get_adsets(campaign_id) — الـ id لكل حملة موجود في العناوين أعلاه."
   );
 
   return lines.join("\n");
