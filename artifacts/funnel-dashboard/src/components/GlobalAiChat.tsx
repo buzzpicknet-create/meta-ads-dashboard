@@ -2,9 +2,11 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
   History, Plus, ChevronRight, ChevronDown, Clock, Zap, AlertTriangle, Search,
+  Globe,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocation } from "wouter";
 
 interface PendingAction {
   tool: string;
@@ -20,7 +22,7 @@ const API = `${BASE}/api`;
 
 interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string; tool_calls?: string[] }
 
-interface ConvSummary { id: number; title: string; created_at: string; updated_at: string }
+interface ConvSummary { id: number; title: string; campaign_id?: string | null; snippet?: string | null; created_at: string; updated_at: string }
 
 interface ActivityLog {
   action: string;
@@ -388,9 +390,19 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
 
 type View = "chat" | "history";
 
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const regex = new RegExp(`(${query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  const parts = text.split(regex);
+  return parts.map((part, i) =>
+    regex.test(part) ? <mark key={i} className="bg-amber-200 dark:bg-amber-700 text-foreground rounded-sm px-0.5">{part}</mark> : part
+  );
+}
+
 export function GlobalAiChat() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [, navigate] = useLocation();
 
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("chat");
@@ -408,6 +420,11 @@ export function GlobalAiChat() {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [executingAction, setExecutingAction] = useState(false);
   const [expandedSources, setExpandedSources] = useState<Record<number, boolean>>({});
+
+  // Global history search
+  const [historySearch, setHistorySearch] = useState("");
+  const [historySearchResults, setHistorySearchResults] = useState<ConvSummary[] | null>(null);
+  const [historySearchLoading, setHistorySearchLoading] = useState(false);
 
   const [activityUsers, setActivityUsers] = useState<ActivityUser[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -535,6 +552,52 @@ export function GlobalAiChat() {
   useEffect(() => {
     if (open) loadConversations(true);
   }, [open, loadConversations]);
+
+  // Debounced global search across all campaigns
+  useEffect(() => {
+    setHistorySearchResults(null);
+    if (!historySearch.trim()) {
+      setHistorySearchLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setHistorySearchLoading(true);
+      try {
+        const params = new URLSearchParams({ global: "true", q: historySearch.trim() });
+        const r = await fetch(`${API}/chat/conversations?${params}`, { credentials: "include", signal: controller.signal });
+        if (r.ok) {
+          const d = await r.json() as { conversations: ConvSummary[] };
+          setHistorySearchResults(d.conversations);
+        }
+      } catch (e) {
+        if ((e as { name?: string }).name !== "AbortError") setHistorySearchResults([]);
+      } finally {
+        setHistorySearchLoading(false);
+      }
+    }, 350);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [historySearch]);
+
+  // Clear search when closing history view
+  useEffect(() => {
+    if (view !== "history") {
+      setHistorySearch("");
+      setHistorySearchResults(null);
+    }
+  }, [view]);
+
+  // Navigate to a campaign conversation: store in sessionStorage and go to dashboard
+  const openCampaignConversation = useCallback((conv: ConvSummary) => {
+    try {
+      sessionStorage.setItem("global_selected_campaign", JSON.stringify({
+        campaignId: conv.campaign_id,
+        openConvId: conv.id,
+      }));
+    } catch {}
+    setOpen(false);
+    navigate("/");
+  }, [navigate]);
 
   const buildContext = useCallback((): string => {
     const parts: string[] = [];
@@ -885,76 +948,162 @@ export function GlobalAiChat() {
 
           {/* ── History View ── */}
           {view === "history" ? (
-            <div className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
-              {/* New conversation shortcut */}
-              <div className="px-3 pt-3 pb-1">
-                <button
-                  onClick={startNewChat}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-dashed border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 transition-colors text-sm font-medium"
-                >
-                  <Plus className="h-4 w-4 shrink-0" />
-                  <span>محادثة جديدة</span>
-                </button>
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {/* Search bar */}
+              <div className="px-3 pt-3 pb-2 shrink-0">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-muted/40 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <input
+                    type="text"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    placeholder="بحث في كل المحادثات…"
+                    dir="rtl"
+                    className="flex-1 bg-transparent text-[13px] focus:outline-none placeholder:text-muted-foreground/60"
+                  />
+                  {historySearch && (
+                    <button onClick={() => setHistorySearch("")} className="text-muted-foreground hover:text-foreground transition-colors">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {convLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="flex gap-1.5">
-                    {[0, 1, 2].map((k) => (
-                      <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
-                    ))}
+              <div className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
+                {/* Search results */}
+                {historySearch.trim() ? (
+                  <div className="px-3 pb-4">
+                    {historySearchLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="flex gap-1.5">
+                          {[0, 1, 2].map((k) => (
+                            <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : historySearchResults === null ? null : historySearchResults.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-10 text-center">
+                        <Search className="h-8 w-8 text-muted-foreground/30" />
+                        <p className="text-sm text-muted-foreground">لا توجد نتائج</p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-1 pt-2 pb-1.5">
+                          {historySearchResults.length} نتيجة
+                        </p>
+                        <div className="space-y-0.5">
+                          {historySearchResults.map((conv) => {
+                            const isCampaign = !!conv.campaign_id;
+                            return (
+                              <div
+                                key={conv.id}
+                                onClick={() => isCampaign ? openCampaignConversation(conv) : loadConversation(conv)}
+                                className="group flex items-start gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-muted/60"
+                              >
+                                {isCampaign
+                                  ? <Globe className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                                  : <MessageSquare className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+                                }
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[13px] truncate leading-tight font-medium">
+                                    {highlightText(conv.title, historySearch)}
+                                  </p>
+                                  {isCampaign && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
+                                      <Globe className="h-2.5 w-2.5" />
+                                      حملة
+                                    </span>
+                                  )}
+                                  {conv.snippet && (
+                                    <p className="text-[11px] text-muted-foreground/70 mt-1 line-clamp-2 leading-snug">
+                                      {highlightText(conv.snippet.slice(0, 120), historySearch)}
+                                    </p>
+                                  )}
+                                  <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+                                    {formatRelative(conv.updated_at)}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
-                </div>
-              ) : conversations.length === 0 ? (
-                <div className="flex flex-col items-center gap-3 py-16 px-6 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
-                    <Clock className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">لا توجد محادثات محفوظة بعد</p>
-                  <p className="text-xs text-muted-foreground/60">ابدأ محادثة جديدة وسيتم حفظها تلقائياً</p>
-                </div>
-              ) : (
-                <div className="px-3 pb-4">
-                  {grouped.map(({ label, items }) => (
-                    <div key={label}>
-                      <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-1 pt-4 pb-1.5">
-                        {label}
-                      </p>
-                      <div className="space-y-0.5">
-                        {items.map((conv) => (
-                          <div
-                            key={conv.id}
-                            onClick={() => loadConversation(conv)}
-                            className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${
-                              convId === conv.id
-                                ? "bg-primary/10 text-primary"
-                                : "hover:bg-muted/60"
-                            }`}
-                          >
-                            <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${convId === conv.id ? "text-primary" : "text-muted-foreground"}`} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[13px] truncate leading-tight">
-                                {conv.title}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                                {formatRelative(conv.updated_at)}
-                              </p>
+                ) : (
+                  <>
+                    {/* New conversation shortcut */}
+                    <div className="px-3 pt-1 pb-1">
+                      <button
+                        onClick={startNewChat}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-dashed border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 transition-colors text-sm font-medium"
+                      >
+                        <Plus className="h-4 w-4 shrink-0" />
+                        <span>محادثة جديدة</span>
+                      </button>
+                    </div>
+
+                    {convLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="flex gap-1.5">
+                          {[0, 1, 2].map((k) => (
+                            <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : conversations.length === 0 ? (
+                      <div className="flex flex-col items-center gap-3 py-16 px-6 text-center">
+                        <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center">
+                          <Clock className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                        <p className="text-sm text-muted-foreground">لا توجد محادثات محفوظة بعد</p>
+                        <p className="text-xs text-muted-foreground/60">ابدأ محادثة جديدة وسيتم حفظها تلقائياً</p>
+                      </div>
+                    ) : (
+                      <div className="px-3 pb-4">
+                        {grouped.map(({ label, items }) => (
+                          <div key={label}>
+                            <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-1 pt-4 pb-1.5">
+                              {label}
+                            </p>
+                            <div className="space-y-0.5">
+                              {items.map((conv) => (
+                                <div
+                                  key={conv.id}
+                                  onClick={() => loadConversation(conv)}
+                                  className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${
+                                    convId === conv.id
+                                      ? "bg-primary/10 text-primary"
+                                      : "hover:bg-muted/60"
+                                  }`}
+                                >
+                                  <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${convId === conv.id ? "text-primary" : "text-muted-foreground"}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[13px] truncate leading-tight">
+                                      {conv.title}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                                      {formatRelative(conv.updated_at)}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={(e) => deleteConversation(conv.id, e)}
+                                    disabled={deletingId === conv.id}
+                                    className="shrink-0 opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-30"
+                                    title="حذف المحادثة"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
                             </div>
-                            <button
-                              onClick={(e) => deleteConversation(conv.id, e)}
-                              disabled={deletingId === conv.id}
-                              className="shrink-0 opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-30"
-                              title="حذف المحادثة"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           ) : (
             <>

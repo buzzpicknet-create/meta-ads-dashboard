@@ -2061,10 +2061,20 @@ const CR_MIN = 2;
 // ──────────────────────────────────────────────────────────────
 // Insights Body — main content
 // ──────────────────────────────────────────────────────────────
-function InsightsBody({ insights }: { insights: CampaignInsights }) {
+function InsightsBody({ insights, initialConvId, onConvOpened }: { insights: CampaignInsights; initialConvId?: number | null; onConvOpened?: () => void }) {
   const [diagOpen, setDiagOpen] = useState(false);
   const [diagTab, setDiagTab] = useState("campaign");
   const totals = insights.totals;
+
+  // Auto-open AI tab when a conversation was navigated from global search
+  useEffect(() => {
+    if (initialConvId) {
+      setDiagTab("ai");
+      setDiagOpen(true);
+      onConvOpened?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialConvId]);
 
   const openDiagnosis = (tab: string) => { setDiagTab(tab); setDiagOpen(true); };
   const cpaTarget = Math.round(totals.cpa * 0.8);
@@ -2077,7 +2087,7 @@ function InsightsBody({ insights }: { insights: CampaignInsights }) {
 
   return (
     <div className="space-y-5">
-      <DiagnosisModal insights={insights} open={diagOpen} onClose={() => setDiagOpen(false)} defaultTab={diagTab} />
+      <DiagnosisModal insights={insights} open={diagOpen} onClose={() => setDiagOpen(false)} defaultTab={diagTab} initialConvId={initialConvId} />
 
       {/* DIAGNOSIS BUTTON */}
       <div className="flex justify-end">
@@ -2271,18 +2281,21 @@ export default function Dashboard() {
 
   const accountCampaigns = useMemo(() => campaigns.data?.campaigns ?? [], [campaigns.data?.campaigns]);
 
-  // Read pre-selected campaign from global search (stored in sessionStorage)
-  const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(() => {
+  // Read pre-selected campaign (and optional conversation) from global search (stored in sessionStorage)
+  const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(null);
+  const [pendingConvId, setPendingConvId] = useState<number | null>(null);
+
+  useEffect(() => {
     try {
       const stored = sessionStorage.getItem("global_selected_campaign");
       if (stored) {
-        const { campaignId } = JSON.parse(stored);
+        const parsed = JSON.parse(stored) as { campaignId?: string; openConvId?: number };
         sessionStorage.removeItem("global_selected_campaign");
-        return campaignId as string;
+        if (parsed.campaignId) setPendingCampaignId(parsed.campaignId);
+        if (parsed.openConvId) setPendingConvId(parsed.openConvId);
       }
     } catch {}
-    return null;
-  });
+  }, []);
 
   // Apply pending campaign once campaigns load
   useEffect(() => {
@@ -2393,7 +2406,7 @@ export default function Dashboard() {
         {insights.isLoading || (campaigns.isLoading && !insights.data) ? (
           <DashboardSkeleton />
         ) : insights.data ? (
-          <InsightsBody insights={insights.data} />
+          <InsightsBody insights={insights.data} initialConvId={pendingConvId} onConvOpened={() => setPendingConvId(null)} />
         ) : !selectedCampaignId && campaigns.data?.campaigns.length === 0 ? (
           <Alert>
             <AlertCircle className="h-4 w-4" />

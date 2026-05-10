@@ -1163,7 +1163,7 @@ function PerformanceCompareTab({
 }
 
 // ── DiagnosisModal ─────────────────────────────────────────────
-export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign", accountId, onTabChange }: { insights: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string; accountId?: string; onTabChange?: (tab: string) => void }) {
+export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign", accountId, onTabChange, initialConvId }: { insights: CampaignInsights; open: boolean; onClose: () => void; defaultTab?: string; accountId?: string; onTabChange?: (tab: string) => void; initialConvId?: number | null }) {
   const result     = useMemo(() => runDiagnosis(insights),     [insights]);
   const [expandedAdset, setExpandedAdset] = useState<string | null>(null);
   const [expandedAd, setExpandedAd] = useState<string | null>(null);
@@ -1417,6 +1417,7 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
               setStreamingText={setChatStreamingText}
               campaignId={insights.campaign.id}
               campaignName={insights.campaign.name}
+              initialConvId={initialConvId}
             />
           </TabsContent>
         </Tabs>
@@ -1695,6 +1696,7 @@ interface AiChatTabProps {
   setStreamingText: React.Dispatch<React.SetStateAction<string>>;
   campaignId: string;
   campaignName: string;
+  initialConvId?: number | null;
 }
 interface Attachment {
   base64?: string;
@@ -1732,7 +1734,7 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
   });
 }
 
-function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText, campaignId, campaignName }: AiChatTabProps) {
+function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText, campaignId, campaignName, initialConvId }: AiChatTabProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [input, setInput] = useState("");
@@ -1743,6 +1745,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   const [histLoading, setHistLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const initialConvLoadedRef = useRef(false);
   const [searchResults, setSearchResults] = useState<ConvSummary[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -1772,6 +1775,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       setHistLoading(false);
     }
   }, [campaignId]);
+
 
   // Debounced backend search when searchQuery changes
   useEffect(() => {
@@ -1842,6 +1846,13 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       setTimeout(() => inputRef.current?.focus(), 80);
     } catch {}
   }, [setMessages]);
+
+  // Auto-load a conversation when navigated from global search
+  useEffect(() => {
+    if (!initialConvId || initialConvLoadedRef.current) return;
+    initialConvLoadedRef.current = true;
+    void loadConversation({ id: initialConvId, title: "", created_at: "", updated_at: "" });
+  }, [initialConvId, loadConversation]);
 
   // Delete a conversation
   const deleteConversation = useCallback(async (id: number, e: React.MouseEvent) => {
