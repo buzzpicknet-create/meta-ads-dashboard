@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { getCampaignDetails } from "../lib/meta-api";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -39,6 +41,56 @@ interface MsgRow {
   content: string;
   tool_calls: string[] | null;
   created_at: string;
+}
+
+const RESOLVE_CONCURRENCY = 3;
+const RESOLVE_TIMEOUT_MS = 2500;
+
+/**
+ * For any conversation rows that have a campaign_id but no campaign_name,
+ * resolve the name from the Meta API and persist it to the DB (fire-and-forget).
+ * Returns a map of campaign_id → resolved name so the current response can
+ * include the name without waiting for the DB write.
+ *
+ * Capped at RESOLVE_CONCURRENCY simultaneous Meta calls, each with a
+ * RESOLVE_TIMEOUT_MS timeout, so a slow or rate-limited Meta API never
+ * delays the conversation list response for long.
+ */
+async function resolveMissingCampaignNames(rows: ConvRow[]): Promise<Map<string, string>> {
+  const needsResolution = new Map<string, number[]>();
+  for (const row of rows) {
+    if (row.campaign_id && !row.campaign_name) {
+      const ids = needsResolution.get(row.campaign_id) ?? [];
+      ids.push(row.id);
+      needsResolution.set(row.campaign_id, ids);
+    }
+  }
+
+  const resolved = new Map<string, string>();
+  if (needsResolution.size === 0) return resolved;
+
+  const entries = [...needsResolution.entries()].slice(0, RESOLVE_CONCURRENCY);
+
+  await Promise.all(
+    entries.map(async ([campaignId, convIds]) => {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), RESOLVE_TIMEOUT_MS)
+      );
+      try {
+        const details = await Promise.race([getCampaignDetails(campaignId), timeout]);
+        if (!details.name) return;
+        resolved.set(campaignId, details.name);
+        query(
+          `UPDATE chat_conversations SET campaign_name = $1 WHERE id = ANY($2::int[]) AND campaign_name IS NULL`,
+          [details.name, convIds]
+        ).catch((err) => logger.warn({ err, campaignId }, "chat: failed to persist resolved campaign_name"));
+      } catch (err) {
+        logger.warn({ err, campaignId }, "chat: could not resolve campaign_name from Meta API");
+      }
+    })
+  );
+
+  return resolved;
 }
 
 // GET /api/chat/conversations — list user conversations (optionally filter by campaign_id or search q)
@@ -134,10 +186,14 @@ router.get("/chat/conversations", async (req, res) => {
         [userId]
       );
     }
+    const resolvedNames = await resolveMissingCampaignNames(rows);
+
     const conversations = rows.map((row) => {
       const { matching_content, ...rest } = row;
-      if (!q || matching_content == null) return { ...rest, snippet: null };
-      return { ...rest, snippet: extractSnippet(matching_content, q) };
+      const campaign_name = rest.campaign_name ?? (rest.campaign_id ? resolvedNames.get(rest.campaign_id) ?? null : null);
+      const base = { ...rest, campaign_name };
+      if (!q || matching_content == null) return { ...base, snippet: null };
+      return { ...base, snippet: extractSnippet(matching_content, q) };
     });
     res.json({ conversations });
   } catch (err) {
