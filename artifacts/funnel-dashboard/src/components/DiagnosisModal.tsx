@@ -1581,7 +1581,7 @@ function buildCampaignContext(
 }
 
 // ── AI Chat types ─────────────────────────────────────────────────────────────
-interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string }
+interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string; tool_calls?: string[] }
 interface ConvSummary { id: number; title: string; created_at: string; updated_at: string }
 
 function fmtRelative(dateStr: string): string {
@@ -1744,6 +1744,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [executingAction, setExecutingAction] = useState(false);
   const [toolCallLabels, setToolCallLabels] = useState<string[]>([]);
+  const [expandedSources, setExpandedSources] = useState<Record<number, boolean>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1806,6 +1807,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       const d = await r.json() as { messages: ChatMessage[] };
       setConvId(conv.id);
       setMessages(d.messages);
+      setExpandedSources({});
       setView("chat");
       setTimeout(() => inputRef.current?.focus(), 80);
     } catch {}
@@ -1833,6 +1835,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     setStreamingText("");
     setStreaming(false);
     setAttachment(null);
+    setExpandedSources({});
     setView("chat");
     setTimeout(() => inputRef.current?.focus(), 80);
   }, [setMessages, setStreamingText, setStreaming]);
@@ -1892,6 +1895,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
+      const localLabels: string[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1904,13 +1908,19 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
             if (data.error) throw new Error(data.error);
             if (data.done) break;
             if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
-            if (data.tool_call_label) { setToolCallLabels((prev) => [...prev, data.tool_call_label as string]); }
+            if (data.tool_call_label) {
+              localLabels.push(data.tool_call_label as string);
+              setToolCallLabels((prev) => [...prev, data.tool_call_label as string]);
+            }
             if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
       }
 
-      const finalMessages: ChatMessage[] = [...newMessages, { role: "assistant", content: accumulated }];
+      const capturedLabels = localLabels.slice();
+      const assistantMsg: ChatMessage = { role: "assistant", content: accumulated };
+      if (capturedLabels.length > 0) assistantMsg.tool_calls = capturedLabels;
+      const finalMessages: ChatMessage[] = [...newMessages, assistantMsg];
       setMessages(finalMessages);
 
       // Auto-save to DB
@@ -2077,19 +2087,43 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               }`}>
                 {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
               </div>
-              <div
-                className={`min-w-0 rounded-2xl break-words overflow-hidden ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
-                    : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
-                }`}
-                style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
-                dir="rtl"
-              >
-                {msg.imagePreviewUrl && (
-                  <img src={msg.imagePreviewUrl} alt="مرفق" className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20" style={{ maxHeight: 200 }} onClick={() => window.open(msg.imagePreviewUrl, "_blank")} />
+              <div className="min-w-0 flex flex-col gap-1" style={{ maxWidth: "85%" }}>
+                <div
+                  className={`min-w-0 rounded-2xl break-words overflow-hidden ${
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
+                      : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
+                  }`}
+                  style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
+                  dir="rtl"
+                >
+                  {msg.imagePreviewUrl && (
+                    <img src={msg.imagePreviewUrl} alt="مرفق" className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20" style={{ maxHeight: 200 }} onClick={() => window.open(msg.imagePreviewUrl, "_blank")} />
+                  )}
+                  {msg.role === "user" ? msg.content && <span>{msg.content}</span> : <RenderMarkdown text={msg.content} />}
+                </div>
+                {msg.role === "assistant" && msg.tool_calls && msg.tool_calls.length > 0 && (
+                  <div dir="rtl">
+                    <button
+                      onClick={() => setExpandedSources((prev) => ({ ...prev, [i]: !prev[i] }))}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      <Search className="h-2.5 w-2.5 shrink-0" />
+                      <span>مصادر البيانات ({msg.tool_calls.length})</span>
+                      <ChevronDown className={`h-2.5 w-2.5 shrink-0 transition-transform ${expandedSources[i] ? "rotate-180" : ""}`} />
+                    </button>
+                    {expandedSources[i] && (
+                      <div className="mt-1 flex flex-col gap-0.5 ps-1">
+                        {msg.tool_calls.map((label, j) => (
+                          <span key={j} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
+                            <span className="w-1 h-1 rounded-full bg-muted-foreground/30 shrink-0" />
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
-                {msg.role === "user" ? msg.content && <span>{msg.content}</span> : <RenderMarkdown text={msg.content} />}
               </div>
             </div>
           ))}

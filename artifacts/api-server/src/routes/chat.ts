@@ -14,6 +14,7 @@ interface MsgRow {
   id: number;
   role: string;
   content: string;
+  tool_calls: string[] | null;
   created_at: string;
 }
 
@@ -79,7 +80,7 @@ router.get("/chat/conversations/:id/messages", async (req, res) => {
     if (!owns.length) return res.status(404).json({ error: "المحادثة غير موجودة" });
 
     const rows = await query<MsgRow>(
-      `SELECT id, role, content, created_at
+      `SELECT id, role, content, tool_calls, created_at
        FROM chat_messages
        WHERE conversation_id = $1
        ORDER BY created_at ASC`,
@@ -97,7 +98,7 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
   try {
     const userId = req.session.userId!;
     const convId = Number(req.params["id"]);
-    const { messages } = req.body as { messages: { role: string; content: string }[] };
+    const { messages } = req.body as { messages: { role: string; content: string; tool_calls?: string[] }[] };
 
     const owns = await query<{ id: number }>(
       `SELECT id FROM chat_conversations WHERE id = $1 AND user_id = $2`,
@@ -106,11 +107,13 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
     if (!owns.length) return res.status(404).json({ error: "المحادثة غير موجودة" });
 
     for (const msg of messages ?? []) {
-      if (!msg.role || !msg.content) continue;
+      const hasTc = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+      if (!msg.role || (!msg.content && !hasTc)) continue;
+      const tc = hasTc ? msg.tool_calls! : null;
       await query(
-        `INSERT INTO chat_messages (conversation_id, role, content)
-         VALUES ($1, $2, $3)`,
-        [convId, msg.role, msg.content]
+        `INSERT INTO chat_messages (conversation_id, role, content, tool_calls)
+         VALUES ($1, $2, $3, $4)`,
+        [convId, msg.role, msg.content, tc]
       );
     }
     await query(
