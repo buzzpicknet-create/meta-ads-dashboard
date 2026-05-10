@@ -1812,7 +1812,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ title, campaign_id: campaignId }),
+        body: JSON.stringify({ title, campaign_id: campaignId, campaign_name: campaignName }),
       });
       if (!r.ok) return null;
       const d = await r.json() as { id: number };

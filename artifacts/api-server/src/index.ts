@@ -414,6 +414,27 @@ async function runMigrations() {
     ON cache_warmup_log (ran_at DESC)
   `);
 
+  await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS campaign_name TEXT`);
+
+  // One-time backfill: populate campaign_name for historical conversations that
+  // already have a campaign_id but were created before the campaign_name column existed.
+  // Resolves names from the most recent meta_campaigns_cache entry per account.
+  await query(`
+    UPDATE chat_conversations cc
+    SET campaign_name = c.name
+    FROM (
+      SELECT DISTINCT ON (camp->>'id')
+        camp->>'id'   AS campaign_id,
+        camp->>'name' AS name
+      FROM meta_campaigns_cache,
+           jsonb_array_elements(campaigns) AS camp
+      ORDER BY camp->>'id', fetched_at DESC
+    ) c
+    WHERE cc.campaign_id = c.campaign_id
+      AND cc.campaign_id IS NOT NULL
+      AND cc.campaign_name IS NULL
+  `);
+
   logger.info("Database migrations complete");
 }
 

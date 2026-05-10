@@ -7,6 +7,7 @@ interface ConvRow {
   id: number;
   title: string;
   campaign_id: string | null;
+  campaign_name: string | null;
   created_at: string;
   updated_at: string;
   matching_content?: string | null;
@@ -55,7 +56,7 @@ router.get("/chat/conversations", async (req, res) => {
       // Global search: across all campaigns, returns matching_content for snippet generation
       const pattern = `%${q}%`;
       rows = await query<ConvRow>(
-        `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.created_at, cc.updated_at,
+        `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at,
            (SELECT cm2.content
             FROM chat_messages cm2
             WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $2
@@ -73,7 +74,7 @@ router.get("/chat/conversations", async (req, res) => {
       const pattern = `%${q}%`;
       if (campaignId) {
         rows = await query<ConvRow>(
-          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.created_at, cc.updated_at,
+          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at,
              (SELECT cm2.content
               FROM chat_messages cm2
               WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $3
@@ -89,7 +90,7 @@ router.get("/chat/conversations", async (req, res) => {
         );
       } else {
         rows = await query<ConvRow>(
-          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.created_at, cc.updated_at,
+          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at,
              (SELECT cm2.content
               FROM chat_messages cm2
               WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $2
@@ -106,7 +107,7 @@ router.get("/chat/conversations", async (req, res) => {
       }
     } else if (campaignId) {
       rows = await query<ConvRow>(
-        `SELECT id, title, campaign_id, created_at, updated_at, NULL AS matching_content
+        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, NULL AS matching_content
          FROM chat_conversations
          WHERE user_id = $1 AND campaign_id = $2
          ORDER BY updated_at DESC
@@ -115,7 +116,7 @@ router.get("/chat/conversations", async (req, res) => {
       );
     } else {
       rows = await query<ConvRow>(
-        `SELECT id, title, campaign_id, created_at, updated_at, NULL AS matching_content
+        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, NULL AS matching_content
          FROM chat_conversations
          WHERE user_id = $1 AND campaign_id IS NULL
          ORDER BY updated_at DESC
@@ -139,12 +140,12 @@ router.get("/chat/conversations", async (req, res) => {
 router.post("/chat/conversations", async (req, res) => {
   try {
     const userId = req.session.userId!;
-    const { title, campaign_id } = req.body as { title?: string; campaign_id?: string };
+    const { title, campaign_id, campaign_name } = req.body as { title?: string; campaign_id?: string; campaign_name?: string };
     const rows = await query<ConvRow>(
-      `INSERT INTO chat_conversations (user_id, title, campaign_id)
-       VALUES ($1, $2, $3)
-       RETURNING id, title, campaign_id, created_at, updated_at`,
-      [userId, (title ?? "محادثة جديدة").slice(0, 120), campaign_id ?? null]
+      `INSERT INTO chat_conversations (user_id, title, campaign_id, campaign_name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, title, campaign_id, campaign_name, created_at, updated_at`,
+      [userId, (title ?? "محادثة جديدة").slice(0, 120), campaign_id ?? null, campaign_name ? campaign_name.slice(0, 255) : null]
     );
     res.json(rows[0]);
   } catch (err) {

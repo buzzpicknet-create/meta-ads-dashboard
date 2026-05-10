@@ -22,7 +22,7 @@ const API = `${BASE}/api`;
 
 interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string; tool_calls?: string[] }
 
-interface ConvSummary { id: number; title: string; campaign_id?: string | null; snippet?: string | null; created_at: string; updated_at: string }
+interface ConvSummary { id: number; title: string; campaign_id?: string | null; campaign_name?: string | null; snippet?: string | null; created_at: string; updated_at: string }
 
 interface ActivityLog {
   action: string;
@@ -1009,9 +1009,9 @@ export function GlobalAiChat() {
                                     {highlightText(conv.title, historySearch)}
                                   </p>
                                   {isCampaign && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
-                                      <Globe className="h-2.5 w-2.5" />
-                                      حملة
+                                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5 max-w-[180px]">
+                                      <Globe className="h-2.5 w-2.5 shrink-0" />
+                                      <span className="truncate">{conv.campaign_name ? `حملة: ${conv.campaign_name}` : "حملة"}</span>
                                     </span>
                                   )}
                                   {conv.snippet && (
