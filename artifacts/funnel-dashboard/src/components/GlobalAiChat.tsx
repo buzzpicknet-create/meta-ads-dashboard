@@ -1002,8 +1002,8 @@ export function GlobalAiChat() {
                     </div>
                   ))}
 
-                  {/* Pending action confirmation card */}
-                  {pendingAction && !streaming && (
+                  {/* Pending action confirmation card — admin only */}
+                  {pendingAction && !streaming && user?.role === "admin" && (
                     <div className="flex gap-2.5 flex-row items-start" dir="rtl">
                       <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-amber-100 border border-amber-300">
                         <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />

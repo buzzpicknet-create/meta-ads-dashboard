@@ -11,8 +11,19 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   }
 
   const { tool, args } = req.body as { tool: string; args: Record<string, unknown> };
-  if (!tool) {
-    res.status(400).json({ error: "tool مطلوب" });
+
+  const ALLOWED_TOOLS = new Set([
+    "pause_campaign",
+    "enable_campaign",
+    "update_campaign_budget",
+    "pause_adset",
+    "enable_adset",
+    "update_adset_budget",
+    "duplicate_adset",
+  ]);
+
+  if (!tool || !ALLOWED_TOOLS.has(tool)) {
+    res.status(400).json({ error: `أداة غير مسموح بها: ${tool ?? "(فارغ)"}` });
     return;
   }
 
