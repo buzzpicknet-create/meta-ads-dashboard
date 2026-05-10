@@ -50,15 +50,25 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ConvSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [recentConvs, setRecentConvs] = useState<ConvSummary[] | null>(null);
+  const [recentLoading, setRecentLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Focus input when modal opens
+  // Focus input and fetch recent conversations when modal opens
   useEffect(() => {
     if (open) {
       setQuery("");
       setResults(null);
       setTimeout(() => inputRef.current?.focus(), 50);
+
+      // Fetch recent conversations (up to 6)
+      setRecentLoading(true);
+      fetch(`${API}/chat/conversations?global=true`, { credentials: "include" })
+        .then((r) => r.ok ? r.json() as Promise<{ conversations: ConvSummary[] }> : Promise.reject())
+        .then((d) => setRecentConvs(d.conversations))
+        .catch(() => setRecentConvs([]))
+        .finally(() => setRecentLoading(false));
     }
   }, [open]);
 
@@ -157,10 +167,62 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
         {/* Results */}
         <div className="max-h-[60vh] overflow-y-auto">
           {!query.trim() ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground/60">
-              <Search className="h-8 w-8" />
-              <p className="text-sm">ابدأ الكتابة للبحث في المحادثات</p>
-            </div>
+            recentLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <div className="flex gap-1.5">
+                  {[0, 1, 2].map((k) => (
+                    <span
+                      key={k}
+                      className="w-2 h-2 rounded-full bg-primary/40 animate-bounce"
+                      style={{ animationDelay: `${k * 140}ms` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : recentConvs && recentConvs.length > 0 ? (
+              <div className="py-2">
+                <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-4 pt-1 pb-2">
+                  المحادثات الأخيرة
+                </p>
+                <div className="space-y-0.5 px-2">
+                  {recentConvs.map((conv) => {
+                    const isCampaign = !!conv.campaign_id;
+                    return (
+                      <button
+                        key={conv.id}
+                        onClick={() => openConversation(conv)}
+                        className="w-full flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-muted/60 text-start"
+                      >
+                        {isCampaign
+                          ? <Globe className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+                          : <MessageSquare className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                        }
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm truncate leading-tight font-medium">{conv.title}</p>
+                          {isCampaign && (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
+                              <Globe className="h-2.5 w-2.5" />
+                              حملة
+                            </span>
+                          )}
+                          <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+                            {formatRelative(conv.updated_at)}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-muted-foreground/40 text-center py-2 border-t border-border mt-1">
+                  ابدأ الكتابة للبحث في جميع المحادثات
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground/60">
+                <MessageSquare className="h-8 w-8" />
+                <p className="text-sm">لا توجد محادثات سابقة</p>
+              </div>
+            )
           ) : loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="flex gap-1.5">

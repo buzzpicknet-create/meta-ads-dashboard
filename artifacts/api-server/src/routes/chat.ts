@@ -52,7 +52,17 @@ router.get("/chat/conversations", async (req, res) => {
 
     let rows: ConvRow[];
 
-    if (q && global) {
+    if (global && !q) {
+      // Global recent: all conversations across all campaigns, most-recent first
+      rows = await query<ConvRow>(
+        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, NULL AS matching_content
+         FROM chat_conversations
+         WHERE user_id = $1
+         ORDER BY updated_at DESC
+         LIMIT 6`,
+        [userId]
+      );
+    } else if (q && global) {
       // Global search: across all campaigns, returns matching_content for snippet generation
       const pattern = `%${q}%`;
       rows = await query<ConvRow>(
