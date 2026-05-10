@@ -531,7 +531,7 @@ const REFRESH_CRON_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 async function runProactiveRefreshCron() {
   try {
     const stats = await proactiveInsightsRefresh();
-    if (stats.insights + stats.campaigns + stats.overview > 0) {
+    if (stats.insights + stats.campaigns + stats.overview + stats.campaign_details + stats.adset_details > 0) {
       logger.info(stats, "Proactive cache refresh complete");
     }
   } catch (err) {

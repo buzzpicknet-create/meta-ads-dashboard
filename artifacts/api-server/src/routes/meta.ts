@@ -11,6 +11,8 @@ import {
   getAdsWithCreatives,
   getAdBreakdowns,
   isRateLimitActive,
+  getCampaignDetails,
+  getAdsetDetails,
 } from "../lib/meta-api";
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
@@ -574,9 +576,11 @@ export async function proactiveInsightsRefresh(): Promise<{
   insights: number;
   campaigns: number;
   overview: number;
+  campaign_details: number;
+  adset_details: number;
   skipped: number;
 }> {
-  const stats = { insights: 0, campaigns: 0, overview: 0, skipped: 0 };
+  const stats = { insights: 0, campaigns: 0, overview: 0, campaign_details: 0, adset_details: 0, skipped: 0 };
 
   // ── 1) Stale insights rows ──────────────────────────────────────────────────
   const staleInsights = await query<{
@@ -660,6 +664,70 @@ export async function proactiveInsightsRefresh(): Promise<{
       });
       await dbSetOverviewCache(row.account_id, row.period_since, row.period_until, data).catch(() => null);
       stats.overview++;
+    } catch {
+      stats.skipped++;
+    }
+    await sleep(PROACTIVE_REFRESH_DELAY_MS);
+  }
+
+  // ── 4) Missing/stale campaign details rows ─────────────────────────────────
+  // Find campaign_ids in meta_insights_cache that are absent or stale in
+  // meta_campaign_details_cache.
+  const staleCampaignDetails = await query<{ campaign_id: string }>(
+    `SELECT DISTINCT ON (ic.campaign_id) ic.campaign_id
+     FROM meta_insights_cache ic
+     LEFT JOIN meta_campaign_details_cache cdc ON cdc.campaign_id = ic.campaign_id
+     WHERE cdc.campaign_id IS NULL
+        OR cdc.fetched_at < NOW() - INTERVAL '45 minutes'
+     ORDER BY ic.campaign_id, ic.fetched_at DESC
+     LIMIT 10`,
+    []
+  ).catch(() => [] as { campaign_id: string }[]);
+
+  for (const row of staleCampaignDetails) {
+    if (isRateLimitActive()) { stats.skipped++; continue; }
+    try {
+      const data = await getCampaignDetails(row.campaign_id);
+      await query(
+        `INSERT INTO meta_campaign_details_cache (campaign_id, data, fetched_at)
+         VALUES ($1,$2,NOW())
+         ON CONFLICT (campaign_id) DO UPDATE SET data=$2, fetched_at=NOW()`,
+        [row.campaign_id, JSON.stringify(data)]
+      ).catch(() => null);
+      stats.campaign_details++;
+    } catch {
+      stats.skipped++;
+    }
+    await sleep(PROACTIVE_REFRESH_DELAY_MS);
+  }
+
+  // ── 5) Missing/stale adset details rows ────────────────────────────────────
+  // Extract adset IDs from the by_adset array in cached insights, then warm
+  // any that are absent or stale in meta_adset_details_cache.
+  const staleAdsetDetails = await query<{ adset_id: string }>(
+    `SELECT DISTINCT ON (elem->>'id') elem->>'id' AS adset_id
+     FROM meta_insights_cache ic,
+          jsonb_array_elements(ic.data->'by_adset') AS elem
+     LEFT JOIN meta_adset_details_cache adc ON adc.adset_id = elem->>'id'
+     WHERE (elem->>'id') IS NOT NULL
+       AND (adc.adset_id IS NULL
+            OR adc.fetched_at < NOW() - INTERVAL '45 minutes')
+     ORDER BY elem->>'id', ic.fetched_at DESC
+     LIMIT 15`,
+    []
+  ).catch(() => [] as { adset_id: string }[]);
+
+  for (const row of staleAdsetDetails) {
+    if (isRateLimitActive()) { stats.skipped++; continue; }
+    try {
+      const data = await getAdsetDetails(row.adset_id);
+      await query(
+        `INSERT INTO meta_adset_details_cache (adset_id, data, fetched_at)
+         VALUES ($1,$2,NOW())
+         ON CONFLICT (adset_id) DO UPDATE SET data=$2, fetched_at=NOW()`,
+        [row.adset_id, JSON.stringify(data)]
+      ).catch(() => null);
+      stats.adset_details++;
     } catch {
       stats.skipped++;
     }
