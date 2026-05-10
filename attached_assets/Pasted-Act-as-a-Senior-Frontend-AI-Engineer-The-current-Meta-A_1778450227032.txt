@@ -1,0 +1,33 @@
+Act as a Senior Frontend & AI Engineer. The current "Meta Ads Assistant" chat UI is too basic (just rendering plain text bullet points). The user wants an analytical, visually rich chat experience identical to Claude 3.5 Sonnet (with tables, structured markdown, and dynamic charts).
+
+Please implement this massive UI/UX and Backend Chat upgrade:
+
+1. FRONTEND: MARKDOWN & TABLE SUPPORT
+- Install and configure `react-markdown` and `remark-gfm` in the chat component.
+- The chat MUST be able to natively render clean, styled Markdown tables, bold text, headings (H3, H4), and blockquotes. Add professional CSS styling for the tables (borders, alternating row colors).
+
+2. FRONTEND: DYNAMIC CHART RENDERING (The "Artifacts" Feature)
+- Install a charting library like `recharts` or `chart.js`.
+- Create a custom component in the chat that listens for a specific code block from the AI. 
+- If the AI outputs a code block formatted as ```json chart ... ```, the frontend should intercept it and render a beautiful Bar Chart or Line Chart instead of showing the raw JSON code.
+
+3. BACKEND: THE ANALYST SYSTEM PROMPT
+- Update the system prompt for the chat route (e.g., `/api/chat`).
+- Inject this new persona:
+  "You are an Elite Meta Ads & E-commerce Data Analyst. You must communicate with the clarity and visual structure of Claude. 
+  Rules for your responses:
+  1. NEVER just output a wall of bullet points.
+  2. Use headings (###) to separate sections (e.g., 'Executive Summary', 'Campaigns to Scale', 'Campaigns to Kill').
+  3. ALWAYS use Markdown Tables to compare campaigns, ROAS, CPA, and Spend.
+  4. If asked about trends over time or comparing multiple ad sets, output a JSON block labeled 
+http://googleusercontent.com/immersive_entry_chip/0
+
+---
+
+### 💡 إيه اللي هيتغير عندك في المنصة بعد التحديث ده؟
+
+1. **شكل التحليل:** بدل ما يكتبلك "حملة الأكياس كويسة وحملة الفوم وحشة"، هتلاقيه بيرد عليك بـ **جدول أنيق** متقسم (اسم الحملة | التكلفة | الإجراء المطلوب)، وده هيخلي عينك تلقط الـ Winners والـ Losers في ثانية.
+2. **الرسوم البيانية:** لو قولتله "قارن لي بين أداء حملات الـ Scale في آخر 3 أيام"، هتلاقيه بيرسملك **Bar Chart (رسم بياني أعمدة)** جوه الشات نفسه يوضحلك التدرج في التكلفة!
+3. **الذاكرة الذكية:** تقدر تقوله "طيب بناءً على الجدول اللي فات، لو قفلنا الحملات الضعيفة، الميزانية اللي هتوفر دي نصرفها على إيه؟"، هيفهم فوراً ويرد عليك لأنه بقى فاهم السياق (Context) ومحتفظ بيه.
+
+ده هينقل الداشبورد بتاعتك من مجرد "شات بوت" لـ **Data Analyst** حقيقي قاعد معاك في المكتب.

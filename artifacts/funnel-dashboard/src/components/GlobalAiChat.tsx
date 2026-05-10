@@ -2,8 +2,12 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
   History, Plus, ChevronRight, ChevronDown, Clock, Zap, AlertTriangle, Search,
-  Globe,
+  Globe, BarChart2,
 } from "lucide-react";
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend, Cell,
+} from "recharts";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
@@ -277,6 +281,72 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
   return lines.join("\n");
 }
 
+// ── Chart colors palette ─────────────────────────────────────────────────────
+const CHART_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#ec4899"];
+
+interface ChartSpec {
+  type: "bar" | "line" | "multibar";
+  title?: string;
+  xKey: string;
+  series: { key: string; label: string; color?: string }[];
+  data: Record<string, string | number>[];
+  unit?: string;
+}
+
+function ChartBlock({ spec }: { spec: ChartSpec }) {
+  const fmt = (v: unknown) => typeof v === "number" ? v.toLocaleString("ar-EG") : String(v ?? "");
+  const unit = spec.unit ?? "";
+  return (
+    <div className="my-3 rounded-xl border border-border/60 bg-card shadow-sm overflow-hidden">
+      {spec.title && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 bg-muted/30">
+          <BarChart2 className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span className="text-[13px] font-semibold text-foreground">{spec.title}</span>
+        </div>
+      )}
+      <div className="px-2 py-3" dir="ltr">
+        <ResponsiveContainer width="100%" height={220}>
+          {spec.type === "line" ? (
+            <LineChart data={spec.data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+              <XAxis dataKey={spec.xKey} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={v => `${v}${unit}`} width={48} />
+              <Tooltip formatter={(v: unknown) => [`${fmt(v)}${unit}`, ""]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              {spec.series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
+              {spec.series.map((s, idx) => (
+                <Line key={s.key} type="monotone" dataKey={s.key} name={s.label}
+                  stroke={s.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                  strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              ))}
+            </LineChart>
+          ) : (
+            <BarChart data={spec.data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }} barGap={4}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" vertical={false} />
+              <XAxis dataKey={spec.xKey} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={v => `${v}${unit}`} width={48} />
+              <Tooltip formatter={(v: unknown) => [`${fmt(v)}${unit}`, ""]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              {spec.series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
+              {spec.series.map((s, idx) =>
+                spec.series.length === 1 ? (
+                  <Bar key={s.key} dataKey={s.key} name={s.label} radius={[4, 4, 0, 0]} maxBarSize={48}>
+                    {spec.data.map((_, di) => (
+                      <Cell key={di} fill={CHART_COLORS[di % CHART_COLORS.length]} />
+                    ))}
+                  </Bar>
+                ) : (
+                  <Bar key={s.key} dataKey={s.key} name={s.label}
+                    fill={s.color ?? CHART_COLORS[idx % CHART_COLORS.length]}
+                    radius={[4, 4, 0, 0]} maxBarSize={32} />
+                )
+              )}
+            </BarChart>
+          )}
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
   return parts.map((part, i) => {
@@ -302,8 +372,10 @@ function RenderMarkdown({ text }: { text: string }) {
     const line = lines[i]!;
     if (line.trim() === "") { i++; continue; }
 
-    // Fenced code block ```
+    // Fenced code block ``` — detect "json chart" for live chart rendering
     if (line.trim().startsWith("```")) {
+      const lang = line.trim().slice(3).trim().toLowerCase();
+      const isChart = lang === "json chart" || lang === "chart" || lang === "json-chart";
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i]!.trim().startsWith("```")) {
@@ -311,15 +383,29 @@ function RenderMarkdown({ text }: { text: string }) {
         i++;
       }
       i++;
-      elements.push(
-        <div key={`code-${i}`} className="my-3 rounded-xl overflow-hidden border border-border/60 bg-muted/40">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/60 border-b border-border/40">
-            <div className="flex gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400/60" /><span className="w-2.5 h-2.5 rounded-full bg-yellow-400/60" /><span className="w-2.5 h-2.5 rounded-full bg-green-400/60" /></div>
-            <span className="text-[10px] text-muted-foreground/60 font-mono">code</span>
+      const raw = codeLines.join("\n");
+      if (isChart) {
+        try {
+          const spec = JSON.parse(raw) as ChartSpec;
+          elements.push(<ChartBlock key={`chart-${i}`} spec={spec} />);
+        } catch {
+          elements.push(
+            <div key={`code-${i}`} className="my-3 rounded-xl overflow-hidden border border-border/60 bg-muted/40">
+              <pre className="p-3 overflow-x-auto text-[12px] font-mono text-foreground/85 leading-relaxed whitespace-pre" dir="ltr">{raw}</pre>
+            </div>
+          );
+        }
+      } else {
+        elements.push(
+          <div key={`code-${i}`} className="my-3 rounded-xl overflow-hidden border border-border/60 bg-muted/40">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/60 border-b border-border/40">
+              <div className="flex gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400/60" /><span className="w-2.5 h-2.5 rounded-full bg-yellow-400/60" /><span className="w-2.5 h-2.5 rounded-full bg-green-400/60" /></div>
+              <span className="text-[10px] text-muted-foreground/60 font-mono">{lang || "code"}</span>
+            </div>
+            <pre className="p-3 overflow-x-auto text-[12px] font-mono text-foreground/85 leading-relaxed whitespace-pre" dir="ltr">{raw}</pre>
           </div>
-          <pre className="p-3 overflow-x-auto text-[12px] font-mono text-foreground/85 leading-relaxed whitespace-pre" dir="ltr">{codeLines.join("\n")}</pre>
-        </div>
-      );
+        );
+      }
       continue;
     }
 
