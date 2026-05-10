@@ -266,7 +266,13 @@ Frequency (في 7 أيام):
 - duplicate_adset(adset_id, name) — نسخ مجموعة إعلانية
 
 مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
-بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".`;
+بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".
+
+⚠️ حالة خاصة — NO_OP (لا يوجد تغيير مطلوب):
+لو الأداة رجعت رداً يبدأ بـ NO_OP: ، معناه إن الحالة الحالية هي نفس القيمة المقترحة.
+في هذه الحالة لازم:
+١. لا تقترح أي تأكيد ولا تقول "في انتظار موافقتك".
+٢. أخبر المستخدم بشكل مباشر إن الوضع مش محتاج تغيير — مثلاً: "هذه الحملة بالفعل موقوفة، لا داعي لأي إجراء." أو "الميزانية الحالية هي نفس القيمة المطلوبة، لا يوجد تغيير مطلوب."`;
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 const TOOLS = [
@@ -686,6 +692,12 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         if (!args.name && details.name) summary = `نسخ المجموعة الإعلانية "${details.name}"`;
       } catch {}
     }
+
+    // No-op detection: if the current state already matches the proposed state, skip confirmation
+    if (currentValue !== undefined && proposedValue !== undefined && currentValue === proposedValue) {
+      return `NO_OP: الحالة الحالية "${currentValue}" مطابقة للقيمة المقترحة. لا يوجد تغيير مطلوب على: ${summary}`;
+    }
+
     return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary, currentValue, proposedValue })}`;
   }
 
