@@ -54,6 +54,7 @@ const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Fac
 - get_account_daily: الأداء اليومي للحساب كله
 - get_adsets: المجموعات الإعلانية لحملة معينة
 - get_ad_performance: أداء إعلان بعينه (نسبة الجذب، نسبة النقر، تكلفة التحويل، الظهورات، الإنفاق) — استخدم قبل التوصية بتغيير أو إيقاف إعلان محدد
+- get_ads_in_adset: قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية محددة مرتّبة بالكفاءة — استخدم قبل التوصية بزيادة إعلان أو إيقاف آخر لتحديد الـ Winner والـ Drain
 
 كل حملة بتمر بمراحل متسلسلة. المشكلة في أي مرحلة بتأثر على كل اللي بعدها:
 
@@ -170,6 +171,8 @@ Frequency (في 7 أيام):
 - الإعلان بأعلى إنفاق + أعلى CPA: Drain — وقفه وحوّل Budget للـ Winner
 
 ⚠️ مهم: قبل توصية بتغيير محتوى إعلان أو إيقافه، استخدم get_ad_performance للتحقق من نسبة الجذب والنقر والتكلفة الفعلية لهذا الإعلان. لا تبني توصية على بيانات الـ context وحده لو عندك ad_id محدد.
+
+⚠️ مهم جداً: لو عندك adset_id وتريد تقارن الإعلانات داخله لتحديد الأفضل أو اقتراح نقل الميزانية، استخدم get_ads_in_adset أولاً. الأداة بترتّب الإعلانات حسب الكفاءة وتحدد الـ Winner والـ Drain بشكل واضح — لا تبني توصية بنقل الميزانية بدون هذه البيانات.
 
 ══════════════════════════════════════
 الجزء 4 — قواعد اتخاذ القرار
@@ -388,6 +391,21 @@ const TOOLS = [
           days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 7" },
         },
         required: ["ad_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_ads_in_adset",
+      description: "جيب قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية (Ad Set) محددة — مرتّبة حسب الكفاءة (CPA، نسبة الجذب، نسبة النقر، الإنفاق). استخدم قبل التوصية بزيادة إعلان معين أو إيقاف آخر لتحديد الـ Winner والـ Drain بشكل دقيق.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 7" },
+        },
+        required: ["adset_id"],
       },
     },
   },
@@ -723,7 +741,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary, currentValue, proposedValue })}`;
   }
 
-  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets") ? 7 : 14));
+  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 7 : 14));
   // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
   const untilD = new Date(Date.now() + 2 * 60 * 60 * 1000);
   const sinceD = new Date(untilD);
@@ -1064,6 +1082,86 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       } catch (err) {
         return `خطأ في جلب حالة المجموعة: ${err instanceof Error ? err.message : String(err)}`;
       }
+    }
+
+    if (name === "get_ads_in_adset") {
+      const adset_id = String(args.adset_id ?? "");
+      if (!adset_id) return "adset_id مطلوب.";
+
+      // Search all accounts and campaigns for ads belonging to this adset
+      const matchedAds: Awaited<ReturnType<typeof getCampaignInsights>>["by_ad"] = [];
+      let foundCampaignName = "";
+      let foundAdsetName = "";
+      let maxCacheAgeMs = 0;
+      let anyFromCache = false;
+
+      for (const acc of accounts) {
+        const campaignsResult = await fetchCampaignsCached(acc.id);
+        if (campaignsResult.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, campaignsResult.cacheAgeMs); }
+        for (const campaign of campaignsResult.data) {
+          try {
+            const result = await fetchInsightsCached(campaign.id);
+            if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
+            const adsInAdset = result.data.by_ad.filter((ad) => ad.adset_id === adset_id);
+            if (adsInAdset.length > 0) {
+              matchedAds.push(...adsInAdset);
+              foundCampaignName = result.data.campaign.name;
+              // Try to find adset name from by_adset
+              const adsetEntry = result.data.by_adset.find((as) => as.id === adset_id);
+              if (adsetEntry) foundAdsetName = adsetEntry.label;
+            }
+          } catch {
+            // Skip campaigns that fail to load
+          }
+        }
+      }
+
+      if (matchedAds.length === 0) {
+        return `لم يتم العثور على إعلانات للمجموعة ${adset_id} في البيانات المتاحة (آخر ${days} يوم). تأكد من صحة الرقم أو جرّب فترة زمنية أطول.`;
+      }
+
+      // Rank by CPA (ascending, lower is better); ads with no purchases go last
+      const sorted = [...matchedAds].sort((a, b) => {
+        if (a.cpa <= 0 && b.cpa <= 0) return b.spend - a.spend;
+        if (a.cpa <= 0) return 1;
+        if (b.cpa <= 0) return -1;
+        return a.cpa - b.cpa;
+      });
+
+      const adsetLabel = foundAdsetName ? `"${foundAdsetName}"` : adset_id;
+      const rows: string[] = [
+        `## الإعلانات داخل المجموعة ${adsetLabel} (آخر ${days} يوم):`,
+        `الحملة: ${foundCampaignName}\n`,
+        "| الإعلان | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة الجذب% | نسبة النقر% | الظهورات | التقييم |",
+        "|---------|--------------|---------|-----------|-------------|-------------|----------|---------|",
+      ];
+
+      const avgCpa = sorted.filter((a) => a.cpa > 0).reduce((s, a) => s + a.cpa, 0) / (sorted.filter((a) => a.cpa > 0).length || 1);
+      const avgHook = sorted.reduce((s, a) => s + a.hookRate, 0) / (sorted.length || 1);
+
+      for (const ad of sorted) {
+        let verdict = "—";
+        if (ad.cpa > 0 && ad.cpa <= avgCpa * 0.85 && ad.hookRate >= avgHook) {
+          verdict = "🏆 Winner";
+        } else if (ad.cpa > avgCpa * 1.3 && ad.spend > sorted.reduce((s, a) => s + a.spend, 0) * 0.15) {
+          verdict = "🔴 Drain";
+        } else if (ad.hookRate >= avgHook && ad.cpa > 0 && ad.cpa <= avgCpa * 1.1) {
+          verdict = "✅ كويس";
+        } else if (ad.hookRate < avgHook * 0.7) {
+          verdict = "⚠️ Hook ضعيف";
+        }
+        rows.push(
+          `| ${ad.label} (id:${ad.id}) | ${fmt(ad.spend)} | ${ad.purchases} | ${ad.cpa > 0 ? fmt(ad.cpa) : "—"} | ${fmt(ad.hookRate, 2)} | ${fmt(ad.ctr, 2)} | ${ad.impressions.toLocaleString()} | ${verdict} |`
+        );
+      }
+
+      // Summary note
+      const winner = sorted.find((a) => a.cpa > 0 && a.cpa <= avgCpa * 0.85 && a.hookRate >= avgHook);
+      const drain = sorted.find((a) => a.cpa > avgCpa * 1.3 && a.spend > sorted.reduce((s, a) => s + a.spend, 0) * 0.15);
+      if (winner) rows.push(`\n✅ الأفضل كفاءة: ${winner.label} — CPA: ${fmt(winner.cpa)} EGP، نسبة جذب: ${fmt(winner.hookRate, 2)}%`);
+      if (drain) rows.push(`🔴 الأعلى هدراً: ${drain.label} — CPA: ${fmt(drain.cpa)} EGP، إنفاق: ${fmt(drain.spend)} EGP`);
+
+      return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
 
     return "أداة غير معروفة.";

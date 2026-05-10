@@ -417,6 +417,7 @@ export interface SegmentEntry {
   hookRate: number;
   effective_status?: string;
   issues?: AdIssue[];
+  adset_id?: string;
 }
 
 export interface DailySegmentPoint {
@@ -610,12 +611,13 @@ export async function getCampaignInsights(opts: {
     .sort((a, b) => b.spend - a.spend);
 
   // ---- By ad
-  const adMap = new Map<string, { name: string; metrics: AggregatedMetrics }>();
+  const adMap = new Map<string, { name: string; metrics: AggregatedMetrics; adset_id: string }>();
   for (const row of adRows) {
     if (!row.ad_id) continue;
     const cur = adMap.get(row.ad_id) ?? {
       name: row.ad_name || row.ad_id,
       metrics: emptyMetrics(),
+      adset_id: row.adset_id ?? "",
     };
     addRow(cur.metrics, row);
     adMap.set(row.ad_id, cur);
@@ -643,6 +645,7 @@ export async function getCampaignInsights(opts: {
         hookRate: d.hookRate,
         effective_status: delivery?.effective_status,
         issues: delivery?.issues ?? [],
+        adset_id: v.adset_id,
       };
     })
     .sort((a, b) => b.spend - a.spend);
