@@ -23,8 +23,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   }
 
   const client = new Client({ name: "meta-ads-dashboard", version: "1.0.0" });
-  const url = new URL(`https://mcp.pipeboard.co/meta-ads-mcp?token=${token}`);
-  const transport = new StreamableHTTPClientTransport(url);
+  const url = new URL("https://mcp.pipeboard.co/meta-ads-mcp");
+  const transport = new StreamableHTTPClientTransport(url, {
+    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+  });
 
   try {
     await client.connect(transport);

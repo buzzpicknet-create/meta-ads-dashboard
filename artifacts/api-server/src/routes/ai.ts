@@ -249,7 +249,9 @@ Frequency (في 7 أيام):
 - enable_campaign(campaign_id, name) — تشغيل حملة موقوفة
 - update_campaign_budget(campaign_id, name, budget_amount, budget_type) — تعديل الميزانية (budget_type: "daily" أو "lifetime")
 - pause_adset(adset_id, name) — إيقاف مجموعة إعلانية
+- enable_adset(adset_id, name) — تشغيل مجموعة إعلانية
 - update_adset_budget(adset_id, name, budget_amount) — تعديل ميزانية مجموعة
+- duplicate_adset(adset_id, name) — نسخ مجموعة إعلانية
 
 مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
 بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".`;
@@ -392,6 +394,36 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "enable_adset",
+      description: "اقتراح تشغيل مجموعة إعلانية موقوفة. سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
+          name: { type: "string", description: "اسم المجموعة" },
+        },
+        required: ["adset_id", "name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "duplicate_adset",
+      description: "اقتراح نسخ مجموعة إعلانية (إنشاء نسخة جديدة بنفس الإعدادات). سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية المراد نسخها (id)" },
+          name: { type: "string", description: "اسم المجموعة" },
+        },
+        required: ["adset_id", "name"],
+      },
+    },
+  },
 ];
 
 // ── Write tool names (handled separately — return ACTION_PENDING marker) ─────
@@ -400,7 +432,9 @@ const WRITE_TOOL_NAMES = new Set([
   "enable_campaign",
   "update_campaign_budget",
   "pause_adset",
+  "enable_adset",
   "update_adset_budget",
+  "duplicate_adset",
 ]);
 
 // ── Rate-limit error detection (mirrors meta.ts) ─────────────────────────────
@@ -446,8 +480,12 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       summary = `تعديل ميزانية الحملة "${args.name ?? args.campaign_id}" إلى ${args.budget_amount} EGP (${budgetType})`;
     } else if (name === "pause_adset") {
       summary = `إيقاف مؤقت للمجموعة الإعلانية "${args.name ?? args.adset_id}"`;
+    } else if (name === "enable_adset") {
+      summary = `تشغيل المجموعة الإعلانية "${args.name ?? args.adset_id}"`;
     } else if (name === "update_adset_budget") {
       summary = `تعديل ميزانية المجموعة "${args.name ?? args.adset_id}" إلى ${args.budget_amount} EGP`;
+    } else if (name === "duplicate_adset") {
+      summary = `نسخ المجموعة الإعلانية "${args.name ?? args.adset_id}"`;
     }
     return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary })}`;
   }
