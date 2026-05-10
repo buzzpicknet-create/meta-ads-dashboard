@@ -1743,6 +1743,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [executingAction, setExecutingAction] = useState(false);
+  const [toolCallLabels, setToolCallLabels] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1868,6 +1869,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     setStreaming(true);
     setStreamingText("");
     setPendingAction(null);
+    setToolCallLabels([]);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -1902,6 +1904,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
             if (data.error) throw new Error(data.error);
             if (data.done) break;
             if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
+            if (data.tool_call_label) { setToolCallLabels((prev) => [...prev, data.tool_call_label as string]); }
             if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
@@ -2153,10 +2156,22 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
                 <Bot className="h-3.5 w-3.5 text-primary" />
               </div>
-              <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
-                {[0, 1, 2].map((k) => (
-                  <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
-                ))}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
+                  {[0, 1, 2].map((k) => (
+                    <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                  ))}
+                </div>
+                {toolCallLabels.length > 0 && (
+                  <div className="flex flex-col gap-0.5 px-1" dir="rtl">
+                    {toolCallLabels.map((label, i) => (
+                      <span key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
+                        <span className="w-1 h-1 rounded-full bg-muted-foreground/30 shrink-0" />
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

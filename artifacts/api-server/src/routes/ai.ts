@@ -519,6 +519,21 @@ const TOOLS = [
   },
 ];
 
+// ── Arabic label for each read tool (used in tool_call_label SSE events) ─────
+function getToolLabel(name: string, args: Record<string, unknown>): string {
+  switch (name) {
+    case "get_campaigns":       return "جلب قائمة الحملات الإعلانية…";
+    case "get_campaign_daily":  return `جلب الأداء اليومي للحملة ${String(args.campaign_id ?? "")}…`;
+    case "get_account_daily":   return "جلب الأداء اليومي للحساب…";
+    case "get_adsets":          return `جلب المجموعات الإعلانية للحملة ${String(args.campaign_id ?? "")}…`;
+    case "get_campaign_status": return `جلب حالة الحملة ${String(args.campaign_id ?? "")}…`;
+    case "get_campaign_budget": return `جلب ميزانية الحملة ${String(args.campaign_id ?? "")}…`;
+    case "get_adset_status":    return `جلب حالة المجموعة الإعلانية ${String(args.adset_id ?? "")}…`;
+    case "get_ad_performance":  return `جلب أداء الإعلان ${String(args.ad_id ?? "")}…`;
+    default:                    return `جلب البيانات (${name})…`;
+  }
+}
+
 // ── Write tool names (handled separately — return ACTION_PENDING marker) ─────
 const WRITE_TOOL_NAMES = new Set([
   "pause_campaign",
@@ -1284,6 +1299,15 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
           function: { name: tc.function.name, arguments: tc.function.arguments },
         })),
       });
+
+      // Emit tool_call_label for each read tool so the client can show transparency labels
+      for (const tc of toolCalls) {
+        if (!WRITE_TOOL_NAMES.has(tc.function.name)) {
+          const labelArgs = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+          const label = getToolLabel(tc.function.name, labelArgs);
+          res.write(`data: ${JSON.stringify({ tool_call_label: label })}\n\n`);
+        }
+      }
 
       // Execute all tool calls in parallel
       const pendingActions: Array<{ tool: string; args: Record<string, unknown>; summary: string }> = [];
