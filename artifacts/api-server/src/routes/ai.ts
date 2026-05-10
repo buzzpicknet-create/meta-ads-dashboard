@@ -558,8 +558,8 @@ function isRateLimitErr(err: unknown): boolean {
   );
 }
 
-// 30 min — same freshness window as the dashboard routes
-const TOOL_CACHE_FRESH_MS = 30 * 60 * 1000;
+// 60 min — same freshness window as the dashboard routes
+const TOOL_CACHE_FRESH_MS = 60 * 60 * 1000;
 // Only annotate cache note when data is older than this threshold
 const CACHE_NOTE_THRESHOLD_MS = 5 * 60 * 1000;
 // Details (status/budget) are lighter and can change sooner — use 5-min freshness

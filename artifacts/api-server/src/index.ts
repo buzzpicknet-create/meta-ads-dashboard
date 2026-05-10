@@ -637,9 +637,9 @@ function startCpaAlertCron() {
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // ── Proactive Cache Refresh Cron ──────────────────────────────────────────────
-// Runs every 30 minutes. Silently refreshes any DB cache entries that are
-// >20 min old so user requests always hit the DB instead of calling Meta live.
-const REFRESH_CRON_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+// Runs every 60 minutes. Silently refreshes any DB cache entries that are
+// >50 min old so user requests always hit the DB instead of calling Meta live.
+const REFRESH_CRON_INTERVAL_MS = 60 * 60 * 1000; // 60 minutes
 
 async function runProactiveRefreshCron() {
   const { inProgress } = getLastWarmupStats();

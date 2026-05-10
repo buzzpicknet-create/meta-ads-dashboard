@@ -24,15 +24,15 @@ const router: IRouter = Router();
 
 // ── In-memory cache for slow creative-intelligence endpoint ──────────────────
 const CREATIVE_CACHE = new Map<string, { data: unknown; ts: number }>();
-const CREATIVE_TTL_MS = 30 * 60 * 1000; // 30 minutes (was 8)
+const CREATIVE_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 // ── In-memory cache for breakdown data ───────────────────────────────────────
 const BREAKDOWN_CACHE = new Map<string, { data: unknown; ts: number }>();
-const BREAKDOWN_TTL_MS = 30 * 60 * 1000; // 30 minutes (was 8)
+const BREAKDOWN_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 // ── In-memory cache for activities ───────────────────────────────────────────
 const ACTIVITIES_CACHE = new Map<string, { data: unknown; ts: number }>();
-const ACTIVITIES_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const ACTIVITIES_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 // ── In-memory cache for adsets ────────────────────────────────────────────────
 const ADSETS_CACHE = new Map<string, { data: unknown; ts: number }>();
@@ -122,7 +122,7 @@ export async function rehydrateWarmupHistory() {
 
 // ── Campaigns cache — fallback when Meta rate-limits this ad account ──────────
 const CAMPAIGNS_CACHE = new Map<string, { data: unknown; ts: number }>();
-const CAMPAIGNS_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const CAMPAIGNS_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 // ── In-flight deduplication: collapse concurrent identical Meta requests ──────
 // Key = "campaign_id::since::until" → Promise of the result
@@ -141,8 +141,8 @@ function isRateLimitError(err: unknown): boolean {
 }
 
 // ── DB helpers for insights cache ─────────────────────────────────────────────
-const INSIGHTS_FRESH_MS  = 30 * 60 * 1000; // 30 min fresh window
-const OVERVIEW_FRESH_MS  = 30 * 60 * 1000;
+const INSIGHTS_FRESH_MS  = 60 * 60 * 1000; // 60 min fresh window
+const OVERVIEW_FRESH_MS  = 60 * 60 * 1000;
 const CPA_FRESH_MS       = 15 * 60 * 1000;
 
 async function dbGetInsightsCache(campaignId: string, since: string, until: string) {
@@ -295,7 +295,7 @@ router.get("/meta/accounts", async (_req, res) => {
 });
 
 // ── DB helpers for persistent campaigns cache ─────────────────────────────────
-const CAMPAIGNS_FRESH_MS = 30 * 60 * 1000; // serve DB cache without hitting Meta if < 30 min old
+const CAMPAIGNS_FRESH_MS = 60 * 60 * 1000; // serve DB cache without hitting Meta if < 60 min old
 
 async function dbGetCampaignsCache(accountId: string, since: string, until: string) {
   const rows = await query<{ campaigns: unknown; fetched_at: string }>(
