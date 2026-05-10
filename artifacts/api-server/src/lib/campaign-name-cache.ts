@@ -25,20 +25,27 @@ export async function upsertCampaignNameCache(
   }
 }
 
+export interface CachedCampaignEntry {
+  name: string;
+  updatedAt: Date;
+}
+
 /**
  * Look up campaign names from the local cache for a list of campaign IDs.
- * Returns a Map of campaign_id → name for every ID that is cached.
+ * Returns a Map of campaign_id → { name, updatedAt } for every ID that is cached.
  */
 export async function getCachedCampaignNames(
   campaignIds: string[]
-): Promise<Map<string, string>> {
+): Promise<Map<string, CachedCampaignEntry>> {
   if (campaignIds.length === 0) return new Map();
   try {
-    const rows = await query<{ campaign_id: string; campaign_name: string }>(
-      `SELECT campaign_id, campaign_name FROM campaign_name_cache WHERE campaign_id = ANY($1::text[])`,
+    const rows = await query<{ campaign_id: string; campaign_name: string; updated_at: string }>(
+      `SELECT campaign_id, campaign_name, updated_at FROM campaign_name_cache WHERE campaign_id = ANY($1::text[])`,
       [campaignIds]
     );
-    return new Map(rows.map((r) => [r.campaign_id, r.campaign_name]));
+    return new Map(
+      rows.map((r) => [r.campaign_id, { name: r.campaign_name, updatedAt: new Date(r.updated_at) }])
+    );
   } catch (err) {
     logger.warn({ err }, "campaign_name_cache: lookup failed");
     return new Map();

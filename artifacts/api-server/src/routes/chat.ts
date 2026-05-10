@@ -47,6 +47,8 @@ interface MsgRow {
 
 const RESOLVE_CONCURRENCY = 3;
 const RESOLVE_TIMEOUT_MS = 2500;
+/** Cache entries older than this many days are considered stale and will be re-validated against the Meta API. */
+const CACHE_STALE_DAYS = 30;
 
 /**
  * For any conversation rows that have a campaign_id but no campaign_name,
@@ -57,6 +59,10 @@ const RESOLVE_TIMEOUT_MS = 2500;
  * Capped at RESOLVE_CONCURRENCY simultaneous Meta calls, each with a
  * RESOLVE_TIMEOUT_MS timeout, so a slow or rate-limited Meta API never
  * delays the conversation list response for long.
+ *
+ * Stale cache entries (older than CACHE_STALE_DAYS) are still returned
+ * immediately as a fallback, but a background refresh against the Meta API
+ * is also triggered so the cache stays accurate over time.
  */
 async function resolveMissingCampaignNames(rows: ConvRow[]): Promise<Map<string, string>> {
   const needsResolution = new Map<string, number[]>();
@@ -75,24 +81,68 @@ async function resolveMissingCampaignNames(rows: ConvRow[]): Promise<Map<string,
 
   // ① Check local campaign_name_cache first — works even when Meta API is unavailable
   const cachedNames = await getCachedCampaignNames(campaignIds);
+
+  const staleCutoff = Date.now() - CACHE_STALE_DAYS * 24 * 60 * 60 * 1000;
+
+  // IDs with no cache entry at all — need a Meta API call
   const stillNeeds = new Map<string, number[]>();
+  // IDs with a stale cache entry — use stale name now, refresh in background
+  const staleEntries = new Map<string, { convIds: number[]; staleName: string }>();
 
   for (const [campaignId, convIds] of needsResolution) {
     const cached = cachedNames.get(campaignId);
     if (cached) {
-      resolved.set(campaignId, cached);
+      // Always resolve immediately with the cached name (fresh or stale)
+      resolved.set(campaignId, cached.name);
       query(
         `UPDATE chat_conversations SET campaign_name = $1 WHERE id = ANY($2::int[]) AND campaign_name IS NULL`,
-        [cached, convIds]
+        [cached.name, convIds]
       ).catch((err) => logger.warn({ err, campaignId }, "chat: failed to persist cached campaign_name"));
+
+      // If stale, queue a background refresh
+      if (cached.updatedAt.getTime() < staleCutoff) {
+        staleEntries.set(campaignId, { convIds, staleName: cached.name });
+      }
     } else {
       stillNeeds.set(campaignId, convIds);
     }
   }
 
+  // ② Refresh stale entries in the background (fire-and-forget — don't await)
+  if (staleEntries.size > 0) {
+    const staleToRefresh = [...staleEntries.entries()].slice(0, RESOLVE_CONCURRENCY);
+    Promise.all(
+      staleToRefresh.map(async ([campaignId, { convIds, staleName }]) => {
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), RESOLVE_TIMEOUT_MS)
+        );
+        try {
+          const details = await Promise.race([getCampaignDetails(campaignId), timeout]);
+          if (!details.name) return;
+          if (details.name === staleName) {
+            // Name unchanged — bump updated_at to mark the entry as revalidated
+            upsertCampaignNameCache([{ id: campaignId, name: staleName }]).catch(() => null);
+            return;
+          }
+          // Name changed — update cache and conversations
+          upsertCampaignNameCache([{ id: campaignId, name: details.name }]).catch(() => null);
+          query(
+            `UPDATE chat_conversations SET campaign_name = $1 WHERE id = ANY($2::int[])`,
+            [details.name, convIds]
+          ).catch((err) => logger.warn({ err, campaignId }, "chat: failed to refresh stale campaign_name"));
+          logger.info({ campaignId, old: staleName, new: details.name }, "chat: refreshed stale campaign name");
+        } catch (err) {
+          // Transient error (timeout, rate-limit, etc.) — do NOT bump updated_at.
+          // The entry stays stale and will be retried on the next conversation list fetch.
+          logger.debug({ err, campaignId }, "chat: stale campaign name refresh failed, will retry next fetch");
+        }
+      })
+    ).catch(() => null);
+  }
+
   if (stillNeeds.size === 0) return resolved;
 
-  // ② Fall back to Meta API for any IDs not found in local cache
+  // ③ Fall back to Meta API for any IDs not found in local cache at all
   const entries = [...stillNeeds.entries()].slice(0, RESOLVE_CONCURRENCY);
 
   await Promise.all(
