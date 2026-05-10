@@ -1178,6 +1178,7 @@ export default function ActivityPage() {
   const [custom, setCustom]       = useState<DateRange>({ since: cairoOffset(13), until: cairoToday() });
   const [filterActor, setFilterActor] = useState<string | null>(null);
   const [filterCat,   setFilterCat]   = useState<ActionCat | "all">("all");
+  const [filterNoOp,  setFilterNoOp]  = useState(false);
 
   const range = presetToRange(preset, custom);
 
@@ -1502,23 +1503,51 @@ export default function ActivityPage() {
           </section>
 
           {/* ── AI Assistant Campaign Changes ─── */}
-          {(pipeboardHistory.data?.actions?.length ?? 0) > 0 && (
-            <section className="space-y-3">
-              <h2 className="text-sm font-bold flex items-center gap-2">
-                <Bot className="h-4 w-4 text-primary" />
-                تغييرات الحملات
-                <span className="text-[11px] text-muted-foreground font-normal">عبر المساعد الذكي — آخر 14 يوم</span>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                  {pipeboardHistory.data!.actions.length} إجراء
-                </span>
-              </h2>
-              <div className="space-y-2">
-                {pipeboardHistory.data!.actions.map((action) => (
-                  <PipeboardActionCard key={action.id} action={action} />
-                ))}
-              </div>
-            </section>
-          )}
+          {(pipeboardHistory.data?.actions?.length ?? 0) > 0 && (() => {
+            const allActions = pipeboardHistory.data!.actions;
+            const noOpCount  = allActions.filter(a => a.is_no_op).length;
+            const visibleActions = filterNoOp ? allActions.filter(a => a.is_no_op) : allActions;
+            return (
+              <section className="space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-sm font-bold flex items-center gap-2">
+                    <Bot className="h-4 w-4 text-primary" />
+                    تغييرات الحملات
+                    <span className="text-[11px] text-muted-foreground font-normal">عبر المساعد الذكي — آخر 14 يوم</span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      {visibleActions.length} إجراء
+                    </span>
+                  </h2>
+                  <button
+                    onClick={() => setFilterNoOp(p => !p)}
+                    disabled={noOpCount === 0 && !filterNoOp}
+                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
+                      filterNoOp
+                        ? "bg-slate-500/20 text-slate-700 dark:text-slate-300"
+                        : noOpCount === 0
+                        ? "bg-muted/40 text-muted-foreground/40 cursor-default"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    إجراء مكرر فقط
+                    <span className="text-[10px] opacity-70">{noOpCount}</span>
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {visibleActions.length === 0 ? (
+                    <div className="rounded-xl border border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                      لا توجد إجراءات مكررة في آخر 14 يوم
+                    </div>
+                  ) : (
+                    visibleActions.map((action) => (
+                      <PipeboardActionCard key={action.id} action={action} />
+                    ))
+                  )}
+                </div>
+              </section>
+            );
+          })()}
 
           {/* ── Meta Activity Feed ─── */}
           <section className="space-y-4">
