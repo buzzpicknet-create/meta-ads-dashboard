@@ -483,6 +483,51 @@ const TOOL_LABELS: Record<string, { label: string; icon: React.ElementType; colo
   duplicate_adset:       { label: "نسخ مجموعة",         icon: Plus,       color: "text-blue-500" },
 };
 
+// ── No-Op Stats Strip ─────────────────────────────────────────
+function NoOpStatsStrip({ actions }: { actions: PipeboardAction[] }) {
+  const stats = useMemo(() => {
+    const map: Record<string, { total: number; noOps: number }> = {};
+    actions.forEach((a) => {
+      if (!map[a.tool_name]) map[a.tool_name] = { total: 0, noOps: 0 };
+      map[a.tool_name].total++;
+      if (a.is_no_op) map[a.tool_name].noOps++;
+    });
+    return Object.entries(map)
+      .filter(([, s]) => s.noOps > 0)
+      .sort((a, b) => b[1].noOps / b[1].total - a[1].noOps / a[1].total);
+  }, [actions]);
+
+  if (stats.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-400/20 bg-slate-500/5 px-4 py-3">
+      <p className="text-[11px] font-bold text-muted-foreground mb-2.5 flex items-center gap-1.5">
+        <AlertTriangle className="h-3 w-3 text-slate-500" />
+        نسبة الإجراءات المكررة حسب النوع
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {stats.map(([toolName, s]) => {
+          const meta = TOOL_LABELS[toolName] ?? { label: toolName, icon: Zap, color: "text-muted-foreground" };
+          const pct = Math.round((s.noOps / s.total) * 100);
+          const severity =
+            pct >= 50 ? "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-400/20" :
+            pct >= 25 ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-400/20" :
+                        "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-400/20";
+          return (
+            <div key={toolName} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 ${severity}`}>
+              <span className="text-[11px] font-bold">{meta.label}</span>
+              <span className="text-[10px] opacity-60">·</span>
+              <span className="text-[11px] tabular-nums font-bold">{pct}%</span>
+              <span className="text-[10px] opacity-50">مكرر</span>
+              <span className="text-[10px] opacity-40">({s.noOps}/{s.total})</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PipeboardActionCard({ action }: { action: PipeboardAction }) {
   const meta = TOOL_LABELS[action.tool_name] ?? { label: action.tool_name, icon: Zap, color: "text-muted-foreground" };
   const Icon = meta.icon;
@@ -1534,6 +1579,7 @@ export default function ActivityPage() {
                     <span className="text-[10px] opacity-70">{noOpCount}</span>
                   </button>
                 </div>
+                <NoOpStatsStrip actions={allActions} />
                 <div className="space-y-2">
                   {visibleActions.length === 0 ? (
                     <div className="rounded-xl border border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
