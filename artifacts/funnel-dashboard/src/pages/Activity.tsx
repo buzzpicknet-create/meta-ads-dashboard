@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Bell, XCircle, RefreshCw,
   Activity as ActivityIcon, Pause, Play, Plus, Edit3, Trash2,
   DollarSign, Target, Eye, Zap, ChevronDown, ChevronUp,
-  CalendarRange, CalendarDays, Bot,
+  CalendarRange, CalendarDays, Bot, Download,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1213,6 +1213,36 @@ function CampaignAttentionCard({ campaign, accountId, since, until }: {
   );
 }
 
+// ── CSV Export ───────────────────────────────────────────────
+function exportRedundantCsv(actions: PipeboardAction[]) {
+  const toolLabel = (name: string) => TOOL_LABELS[name]?.label ?? name;
+  const escapeCell = (val: string | null | undefined) => {
+    const s = val ?? "";
+    return s.includes(",") || s.includes('"') || s.includes("\n")
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  };
+  const header = ["نوع الإجراء", "اسم الحملة", "اسم المجموعة", "منفّذ بواسطة", "وقت التنفيذ", "رسالة النتيجة"];
+  const rows = actions.map(a => [
+    toolLabel(a.tool_name),
+    a.campaign_name ?? "",
+    a.adset_name ?? "",
+    a.executed_by,
+    a.executed_at,
+    a.result_message ?? "",
+  ].map(escapeCell).join(","));
+
+  const csv = "\uFEFF" + [header.join(","), ...rows].join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const today = new Date().toISOString().slice(0, 10);
+  const a = document.createElement("a");
+  a.href     = url;
+  a.download = `redundant-actions-${today}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Main Page ─────────────────────────────────────────────────
 const PRESETS: PresetKey[] = ["today", "yesterday", "7d", "custom"];
 
@@ -1578,6 +1608,20 @@ export default function ActivityPage() {
                     إجراء مكرر فقط
                     <span className="text-[10px] opacity-70">{noOpCount}</span>
                   </button>
+                  {filterNoOp && (
+                    <button
+                      onClick={() => exportRedundantCsv(visibleActions)}
+                      disabled={visibleActions.length === 0}
+                      className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
+                        visibleActions.length === 0
+                          ? "bg-muted/40 text-muted-foreground/40 cursor-default"
+                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25"
+                      }`}
+                    >
+                      <Download className="h-3 w-3" />
+                      تصدير CSV
+                    </button>
+                  )}
                 </div>
                 <NoOpStatsStrip actions={allActions} />
                 <div className="space-y-2">
