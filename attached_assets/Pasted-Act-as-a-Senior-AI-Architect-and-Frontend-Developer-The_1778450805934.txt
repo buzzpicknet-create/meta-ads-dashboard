@@ -1,0 +1,44 @@
+Act as a Senior AI Architect and Frontend Developer. The user has explicitly stated they are using an MCP (Model Context Protocol) server connected to Meta Ads. This changes the architecture completely. We do NOT need CSV uploads. We need to build a fully Agentic UI/UX that supports Live Tool Calling.
+
+Please upgrade the "Meta Ads Assistant" Chat module with the following architecture:
+
+SYSTEM PROMPT UPGRADE (The Agentic Media Buyer):
+Update the backend LLM system prompt to fully utilize the MCP tools:
+"You are an Elite Meta Ads Media Buyer operating autonomously via MCP. You have direct access to Meta Ads APIs through your tools.
+CRITICAL RULES:
+
+ALWAYS fetch real-time data using your MCP tools before answering any performance questions.
+
+Perform Deep Funnel Diagnostics: Don't just report ROAS. Calculate and report Hook Rate (3s plays/Impressions), Hold Rate, CTR, and LP Drop-off.
+
+Use Markdown Tables to present data beautifully.
+
+If you identify a severely underperforming ad/adset, explicitly ask the user: 'Should I pause this immediately?'
+
+Wait for user confirmation before executing mutative tools (like pause_campaign or update_budget)."
+
+FRONTEND UI: TOOL CALLING VISUALIZATION (Crucial for UX):
+Since the AI will be calling MCP tools, the UI must show the user what is happening in the background so they don't think the app froze.
+
+Implement a "Thought Process / Tool Execution" UI component in the chat.
+
+When the LLM emits a tool call (e.g., fetching_campaign_metrics), display a spinning loader with text like: "🔄 Fetching live data from Meta Ads..."
+
+Once the tool returns the data and the LLM responds, collapse this loader.
+
+FRONTEND UI: ACTION CONFIRMATION WIDGETS:
+When the LLM suggests an action that modifies data (Pause, Scale), it should not just be text.
+
+If the AI needs to execute a mutative MCP tool (e.g., pause_adset), render an interactive "Approval Card" in the chat.
+
+The card should say: "⚠️ Action Required: Pause AdSet [Name]".
+
+Include two buttons: [Approve & Execute] (Green) and [Cancel] (Red).
+
+Clicking [Approve & Execute] will trigger the LLM to proceed with the MCP tool execution.
+
+DYNAMIC CHARTS (Artifacts):
+
+Keep the recharts / chart.js integration. When the AI pulls live data from the MCP, instruct it to output a json chart block so the frontend can render live Bar/Line charts comparing the active campaigns.
+
+Please build this highly interactive, tool-aware chat interface.

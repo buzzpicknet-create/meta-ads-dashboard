@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
   History, Plus, ChevronRight, ChevronDown, ChevronUp, Clock, Zap, AlertTriangle, Search,
-  Globe, BarChart2, Minimize2, Maximize2,
+  Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -1506,26 +1506,46 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                         <Bot className="h-3.5 w-3.5 text-primary" />
                       </div>
                       {searching ? (
-                        <div className="flex items-center gap-2 px-4 py-3 rounded-2xl rounded-bl-sm bg-primary/5 border border-primary/20 shadow-sm">
-                          <span className="text-xs text-primary/80 font-medium">جاري البحث في البيانات…</span>
-                          {[0, 1, 2].map((k) => (
-                            <span key={k} className="w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                        <div className="flex flex-col gap-1.5 px-4 py-3 rounded-2xl rounded-bl-sm bg-primary/5 border border-primary/20 shadow-sm min-w-[220px]" dir="rtl">
+                          {/* Completed tool calls */}
+                          {toolCallLabels.slice(0, -1).map((label, i) => (
+                            <div key={i} className="flex items-center gap-2 text-[11px] text-emerald-700/80">
+                              <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+                              <span className="line-through decoration-emerald-400/60">{label}</span>
+                            </div>
                           ))}
+                          {/* Active tool call */}
+                          <div className="flex items-center gap-2 text-[12px] text-primary/90 font-medium">
+                            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                            <span>
+                              {toolCallLabels.length > 0
+                                ? toolCallLabels[toolCallLabels.length - 1]
+                                : "جاري البحث في البيانات…"}
+                            </span>
+                          </div>
                         </div>
                       ) : (
                         <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
-                            {[0, 1, 2].map((k) => (
-                              <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
-                            ))}
-                          </div>
-                          {toolCallLabels.length > 0 && (
-                            <div className="flex flex-col gap-0.5 px-1" dir="rtl">
+                          {/* Completed tools before LLM starts typing */}
+                          {toolCallLabels.length > 0 ? (
+                            <div className="flex flex-col gap-1 px-4 py-3 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm" dir="rtl">
                               {toolCallLabels.map((label, i) => (
-                                <span key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
-                                  <span className="w-1 h-1 rounded-full bg-muted-foreground/30 shrink-0" />
-                                  {label}
-                                </span>
+                                <div key={i} className="flex items-center gap-2 text-[11px] text-emerald-700/70">
+                                  <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+                                  <span>{label}</span>
+                                </div>
+                              ))}
+                              <div className="flex items-center gap-1.5 pt-1 border-t border-border/40 mt-0.5">
+                                {[0, 1, 2].map((k) => (
+                                  <span key={k} className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                                ))}
+                                <span className="text-[11px] text-muted-foreground/60 mr-0.5">جاري التحليل…</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
+                              {[0, 1, 2].map((k) => (
+                                <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
                               ))}
                             </div>
                           )}
