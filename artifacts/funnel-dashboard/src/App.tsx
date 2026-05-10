@@ -1,4 +1,5 @@
 import { Switch, Route, Router as WouterRouter, Link, useRoute, useLocation } from "wouter";
+import { useState, useEffect, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,9 +15,10 @@ import DecisionsPage from "@/pages/Decisions";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
+import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -91,6 +93,27 @@ function NavBar() {
   const { user, logout } = useAuth();
   const role = user?.role ?? "media_manager";
   const visibilityMap = useMyPageVisibility();
+  const [searchOpen, setSearchOpen] = useState(false);
+  // Only roles that have GlobalAiChat mounted can use conversation search
+  const hasConversationUI = role !== "media_manager";
+
+  const openSearch = useCallback(() => {
+    if (hasConversationUI) setSearchOpen(true);
+  }, [hasConversationUI]);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+
+  // Global keyboard shortcut: Ctrl+K / Cmd+K — only for roles with AI chat
+  useEffect(() => {
+    if (!hasConversationUI) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [hasConversationUI]);
 
   const navItems = ALL_NAV_ITEMS.filter((item) => {
     // If the dynamic visibility map has a setting for this page, it overrides the hardcoded roles
@@ -124,8 +147,17 @@ function NavBar() {
               Meta Ads
             </div>
 
-            {/* Bell on mobile (top bar) */}
-            <div className="sm:hidden flex items-center">
+            {/* Search + Bell on mobile (top bar) */}
+            <div className="sm:hidden flex items-center gap-1">
+              {hasConversationUI && (
+                <button
+                  onClick={openSearch}
+                  title="بحث في المحادثات"
+                  className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                >
+                  <Search className="h-4 w-4" />
+                </button>
+              )}
               <NotificationBell />
             </div>
 
@@ -152,6 +184,7 @@ function NavBar() {
 
             {/* User + Notifications + Logout */}
             <div className="hidden sm:flex items-center gap-2 shrink-0">
+              {hasConversationUI && <NavSearchButton onOpen={openSearch} />}
               <span className="text-xs text-muted-foreground hidden md:block">
                 {user?.username}
               </span>
@@ -205,6 +238,11 @@ function NavBar() {
 
       {/* Spacer so content doesn't hide behind bottom bar on mobile */}
       <div className="sm:hidden h-16" />
+
+      {/* Global conversation search modal — only for roles that have AI chat */}
+      {hasConversationUI && (
+        <NavConversationSearchModal open={searchOpen} onClose={closeSearch} />
+      )}
     </>
   );
 }

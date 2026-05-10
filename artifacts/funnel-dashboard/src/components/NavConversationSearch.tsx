@@ -1,0 +1,247 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Search, X, Globe, MessageSquare } from "lucide-react";
+import { useLocation } from "wouter";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const API = `${BASE}/api`;
+
+interface ConvSummary {
+  id: number;
+  title: string;
+  campaign_id?: string | null;
+  snippet?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function formatRelative(dateStr: string): string {
+  const now = Date.now();
+  const ts = new Date(dateStr).getTime();
+  const diffMs = now - ts;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "الآن";
+  if (diffMin < 60) return `منذ ${diffMin} دقيقة`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `منذ ${diffHr} ساعة`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay === 1) return "أمس";
+  if (diffDay < 7) return `منذ ${diffDay} أيام`;
+  return new Date(dateStr).toLocaleDateString("ar-EG", { day: "numeric", month: "short" });
+}
+
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const regex = new RegExp(`(${query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  const parts = text.split(regex);
+  return parts.map((part, i) =>
+    regex.test(part)
+      ? <mark key={i} className="bg-amber-200 dark:bg-amber-700 text-foreground rounded-sm px-0.5">{part}</mark>
+      : part
+  );
+}
+
+interface NavConversationSearchProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function NavConversationSearchModal({ open, onClose }: NavConversationSearchProps) {
+  const [, navigate] = useLocation();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<ConvSummary[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Focus input when modal opens
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      setResults(null);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  // Debounced search
+  useEffect(() => {
+    setResults(null);
+    if (!query.trim()) {
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ global: "true", q: query.trim() });
+        const r = await fetch(`${API}/chat/conversations?${params}`, {
+          credentials: "include",
+          signal: controller.signal,
+        });
+        if (r.ok) {
+          const d = await r.json() as { conversations: ConvSummary[] };
+          setResults(d.conversations);
+        }
+      } catch (e) {
+        if ((e as { name?: string }).name !== "AbortError") setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query]);
+
+  const openConversation = useCallback((conv: ConvSummary) => {
+    try {
+      sessionStorage.setItem("global_selected_campaign", JSON.stringify({
+        campaignId: conv.campaign_id ?? null,
+        openConvId: conv.id,
+      }));
+    } catch {}
+    onClose();
+    navigate("/");
+  }, [navigate, onClose]);
+
+  const handleOverlayClick = (e: React.MouseEvent) => {
+    if (e.target === overlayRef.current) onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      className="fixed inset-0 z-[200] flex items-start justify-center bg-black/40 backdrop-blur-sm pt-[10vh]"
+    >
+      <div
+        className="w-full max-w-xl mx-4 rounded-2xl border border-border bg-background shadow-2xl overflow-hidden"
+        dir="rtl"
+      >
+        {/* Search input */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            dir="rtl"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="ابحث في المحادثات السابقة…"
+            className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60"
+          />
+          {query ? (
+            <button
+              onClick={() => { setQuery(""); inputRef.current?.focus(); }}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : (
+            <kbd className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono text-muted-foreground border border-border bg-muted/50">
+              Esc
+            </kbd>
+          )}
+        </div>
+
+        {/* Results */}
+        <div className="max-h-[60vh] overflow-y-auto">
+          {!query.trim() ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground/60">
+              <Search className="h-8 w-8" />
+              <p className="text-sm">ابدأ الكتابة للبحث في المحادثات</p>
+            </div>
+          ) : loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex gap-1.5">
+                {[0, 1, 2].map((k) => (
+                  <span
+                    key={k}
+                    className="w-2 h-2 rounded-full bg-primary/40 animate-bounce"
+                    style={{ animationDelay: `${k * 140}ms` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : results === null ? null : results.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground/60">
+              <Search className="h-8 w-8" />
+              <p className="text-sm">لا توجد نتائج لـ «{query}»</p>
+            </div>
+          ) : (
+            <div className="py-2">
+              <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-4 pt-1 pb-2">
+                {results.length} نتيجة
+              </p>
+              <div className="space-y-0.5 px-2">
+                {results.map((conv) => {
+                  const isCampaign = !!conv.campaign_id;
+                  return (
+                    <button
+                      key={conv.id}
+                      onClick={() => openConversation(conv)}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-muted/60 text-start"
+                    >
+                      {isCampaign
+                        ? <Globe className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+                        : <MessageSquare className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                      }
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm truncate leading-tight font-medium">
+                          {highlightText(conv.title, query)}
+                        </p>
+                        {isCampaign && (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
+                            <Globe className="h-2.5 w-2.5" />
+                            حملة
+                          </span>
+                        )}
+                        {conv.snippet && (
+                          <p className="text-xs text-muted-foreground/70 mt-1 line-clamp-2 leading-snug">
+                            {highlightText(conv.snippet.slice(0, 140), query)}
+                          </p>
+                        )}
+                        <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+                          {formatRelative(conv.updated_at)}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface NavSearchButtonProps {
+  onOpen: () => void;
+}
+
+export function NavSearchButton({ onOpen }: NavSearchButtonProps) {
+  return (
+    <button
+      onClick={onOpen}
+      title="بحث في المحادثات (Ctrl+K)"
+      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+    >
+      <Search className="h-4 w-4" />
+      <kbd className="hidden md:inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-mono text-muted-foreground/70 border border-border bg-muted/50">
+        ⌘K
+      </kbd>
+    </button>
+  );
+}
