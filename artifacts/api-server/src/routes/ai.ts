@@ -616,6 +616,8 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     let summary = "";
     let currentValue: string | undefined;
     let proposedValue: string | undefined;
+    let currentBudgetAmount: number | undefined;
+    let proposedBudgetAmount: number | undefined;
 
     const statusLabel = (s: string) => {
       if (s === "ACTIVE") return "نشطة ✅";
@@ -644,13 +646,15 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     } else if (name === "update_campaign_budget") {
       const budgetType = args.budget_type === "lifetime" ? "إجمالية" : "يومية";
       const label = String(args.name ?? args.campaign_id);
-      summary = `تعديل ميزانية الحملة "${label}" إلى ${args.budget_amount} EGP (${budgetType})`;
-      proposedValue = `${args.budget_amount} EGP (${budgetType})`;
+      proposedBudgetAmount = Number(args.budget_amount);
+      summary = `تعديل ميزانية الحملة "${label}" إلى ${Math.round(proposedBudgetAmount)} EGP (${budgetType})`;
+      proposedValue = `${Math.round(proposedBudgetAmount)} EGP (${budgetType})`;
       try {
         const details = await fetchCampaignDetailsCached(String(args.campaign_id));
-        if (!args.name && details.name) summary = `تعديل ميزانية الحملة "${details.name}" إلى ${args.budget_amount} EGP (${budgetType})`;
+        if (!args.name && details.name) summary = `تعديل ميزانية الحملة "${details.name}" إلى ${Math.round(proposedBudgetAmount)} EGP (${budgetType})`;
         const curBudget = args.budget_type === "lifetime" ? details.lifetime_budget : details.daily_budget;
         if (curBudget !== undefined && curBudget > 0) {
+          currentBudgetAmount = curBudget;
           currentValue = `${Math.round(curBudget)} EGP (${budgetType})`;
         }
       } catch {}
@@ -674,17 +678,23 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       } catch {}
     } else if (name === "update_adset_budget") {
       const label = String(args.name ?? args.adset_id);
-      summary = `تعديل ميزانية المجموعة "${label}" إلى ${args.budget_amount} EGP`;
-      proposedValue = `${args.budget_amount} EGP`;
+      proposedBudgetAmount = Number(args.budget_amount);
+      summary = `تعديل ميزانية المجموعة "${label}" إلى ${Math.round(proposedBudgetAmount)} EGP`;
       try {
         const details = await fetchAdsetDetailsCached(String(args.adset_id));
-        if (!args.name && details.name) summary = `تعديل ميزانية المجموعة "${details.name}" إلى ${args.budget_amount} EGP`;
+        if (!args.name && details.name) summary = `تعديل ميزانية المجموعة "${details.name}" إلى ${Math.round(proposedBudgetAmount)} EGP`;
         const curBudget = details.daily_budget ?? details.lifetime_budget;
         if (curBudget !== undefined && curBudget > 0) {
+          currentBudgetAmount = curBudget;
           const bType = details.lifetime_budget !== undefined && details.daily_budget === undefined ? "إجمالية" : "يومية";
           currentValue = `${Math.round(curBudget)} EGP (${bType})`;
+          proposedValue = `${Math.round(proposedBudgetAmount)} EGP (${bType})`;
+        } else {
+          proposedValue = `${Math.round(proposedBudgetAmount)} EGP`;
         }
-      } catch {}
+      } catch {
+        proposedValue = `${Math.round(proposedBudgetAmount)} EGP`;
+      }
     } else if (name === "duplicate_adset") {
       summary = `نسخ المجموعة الإعلانية "${args.name ?? args.adset_id}"`;
       try {
@@ -693,9 +703,21 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       } catch {}
     }
 
-    // No-op detection: if the current state already matches the proposed state, skip confirmation
-    if (currentValue !== undefined && proposedValue !== undefined && currentValue === proposedValue) {
-      return `NO_OP: الحالة الحالية "${currentValue}" مطابقة للقيمة المقترحة. لا يوجد تغيير مطلوب على: ${summary}`;
+    // No-op detection: if the current state already matches the proposed state, skip confirmation.
+    // For budget tools, compare numerically (rounded to nearest integer) to avoid false mismatches
+    // caused by float vs integer representations (e.g. 500.00 vs 500).
+    const isBudgetNoOp =
+      currentBudgetAmount !== undefined &&
+      proposedBudgetAmount !== undefined &&
+      Math.round(currentBudgetAmount) === Math.round(proposedBudgetAmount);
+    const isStringNoOp =
+      currentBudgetAmount === undefined &&
+      currentValue !== undefined &&
+      proposedValue !== undefined &&
+      currentValue === proposedValue;
+    if (isBudgetNoOp || isStringNoOp) {
+      const displayValue = currentValue ?? `${Math.round(currentBudgetAmount!)} EGP`;
+      return `NO_OP: الحالة الحالية "${displayValue}" مطابقة للقيمة المقترحة. لا يوجد تغيير مطلوب على: ${summary}`;
     }
 
     return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary, currentValue, proposedValue })}`;
