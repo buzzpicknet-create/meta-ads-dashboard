@@ -642,118 +642,154 @@ async function fetchAdsetDetailsCached(adset_id: string): Promise<AdsetDetails> 
   }
 }
 
+// ── Shared status label helper ────────────────────────────────────────────────
+function statusLabel(s: string): string {
+  if (s === "ACTIVE") return "نشطة ✅";
+  if (s === "PAUSED" || s === "CAMPAIGN_PAUSED") return "موقوفة ⏸";
+  return s;
+}
+
+// ── Build optimistic pending-action payload from args alone (no API calls) ───
+// Gives the frontend enough info to show the card immediately while details load.
+function buildOptimisticPendingAction(name: string, args: Record<string, unknown>): {
+  tool: string;
+  args: Record<string, unknown>;
+  summary: string;
+  proposedValue?: string;
+} {
+  const label = String(args.name ?? args.campaign_id ?? args.adset_id ?? "");
+  switch (name) {
+    case "pause_campaign":
+      return { tool: name, args, summary: `إيقاف مؤقت للحملة "${label}"`, proposedValue: "موقوفة ⏸" };
+    case "enable_campaign":
+      return { tool: name, args, summary: `تشغيل الحملة "${label}"`, proposedValue: "نشطة ✅" };
+    case "update_campaign_budget": {
+      const budgetType = args.budget_type === "lifetime" ? "إجمالية" : "يومية";
+      const proposed = Math.round(Number(args.budget_amount));
+      return {
+        tool: name, args,
+        summary: `تعديل ميزانية الحملة "${label}" إلى ${proposed} EGP (${budgetType})`,
+        proposedValue: `${proposed} EGP (${budgetType})`,
+      };
+    }
+    case "pause_adset":
+      return { tool: name, args, summary: `إيقاف مؤقت للمجموعة الإعلانية "${label}"`, proposedValue: "موقوفة ⏸" };
+    case "enable_adset":
+      return { tool: name, args, summary: `تشغيل المجموعة الإعلانية "${label}"`, proposedValue: "نشطة ✅" };
+    case "update_adset_budget": {
+      const proposed = Math.round(Number(args.budget_amount));
+      return {
+        tool: name, args,
+        summary: `تعديل ميزانية المجموعة "${label}" إلى ${proposed} EGP`,
+        proposedValue: `${proposed} EGP`,
+      };
+    }
+    case "duplicate_adset":
+      return { tool: name, args, summary: `نسخ المجموعة الإعلانية "${label}"` };
+    default:
+      return { tool: name, args, summary: label };
+  }
+}
+
+// ── Resolve write-tool details (cache → Meta API) and return field updates ───
+// Returns a partial update to merge into the optimistic pending action.
+// Sets currentValue = proposedValue when it detects a no-op so the frontend
+// naturally renders the "already in that state" UI via its existing isSameState check.
+interface WriteToolResolved {
+  currentValue?: string;
+  proposedValue?: string;
+  summary?: string;
+}
+
+async function resolveWriteToolDetails(name: string, args: Record<string, unknown>): Promise<WriteToolResolved> {
+  if (name === "pause_campaign") {
+    const details = await fetchCampaignDetailsCached(String(args.campaign_id));
+    const currentValue = statusLabel(details.effective_status);
+    const summary = details.name ? `إيقاف مؤقت للحملة "${details.name}"` : undefined;
+    // No-op: already paused
+    if (currentValue === "موقوفة ⏸") return { currentValue, proposedValue: "موقوفة ⏸", summary };
+    return { currentValue, summary };
+  }
+
+  if (name === "enable_campaign") {
+    const details = await fetchCampaignDetailsCached(String(args.campaign_id));
+    const currentValue = statusLabel(details.effective_status);
+    const summary = details.name ? `تشغيل الحملة "${details.name}"` : undefined;
+    if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشطة ✅", summary };
+    return { currentValue, summary };
+  }
+
+  if (name === "update_campaign_budget") {
+    const budgetType = args.budget_type === "lifetime" ? "إجمالية" : "يومية";
+    const proposedBudget = Number(args.budget_amount);
+    const details = await fetchCampaignDetailsCached(String(args.campaign_id));
+    const summary = details.name
+      ? `تعديل ميزانية الحملة "${details.name}" إلى ${Math.round(proposedBudget)} EGP (${budgetType})`
+      : undefined;
+    const curBudget = args.budget_type === "lifetime" ? details.lifetime_budget : details.daily_budget;
+    if (curBudget !== undefined && curBudget > 0) {
+      const currentValue = `${Math.round(curBudget)} EGP (${budgetType})`;
+      const proposedValue = `${Math.round(proposedBudget)} EGP (${budgetType})`;
+      // No-op: same budget (numeric comparison avoids float/int mismatch)
+      if (Math.round(curBudget) === Math.round(proposedBudget)) {
+        return { currentValue, proposedValue: currentValue, summary };
+      }
+      return { currentValue, proposedValue, summary };
+    }
+    return { summary };
+  }
+
+  if (name === "pause_adset") {
+    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const currentValue = statusLabel(details.effective_status);
+    const summary = details.name ? `إيقاف مؤقت للمجموعة الإعلانية "${details.name}"` : undefined;
+    if (currentValue === "موقوفة ⏸") return { currentValue, proposedValue: "موقوفة ⏸", summary };
+    return { currentValue, summary };
+  }
+
+  if (name === "enable_adset") {
+    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const currentValue = statusLabel(details.effective_status);
+    const summary = details.name ? `تشغيل المجموعة الإعلانية "${details.name}"` : undefined;
+    if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشطة ✅", summary };
+    return { currentValue, summary };
+  }
+
+  if (name === "update_adset_budget") {
+    const proposedBudget = Number(args.budget_amount);
+    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const summary = details.name
+      ? `تعديل ميزانية المجموعة "${details.name}" إلى ${Math.round(proposedBudget)} EGP`
+      : undefined;
+    const curBudget = details.daily_budget ?? details.lifetime_budget;
+    if (curBudget !== undefined && curBudget > 0) {
+      const bType = details.lifetime_budget !== undefined && details.daily_budget === undefined ? "إجمالية" : "يومية";
+      const currentValue = `${Math.round(curBudget)} EGP (${bType})`;
+      const proposedValue = `${Math.round(proposedBudget)} EGP (${bType})`;
+      if (Math.round(curBudget) === Math.round(proposedBudget)) {
+        return { currentValue, proposedValue: currentValue, summary };
+      }
+      return { currentValue, proposedValue, summary };
+    }
+    return { summary };
+  }
+
+  if (name === "duplicate_adset") {
+    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const summary = details.name ? `نسخ المجموعة الإعلانية "${details.name}"` : undefined;
+    return { summary };
+  }
+
+  return {};
+}
+
 // ── Tool executor (cache-first: DB → Meta API → stale fallback) ───────────────
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
-  // Write tools — fetch current state then return a pending-confirmation marker
+  // Write tools are handled via the two-phase optimistic flow in the streaming
+  // loop (buildOptimisticPendingAction → resolveWriteToolDetails).
+  // This fallback should not be reached in normal operation.
   if (WRITE_TOOL_NAMES.has(name)) {
-    let summary = "";
-    let currentValue: string | undefined;
-    let proposedValue: string | undefined;
-    let currentBudgetAmount: number | undefined;
-    let proposedBudgetAmount: number | undefined;
-
-    const statusLabel = (s: string) => {
-      if (s === "ACTIVE") return "نشطة ✅";
-      if (s === "PAUSED" || s === "CAMPAIGN_PAUSED") return "موقوفة ⏸";
-      return s;
-    };
-
-    if (name === "pause_campaign") {
-      const label = String(args.name ?? args.campaign_id);
-      summary = `إيقاف مؤقت للحملة "${label}"`;
-      proposedValue = "موقوفة ⏸";
-      try {
-        const details = await fetchCampaignDetailsCached(String(args.campaign_id));
-        currentValue = statusLabel(details.effective_status);
-        if (!args.name && details.name) summary = `إيقاف مؤقت للحملة "${details.name}"`;
-      } catch {}
-    } else if (name === "enable_campaign") {
-      const label = String(args.name ?? args.campaign_id);
-      summary = `تشغيل الحملة "${label}"`;
-      proposedValue = "نشطة ✅";
-      try {
-        const details = await fetchCampaignDetailsCached(String(args.campaign_id));
-        currentValue = statusLabel(details.effective_status);
-        if (!args.name && details.name) summary = `تشغيل الحملة "${details.name}"`;
-      } catch {}
-    } else if (name === "update_campaign_budget") {
-      const budgetType = args.budget_type === "lifetime" ? "إجمالية" : "يومية";
-      const label = String(args.name ?? args.campaign_id);
-      proposedBudgetAmount = Number(args.budget_amount);
-      summary = `تعديل ميزانية الحملة "${label}" إلى ${Math.round(proposedBudgetAmount)} EGP (${budgetType})`;
-      proposedValue = `${Math.round(proposedBudgetAmount)} EGP (${budgetType})`;
-      try {
-        const details = await fetchCampaignDetailsCached(String(args.campaign_id));
-        if (!args.name && details.name) summary = `تعديل ميزانية الحملة "${details.name}" إلى ${Math.round(proposedBudgetAmount)} EGP (${budgetType})`;
-        const curBudget = args.budget_type === "lifetime" ? details.lifetime_budget : details.daily_budget;
-        if (curBudget !== undefined && curBudget > 0) {
-          currentBudgetAmount = curBudget;
-          currentValue = `${Math.round(curBudget)} EGP (${budgetType})`;
-        }
-      } catch {}
-    } else if (name === "pause_adset") {
-      const label = String(args.name ?? args.adset_id);
-      summary = `إيقاف مؤقت للمجموعة الإعلانية "${label}"`;
-      proposedValue = "موقوفة ⏸";
-      try {
-        const details = await fetchAdsetDetailsCached(String(args.adset_id));
-        currentValue = statusLabel(details.effective_status);
-        if (!args.name && details.name) summary = `إيقاف مؤقت للمجموعة الإعلانية "${details.name}"`;
-      } catch {}
-    } else if (name === "enable_adset") {
-      const label = String(args.name ?? args.adset_id);
-      summary = `تشغيل المجموعة الإعلانية "${label}"`;
-      proposedValue = "نشطة ✅";
-      try {
-        const details = await fetchAdsetDetailsCached(String(args.adset_id));
-        currentValue = statusLabel(details.effective_status);
-        if (!args.name && details.name) summary = `تشغيل المجموعة الإعلانية "${details.name}"`;
-      } catch {}
-    } else if (name === "update_adset_budget") {
-      const label = String(args.name ?? args.adset_id);
-      proposedBudgetAmount = Number(args.budget_amount);
-      summary = `تعديل ميزانية المجموعة "${label}" إلى ${Math.round(proposedBudgetAmount)} EGP`;
-      try {
-        const details = await fetchAdsetDetailsCached(String(args.adset_id));
-        if (!args.name && details.name) summary = `تعديل ميزانية المجموعة "${details.name}" إلى ${Math.round(proposedBudgetAmount)} EGP`;
-        const curBudget = details.daily_budget ?? details.lifetime_budget;
-        if (curBudget !== undefined && curBudget > 0) {
-          currentBudgetAmount = curBudget;
-          const bType = details.lifetime_budget !== undefined && details.daily_budget === undefined ? "إجمالية" : "يومية";
-          currentValue = `${Math.round(curBudget)} EGP (${bType})`;
-          proposedValue = `${Math.round(proposedBudgetAmount)} EGP (${bType})`;
-        } else {
-          proposedValue = `${Math.round(proposedBudgetAmount)} EGP`;
-        }
-      } catch {
-        proposedValue = `${Math.round(proposedBudgetAmount)} EGP`;
-      }
-    } else if (name === "duplicate_adset") {
-      summary = `نسخ المجموعة الإعلانية "${args.name ?? args.adset_id}"`;
-      try {
-        const details = await fetchAdsetDetailsCached(String(args.adset_id));
-        if (!args.name && details.name) summary = `نسخ المجموعة الإعلانية "${details.name}"`;
-      } catch {}
-    }
-
-    // No-op detection: if the current state already matches the proposed state, skip confirmation.
-    // For budget tools, compare numerically (rounded to nearest integer) to avoid false mismatches
-    // caused by float vs integer representations (e.g. 500.00 vs 500).
-    const isBudgetNoOp =
-      currentBudgetAmount !== undefined &&
-      proposedBudgetAmount !== undefined &&
-      Math.round(currentBudgetAmount) === Math.round(proposedBudgetAmount);
-    const isStringNoOp =
-      currentBudgetAmount === undefined &&
-      currentValue !== undefined &&
-      proposedValue !== undefined &&
-      currentValue === proposedValue;
-    if (isBudgetNoOp || isStringNoOp) {
-      const displayValue = currentValue ?? `${Math.round(currentBudgetAmount!)} EGP`;
-      return `NO_OP: الحالة الحالية "${displayValue}" مطابقة للقيمة المقترحة. لا يوجد تغيير مطلوب على: ${summary}`;
-    }
-
-    return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary, currentValue, proposedValue })}`;
+    return `ACTION_PENDING:${JSON.stringify(buildOptimisticPendingAction(name, args))}`;
   }
 
   const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 7 : 14));
@@ -1309,35 +1345,45 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
         }
       }
 
-      // Execute all tool calls in parallel
-      const pendingActions: Array<{ tool: string; args: Record<string, unknown>; summary: string }> = [];
+      // ── Two-phase optimistic write-tool handling ──────────────────────────
+      // Phase 1: immediately emit an optimistic pending_action card (detailsLoading:true)
+      // so the user sees the confirmation card right away without waiting for the
+      // Meta API details fetch (which can take 5-8 s on a cold cache).
+      for (const tc of toolCalls) {
+        if (!WRITE_TOOL_NAMES.has(tc.function.name)) continue;
+        const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+        const optimistic = buildOptimisticPendingAction(tc.function.name, args);
+        // Register the tool message so the AI loop has a reply for this tool call
+        builtMessages.push({
+          role: "tool",
+          content: `في انتظار موافقة المستخدم على: ${optimistic.summary}`,
+          tool_call_id: tc.id,
+        });
+        // Emit skeleton card immediately
+        res.write(`data: ${JSON.stringify({ pending_action: { ...optimistic, detailsLoading: true } })}\n\n`);
+      }
+
+      // Phase 2: execute read tools + resolve write-tool details in parallel.
+      // When details arrive, emit pending_action_resolved so the frontend can
+      // fill in the currentValue badge (and detect no-ops).
       await Promise.all(
         toolCalls.map(async (tc) => {
           const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
-          const result = await executeTool(tc.function.name, args);
-          // Detect write-tool pending confirmation marker
-          if (result.startsWith("ACTION_PENDING:")) {
+          if (WRITE_TOOL_NAMES.has(tc.function.name)) {
             try {
-              const payload = JSON.parse(result.slice("ACTION_PENDING:".length)) as { tool: string; args: Record<string, unknown>; summary: string };
-              pendingActions.push(payload);
-              builtMessages.push({
-                role: "tool",
-                content: `في انتظار موافقة المستخدم على: ${payload.summary}`,
-                tool_call_id: tc.id,
-              });
+              const resolved = await resolveWriteToolDetails(tc.function.name, args);
+              res.write(`data: ${JSON.stringify({ pending_action_resolved: resolved })}\n\n`);
             } catch {
-              builtMessages.push({ role: "tool", content: result, tool_call_id: tc.id });
+              // Details fetch failed — emit an empty resolved so the frontend
+              // clears the loading skeleton and shows the card without currentValue
+              res.write(`data: ${JSON.stringify({ pending_action_resolved: {} })}\n\n`);
             }
           } else {
+            const result = await executeTool(tc.function.name, args);
             builtMessages.push({ role: "tool", content: result, tool_call_id: tc.id });
           }
         })
       );
-
-      // Emit any pending actions to the client before the final AI response
-      for (const pa of pendingActions) {
-        res.write(`data: ${JSON.stringify({ pending_action: pa })}\n\n`);
-      }
 
       // Done fetching — client can hide the indicator
       res.write(`data: ${JSON.stringify({ searching: false })}\n\n`);

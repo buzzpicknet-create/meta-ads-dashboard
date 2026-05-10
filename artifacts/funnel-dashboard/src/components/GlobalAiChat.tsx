@@ -12,6 +12,7 @@ interface PendingAction {
   summary: string;
   currentValue?: string;
   proposedValue?: string;
+  detailsLoading?: boolean;
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -642,6 +643,9 @@ export function GlobalAiChat() {
             if (data.searching === false) { setSearching(false); }
             if (data.tool_call_label) { setToolCallLabels((prev) => [...prev, data.tool_call_label as string]); }
             if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
+            if (data.pending_action_resolved) {
+              setPendingAction((prev) => prev ? { ...prev, ...(data.pending_action_resolved as Partial<PendingAction>), detailsLoading: false } : prev);
+            }
             if (data.content) { setToolCallLabels([]); accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
@@ -1012,8 +1016,8 @@ export function GlobalAiChat() {
                     </div>
                   ))}
 
-                  {/* Pending action confirmation card — admin only */}
-                  {pendingAction && !streaming && user?.role === "admin" && (() => {
+                  {/* Pending action confirmation card — shown immediately (optimistic) */}
+                  {pendingAction && user?.role === "admin" && (() => {
                     const isSameState = !!(pendingAction.currentValue && pendingAction.proposedValue && pendingAction.currentValue === pendingAction.proposedValue);
                     return (
                       <div className="flex gap-2.5 flex-row items-start" dir="rtl">
@@ -1026,10 +1030,17 @@ export function GlobalAiChat() {
                         >
                           <p className={`text-[12px] font-semibold mb-1 ${isSameState ? "text-slate-600" : "text-amber-700"}`}>⚡ تأكيد الإجراء</p>
                           <p className={`text-[13px] leading-relaxed ${isSameState ? "text-slate-700" : "text-amber-900"}`}>{pendingAction.summary}</p>
-                          {pendingAction.currentValue && pendingAction.proposedValue && (
+                          {/* Current → Proposed value row — shows skeleton while details load */}
+                          {pendingAction.proposedValue && (
                             <div className="mt-2 mb-1 flex items-center gap-2 text-[12px]" dir="ltr">
-                              <span className={`px-2 py-0.5 rounded-md font-medium ${isSameState ? "bg-slate-100 text-slate-600" : "bg-red-100 text-red-700"}`}>{pendingAction.currentValue}</span>
-                              <span className={`font-bold ${isSameState ? "text-slate-400" : "text-amber-600"}`}>→</span>
+                              {pendingAction.detailsLoading ? (
+                                <span className="h-5 w-20 rounded-md bg-amber-200/60 animate-pulse inline-block" />
+                              ) : pendingAction.currentValue ? (
+                                <span className={`px-2 py-0.5 rounded-md font-medium ${isSameState ? "bg-slate-100 text-slate-600" : "bg-red-100 text-red-700"}`}>{pendingAction.currentValue}</span>
+                              ) : null}
+                              {(pendingAction.detailsLoading || pendingAction.currentValue) && (
+                                <span className={`font-bold ${isSameState ? "text-slate-400" : "text-amber-600"}`}>→</span>
+                              )}
                               <span className={`px-2 py-0.5 rounded-md font-medium ${isSameState ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-700"}`}>{pendingAction.proposedValue}</span>
                             </div>
                           )}
@@ -1039,7 +1050,7 @@ export function GlobalAiChat() {
                           <div className="flex gap-2 mt-3">
                             <button
                               onClick={executeAction}
-                              disabled={executingAction}
+                              disabled={executingAction || !!pendingAction.detailsLoading}
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isSameState ? "bg-slate-500 hover:bg-slate-600" : "bg-emerald-600 hover:bg-emerald-700"}`}
                             >
                               <Zap className="h-3 w-3" />
