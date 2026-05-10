@@ -416,6 +416,7 @@ async function runMigrations() {
 
   await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS campaign_name TEXT`);
   await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE`);
+  await query(`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS tool_calls JSONB`);
 
   // campaign_name_cache: persistent lookup of campaign_id → name
   // Populated from any path that receives a campaign name (campaigns API, insights, alerts).
