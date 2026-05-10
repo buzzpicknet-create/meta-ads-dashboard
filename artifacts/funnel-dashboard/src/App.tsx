@@ -1,5 +1,5 @@
 import { Switch, Route, Router as WouterRouter, Link, useRoute, useLocation } from "wouter";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -19,6 +19,7 @@ import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Setti
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
+import { GlobalAiChatContext } from "@/contexts/GlobalAiChatContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -268,6 +269,17 @@ function MediaManagerRouter() {
 function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
   const visibilityMap = useMyPageVisibility();
 
+  // Stable ref so NavBar siblings can call openToConversation via context without stale closures
+  const openToConversationRef = useRef<(convId: number, campaignId?: string | null) => void>(() => {});
+  const openToConversation = useCallback((convId: number, campaignId?: string | null) => {
+    openToConversationRef.current(convId, campaignId);
+  }, []);
+
+  // In-memory pending campaign: set by GlobalAiChat when a campaign-linked conversation is opened,
+  // consumed (and cleared) by Dashboard so it works even when already on the Dashboard route.
+  const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(null);
+  const clearPendingCampaignId = useCallback(() => setPendingCampaignId(null), []);
+
   // A page is accessible if: admin always yes, OR visibility map says yes for this role
   function canAccess(path: string) {
     if (isAdmin) return true;
@@ -279,8 +291,13 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
     return item ? item.roles.includes(role) : false;
   }
 
+  const ctxValue = useMemo(
+    () => ({ openToConversation, pendingCampaignId, clearPendingCampaignId }),
+    [openToConversation, pendingCampaignId, clearPendingCampaignId]
+  );
+
   return (
-    <>
+    <GlobalAiChatContext.Provider value={ctxValue}>
       <NavBar />
       <Switch>
         <Route path="/overview" component={Overview} />
@@ -292,8 +309,11 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
         <Route path="/" component={Dashboard} />
         <Route component={NotFound} />
       </Switch>
-      <GlobalAiChat />
-    </>
+      <GlobalAiChat
+        onRegisterOpenFn={(fn) => { openToConversationRef.current = fn; }}
+        onCampaignSelected={(id) => setPendingCampaignId(id)}
+      />
+    </GlobalAiChatContext.Provider>
   );
 }
 

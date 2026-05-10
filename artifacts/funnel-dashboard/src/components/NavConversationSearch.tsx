@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, X, Globe, MessageSquare, Pin } from "lucide-react";
-import { useLocation } from "wouter";
+import { useGlobalAiChat } from "@/contexts/GlobalAiChatContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
@@ -129,7 +129,7 @@ function ConvRow({
 }
 
 export function NavConversationSearchModal({ open, onClose }: NavConversationSearchProps) {
-  const [, navigate] = useLocation();
+  const { openToConversation } = useGlobalAiChat();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ConvSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -221,15 +221,9 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
   }, [query]);
 
   const openConversation = useCallback((conv: ConvSummary) => {
-    try {
-      sessionStorage.setItem("global_selected_campaign", JSON.stringify({
-        campaignId: conv.campaign_id ?? null,
-        openConvId: conv.id,
-      }));
-    } catch {}
     onClose();
-    navigate("/");
-  }, [navigate, onClose]);
+    openToConversation(conv.id, conv.campaign_id ?? null);
+  }, [onClose, openToConversation]);
 
   const togglePin = useCallback(async (conv: ConvSummary) => {
     const newPinned = !conv.is_pinned;

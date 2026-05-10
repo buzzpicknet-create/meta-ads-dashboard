@@ -399,7 +399,12 @@ function highlightText(text: string, query: string): React.ReactNode {
   );
 }
 
-export function GlobalAiChat() {
+interface GlobalAiChatProps {
+  onRegisterOpenFn?: (fn: (convId: number, campaignId?: string | null) => void) => void;
+  onCampaignSelected?: (campaignId: string) => void;
+}
+
+export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiChatProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [, navigate] = useLocation();
@@ -587,17 +592,33 @@ export function GlobalAiChat() {
     }
   }, [view]);
 
-  // Navigate to a campaign conversation: store in sessionStorage and go to dashboard
-  const openCampaignConversation = useCallback((conv: ConvSummary) => {
+  // Open a specific conversation by id from anywhere (e.g. NavConversationSearch)
+  const openToConversation = useCallback(async (convId: number, campaignId?: string | null) => {
+    // If campaign-linked, notify FullRouter via callback (in-memory, reactive) and navigate to dashboard
+    if (campaignId) {
+      onCampaignSelected?.(campaignId);
+      navigate("/");
+    }
+    // Load messages and open the panel directly — works regardless of current page
+    setConvLoading(true);
     try {
-      sessionStorage.setItem("global_selected_campaign", JSON.stringify({
-        campaignId: conv.campaign_id,
-        openConvId: conv.id,
-      }));
+      const resp = await fetch(`${API}/chat/conversations/${convId}/messages`, { credentials: "include" });
+      if (resp.ok) {
+        const data = await resp.json() as { messages: { role: string; content: string; tool_calls?: string[] | null }[] };
+        const loaded: ChatMessage[] = (data.messages ?? []).map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          ...(m.tool_calls && m.tool_calls.length > 0 ? { tool_calls: m.tool_calls } : {}),
+        }));
+        setMessages(loaded);
+        setConvId(convId);
+        setExpandedSources({});
+        setView("chat");
+      }
     } catch {}
-    setOpen(false);
-    navigate("/");
-  }, [navigate]);
+    finally { setConvLoading(false); }
+    setOpen(true);
+  }, [navigate, onCampaignSelected]);
 
   const buildContext = useCallback((): string => {
     const parts: string[] = [];
@@ -841,6 +862,17 @@ export function GlobalAiChat() {
     finally { setConvLoading(false); }
   }, []);
 
+  // Navigate to a campaign conversation from the history panel: load inline and optionally select campaign on dashboard
+  const openCampaignConversation = useCallback(async (conv: ConvSummary) => {
+    await loadConversation(conv);
+    if (conv.campaign_id) {
+      try {
+        sessionStorage.setItem("global_selected_campaign", JSON.stringify({ campaignId: conv.campaign_id }));
+      } catch {}
+      navigate("/");
+    }
+  }, [loadConversation, navigate]);
+
   const deleteConversation = useCallback(async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
     setDeletingId(id);
@@ -851,6 +883,11 @@ export function GlobalAiChat() {
     } catch {}
     finally { setDeletingId(null); }
   }, [convId]);
+
+  // Register openToConversation with the parent (FullRouter) so siblings can call it via context
+  useEffect(() => {
+    onRegisterOpenFn?.(openToConversation);
+  }, [onRegisterOpenFn, openToConversation]);
 
   const hasUnread = messages.length > 0;
   const grouped = groupConversations(conversations);

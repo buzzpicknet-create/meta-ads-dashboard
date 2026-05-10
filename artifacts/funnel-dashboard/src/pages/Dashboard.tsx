@@ -85,6 +85,7 @@ import {
   type FrequencyAlert,
 } from "@/lib/trend-analysis";
 import { useCampaigns, useInsights, useAccount, useAccounts, useBreakdowns } from "@/hooks/use-meta";
+import { useGlobalAiChat } from "@/contexts/GlobalAiChatContext";
 import {
   type AdIssue,
   type DatePreset,
@@ -2281,8 +2282,11 @@ export default function Dashboard() {
 
   const accountCampaigns = useMemo(() => campaigns.data?.campaigns ?? [], [campaigns.data?.campaigns]);
 
-  // Read pre-selected campaign (and optional conversation) from global search (stored in sessionStorage)
-  const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(null);
+  // Pending campaign from context (in-memory, reactive — works even when already on this route)
+  const { pendingCampaignId: ctxPendingCampaignId, clearPendingCampaignId } = useGlobalAiChat();
+
+  // Also read from sessionStorage for cold loads (direct navigation with a stored key)
+  const [storagePendingCampaignId, setStoragePendingCampaignId] = useState<string | null>(null);
   const [pendingConvId, setPendingConvId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -2291,11 +2295,14 @@ export default function Dashboard() {
       if (stored) {
         const parsed = JSON.parse(stored) as { campaignId?: string; openConvId?: number };
         sessionStorage.removeItem("global_selected_campaign");
-        if (parsed.campaignId) setPendingCampaignId(parsed.campaignId);
+        if (parsed.campaignId) setStoragePendingCampaignId(parsed.campaignId);
         if (parsed.openConvId) setPendingConvId(parsed.openConvId);
       }
     } catch {}
   }, []);
+
+  // The active pending campaign is whichever signal arrived — context wins for same-route clicks
+  const pendingCampaignId = ctxPendingCampaignId ?? storagePendingCampaignId;
 
   // Apply pending campaign once campaigns load
   useEffect(() => {
@@ -2303,7 +2310,8 @@ export default function Dashboard() {
       const match = accountCampaigns.find((c) => c.id === pendingCampaignId);
       if (match) {
         setSelectedCampaignId(pendingCampaignId);
-        setPendingCampaignId(null);
+        clearPendingCampaignId();
+        setStoragePendingCampaignId(null);
         return;
       }
     }
@@ -2312,7 +2320,7 @@ export default function Dashboard() {
       const top = [...accountCampaigns].filter((c) => c.spend > 0).sort((a, b) => b.spend - a.spend)[0];
       setSelectedCampaignId(top?.id || null);
     }
-  }, [accountCampaigns, selectedAccountId, pendingCampaignId]);
+  }, [accountCampaigns, selectedAccountId, pendingCampaignId, clearPendingCampaignId]);
 
   useEffect(() => {
     const available = accounts.data?.accounts || [];
