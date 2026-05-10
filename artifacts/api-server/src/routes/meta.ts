@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { requireAdmin } from "../lib/auth-middleware";
 import {
   listCampaigns,
   listAdSetRefs,
@@ -35,6 +36,34 @@ const ACTIVITIES_TTL_MS = 30 * 60 * 1000; // 30 minutes
 // ── In-memory cache for adsets ────────────────────────────────────────────────
 const ADSETS_CACHE = new Map<string, { data: unknown; ts: number }>();
 const ADSETS_TTL_MS = 60 * 60 * 1000; // 60 minutes (adsets rarely change)
+
+// ── Cache warm-up status ──────────────────────────────────────────────────────
+export interface CacheWarmupStats {
+  insights: number;
+  campaigns: number;
+  overview: number;
+  campaign_details: number;
+  adset_details: number;
+  skipped: number;
+  ran_at: string;
+  duration_ms: number;
+}
+
+let lastWarmupStats: CacheWarmupStats | null = null;
+let warmupInProgress = false;
+
+export function getLastWarmupStats() {
+  return { stats: lastWarmupStats, inProgress: warmupInProgress };
+}
+
+export function setLastWarmupStats(stats: Omit<CacheWarmupStats, "ran_at" | "duration_ms"> & { ran_at: string; duration_ms: number }) {
+  lastWarmupStats = stats;
+  warmupInProgress = false;
+}
+
+export function setWarmupInProgress(v: boolean) {
+  warmupInProgress = v;
+}
 
 // ── Campaigns cache — fallback when Meta rate-limits this ad account ──────────
 const CAMPAIGNS_CACHE = new Map<string, { data: unknown; ts: number }>();
@@ -571,6 +600,33 @@ const PROACTIVE_REFRESH_DELAY_MS = 1_500; // 1.5 s gap between Meta calls
 async function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
+
+// GET /api/meta/cache-warmup-status — return last proactive-refresh run stats (admin only)
+router.get("/meta/cache-warmup-status", requireAdmin, async (_req, res) => {
+  const { stats, inProgress } = getLastWarmupStats();
+  res.json({ stats, inProgress });
+});
+
+// POST /api/meta/cache-warmup-trigger — run a proactive refresh immediately (admin only)
+router.post("/meta/cache-warmup-trigger", requireAdmin, async (_req, res) => {
+  const { inProgress } = getLastWarmupStats();
+  if (inProgress) {
+    return res.status(409).json({ error: "تشغيل التحديث جارٍ بالفعل" });
+  }
+  setWarmupInProgress(true);
+  const startedAt = new Date().toISOString();
+  const t0 = Date.now();
+  proactiveInsightsRefresh()
+    .then((s) => {
+      setLastWarmupStats({ ...s, ran_at: startedAt, duration_ms: Date.now() - t0 });
+      logger.info(s, "On-demand cache warm-up complete");
+    })
+    .catch((err) => {
+      setWarmupInProgress(false);
+      logger.warn({ err }, "On-demand cache warm-up failed");
+    });
+  return res.json({ started: true });
+});
 
 export async function proactiveInsightsRefresh(): Promise<{
   insights: number;

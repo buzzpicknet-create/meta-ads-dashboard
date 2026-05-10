@@ -5,6 +5,7 @@ import {
   Loader2, X, ChevronDown, LogIn, Stethoscope, Film, LayoutDashboard,
   Clock, WifiOff, Bell, BellOff, ChevronUp, Save, CheckSquare, Square,
   MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal,
+  DatabaseZap, RefreshCw, CheckCircle2, AlertCircle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility, useUpdatePageVisibility } from "@/hooks/use-page-visibility";
@@ -1155,6 +1156,15 @@ export default function AdminPage() {
         <PageVisibilitySection />
       </div>
 
+      {/* Cache warm-up diagnostics section */}
+      <div className="mt-8 space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+          <DatabaseZap className="h-4 w-4" />
+          تشخيص الكاش
+        </h2>
+        <CacheWarmupSection />
+      </div>
+
       {/* Notification settings section */}
       <div className="mt-8 space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
@@ -1174,6 +1184,147 @@ export default function AdminPage() {
 
       {showAdd && <AddUserModal onClose={() => setShowAdd(false)} />}
       {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
+    </div>
+  );
+}
+
+// ── Cache Warm-up Status Section ──────────────────────────────────────────────
+interface WarmupStats {
+  insights: number;
+  campaigns: number;
+  overview: number;
+  campaign_details: number;
+  adset_details: number;
+  skipped: number;
+  ran_at: string;
+  duration_ms: number;
+}
+
+function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className={`flex flex-col items-center px-3 py-2 rounded-lg ${color}`}>
+      <span className="text-lg font-bold leading-none">{value}</span>
+      <span className="text-[10px] mt-0.5 opacity-70">{label}</span>
+    </div>
+  );
+}
+
+function CacheWarmupSection() {
+  const qc = useQueryClient();
+
+  const { data, isLoading, dataUpdatedAt } = useQuery({
+    queryKey: ["cache-warmup-status"],
+    queryFn: () =>
+      fetch(`${API}/meta/cache-warmup-status`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((d) => d as { stats: WarmupStats | null; inProgress: boolean }),
+    refetchInterval: 15_000,
+  });
+
+  const trigger = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${API}/meta/cache-warmup-trigger`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "فشل التشغيل");
+      return d;
+    },
+    onSuccess: () => {
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["cache-warmup-status"] }), 1000);
+    },
+    onError: (err) => alert(err instanceof Error ? err.message : "فشل التشغيل"),
+  });
+
+  const stats = data?.stats;
+  const inProgress = data?.inProgress ?? false;
+
+  function formatDuration(ms: number) {
+    if (ms < 1000) return `${ms} ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  function formatRelTime(iso: string) {
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 60_000) return "منذ أقل من دقيقة";
+    if (diff < 3600_000) return `منذ ${Math.round(diff / 60_000)} دقيقة`;
+    if (diff < 86400_000) return `منذ ${Math.round(diff / 3600_000)} ساعة`;
+    return `منذ ${Math.round(diff / 86400_000)} يوم`;
+  }
+
+  const totalWarmed = stats
+    ? stats.insights + stats.campaigns + stats.overview + stats.campaign_details + stats.adset_details
+    : 0;
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/40 dark:bg-slate-900/20 p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium flex items-center gap-1.5">
+          <DatabaseZap className="h-4 w-4 text-slate-500" />
+          حالة تسخين الكاش
+        </p>
+        <div className="flex items-center gap-2">
+          {stats && !inProgress && (
+            <span className="text-[10px] text-muted-foreground">
+              آخر تشغيل {formatRelTime(stats.ran_at)}
+            </span>
+          )}
+          <button
+            onClick={() => trigger.mutate()}
+            disabled={trigger.isPending || inProgress}
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-3 w-3 ${inProgress || trigger.isPending ? "animate-spin" : ""}`} />
+            {inProgress ? "جارٍ التسخين..." : "تشغيل الآن"}
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="h-16 rounded-lg bg-muted animate-pulse" />
+      ) : !stats ? (
+        <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-3 py-3 text-xs text-amber-600">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          لم يتم تشغيل تسخين الكاش بعد منذ آخر إعادة تشغيل للسيرفر. سيبدأ تلقائياً بعد 3 دقائق من الآن، أو اضغط "تشغيل الآن".
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Status bar */}
+          <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${totalWarmed > 0 || stats.skipped > 0 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-blue-500/10 text-blue-700 dark:text-blue-400"}`}>
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              {totalWarmed > 0
+                ? `تم تسخين ${totalWarmed} إدخال في الكاش`
+                : "الكاش محدّث بالكامل — لم تكن هناك إدخالات متأخرة"}
+            </span>
+            <span className="mr-auto text-muted-foreground font-mono" dir="ltr">
+              {formatDuration(stats.duration_ms)}
+            </span>
+          </div>
+
+          {/* Stat badges */}
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            <StatBadge label="إحصاءات" value={stats.insights} color="bg-violet-500/10 text-violet-700 dark:text-violet-400" />
+            <StatBadge label="حملات" value={stats.campaigns} color="bg-blue-500/10 text-blue-700 dark:text-blue-400" />
+            <StatBadge label="نظرة عامة" value={stats.overview} color="bg-cyan-500/10 text-cyan-700 dark:text-cyan-400" />
+            <StatBadge label="تفاصيل حملة" value={stats.campaign_details} color="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" />
+            <StatBadge label="تفاصيل أدسيت" value={stats.adset_details} color="bg-amber-500/10 text-amber-700 dark:text-amber-400" />
+            <StatBadge label="تخطّى" value={stats.skipped} color={stats.skipped > 0 ? "bg-red-500/10 text-red-600 dark:text-red-400" : "bg-muted/40 text-muted-foreground"} />
+          </div>
+
+          <p className="text-[10px] text-muted-foreground" dir="ltr">
+            Last run: {new Date(stats.ran_at).toLocaleString("ar-EG")} — auto-refreshes every 30 min
+          </p>
+        </div>
+      )}
+
+      {/* Live refresh indicator */}
+      {dataUpdatedAt > 0 && (
+        <p className="text-[9px] text-muted-foreground/50 text-left" dir="ltr">
+          Polled {new Date(dataUpdatedAt).toLocaleTimeString()}
+        </p>
+      )}
     </div>
   );
 }

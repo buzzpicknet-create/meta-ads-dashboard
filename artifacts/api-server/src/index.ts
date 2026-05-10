@@ -2,7 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
-import { warmCreativeCache, proactiveInsightsRefresh } from "./routes/meta";
+import { warmCreativeCache, proactiveInsightsRefresh, setLastWarmupStats, setWarmupInProgress, getLastWarmupStats } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
 import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
@@ -529,12 +529,22 @@ const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const REFRESH_CRON_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 async function runProactiveRefreshCron() {
+  const { inProgress } = getLastWarmupStats();
+  if (inProgress) {
+    logger.info("Proactive cache refresh skipped — already in progress");
+    return;
+  }
+  setWarmupInProgress(true);
+  const ranAt = new Date().toISOString();
+  const t0 = Date.now();
   try {
     const stats = await proactiveInsightsRefresh();
+    setLastWarmupStats({ ...stats, ran_at: ranAt, duration_ms: Date.now() - t0 });
     if (stats.insights + stats.campaigns + stats.overview + stats.campaign_details + stats.adset_details > 0) {
       logger.info(stats, "Proactive cache refresh complete");
     }
   } catch (err) {
+    setWarmupInProgress(false);
     logger.warn({ err }, "Proactive cache refresh failed");
   }
 }
