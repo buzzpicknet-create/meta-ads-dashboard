@@ -276,7 +276,28 @@ Frequency (في 7 أيام):
 لو الأداة رجعت رداً يبدأ بـ NO_OP: ، معناه إن الحالة الحالية هي نفس القيمة المقترحة.
 في هذه الحالة لازم:
 ١. لا تقترح أي تأكيد ولا تقول "في انتظار موافقتك".
-٢. أخبر المستخدم بشكل مباشر إن الوضع مش محتاج تغيير — مثلاً: "هذه الحملة بالفعل موقوفة، لا داعي لأي إجراء." أو "الميزانية الحالية هي نفس القيمة المطلوبة، لا يوجد تغيير مطلوب."`;
+٢. أخبر المستخدم بشكل مباشر إن الوضع مش محتاج تغيير — مثلاً: "هذه الحملة بالفعل موقوفة، لا داعي لأي إجراء." أو "الميزانية الحالية هي نفس القيمة المطلوبة، لا يوجد تغيير مطلوب."
+
+══════════════════════════════════════
+الجزء 7 — ذاكرة الميديا باير وتقييم القرارات السابقة
+══════════════════════════════════════
+
+أنت مش بس تشخّص — أنت ميديا باير متابع لهذه الحملة من الأول.
+في الـ context هيجيلك قسمين إضافيين لما يكونوا متاحين:
+
+📋 ذاكرة المحادثات السابقة:
+- دي ملخصات محادثاتك السابقة مع هذه الحملة
+- استخدمها تفهم السياق والمشاكل اللي اتناقشت قبل كده
+- لو في مشكلة اتذكرت سابقاً وبتكرر، نبّه المستخدم: "كنا اتكلمنا في نفس الموضوع ده قبل كده"
+
+⚡ تاريخ الإجراءات المنفّذة:
+- دي قرارات حقيقية اتنفذت على الحملة (إيقاف، تشغيل، تعديل ميزانية، إلخ)
+- لازم تقيّم تأثير كل قرار على الأداء الحالي:
+  → لو الحملة اتوقفت من 3 أيام: "الحملة كانت واقفة من 3 أيام — الأرقام دي بعد إعادة التشغيل طبيعي تكون غير مستقرة"
+  → لو الميزانية اترفعت: "الميزانية اترفعت من X لـ Y من N أيام — قارن الأداء قبل وبعد"
+  → لو في إجراءات متكررة على نفس الحملة: "لاحظت إن الحملة دي اتوقفت وشغّلت أكتر من مرة — ده ممكن يأثر على تعلّم الخوارزمية"
+
+مهم: استخدم هذا التاريخ بشكل استباقي — لا تنتظر المستخدم يسأل، بل ادمجه في التشخيص تلقائياً لما يكون ذا صلة.`;
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 const TOOLS = [
@@ -1250,11 +1271,46 @@ interface MemoryRow {
   content: string;
 }
 
+interface ActionRow {
+  tool_name: string;
+  args: Record<string, unknown>;
+  executed_at: string;
+  executed_by: string;
+  success: boolean;
+  result_message: string | null;
+  campaign_name: string | null;
+  adset_name: string | null;
+  is_no_op: boolean;
+}
+
+const ACTION_LABEL: Record<string, string> = {
+  pause_campaign:              "تم إيقاف الحملة مؤقتاً",
+  enable_campaign:             "تم تشغيل الحملة",
+  update_campaign_budget:      "تم تعديل ميزانية الحملة",
+  pause_adset:                 "تم إيقاف المجموعة الإعلانية",
+  enable_adset:                "تم تشغيل المجموعة الإعلانية",
+  update_adset_budget:         "تم تعديل ميزانية المجموعة الإعلانية",
+  duplicate_adset:             "تم نسخ المجموعة الإعلانية",
+};
+
+function relativeTime(dateStr: string): string {
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.round(diffMs / 60_000);
+  if (mins < 60) return `منذ ${mins} دقيقة`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `منذ ${hrs} ساعة`;
+  const days = Math.round(hrs / 24);
+  return `منذ ${days} يوم`;
+}
+
 async function fetchCampaignMemory(
   userId: number,
   campaignId: string,
   excludeConvId: number | null
 ): Promise<string> {
+  const sections: string[] = [];
+
+  // ── 1. Past conversation summaries ──────────────────────────────────────
   try {
     const rows = await query<MemoryRow>(
       `SELECT cm.content, cc.id AS conv_id, cc.title, cc.updated_at
@@ -1271,42 +1327,65 @@ async function fetchCampaignMemory(
       [campaignId, userId, excludeConvId ?? null]
     );
 
-    if (!rows.length) return "";
+    if (rows.length) {
+      const byConv = new Map<number, { title: string; updated_at: string; msgs: string[] }>();
+      for (const r of rows) {
+        if (!byConv.has(r.conv_id)) {
+          byConv.set(r.conv_id, { title: r.title, updated_at: r.updated_at, msgs: [] });
+        }
+        const entry = byConv.get(r.conv_id)!;
+        if (entry.msgs.length < 2) entry.msgs.push(r.content.slice(0, 500));
+      }
 
-    const byConv = new Map<number, { title: string; updated_at: string; msgs: string[] }>();
-    for (const r of rows) {
-      if (!byConv.has(r.conv_id)) {
-        byConv.set(r.conv_id, { title: r.title, updated_at: r.updated_at, msgs: [] });
+      const convEntries = [...byConv.values()].slice(0, 3);
+      const lines: string[] = [
+        "══════════════════════════════════════",
+        "📋 ذاكرة المحادثات السابقة — استخدمها كخلفية ولا تُكرّرها حرفياً",
+        "══════════════════════════════════════",
+      ];
+      for (const conv of convEntries) {
+        lines.push(`\n🗓 "${conv.title}" (${relativeTime(conv.updated_at)})`);
+        for (const msg of conv.msgs) lines.push(`  → ${msg}`);
       }
-      const entry = byConv.get(r.conv_id)!;
-      if (entry.msgs.length < 2) {
-        entry.msgs.push(r.content.slice(0, 600));
-      }
+      sections.push(lines.join("\n"));
     }
+  } catch { /* silent */ }
 
-    const convEntries = [...byConv.values()].slice(0, 3);
+  // ── 2. Real executed actions on this campaign ────────────────────────────
+  try {
+    const actions = await query<ActionRow>(
+      `SELECT tool_name, args, executed_at, executed_by, success,
+              result_message, campaign_name, adset_name, is_no_op
+       FROM pipeboard_actions
+       WHERE (args->>'campaign_id' = $1
+           OR args->>'adset_campaign_id' = $1)
+         AND success = true
+         AND is_no_op = false
+       ORDER BY executed_at DESC
+       LIMIT 10`,
+      [campaignId]
+    );
 
-    const lines: string[] = [
-      "══════════════════════════════════════",
-      "ذاكرة المحادثات السابقة مع هذه الحملة (استخدمها كخلفية — لا تُكرّرها على المستخدم)",
-      "══════════════════════════════════════",
-    ];
-
-    for (const conv of convEntries) {
-      const daysAgo = Math.round(
-        (Date.now() - new Date(conv.updated_at).getTime()) / 86_400_000
-      );
-      const when = daysAgo === 0 ? "اليوم" : `منذ ${daysAgo} يوم`;
-      lines.push(`\n📅 محادثة: "${conv.title}" (${when})`);
-      for (const msg of conv.msgs) {
-        lines.push(`→ ${msg}`);
+    if (actions.length) {
+      const lines: string[] = [
+        "══════════════════════════════════════",
+        "⚡ تاريخ الإجراءات المنفّذة على هذه الحملة — هذه قرارات حقيقية اتخذها الفريق",
+        "══════════════════════════════════════",
+      ];
+      for (const a of actions) {
+        const label = ACTION_LABEL[a.tool_name] ?? a.tool_name;
+        const who = a.executed_by;
+        const when = relativeTime(a.executed_at);
+        const target = a.adset_name ? ` | المجموعة: "${a.adset_name}"` : "";
+        const budget = a.args.budget_amount ? ` | الميزانية الجديدة: ${a.args.budget_amount} جنيه` : "";
+        lines.push(`• ${label} (${when}) — بواسطة ${who}${target}${budget}`);
       }
+      lines.push("\nاستخدم هذا التاريخ لتقييم تأثير القرارات السابقة على الأداء الحالي.");
+      sections.push(lines.join("\n"));
     }
+  } catch { /* silent */ }
 
-    return lines.join("\n");
-  } catch {
-    return "";
-  }
+  return sections.join("\n\n");
 }
 
 type OpenAiMessage =
