@@ -60,6 +60,32 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     success = true;
     resultMessage = textContent || "تم التنفيذ بنجاح";
 
+    // Invalidate the details cache for the affected entity so the next
+    // read-tool call returns the updated status/budget without waiting
+    // for the 5-minute TTL to expire.
+    const CAMPAIGN_WRITE_TOOLS = new Set([
+      "pause_campaign",
+      "enable_campaign",
+      "update_campaign_budget",
+    ]);
+    const ADSET_WRITE_TOOLS = new Set([
+      "pause_adset",
+      "enable_adset",
+      "update_adset_budget",
+    ]);
+
+    if (CAMPAIGN_WRITE_TOOLS.has(tool) && typeof args?.campaign_id === "string" && args.campaign_id) {
+      await query(
+        `DELETE FROM meta_campaign_details_cache WHERE campaign_id = $1`,
+        [args.campaign_id]
+      ).catch(() => null);
+    } else if (ADSET_WRITE_TOOLS.has(tool) && typeof args?.adset_id === "string" && args.adset_id) {
+      await query(
+        `DELETE FROM meta_adset_details_cache WHERE adset_id = $1`,
+        [args.adset_id]
+      ).catch(() => null);
+    }
+
     res.json({ success: true, message: resultMessage });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
