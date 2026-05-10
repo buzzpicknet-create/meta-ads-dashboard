@@ -1079,7 +1079,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
       {/* Chat Sheet */}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-full sm:w-[70vw] max-w-[900px] p-0 flex flex-col" dir="rtl">
+        <SheetContent side="left" className="w-full p-0 flex flex-col" style={{ width: "70vw", maxWidth: "920px" }} dir="rtl">
 
           {/* ── Header ── */}
           <SheetHeader className="shrink-0 px-4 py-3 border-b border-border/60">
