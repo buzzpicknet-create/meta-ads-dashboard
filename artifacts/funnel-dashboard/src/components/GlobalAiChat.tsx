@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
-  History, Plus, ChevronRight, Clock, Zap, AlertTriangle,
+  History, Plus, ChevronRight, ChevronDown, Clock, Zap, AlertTriangle, Search,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,7 +18,7 @@ interface PendingAction {
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
 
-interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string }
+interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string; tool_calls?: string[] }
 
 interface ConvSummary { id: number; title: string; created_at: string; updated_at: string }
 
@@ -407,6 +407,7 @@ export function GlobalAiChat() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [executingAction, setExecutingAction] = useState(false);
+  const [expandedSources, setExpandedSources] = useState<Record<number, boolean>>({});
 
   const [activityUsers, setActivityUsers] = useState<ActivityUser[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -513,10 +514,11 @@ export function GlobalAiChat() {
           try {
             const resp = await fetch(`${API}/chat/conversations/${latest.id}/messages`, { credentials: "include" });
             if (resp.ok) {
-              const msgData = await resp.json() as { messages: { role: string; content: string }[] };
+              const msgData = await resp.json() as { messages: { role: string; content: string; tool_calls?: string[] | null }[] };
               const loaded: ChatMessage[] = (msgData.messages ?? []).map((m) => ({
                 role: m.role as "user" | "assistant",
                 content: m.content,
+                ...(m.tool_calls && m.tool_calls.length > 0 ? { tool_calls: m.tool_calls } : {}),
               }));
               if (loaded.length > 0) {
                 setMessages(loaded);
@@ -566,8 +568,10 @@ export function GlobalAiChat() {
   }, [convId]);
 
   // Save a pair of messages to DB
-  const saveToDB = useCallback(async (cid: number, userContent: string, assistantContent: string) => {
+  const saveToDB = useCallback(async (cid: number, userContent: string, assistantContent: string, toolCalls?: string[]) => {
     try {
+      const assistantMsg: { role: string; content: string; tool_calls?: string[] } = { role: "assistant", content: assistantContent };
+      if (toolCalls && toolCalls.length > 0) assistantMsg.tool_calls = toolCalls;
       await fetch(`${API}/chat/conversations/${cid}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -575,7 +579,7 @@ export function GlobalAiChat() {
         body: JSON.stringify({
           messages: [
             { role: "user", content: userContent },
-            { role: "assistant", content: assistantContent },
+            assistantMsg,
           ],
         }),
       });
@@ -628,6 +632,7 @@ export function GlobalAiChat() {
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
+      const localLabels: string[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -641,7 +646,10 @@ export function GlobalAiChat() {
             if (data.done) break;
             if (data.searching === true) { setSearching(true); }
             if (data.searching === false) { setSearching(false); }
-            if (data.tool_call_label) { setToolCallLabels((prev) => [...prev, data.tool_call_label as string]); }
+            if (data.tool_call_label) {
+              localLabels.push(data.tool_call_label as string);
+              setToolCallLabels((prev) => [...prev, data.tool_call_label as string]);
+            }
             if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
             if (data.pending_action_resolved) {
               setPendingAction((prev) => prev ? { ...prev, ...(data.pending_action_resolved as Partial<PendingAction>), detailsLoading: false } : prev);
@@ -651,10 +659,13 @@ export function GlobalAiChat() {
         }
       }
 
-      setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
+      const capturedLabels = localLabels.slice();
+      const assistantMsg: ChatMessage = { role: "assistant", content: accumulated };
+      if (capturedLabels.length > 0) assistantMsg.tool_calls = capturedLabels;
+      setMessages((prev) => [...prev, assistantMsg]);
 
       // Save to DB in background
-      void saveToDB(activeCid, userText, accumulated);
+      void saveToDB(activeCid, userText, accumulated, capturedLabels.length > 0 ? capturedLabels : undefined);
 
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {
@@ -734,6 +745,7 @@ export function GlobalAiChat() {
     setStreaming(false);
     setAttachment(null);
     setConvId(null);
+    setExpandedSources({});
     setView("chat");
   }, []);
 
@@ -744,6 +756,7 @@ export function GlobalAiChat() {
     setStreaming(false);
     setAttachment(null);
     setConvId(null);
+    setExpandedSources({});
   }, []);
 
   const loadConversation = useCallback(async (conv: ConvSummary) => {
@@ -751,13 +764,15 @@ export function GlobalAiChat() {
     try {
       const resp = await fetch(`${API}/chat/conversations/${conv.id}/messages`, { credentials: "include" });
       if (!resp.ok) return;
-      const data = await resp.json() as { messages: { role: string; content: string }[] };
+      const data = await resp.json() as { messages: { role: string; content: string; tool_calls?: string[] | null }[] };
       const loaded: ChatMessage[] = (data.messages ?? []).map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
+        ...(m.tool_calls && m.tool_calls.length > 0 ? { tool_calls: m.tool_calls } : {}),
       }));
       setMessages(loaded);
       setConvId(conv.id);
+      setExpandedSources({});
       setView("chat");
     } catch {}
     finally { setConvLoading(false); }
@@ -991,27 +1006,51 @@ export function GlobalAiChat() {
                       }`}>
                         {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
                       </div>
-                      <div
-                        className={`min-w-0 rounded-2xl break-words overflow-hidden ${
-                          msg.role === "user"
-                            ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
-                            : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
-                        }`}
-                        style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
-                        dir="rtl"
-                      >
-                        {msg.imagePreviewUrl && (
-                          <img
-                            src={msg.imagePreviewUrl}
-                            alt="مرفق"
-                            className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20"
-                            style={{ maxHeight: 220 }}
-                            onClick={() => window.open(msg.imagePreviewUrl, "_blank")}
-                          />
+                      <div className="min-w-0 flex flex-col gap-1" style={{ maxWidth: "85%" }}>
+                        <div
+                          className={`min-w-0 rounded-2xl break-words overflow-hidden ${
+                            msg.role === "user"
+                              ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
+                              : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
+                          }`}
+                          style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
+                          dir="rtl"
+                        >
+                          {msg.imagePreviewUrl && (
+                            <img
+                              src={msg.imagePreviewUrl}
+                              alt="مرفق"
+                              className="max-w-full rounded-xl mb-2 cursor-zoom-in border border-white/20"
+                              style={{ maxHeight: 220 }}
+                              onClick={() => window.open(msg.imagePreviewUrl, "_blank")}
+                            />
+                          )}
+                          {msg.role === "user"
+                            ? msg.content && <span>{msg.content}</span>
+                            : <RenderMarkdown text={msg.content} />}
+                        </div>
+                        {msg.role === "assistant" && msg.tool_calls && msg.tool_calls.length > 0 && (
+                          <div dir="rtl">
+                            <button
+                              onClick={() => setExpandedSources((prev) => ({ ...prev, [i]: !prev[i] }))}
+                              className="flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                            >
+                              <Search className="h-2.5 w-2.5 shrink-0" />
+                              <span>مصادر البيانات ({msg.tool_calls.length})</span>
+                              <ChevronDown className={`h-2.5 w-2.5 shrink-0 transition-transform ${expandedSources[i] ? "rotate-180" : ""}`} />
+                            </button>
+                            {expandedSources[i] && (
+                              <div className="mt-1 flex flex-col gap-0.5 ps-1">
+                                {msg.tool_calls.map((label, j) => (
+                                  <span key={j} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
+                                    <span className="w-1 h-1 rounded-full bg-muted-foreground/30 shrink-0" />
+                                    {label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         )}
-                        {msg.role === "user"
-                          ? msg.content && <span>{msg.content}</span>
-                          : <RenderMarkdown text={msg.content} />}
                       </div>
                     </div>
                   ))}
