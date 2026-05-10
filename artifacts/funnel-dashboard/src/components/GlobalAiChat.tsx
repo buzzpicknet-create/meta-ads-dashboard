@@ -278,14 +278,20 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
 }
 
 function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**"))
       return <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
     if (part.startsWith("*") && part.endsWith("*"))
-      return <em key={i} className="not-italic text-muted-foreground">{part.slice(1, -1)}</em>;
+      return <em key={i} className="italic text-foreground/80">{part.slice(1, -1)}</em>;
+    if (part.startsWith("`") && part.endsWith("`"))
+      return <code key={i} className="font-mono text-[12px] bg-muted/70 text-primary px-1.5 py-0.5 rounded-md border border-border/50">{part.slice(1, -1)}</code>;
     return part;
   });
+}
+
+function parseTableRow(line: string): string[] {
+  return line.split("|").map(c => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length - 1);
 }
 
 function RenderMarkdown({ text }: { text: string }) {
@@ -293,19 +299,95 @@ function RenderMarkdown({ text }: { text: string }) {
   const elements: React.ReactNode[] = [];
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i];
+    const line = lines[i]!;
     if (line.trim() === "") { i++; continue; }
 
-    if (/^#{1,3}\s/.test(line)) {
-      const content = line.replace(/^#{1,3}\s/, "");
+    // Fenced code block ```
+    if (line.trim().startsWith("```")) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i]!.trim().startsWith("```")) {
+        codeLines.push(lines[i]!);
+        i++;
+      }
+      i++;
       elements.push(
-        <p key={i} className="font-bold text-[13px] text-foreground mt-3 mb-1 leading-snug border-b border-border/40 pb-1">
+        <div key={`code-${i}`} className="my-3 rounded-xl overflow-hidden border border-border/60 bg-muted/40">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/60 border-b border-border/40">
+            <div className="flex gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-400/60" /><span className="w-2.5 h-2.5 rounded-full bg-yellow-400/60" /><span className="w-2.5 h-2.5 rounded-full bg-green-400/60" /></div>
+            <span className="text-[10px] text-muted-foreground/60 font-mono">code</span>
+          </div>
+          <pre className="p-3 overflow-x-auto text-[12px] font-mono text-foreground/85 leading-relaxed whitespace-pre" dir="ltr">{codeLines.join("\n")}</pre>
+        </div>
+      );
+      continue;
+    }
+
+    // Horizontal rule ---
+    if (/^---+$/.test(line.trim())) {
+      elements.push(<hr key={i} className="my-3 border-border/40" />);
+      i++; continue;
+    }
+
+    // Headings # ## ###
+    if (/^#{1,3}\s/.test(line)) {
+      const level = (line.match(/^(#{1,3})/)?.[1].length ?? 1);
+      const content = line.replace(/^#{1,3}\s/, "");
+      const sizeClass = level === 1 ? "text-base" : level === 2 ? "text-[14px]" : "text-[13px]";
+      elements.push(
+        <p key={i} className={`font-bold ${sizeClass} text-foreground mt-4 mb-1.5 leading-snug border-b border-border/40 pb-1.5`}>
           {renderInline(content)}
         </p>
       );
       i++; continue;
     }
 
+    // Markdown table  | col | col |
+    if (/^\|/.test(line) && i + 1 < lines.length && /^\|[-| :]+\|/.test(lines[i + 1]!)) {
+      const headers = parseTableRow(line);
+      i += 2; // skip separator
+      const rows: string[][] = [];
+      while (i < lines.length && /^\|/.test(lines[i]!)) {
+        rows.push(parseTableRow(lines[i]!));
+        i++;
+      }
+      elements.push(
+        <div key={`tbl-${i}`} className="my-3 overflow-x-auto rounded-xl border border-border/60 shadow-sm">
+          <table className="w-full text-[13px] border-collapse">
+            <thead>
+              <tr className="bg-primary/8 border-b border-border/60">
+                {headers.map((h, j) => (
+                  <th key={j} className="px-3 py-2 text-right font-semibold text-foreground/90 whitespace-nowrap">{renderInline(h)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} className={`border-b border-border/30 ${ri % 2 === 0 ? "" : "bg-muted/20"} hover:bg-primary/5 transition-colors`}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="px-3 py-2 text-right text-foreground/80 whitespace-nowrap">{renderInline(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    // Blockquote >
+    if (/^>\s/.test(line)) {
+      const content = line.replace(/^>\s/, "");
+      elements.push(
+        <div key={i} className="my-2 border-r-4 border-primary/40 pr-3 py-1 bg-primary/5 rounded-sm">
+          <p className="text-[13px] text-foreground/80 leading-relaxed italic">{renderInline(content)}</p>
+        </div>
+      );
+      i++; continue;
+    }
+
+    // Bullet list
     if (/^[-•*]\s/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^[-•*]\s/.test(lines[i]!)) {
@@ -316,8 +398,8 @@ function RenderMarkdown({ text }: { text: string }) {
         <ul key={`ul-${i}`} className="space-y-2 my-2">
           {items.map((item, j) => (
             <li key={j} className="flex gap-2.5 items-start leading-relaxed">
-              <span className="shrink-0 mt-[5px] w-1.5 h-1.5 rounded-full bg-primary/70" />
-              <span className="flex-1 text-[13px] text-foreground/90">{renderInline(item)}</span>
+              <span className="shrink-0 mt-[6px] w-1.5 h-1.5 rounded-full bg-primary/60" />
+              <span className="flex-1 text-[13.5px] text-foreground/90 leading-relaxed">{renderInline(item)}</span>
             </li>
           ))}
         </ul>
@@ -325,6 +407,7 @@ function RenderMarkdown({ text }: { text: string }) {
       continue;
     }
 
+    // Numbered list
     if (/^(\d+|[١٢٣٤٥٦٧٨٩٠]+)[.)]\s/.test(line)) {
       const items: string[] = [];
       let num = 1;
@@ -333,13 +416,13 @@ function RenderMarkdown({ text }: { text: string }) {
         i++;
       }
       elements.push(
-        <ol key={`ol-${i}`} className="space-y-2 my-2">
+        <ol key={`ol-${i}`} className="space-y-2.5 my-2">
           {items.map((item, j) => (
             <li key={j} className="flex gap-2.5 items-start leading-relaxed">
-              <span className="shrink-0 min-w-[22px] h-[22px] rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center mt-[1px]">
+              <span className="shrink-0 min-w-[24px] h-[24px] rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center mt-[1px] border border-primary/20">
                 {j + num}
               </span>
-              <span className="flex-1 text-[13px] text-foreground/90 pt-0.5">{renderInline(item)}</span>
+              <span className="flex-1 text-[13.5px] text-foreground/90 pt-0.5 leading-relaxed">{renderInline(item)}</span>
             </li>
           ))}
         </ol>
@@ -348,8 +431,9 @@ function RenderMarkdown({ text }: { text: string }) {
       continue;
     }
 
+    // Paragraph
     elements.push(
-      <p key={i} className="text-[13px] text-foreground/90 leading-[1.7]">{renderInline(line)}</p>
+      <p key={i} className="text-[13.5px] text-foreground/90 leading-[1.75]">{renderInline(line)}</p>
     );
     i++;
   }
@@ -909,7 +993,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
       {/* Chat Sheet */}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-full sm:w-[420px] p-0 flex flex-col" dir="rtl">
+        <SheetContent side="left" className="w-full sm:w-[70vw] max-w-[900px] p-0 flex flex-col" dir="rtl">
 
           {/* ── Header ── */}
           <SheetHeader className="shrink-0 px-4 py-3 border-b border-border/60">
