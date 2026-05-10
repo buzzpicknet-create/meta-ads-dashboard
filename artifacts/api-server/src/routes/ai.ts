@@ -1491,7 +1491,29 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       ? await fetchCampaignMemory(userId, campaign_id, conversation_id ?? null)
       : "";
 
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n══════════════════════════════════════\nبيانات الحملة الحالية (استخدمها في كل تشخيص)\n══════════════════════════════════════\n${campaignContext}${memory ? `\n\n${memory}` : ""}`;
+    // Cairo time (GMT+2) — so "today" matches the dashboard's date logic
+    const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const todayCairo = nowCairo.toISOString().slice(0, 10);
+    const todayLabel = nowCairo.toLocaleDateString("ar-EG", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+      timeZone: "UTC",
+    });
+
+    const dateHeader = `══════════════════════════════════════
+📅 تاريخ اليوم الحقيقي: ${todayLabel} (${todayCairo})
+عندما يقول المستخدم "النهاردة" أو "اليوم" فهو يقصد ${todayCairo}.
+بيانات Meta للحملات عادةً متاحة حتى الأمس فقط — بيانات اليوم الجاري تظهر متأخرة بعد منتصف الليل.
+══════════════════════════════════════`;
+
+    const contextHeader = `══════════════════════════════════════
+⚠️ Snapshot من الداشبورد (بيانات مؤرشفة — مش حية)
+هذه البيانات أُخذت من كاش الداشبورد وقد تكون بها تأخير.
+آخر يوم في هذا الـ snapshot هو ${todayCairo} أو أقل حسب توفر Meta API.
+🚨 للبيانات الحقيقية اللحظية: استخدم الأدوات (get_campaigns, get_campaign_daily, get_account_daily).
+لا تعتمد على الجدول اليومي أدناه للإجابة عن "النهاردة" — استدعِ الأداة دائماً.
+══════════════════════════════════════`;
+
+    const systemWithContext = `${SYSTEM_PROMPT}\n\n${dateHeader}\n\n${contextHeader}\n${campaignContext}${memory ? `\n\n${memory}` : ""}`;
 
     const builtMessages: OpenAiMessage[] = [
       { role: "system", content: systemWithContext },
