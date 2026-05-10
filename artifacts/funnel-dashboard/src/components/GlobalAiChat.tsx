@@ -406,6 +406,8 @@ export function GlobalAiChat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const convIdRef = useRef<number | null>(null);
+  useEffect(() => { convIdRef.current = convId; }, [convId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -486,18 +488,38 @@ export function GlobalAiChat() {
       .finally(() => setCampaignsLoading(false));
   }, [open, campaignsCtx, campaignsLoading]);
 
-  // Load conversation list when chat opens (or when switching to history view)
-  const loadConversations = useCallback(() => {
+  // Load conversation list; when autoLoadLatest=true, also restores the most recent conversation
+  const loadConversations = useCallback((autoLoadLatest = false) => {
     setConvLoading(true);
     fetch(`${API}/chat/conversations`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { conversations: [] }))
-      .then((data) => setConversations(data.conversations ?? []))
+      .then(async (data) => {
+        const convs: ConvSummary[] = data.conversations ?? [];
+        setConversations(convs);
+        if (autoLoadLatest && convIdRef.current === null && convs.length > 0) {
+          const latest = convs[0]!;
+          try {
+            const resp = await fetch(`${API}/chat/conversations/${latest.id}/messages`, { credentials: "include" });
+            if (resp.ok) {
+              const msgData = await resp.json() as { messages: { role: string; content: string }[] };
+              const loaded: ChatMessage[] = (msgData.messages ?? []).map((m) => ({
+                role: m.role as "user" | "assistant",
+                content: m.content,
+              }));
+              if (loaded.length > 0) {
+                setMessages(loaded);
+                setConvId(latest.id);
+              }
+            }
+          } catch {}
+        }
+      })
       .catch(() => {})
       .finally(() => setConvLoading(false));
   }, []);
 
   useEffect(() => {
-    if (open) loadConversations();
+    if (open) loadConversations(true);
   }, [open, loadConversations]);
 
   const buildContext = useCallback((): string => {
