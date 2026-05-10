@@ -13,7 +13,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     return;
   }
 
-  const { tool, args } = req.body as { tool: string; args: Record<string, unknown> };
+  const { tool, args, isNoOp: isNoOpRaw } = req.body as { tool: string; args: Record<string, unknown>; isNoOp?: unknown };
+  const isNoOp = isNoOpRaw === true;
 
   const ALLOWED_TOOLS = new Set([
     "pause_campaign",
@@ -103,8 +104,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     await query(
       `INSERT INTO pipeboard_actions
-         (executed_by, tool_name, args, success, result_message, campaign_name, adset_name)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         executedBy,
         tool,
@@ -113,6 +114,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         resultMessage,
         campaignName,
         adsetName,
+        isNoOp === true,
       ]
     ).catch((err: unknown) => {
       logger.warn({ err, tool, executedBy }, "Failed to insert pipeboard audit row");
@@ -136,9 +138,10 @@ router.get("/pipeboard/history", async (req: Request, res: Response) => {
       result_message: string | null;
       campaign_name: string | null;
       adset_name: string | null;
+      is_no_op: boolean;
     }>(
       `SELECT id, executed_at, executed_by, tool_name, args, success, result_message,
-              campaign_name, adset_name
+              campaign_name, adset_name, is_no_op
        FROM pipeboard_actions
        WHERE executed_at > NOW() - ($1::int * INTERVAL '1 day')
        ORDER BY executed_at DESC

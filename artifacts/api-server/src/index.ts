@@ -341,6 +341,7 @@ async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_pipeboard_actions_executed_at
     ON pipeboard_actions (executed_at DESC)
   `);
+  await query(`ALTER TABLE pipeboard_actions ADD COLUMN IF NOT EXISTS is_no_op BOOLEAN NOT NULL DEFAULT FALSE`);
 
   // Track one-time migrations
   await query(`

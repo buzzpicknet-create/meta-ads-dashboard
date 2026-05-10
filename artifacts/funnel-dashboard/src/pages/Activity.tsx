@@ -470,6 +470,7 @@ interface PipeboardAction {
   result_message: string | null;
   campaign_name: string | null;
   adset_name: string | null;
+  is_no_op: boolean;
 }
 
 const TOOL_LABELS: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -491,16 +492,28 @@ function PipeboardActionCard({ action }: { action: PipeboardAction }) {
     ? action.args.budget
     : null;
 
+  const borderClass = action.is_no_op
+    ? "border-slate-400/30 bg-slate-500/5"
+    : action.success
+    ? "border-border bg-card"
+    : "border-rose-500/30 bg-rose-500/5";
+
   return (
-    <div className={`rounded-xl border px-4 py-3 ${action.success ? "border-border bg-card" : "border-rose-500/30 bg-rose-500/5"}`}>
+    <div className={`rounded-xl border px-4 py-3 ${borderClass}`}>
       <div className="flex items-start gap-3">
-        <div className={`mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0 border ${meta.color}`}>
-          <Icon className={`h-3 w-3 ${meta.color}`} />
+        <div className={`mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0 border ${action.is_no_op ? "text-slate-400" : meta.color}`}>
+          <Icon className={`h-3 w-3 ${action.is_no_op ? "text-slate-400" : meta.color}`} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`text-sm font-bold ${meta.color}`}>{meta.label}</span>
-            {!action.success && (
+            <span className={`text-sm font-bold ${action.is_no_op ? "text-slate-500 dark:text-slate-400" : meta.color}`}>{meta.label}</span>
+            {action.is_no_op && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-500/15 text-slate-600 dark:text-slate-400 font-bold flex items-center gap-1">
+                <AlertTriangle className="h-2.5 w-2.5" />
+                تحذير: إجراء مكرر
+              </span>
+            )}
+            {!action.is_no_op && !action.success && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-400 font-bold">فشل</span>
             )}
             {action.campaign_name && (
@@ -514,6 +527,11 @@ function PipeboardActionCard({ action }: { action: PipeboardAction }) {
               </span>
             )}
           </div>
+          {action.is_no_op && (
+            <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
+              الحملة كانت بالفعل في الحالة المطلوبة — نُفّذ الإجراء رغم ذلك
+            </p>
+          )}
           {budgetArg !== null && (
             <p className="text-sm font-bold text-amber-600 dark:text-amber-400 mt-0.5">
               ميزانية جديدة: {Number(budgetArg).toLocaleString("ar-EG")} ج.م/يوم

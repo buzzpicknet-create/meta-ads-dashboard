@@ -665,12 +665,16 @@ export function GlobalAiChat() {
   const executeAction = useCallback(async () => {
     if (!pendingAction || executingAction) return;
     setExecutingAction(true);
+    const isNoOp =
+      pendingAction.currentValue != null &&
+      pendingAction.proposedValue != null &&
+      pendingAction.currentValue === pendingAction.proposedValue;
     try {
       const resp = await fetch(`${API}/pipeboard/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ tool: pendingAction.tool, args: pendingAction.args }),
+        body: JSON.stringify({ tool: pendingAction.tool, args: pendingAction.args, isNoOp }),
       });
       const data = await resp.json() as { success?: boolean; message?: string; error?: string };
       const resultText = resp.ok && data.success
