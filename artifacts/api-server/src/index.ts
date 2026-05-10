@@ -418,22 +418,34 @@ async function runMigrations() {
 
   // One-time backfill: populate campaign_name for historical conversations that
   // already have a campaign_id but were created before the campaign_name column existed.
-  // Resolves names from the most recent meta_campaigns_cache entry per account.
-  await query(`
-    UPDATE chat_conversations cc
-    SET campaign_name = c.name
-    FROM (
-      SELECT DISTINCT ON (camp->>'id')
-        camp->>'id'   AS campaign_id,
-        camp->>'name' AS name
-      FROM meta_campaigns_cache,
-           jsonb_array_elements(campaigns) AS camp
-      ORDER BY camp->>'id', fetched_at DESC
-    ) c
-    WHERE cc.campaign_id = c.campaign_id
-      AND cc.campaign_id IS NOT NULL
-      AND cc.campaign_name IS NULL
-  `);
+  // Guarded by schema_migrations so it runs exactly once (not on every boot).
+  const campaignNameBackfillMig = await query<{ id: string }>(
+    `SELECT id FROM schema_migrations WHERE id = 'backfill_conversation_campaign_names_2026'`
+  );
+  if (campaignNameBackfillMig.length === 0) {
+    const backfilled = await query<{ count: string }>(`
+      WITH updated AS (
+        UPDATE chat_conversations cc
+        SET campaign_name = c.name
+        FROM (
+          SELECT DISTINCT ON (camp->>'id')
+            camp->>'id'   AS campaign_id,
+            camp->>'name' AS name
+          FROM meta_campaigns_cache,
+               jsonb_array_elements(campaigns) AS camp
+          ORDER BY camp->>'id', fetched_at DESC
+        ) c
+        WHERE cc.campaign_id = c.campaign_id
+          AND cc.campaign_id IS NOT NULL
+          AND cc.campaign_name IS NULL
+        RETURNING 1
+      )
+      SELECT COUNT(*) AS count FROM updated
+    `);
+    const count = Number(backfilled[0]?.count ?? 0);
+    logger.info({ count }, "Backfilled campaign_name on historical chat conversations");
+    await query(`INSERT INTO schema_migrations (id) VALUES ('backfill_conversation_campaign_names_2026') ON CONFLICT (id) DO NOTHING`);
+  }
 
   logger.info("Database migrations complete");
 }
