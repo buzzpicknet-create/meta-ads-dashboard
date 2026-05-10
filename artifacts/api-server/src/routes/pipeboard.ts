@@ -188,6 +188,42 @@ router.get("/pipeboard/no-op-count", async (_req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/pipeboard/no-op-trend ─────────────────────────────
+router.get("/pipeboard/no-op-trend", async (_req: Request, res: Response) => {
+  try {
+    // Use calendar-day boundaries so SQL rows and the zero-fill loop
+    // cover the exact same 14 days (today-13 through today, UTC).
+    const rows = await query<{ day: string; count: string }>(
+      `SELECT
+         TO_CHAR(DATE_TRUNC('day', executed_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day,
+         COUNT(*)::text AS count
+       FROM pipeboard_actions
+       WHERE is_no_op = TRUE
+         AND executed_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '13 days'
+         AND executed_at <  DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day'
+       GROUP BY DATE_TRUNC('day', executed_at AT TIME ZONE 'UTC')
+       ORDER BY DATE_TRUNC('day', executed_at AT TIME ZONE 'UTC') ASC`,
+      []
+    );
+
+    // Zero-fill: emit exactly 14 UTC calendar days (today-13 .. today)
+    const todayUTC = new Date();
+    todayUTC.setUTCHours(0, 0, 0, 0);
+    const trend: { day: string; count: number }[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(todayUTC);
+      d.setUTCDate(d.getUTCDate() - i);
+      const dayStr = d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+      const found = rows.find((r) => r.day === dayStr);
+      trend.push({ day: dayStr, count: found ? parseInt(found.count, 10) : 0 });
+    }
+
+    res.json({ trend });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ── GET /api/pipeboard/history ─────────────────────────────────
 router.get("/pipeboard/history", async (req: Request, res: Response) => {
   const rawDays = parseInt(String(req.query.days ?? "14"), 10);

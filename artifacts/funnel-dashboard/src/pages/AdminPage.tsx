@@ -7,6 +7,7 @@ import {
   MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal,
   DatabaseZap, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle, Bot,
 } from "lucide-react";
+import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility, useUpdatePageVisibility } from "@/hooks/use-page-visibility";
 
@@ -1083,6 +1084,19 @@ export default function AdminPage() {
   });
   const noOpCount = noOpCountQuery.data ?? 0;
 
+  const noOpTrendQuery = useQuery({
+    queryKey: ["pipeboard-no-op-trend"],
+    queryFn: async () => {
+      const r = await fetch(`${API}/pipeboard/no-op-trend`, { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json() as { trend: { day: string; count: number }[] };
+      return d.trend;
+    },
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+  const noOpTrend = noOpTrendQuery.data ?? [];
+
   const deleteUser = useMutation({
     mutationFn: async (id: number) => {
       const r = await fetch(`${API}/admin/users/${id}`, {
@@ -1139,30 +1153,92 @@ export default function AdminPage() {
       {/* ── Redundant AI actions KPI card ── */}
       <a
         href={`${BASE}/activity?noOp=1`}
-        className={`mb-6 flex items-center gap-4 rounded-xl border px-5 py-4 transition-colors hover:bg-muted/40 ${
+        className={`mb-6 block rounded-xl border px-5 pt-4 pb-3 transition-colors hover:bg-muted/40 ${
           noOpCount > 0
             ? "border-amber-400/50 bg-amber-500/5"
             : "border-border bg-card"
         }`}
       >
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${noOpCount > 0 ? "bg-amber-500/15" : "bg-muted"}`}>
-          {noOpCount > 0 ? (
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
+        <div className="flex items-center gap-4">
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${noOpCount > 0 ? "bg-amber-500/15" : "bg-muted"}`}>
+            {noOpCount > 0 ? (
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+            ) : (
+              <Bot className="h-5 w-5 text-muted-foreground" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className={`text-2xl font-bold leading-none ${noOpCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-foreground"}`}>
+              {noOpCountQuery.isLoading ? (
+                <span className="inline-block h-6 w-8 rounded bg-muted animate-pulse" />
+              ) : (
+                noOpCount
+              )}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">إجراء مكرر خلال آخر 14 يوم</p>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">عرض التفاصيل ←</span>
+        </div>
+
+        {/* Sparkline */}
+        <div className="mt-3 h-14">
+          {noOpTrendQuery.isLoading ? (
+            <div className="h-full w-full rounded bg-muted animate-pulse" />
           ) : (
-            <Bot className="h-5 w-5 text-muted-foreground" />
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={noOpTrend} margin={{ top: 2, right: 2, left: 2, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="noOpGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="5%"
+                      stopColor={noOpCount > 0 ? "#f59e0b" : "#6b7280"}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={noOpCount > 0 ? "#f59e0b" : "#6b7280"}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="day"
+                  hide={false}
+                  tick={{ fontSize: 9, fill: "currentColor", opacity: 0.45 }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval={3}
+                  tickFormatter={(v: string) => {
+                    const d = new Date(v);
+                    return `${d.getDate()}/${d.getMonth() + 1}`;
+                  }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    fontSize: 11,
+                    direction: "rtl",
+                    borderRadius: 8,
+                    padding: "4px 10px",
+                  }}
+                  labelFormatter={(v: string) => {
+                    const d = new Date(v);
+                    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+                  }}
+                  formatter={(v: number) => [`${v} إجراء مكرر`, ""]}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  stroke={noOpCount > 0 ? "#f59e0b" : "#9ca3af"}
+                  strokeWidth={1.5}
+                  fill="url(#noOpGradient)"
+                  dot={false}
+                  activeDot={{ r: 3 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           )}
         </div>
-        <div className="flex-1 min-w-0">
-          <p className={`text-2xl font-bold leading-none ${noOpCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-foreground"}`}>
-            {noOpCountQuery.isLoading ? (
-              <span className="inline-block h-6 w-8 rounded bg-muted animate-pulse" />
-            ) : (
-              noOpCount
-            )}
-          </p>
-          <p className="text-sm text-muted-foreground mt-1">إجراء مكرر خلال آخر 14 يوم</p>
-        </div>
-        <span className="text-xs text-muted-foreground shrink-0">عرض التفاصيل ←</span>
       </a>
 
       {isLoading ? (
