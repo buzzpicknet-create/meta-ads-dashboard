@@ -310,6 +310,20 @@ function isRateLimitErr(err: unknown): boolean {
 
 // 30 min — same freshness window as the dashboard routes
 const TOOL_CACHE_FRESH_MS = 30 * 60 * 1000;
+// Only annotate cache note when data is older than this threshold
+const CACHE_NOTE_THRESHOLD_MS = 5 * 60 * 1000;
+
+interface CacheResult<T> {
+  data: T;
+  fromCache: boolean;
+  cacheAgeMs: number;
+}
+
+function buildCacheNote(fromCache: boolean, cacheAgeMs: number): string {
+  if (!fromCache || cacheAgeMs <= CACHE_NOTE_THRESHOLD_MS) return "";
+  const minutes = Math.round(cacheAgeMs / 60000);
+  return `\n\n_(من الكاش، آخر تحديث: ${minutes} دقيقة)_`;
+}
 
 // ── Tool executor (cache-first: DB → Meta API → stale fallback) ───────────────
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
@@ -325,7 +339,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   const fmt = (n: number, dec = 0) => n.toFixed(dec);
 
   // ── Cache-aware getCampaignInsights ─────────────────────────────────────────
-  async function fetchInsightsCached(campaign_id: string): Promise<Awaited<ReturnType<typeof getCampaignInsights>>> {
+  async function fetchInsightsCached(campaign_id: string): Promise<CacheResult<Awaited<ReturnType<typeof getCampaignInsights>>>> {
     const cached = await query<{ data: unknown; fetched_at: string }>(
       `SELECT data, fetched_at FROM meta_insights_cache
        WHERE campaign_id=$1 AND period_since=$2 AND period_until=$3`,
@@ -333,13 +347,15 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     ).catch(() => [] as { data: unknown; fetched_at: string }[]);
     const hit = cached[0];
 
+    const hitAgeMs = hit ? Date.now() - new Date(hit.fetched_at).getTime() : 0;
+
     // Fresh cache → serve immediately, no Meta call
-    if (hit && Date.now() - new Date(hit.fetched_at).getTime() < TOOL_CACHE_FRESH_MS) {
-      return hit.data as Awaited<ReturnType<typeof getCampaignInsights>>;
+    if (hit && hitAgeMs < TOOL_CACHE_FRESH_MS) {
+      return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
     }
     // Rate-limit is active → serve stale cache rather than blocking 90s
     if (isRateLimitActive() && hit) {
-      return hit.data as Awaited<ReturnType<typeof getCampaignInsights>>;
+      return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
     }
     // Fetch from Meta
     try {
@@ -351,16 +367,16 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
          DO UPDATE SET data=$4, fetched_at=NOW()`,
         [campaign_id, s, u, JSON.stringify(data)]
       ).catch(() => null);
-      return data;
+      return { data, fromCache: false, cacheAgeMs: 0 };
     } catch (err) {
       // Rate-limited mid-request → return stale cache if available
-      if (isRateLimitErr(err) && hit) return hit.data as Awaited<ReturnType<typeof getCampaignInsights>>;
+      if (isRateLimitErr(err) && hit) return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
       throw err;
     }
   }
 
   // ── Cache-aware listCampaigns ───────────────────────────────────────────────
-  async function fetchCampaignsCached(adAccountId: string): Promise<Awaited<ReturnType<typeof listCampaigns>>> {
+  async function fetchCampaignsCached(adAccountId: string): Promise<CacheResult<Awaited<ReturnType<typeof listCampaigns>>>> {
     const accountId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
     const cached = await query<{ campaigns: unknown; fetched_at: string }>(
       `SELECT campaigns, fetched_at FROM meta_campaigns_cache
@@ -369,10 +385,12 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     ).catch(() => [] as { campaigns: unknown; fetched_at: string }[]);
     const hit = cached[0];
 
-    if (hit && Date.now() - new Date(hit.fetched_at).getTime() < TOOL_CACHE_FRESH_MS) {
-      return hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>;
+    const hitAgeMs = hit ? Date.now() - new Date(hit.fetched_at).getTime() : 0;
+
+    if (hit && hitAgeMs < TOOL_CACHE_FRESH_MS) {
+      return { data: hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>, fromCache: true, cacheAgeMs: hitAgeMs };
     }
-    if (isRateLimitActive() && hit) return hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>;
+    if (isRateLimitActive() && hit) return { data: hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>, fromCache: true, cacheAgeMs: hitAgeMs };
     try {
       const campaigns = await listCampaigns({ since: s, until: u, adAccountId });
       await query(
@@ -382,15 +400,15 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
          DO UPDATE SET campaigns=$4, fetched_at=NOW()`,
         [accountId, s, u, JSON.stringify(campaigns)]
       ).catch(() => null);
-      return campaigns;
+      return { data: campaigns, fromCache: false, cacheAgeMs: 0 };
     } catch (err) {
-      if (isRateLimitErr(err) && hit) return hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>;
+      if (isRateLimitErr(err) && hit) return { data: hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>, fromCache: true, cacheAgeMs: hitAgeMs };
       throw err;
     }
   }
 
   // ── Cache-aware getAccountOverview ──────────────────────────────────────────
-  async function fetchOverviewCached(adAccountId: string): Promise<Awaited<ReturnType<typeof getAccountOverview>>> {
+  async function fetchOverviewCached(adAccountId: string): Promise<CacheResult<Awaited<ReturnType<typeof getAccountOverview>>>> {
     const accountId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
     const cached = await query<{ data: unknown; fetched_at: string }>(
       `SELECT data, fetched_at FROM meta_overview_cache
@@ -399,10 +417,12 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     ).catch(() => [] as { data: unknown; fetched_at: string }[]);
     const hit = cached[0];
 
-    if (hit && Date.now() - new Date(hit.fetched_at).getTime() < TOOL_CACHE_FRESH_MS) {
-      return hit.data as Awaited<ReturnType<typeof getAccountOverview>>;
+    const hitAgeMs = hit ? Date.now() - new Date(hit.fetched_at).getTime() : 0;
+
+    if (hit && hitAgeMs < TOOL_CACHE_FRESH_MS) {
+      return { data: hit.data as Awaited<ReturnType<typeof getAccountOverview>>, fromCache: true, cacheAgeMs: hitAgeMs };
     }
-    if (isRateLimitActive() && hit) return hit.data as Awaited<ReturnType<typeof getAccountOverview>>;
+    if (isRateLimitActive() && hit) return { data: hit.data as Awaited<ReturnType<typeof getAccountOverview>>, fromCache: true, cacheAgeMs: hitAgeMs };
     try {
       const data = await getAccountOverview({ adAccountId, since: s, until: u });
       await query(
@@ -412,9 +432,9 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
          DO UPDATE SET data=$4, fetched_at=NOW()`,
         [accountId, s, u, JSON.stringify(data)]
       ).catch(() => null);
-      return data;
+      return { data, fromCache: false, cacheAgeMs: 0 };
     } catch (err) {
-      if (isRateLimitErr(err) && hit) return hit.data as Awaited<ReturnType<typeof getAccountOverview>>;
+      if (isRateLimitErr(err) && hit) return { data: hit.data as Awaited<ReturnType<typeof getAccountOverview>>, fromCache: true, cacheAgeMs: hitAgeMs };
       throw err;
     }
   }
@@ -428,20 +448,24 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       const rows: string[] = [`## الحملات (آخر ${days} يوم):\n`];
       rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
       rows.push("|--------|--------|--------------|---------|-----------|------|");
+      let maxCacheAgeMs = 0;
+      let anyFromCache = false;
       for (const acc of accounts) {
-        const campaigns = await fetchCampaignsCached(acc.id);
-        for (const c of campaigns) {
+        const result = await fetchCampaignsCached(acc.id);
+        if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
+        for (const c of result.data) {
           rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
         }
       }
-      return rows.join("\n");
+      return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
 
     if (name === "get_campaign_daily") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return "campaign_id مطلوب.";
-      const insights = await fetchInsightsCached(campaign_id);
-      if (!insights.daily || insights.daily.length === 0) return "لا توجد بيانات يومية لهذه الحملة في الفترة المحددة.";
+      const result = await fetchInsightsCached(campaign_id);
+      const insights = result.data;
+      if (!insights.daily || insights.daily.length === 0) return "لا توجد بيانات يومية لهذه الحملة في الفترة المحددة." + buildCacheNote(result.fromCache, result.cacheAgeMs);
 
       const rows: string[] = [`## الأداء اليومي للحملة (آخر ${days} يوم):\n`];
       rows.push("| التاريخ | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة النقر% | الظهورات |");
@@ -460,7 +484,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       rows.push(`- نسبة الوصول للصفحة: ${fmt(t.lpvRate, 2)}%`);
       rows.push(`- معدل التحويل: ${fmt(t.crLpv, 2)}%`);
       rows.push(`- التكرار: ${fmt(t.frequency, 2)}`);
-      return rows.join("\n");
+      return rows.join("\n") + buildCacheNote(result.fromCache, result.cacheAgeMs);
     }
 
     if (name === "get_account_daily") {
@@ -468,9 +492,12 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       rows.push("| التاريخ | الإنفاق (EGP) | الطلبات | CPA (EGP) | النقرات |");
       rows.push("|---------|--------------|---------|-----------|---------|");
       const allDaily: { day: string; spend: number; purchases: number; cpa: number; link_clicks: number }[] = [];
+      let maxCacheAgeMs = 0;
+      let anyFromCache = false;
       for (const acc of accounts) {
-        const overview = await fetchOverviewCached(acc.id);
-        allDaily.push(...overview.daily);
+        const result = await fetchOverviewCached(acc.id);
+        if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
+        allDaily.push(...result.data.daily);
       }
       const byDay = new Map<string, { spend: number; purchases: number; link_clicks: number }>();
       for (const d of allDaily) {
@@ -499,14 +526,15 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
           rows.push(`- متوسط CPA: ${fmt(recentCpa)} → ${recentCpa > olderCpa ? "↑ ارتفع (تراجع في الأداء)" : "↓ انخفض (تحسن في الأداء)"} (كان ${fmt(olderCpa)})`);
         }
       }
-      return rows.join("\n");
+      return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
 
     if (name === "get_adsets") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return "campaign_id مطلوب.";
-      const insights = await fetchInsightsCached(campaign_id);
-      if (!insights.by_adset || insights.by_adset.length === 0) return "لا توجد بيانات مجموعات إعلانية لهذه الحملة.";
+      const result = await fetchInsightsCached(campaign_id);
+      const insights = result.data;
+      if (!insights.by_adset || insights.by_adset.length === 0) return "لا توجد بيانات مجموعات إعلانية لهذه الحملة." + buildCacheNote(result.fromCache, result.cacheAgeMs);
 
       const rows: string[] = [`## المجموعات الإعلانية للحملة (آخر ${days} يوم):\n`];
       rows.push("| المجموعة | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة النقر% | التكرار |");
@@ -515,7 +543,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       for (const as of sorted) {
         rows.push(`| ${as.label} | ${fmt(as.spend)} | ${as.purchases} | ${as.cpa > 0 ? fmt(as.cpa) : "—"} | ${fmt(as.ctr, 2)} | ${fmt(as.frequency, 2)} |`);
       }
-      return rows.join("\n");
+      return rows.join("\n") + buildCacheNote(result.fromCache, result.cacheAgeMs);
     }
 
     return "أداة غير معروفة.";
