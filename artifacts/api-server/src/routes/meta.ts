@@ -59,6 +59,11 @@ export function getLastWarmupStats() {
 export function setLastWarmupStats(stats: Omit<CacheWarmupStats, "ran_at" | "duration_ms"> & { ran_at: string; duration_ms: number }) {
   lastWarmupStats = stats;
   warmupInProgress = false;
+  query(
+    `INSERT INTO cache_warmup_log (ran_at, duration_ms, insights, campaigns, overview, campaign_details, adset_details, skipped)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [stats.ran_at, stats.duration_ms, stats.insights, stats.campaigns, stats.overview, stats.campaign_details, stats.adset_details, stats.skipped]
+  ).catch((err) => logger.warn({ err }, "Failed to persist warmup stats to DB"));
 }
 
 export function setWarmupInProgress(v: boolean) {
@@ -604,7 +609,43 @@ async function sleep(ms: number) {
 // GET /api/meta/cache-warmup-status — return last proactive-refresh run stats (admin only)
 router.get("/meta/cache-warmup-status", requireAdmin, async (_req, res) => {
   const { stats, inProgress } = getLastWarmupStats();
-  res.json({ stats, inProgress });
+  if (stats !== null) {
+    return res.json({ stats, inProgress });
+  }
+  // In-memory is null (e.g. after a server restart) — fall back to the most recent DB row
+  try {
+    const rows = await query<{
+      ran_at: string;
+      duration_ms: number;
+      insights: number;
+      campaigns: number;
+      overview: number;
+      campaign_details: number;
+      adset_details: number;
+      skipped: number;
+    }>(
+      `SELECT ran_at, duration_ms, insights, campaigns, overview, campaign_details, adset_details, skipped
+       FROM cache_warmup_log
+       ORDER BY ran_at DESC
+       LIMIT 1`
+    );
+    const dbStats = rows[0]
+      ? {
+          ran_at: rows[0].ran_at,
+          duration_ms: Number(rows[0].duration_ms),
+          insights: Number(rows[0].insights),
+          campaigns: Number(rows[0].campaigns),
+          overview: Number(rows[0].overview),
+          campaign_details: Number(rows[0].campaign_details),
+          adset_details: Number(rows[0].adset_details),
+          skipped: Number(rows[0].skipped),
+        }
+      : null;
+    return res.json({ stats: dbStats, inProgress });
+  } catch (err) {
+    logger.warn({ err }, "Failed to read warmup stats from DB");
+    return res.json({ stats: null, inProgress });
+  }
 });
 
 // POST /api/meta/cache-warmup-trigger — run a proactive refresh immediately (admin only)

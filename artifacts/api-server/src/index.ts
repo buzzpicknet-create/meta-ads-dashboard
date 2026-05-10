@@ -375,6 +375,25 @@ async function runMigrations() {
     logger.info("Default admin user created: admin / admin123");
   }
 
+  // Cache warm-up run log — persists stats across server restarts
+  await query(`
+    CREATE TABLE IF NOT EXISTS cache_warmup_log (
+      id SERIAL PRIMARY KEY,
+      ran_at TIMESTAMPTZ NOT NULL,
+      duration_ms INT NOT NULL,
+      insights INT NOT NULL DEFAULT 0,
+      campaigns INT NOT NULL DEFAULT 0,
+      overview INT NOT NULL DEFAULT 0,
+      campaign_details INT NOT NULL DEFAULT 0,
+      adset_details INT NOT NULL DEFAULT 0,
+      skipped INT NOT NULL DEFAULT 0
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_cache_warmup_log_ran_at
+    ON cache_warmup_log (ran_at DESC)
+  `);
+
   logger.info("Database migrations complete");
 }
 
