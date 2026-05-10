@@ -232,7 +232,27 @@ Frequency (في 7 أيام):
 **ترتيب التشخيص:**
 ١. المشكلة فين بالظبط
 ٢. ليه — ربط الأرقام ببعضها
-٣. إيه اللي المفروض يتعمل`;
+٣. إيه اللي المفروض يتعمل
+
+══════════════════════════════════════
+الجزء 6 — أدوات التنفيذ (Write Actions)
+══════════════════════════════════════
+
+لديك أدوات تنفيذية تتيح لك اقتراح إجراءات مباشرة على Meta.
+
+⚠️ قاعدة ذهبية — لازم تلتزم بها دايماً:
+قبل أي write action، لازم تكون جبت البيانات الفعلية أولاً (get_campaign_daily أو get_adsets).
+ممنوع تقترح إيقاف أو تعديل بدون تشخيص مبني على بيانات حقيقية.
+
+الأدوات المتاحة:
+- pause_campaign(campaign_id, name) — إيقاف حملة مؤقتاً
+- enable_campaign(campaign_id, name) — تشغيل حملة موقوفة
+- update_campaign_budget(campaign_id, name, budget_amount, budget_type) — تعديل الميزانية (budget_type: "daily" أو "lifetime")
+- pause_adset(adset_id, name) — إيقاف مجموعة إعلانية
+- update_adset_budget(adset_id, name, budget_amount) — تعديل ميزانية مجموعة
+
+مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
+بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".`;
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 const TOOLS = [
@@ -294,7 +314,94 @@ const TOOLS = [
       },
     },
   },
-] as const;
+  {
+    type: "function" as const,
+    function: {
+      name: "pause_campaign",
+      description: "اقتراح إيقاف مؤقت لحملة إعلانية. استخدم بعد تشخيص البيانات وإثبات ضعف الأداء فقط. سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+          name: { type: "string", description: "اسم الحملة للعرض في طلب التأكيد" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "enable_campaign",
+      description: "اقتراح تشغيل حملة موقوفة. سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+          name: { type: "string", description: "اسم الحملة للعرض في طلب التأكيد" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_campaign_budget",
+      description: "اقتراح تعديل ميزانية حملة يومية أو إجمالية. استخدم بعد تحليل الأداء وتحديد القيمة المناسبة. سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+          name: { type: "string", description: "اسم الحملة" },
+          budget_amount: { type: "number", description: "قيمة الميزانية الجديدة بالـ EGP" },
+          budget_type: { type: "string", enum: ["daily", "lifetime"], description: "نوع الميزانية: daily (يومية) أو lifetime (إجمالية)" },
+        },
+        required: ["campaign_id", "budget_amount", "budget_type"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "pause_adset",
+      description: "اقتراح إيقاف مجموعة إعلانية (Ad Set). استخدم بعد تشخيص أداءها الفعلي. سيظهر طلب تأكيد.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
+          name: { type: "string", description: "اسم المجموعة للعرض في التأكيد" },
+        },
+        required: ["adset_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_adset_budget",
+      description: "اقتراح تعديل ميزانية مجموعة إعلانية. سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
+          name: { type: "string", description: "اسم المجموعة" },
+          budget_amount: { type: "number", description: "قيمة الميزانية الجديدة بالـ EGP" },
+        },
+        required: ["adset_id", "budget_amount"],
+      },
+    },
+  },
+];
+
+// ── Write tool names (handled separately — return ACTION_PENDING marker) ─────
+const WRITE_TOOL_NAMES = new Set([
+  "pause_campaign",
+  "enable_campaign",
+  "update_campaign_budget",
+  "pause_adset",
+  "update_adset_budget",
+]);
 
 // ── Rate-limit error detection (mirrors meta.ts) ─────────────────────────────
 function isRateLimitErr(err: unknown): boolean {
@@ -327,6 +434,24 @@ function buildCacheNote(fromCache: boolean, cacheAgeMs: number): string {
 
 // ── Tool executor (cache-first: DB → Meta API → stale fallback) ───────────────
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+  // Write tools — return a pending-confirmation marker (no Meta API call)
+  if (WRITE_TOOL_NAMES.has(name)) {
+    let summary = "";
+    if (name === "pause_campaign") {
+      summary = `إيقاف مؤقت للحملة "${args.name ?? args.campaign_id}"`;
+    } else if (name === "enable_campaign") {
+      summary = `تشغيل الحملة "${args.name ?? args.campaign_id}"`;
+    } else if (name === "update_campaign_budget") {
+      const budgetType = args.budget_type === "lifetime" ? "إجمالية" : "يومية";
+      summary = `تعديل ميزانية الحملة "${args.name ?? args.campaign_id}" إلى ${args.budget_amount} EGP (${budgetType})`;
+    } else if (name === "pause_adset") {
+      summary = `إيقاف مؤقت للمجموعة الإعلانية "${args.name ?? args.adset_id}"`;
+    } else if (name === "update_adset_budget") {
+      summary = `تعديل ميزانية المجموعة "${args.name ?? args.adset_id}" إلى ${args.budget_amount} EGP`;
+    }
+    return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary })}`;
+  }
+
   const days = Number(args.days ?? (name === "get_campaigns" ? 30 : 14));
   // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
   const untilD = new Date(Date.now() + 2 * 60 * 60 * 1000);
@@ -576,6 +701,7 @@ type OpenAiMessage =
 // ── Route ────────────────────────────────────────────────────────────────────
 router.post("/ai/chat", async (req: Request, res: Response) => {
   const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName } = req.body as AiChatBody;
+  const isAdmin = req.session?.role === "admin";
 
   if (!campaignContext || !Array.isArray(messages) || messages.length === 0) {
     res.status(400).json({ error: "campaignContext and messages are required" });
@@ -625,7 +751,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
         model: "gpt-5.4",
         max_completion_tokens: 8192,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
-        tools: [...TOOLS] as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
+        tools: (isAdmin ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
         stream: false,
       });
@@ -667,17 +793,34 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       });
 
       // Execute all tool calls in parallel
+      const pendingActions: Array<{ tool: string; args: Record<string, unknown>; summary: string }> = [];
       await Promise.all(
         toolCalls.map(async (tc) => {
           const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
           const result = await executeTool(tc.function.name, args);
-          builtMessages.push({
-            role: "tool",
-            content: result,
-            tool_call_id: tc.id,
-          });
+          // Detect write-tool pending confirmation marker
+          if (result.startsWith("ACTION_PENDING:")) {
+            try {
+              const payload = JSON.parse(result.slice("ACTION_PENDING:".length)) as { tool: string; args: Record<string, unknown>; summary: string };
+              pendingActions.push(payload);
+              builtMessages.push({
+                role: "tool",
+                content: `في انتظار موافقة المستخدم على: ${payload.summary}`,
+                tool_call_id: tc.id,
+              });
+            } catch {
+              builtMessages.push({ role: "tool", content: result, tool_call_id: tc.id });
+            }
+          } else {
+            builtMessages.push({ role: "tool", content: result, tool_call_id: tc.id });
+          }
         })
       );
+
+      // Emit any pending actions to the client before the final AI response
+      for (const pa of pendingActions) {
+        res.write(`data: ${JSON.stringify({ pending_action: pa })}\n\n`);
+      }
 
       // Done fetching — client can hide the indicator
       res.write(`data: ${JSON.stringify({ searching: false })}\n\n`);

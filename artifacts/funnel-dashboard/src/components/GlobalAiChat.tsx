@@ -1,10 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
-  History, Plus, ChevronRight, Clock,
+  History, Plus, ChevronRight, Clock, Zap, AlertTriangle,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
+
+interface PendingAction {
+  tool: string;
+  args: Record<string, unknown>;
+  summary: string;
+}
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
@@ -395,6 +401,8 @@ export function GlobalAiChat() {
   const [searching, setSearching] = useState(false);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [executingAction, setExecutingAction] = useState(false);
 
   const [activityUsers, setActivityUsers] = useState<ActivityUser[] | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -590,6 +598,7 @@ export function GlobalAiChat() {
     setMessages(newMessages);
     setStreaming(true);
     setStreamingText("");
+    setPendingAction(null);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -627,6 +636,7 @@ export function GlobalAiChat() {
             if (data.done) break;
             if (data.searching === true) { setSearching(true); }
             if (data.searching === false) { setSearching(false); }
+            if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
             if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
@@ -649,6 +659,38 @@ export function GlobalAiChat() {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [input, messages, streaming, buildContext, ensureConversation, saveToDB, attachment]);
+
+  const executeAction = useCallback(async () => {
+    if (!pendingAction || executingAction) return;
+    setExecutingAction(true);
+    try {
+      const resp = await fetch(`${API}/pipeboard/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ tool: pendingAction.tool, args: pendingAction.args }),
+      });
+      const data = await resp.json() as { success?: boolean; message?: string; error?: string };
+      const resultText = resp.ok && data.success
+        ? `✅ تم بنجاح: ${data.message || pendingAction.summary}`
+        : `❌ فشل التنفيذ: ${data.error || "خطأ غير معروف"}`;
+      setMessages((prev) => [...prev, { role: "assistant", content: resultText }]);
+      const cid = convIdRef.current;
+      if (cid !== null) {
+        void saveToDB(cid, pendingAction.summary, resultText);
+      }
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ في الاتصال." }]);
+    } finally {
+      setExecutingAction(false);
+      setPendingAction(null);
+    }
+  }, [pendingAction, executingAction, saveToDB]);
+
+  const cancelAction = useCallback(() => {
+    setPendingAction(null);
+    setMessages((prev) => [...prev, { role: "assistant", content: "تم إلغاء الإجراء." }]);
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -959,6 +1001,39 @@ export function GlobalAiChat() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Pending action confirmation card */}
+                  {pendingAction && !streaming && (
+                    <div className="flex gap-2.5 flex-row items-start" dir="rtl">
+                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-amber-100 border border-amber-300">
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                      </div>
+                      <div
+                        className="min-w-0 rounded-2xl rounded-bl-sm bg-amber-50 border border-amber-200 shadow-sm px-4 py-3"
+                        style={{ maxWidth: "85%" }}
+                      >
+                        <p className="text-[12px] font-semibold text-amber-700 mb-1">⚡ تأكيد الإجراء</p>
+                        <p className="text-[13px] text-amber-900 leading-relaxed mb-3">{pendingAction.summary}</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={executeAction}
+                            disabled={executingAction}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[12px] font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Zap className="h-3 w-3" />
+                            {executingAction ? "جاري التنفيذ…" : "نفّذ"}
+                          </button>
+                          <button
+                            onClick={cancelAction}
+                            disabled={executingAction}
+                            className="px-3 py-1.5 rounded-lg border border-border text-[12px] text-muted-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+                          >
+                            إلغاء
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Streaming */}
                   {streaming && streamingText && (

@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { logDiagnosisRun } from "@/hooks/use-activity-logger";
-import { ChevronDown, Stethoscope, RefreshCw, Search, X, Send, Bot, User, Trash2, Paperclip, History, Plus, Clock, ChevronRight, MessageSquare } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { ChevronDown, Stethoscope, RefreshCw, Search, X, Send, Bot, User, Trash2, Paperclip, History, Plus, Clock, ChevronRight, MessageSquare, Zap, AlertTriangle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,12 @@ import { useInsights } from "@/hooks/use-meta";
 
 const _BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const CHAT_API = `${_BASE}/api`;
+
+interface PendingAction {
+  tool: string;
+  args: Record<string, unknown>;
+  summary: string;
+}
 
 // ── Types ─────────────────────────────────────────────────────
 export type Flag = "good" | "warn" | "bad";
@@ -1723,6 +1730,8 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
 }
 
 function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText, campaignId, campaignName }: AiChatTabProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [view, setView] = useState<"chat" | "history">("chat");
@@ -1730,6 +1739,8 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   const [conversations, setConversations] = useState<ConvSummary[]>([]);
   const [histLoading, setHistLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [executingAction, setExecutingAction] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1854,6 +1865,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     setMessages(newMessages);
     setStreaming(true);
     setStreamingText("");
+    setPendingAction(null);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -1887,6 +1899,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
             const data = JSON.parse(line.slice(6));
             if (data.error) throw new Error(data.error);
             if (data.done) break;
+            if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
             if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
@@ -1913,6 +1926,34 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [input, messages, streaming, campaignContext, ensureConversation, saveToDB, loadConversations, setMessages, setStreaming, setStreamingText]);
+
+  const executeAction = useCallback(async () => {
+    if (!pendingAction || executingAction) return;
+    setExecutingAction(true);
+    try {
+      const resp = await fetch(`${CHAT_API}/pipeboard/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ tool: pendingAction.tool, args: pendingAction.args }),
+      });
+      const data = await resp.json() as { success?: boolean; message?: string; error?: string };
+      const resultText = resp.ok && data.success
+        ? `✅ تم بنجاح: ${data.message || pendingAction.summary}`
+        : `❌ فشل التنفيذ: ${data.error || "خطأ غير معروف"}`;
+      setMessages((prev) => [...prev, { role: "assistant", content: resultText }]);
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ في الاتصال." }]);
+    } finally {
+      setExecutingAction(false);
+      setPendingAction(null);
+    }
+  }, [pendingAction, executingAction, setMessages]);
+
+  const cancelAction = useCallback(() => {
+    setPendingAction(null);
+    setMessages((prev) => [...prev, { role: "assistant", content: "تم إلغاء الإجراء." }]);
+  }, [setMessages]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
@@ -2043,6 +2084,36 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               </div>
             </div>
           ))}
+
+          {/* Pending action confirmation card */}
+          {pendingAction && !streaming && isAdmin && (
+            <div className="flex gap-2.5 flex-row items-start" dir="rtl">
+              <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-amber-100 border border-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+              </div>
+              <div className="min-w-0 rounded-2xl rounded-bl-sm bg-amber-50 border border-amber-200 shadow-sm px-4 py-3" style={{ maxWidth: "85%" }}>
+                <p className="text-[12px] font-semibold text-amber-700 mb-1">⚡ تأكيد الإجراء</p>
+                <p className="text-[13px] text-amber-900 leading-relaxed mb-3">{pendingAction.summary}</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={executeAction}
+                    disabled={executingAction}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[12px] font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Zap className="h-3 w-3" />
+                    {executingAction ? "جاري التنفيذ…" : "نفّذ"}
+                  </button>
+                  <button
+                    onClick={cancelAction}
+                    disabled={executingAction}
+                    className="px-3 py-1.5 rounded-lg border border-border text-[12px] text-muted-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Streaming bubble */}
           {streaming && streamingText && (
