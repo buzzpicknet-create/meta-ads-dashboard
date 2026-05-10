@@ -684,7 +684,7 @@ const TOOLS = [
               geo_locations: { type: "object", description: "{countries: [\"EG\", \"SA\", ...]}" },
               age_min: { type: "number" },
               age_max: { type: "number" },
-              genders: { type: "array", description: "[1] ذكور، [2] إناث، [1,2] كلاهما" },
+              genders: { type: "array", items: { type: "number" }, description: "[1] ذكور، [2] إناث، [1,2] كلاهما" },
             },
           },
           status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة المجموعة عند الإنشاء" },
