@@ -8,6 +8,8 @@ import {
   getCampaignDetails,
   getAdsetDetails,
   isRateLimitActive,
+  type CampaignDetails,
+  type AdsetDetails,
 } from "../lib/meta-api.js";
 import { query } from "../lib/db.js";
 
@@ -520,6 +522,8 @@ function isRateLimitErr(err: unknown): boolean {
 const TOOL_CACHE_FRESH_MS = 30 * 60 * 1000;
 // Only annotate cache note when data is older than this threshold
 const CACHE_NOTE_THRESHOLD_MS = 5 * 60 * 1000;
+// Details (status/budget) are lighter and can change sooner — use 5-min freshness
+const DETAILS_CACHE_FRESH_MS = 5 * 60 * 1000;
 
 interface CacheResult<T> {
   data: T;
@@ -531,6 +535,72 @@ function buildCacheNote(fromCache: boolean, cacheAgeMs: number): string {
   if (!fromCache || cacheAgeMs <= CACHE_NOTE_THRESHOLD_MS) return "";
   const minutes = Math.round(cacheAgeMs / 60000);
   return `\n\n_(من الكاش، آخر تحديث: ${minutes} دقيقة)_`;
+}
+
+// ── Cache-aware getCampaignDetails ──────────────────────────────────────────
+async function fetchCampaignDetailsCached(campaign_id: string): Promise<CampaignDetails> {
+  const cached = await query<{ data: unknown; fetched_at: string }>(
+    `SELECT data, fetched_at FROM meta_campaign_details_cache WHERE campaign_id=$1`,
+    [campaign_id]
+  ).catch(() => [] as { data: unknown; fetched_at: string }[]);
+  const hit = cached[0];
+
+  if (hit) {
+    const ageMs = Date.now() - new Date(hit.fetched_at).getTime();
+    if (ageMs < DETAILS_CACHE_FRESH_MS) {
+      return hit.data as CampaignDetails;
+    }
+    if (isRateLimitActive()) {
+      return hit.data as CampaignDetails;
+    }
+  }
+
+  try {
+    const data = await getCampaignDetails(campaign_id);
+    await query(
+      `INSERT INTO meta_campaign_details_cache (campaign_id, data, fetched_at)
+       VALUES ($1,$2,NOW())
+       ON CONFLICT (campaign_id) DO UPDATE SET data=$2, fetched_at=NOW()`,
+      [campaign_id, JSON.stringify(data)]
+    ).catch(() => null);
+    return data;
+  } catch (err) {
+    if (isRateLimitErr(err) && hit) return hit.data as CampaignDetails;
+    throw err;
+  }
+}
+
+// ── Cache-aware getAdsetDetails ─────────────────────────────────────────────
+async function fetchAdsetDetailsCached(adset_id: string): Promise<AdsetDetails> {
+  const cached = await query<{ data: unknown; fetched_at: string }>(
+    `SELECT data, fetched_at FROM meta_adset_details_cache WHERE adset_id=$1`,
+    [adset_id]
+  ).catch(() => [] as { data: unknown; fetched_at: string }[]);
+  const hit = cached[0];
+
+  if (hit) {
+    const ageMs = Date.now() - new Date(hit.fetched_at).getTime();
+    if (ageMs < DETAILS_CACHE_FRESH_MS) {
+      return hit.data as AdsetDetails;
+    }
+    if (isRateLimitActive()) {
+      return hit.data as AdsetDetails;
+    }
+  }
+
+  try {
+    const data = await getAdsetDetails(adset_id);
+    await query(
+      `INSERT INTO meta_adset_details_cache (adset_id, data, fetched_at)
+       VALUES ($1,$2,NOW())
+       ON CONFLICT (adset_id) DO UPDATE SET data=$2, fetched_at=NOW()`,
+      [adset_id, JSON.stringify(data)]
+    ).catch(() => null);
+    return data;
+  } catch (err) {
+    if (isRateLimitErr(err) && hit) return hit.data as AdsetDetails;
+    throw err;
+  }
 }
 
 // ── Tool executor (cache-first: DB → Meta API → stale fallback) ───────────────
@@ -552,7 +622,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       summary = `إيقاف مؤقت للحملة "${label}"`;
       proposedValue = "موقوفة ⏸";
       try {
-        const details = await getCampaignDetails(String(args.campaign_id));
+        const details = await fetchCampaignDetailsCached(String(args.campaign_id));
         currentValue = statusLabel(details.effective_status);
         if (!args.name && details.name) summary = `إيقاف مؤقت للحملة "${details.name}"`;
       } catch {}
@@ -561,7 +631,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       summary = `تشغيل الحملة "${label}"`;
       proposedValue = "نشطة ✅";
       try {
-        const details = await getCampaignDetails(String(args.campaign_id));
+        const details = await fetchCampaignDetailsCached(String(args.campaign_id));
         currentValue = statusLabel(details.effective_status);
         if (!args.name && details.name) summary = `تشغيل الحملة "${details.name}"`;
       } catch {}
@@ -571,7 +641,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       summary = `تعديل ميزانية الحملة "${label}" إلى ${args.budget_amount} EGP (${budgetType})`;
       proposedValue = `${args.budget_amount} EGP (${budgetType})`;
       try {
-        const details = await getCampaignDetails(String(args.campaign_id));
+        const details = await fetchCampaignDetailsCached(String(args.campaign_id));
         if (!args.name && details.name) summary = `تعديل ميزانية الحملة "${details.name}" إلى ${args.budget_amount} EGP (${budgetType})`;
         const curBudget = args.budget_type === "lifetime" ? details.lifetime_budget : details.daily_budget;
         if (curBudget !== undefined && curBudget > 0) {
@@ -583,7 +653,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       summary = `إيقاف مؤقت للمجموعة الإعلانية "${label}"`;
       proposedValue = "موقوفة ⏸";
       try {
-        const details = await getAdsetDetails(String(args.adset_id));
+        const details = await fetchAdsetDetailsCached(String(args.adset_id));
         currentValue = statusLabel(details.effective_status);
         if (!args.name && details.name) summary = `إيقاف مؤقت للمجموعة الإعلانية "${details.name}"`;
       } catch {}
@@ -592,7 +662,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       summary = `تشغيل المجموعة الإعلانية "${label}"`;
       proposedValue = "نشطة ✅";
       try {
-        const details = await getAdsetDetails(String(args.adset_id));
+        const details = await fetchAdsetDetailsCached(String(args.adset_id));
         currentValue = statusLabel(details.effective_status);
         if (!args.name && details.name) summary = `تشغيل المجموعة الإعلانية "${details.name}"`;
       } catch {}
@@ -601,7 +671,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       summary = `تعديل ميزانية المجموعة "${label}" إلى ${args.budget_amount} EGP`;
       proposedValue = `${args.budget_amount} EGP`;
       try {
-        const details = await getAdsetDetails(String(args.adset_id));
+        const details = await fetchAdsetDetailsCached(String(args.adset_id));
         if (!args.name && details.name) summary = `تعديل ميزانية المجموعة "${details.name}" إلى ${args.budget_amount} EGP`;
         const curBudget = details.daily_budget ?? details.lifetime_budget;
         if (curBudget !== undefined && curBudget > 0) {
@@ -612,7 +682,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     } else if (name === "duplicate_adset") {
       summary = `نسخ المجموعة الإعلانية "${args.name ?? args.adset_id}"`;
       try {
-        const details = await getAdsetDetails(String(args.adset_id));
+        const details = await fetchAdsetDetailsCached(String(args.adset_id));
         if (!args.name && details.name) summary = `نسخ المجموعة الإعلانية "${details.name}"`;
       } catch {}
     }
@@ -842,7 +912,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return "campaign_id مطلوب.";
       try {
-        const details = await getCampaignDetails(campaign_id);
+        const details = await fetchCampaignDetailsCached(campaign_id);
         const statusMap: Record<string, string> = {
           ACTIVE: "نشطة ✅",
           PAUSED: "موقوفة ⏸",
@@ -861,7 +931,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return "campaign_id مطلوب.";
       try {
-        const details = await getCampaignDetails(campaign_id);
+        const details = await fetchCampaignDetailsCached(campaign_id);
         const rows = [`## ميزانية الحملة:\n- الاسم: ${details.name}`];
         if (details.daily_budget !== undefined && details.daily_budget > 0) {
           rows.push(`- الميزانية اليومية: ${Math.round(details.daily_budget)} EGP`);
@@ -936,7 +1006,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return "adset_id مطلوب.";
       try {
-        const details = await getAdsetDetails(adset_id);
+        const details = await fetchAdsetDetailsCached(adset_id);
         const statusMap: Record<string, string> = {
           ACTIVE: "نشطة ✅",
           PAUSED: "موقوفة ⏸",

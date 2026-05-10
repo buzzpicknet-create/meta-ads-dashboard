@@ -167,6 +167,22 @@ async function runMigrations() {
       UNIQUE(account_id, period_since, period_until)
     )
   `);
+  // DB-backed campaign details cache (status + budget — used by write-tool confirmation cards)
+  await query(`
+    CREATE TABLE IF NOT EXISTS meta_campaign_details_cache (
+      campaign_id VARCHAR(100) PRIMARY KEY,
+      data JSONB NOT NULL,
+      fetched_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  // DB-backed adset details cache (status + budget — used by write-tool confirmation cards)
+  await query(`
+    CREATE TABLE IF NOT EXISTS meta_adset_details_cache (
+      adset_id VARCHAR(100) PRIMARY KEY,
+      data JSONB NOT NULL,
+      fetched_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
   // One-time cleanup: soft-delete media requests created solely because of CPM
   // CPM was removed as a trigger metric; these records are no longer valid
   const cleaned = await query<{ id: number }>(
