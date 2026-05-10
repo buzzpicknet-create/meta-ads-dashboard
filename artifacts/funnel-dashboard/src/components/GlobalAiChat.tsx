@@ -401,6 +401,7 @@ export function GlobalAiChat() {
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [searching, setSearching] = useState(false);
+  const [toolCallLabels, setToolCallLabels] = useState<string[]>([]);
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -600,6 +601,7 @@ export function GlobalAiChat() {
     setMessages(newMessages);
     setStreaming(true);
     setStreamingText("");
+    setToolCallLabels([]);
     setPendingAction(null);
 
     const ctrl = new AbortController();
@@ -638,8 +640,9 @@ export function GlobalAiChat() {
             if (data.done) break;
             if (data.searching === true) { setSearching(true); }
             if (data.searching === false) { setSearching(false); }
+            if (data.tool_call_label) { setToolCallLabels((prev) => [...prev, data.tool_call_label as string]); }
             if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
-            if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
+            if (data.content) { setToolCallLabels([]); accumulated += data.content; setStreamingText(accumulated); }
           } catch {}
         }
       }
@@ -657,6 +660,7 @@ export function GlobalAiChat() {
       setStreaming(false);
       setStreamingText("");
       setSearching(false);
+      setToolCallLabels([]);
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
@@ -1084,10 +1088,22 @@ export function GlobalAiChat() {
                           ))}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
-                          {[0, 1, 2].map((k) => (
-                            <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
-                          ))}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
+                            {[0, 1, 2].map((k) => (
+                              <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
+                            ))}
+                          </div>
+                          {toolCallLabels.length > 0 && (
+                            <div className="flex flex-col gap-0.5 px-1" dir="rtl">
+                              {toolCallLabels.map((label, i) => (
+                                <span key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
+                                  <span className="w-1 h-1 rounded-full bg-muted-foreground/30 shrink-0" />
+                                  {label}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
