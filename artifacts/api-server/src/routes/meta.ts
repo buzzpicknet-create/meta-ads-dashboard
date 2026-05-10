@@ -71,6 +71,13 @@ export function setLastWarmupStats(stats: Omit<CacheWarmupStats, "ran_at" | "dur
     `INSERT INTO cache_warmup_log (ran_at, duration_ms, insights, campaigns, overview, campaign_details, adset_details, skipped)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [stats.ran_at, stats.duration_ms, stats.insights, stats.campaigns, stats.overview, stats.campaign_details, stats.adset_details, stats.skipped]
+  ).then(() =>
+    query(
+      `DELETE FROM cache_warmup_log WHERE id NOT IN (
+         SELECT id FROM cache_warmup_log ORDER BY ran_at DESC LIMIT 500
+       )`,
+      []
+    )
   ).catch((err) => logger.warn({ err }, "Failed to persist warmup stats to DB"));
 }
 
