@@ -2,7 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
-import { warmCreativeCache, proactiveInsightsRefresh, setLastWarmupStats, setWarmupInProgress, getLastWarmupStats } from "./routes/meta";
+import { warmCreativeCache, proactiveInsightsRefresh, setLastWarmupStats, setWarmupInProgress, getLastWarmupStats, rehydrateWarmupHistory } from "./routes/meta";
 import { getAdAccountIds } from "./lib/meta-token";
 import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
@@ -645,6 +645,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 runMigrations()
+  .then(() => rehydrateWarmupHistory())
   .then(() => initVapid())
   .then(() => {
     app.listen(port, (err) => {

@@ -84,6 +84,41 @@ export function setWarmupInProgress(v: boolean) {
   warmupInProgress = v;
 }
 
+export async function rehydrateWarmupHistory() {
+  try {
+    const rows = await query<{
+      ran_at: string;
+      duration_ms: number;
+      insights: number;
+      campaigns: number;
+      overview: number;
+      campaign_details: number;
+      adset_details: number;
+      skipped: number;
+    }>(
+      `SELECT ran_at, duration_ms, insights, campaigns, overview, campaign_details, adset_details, skipped
+       FROM cache_warmup_log
+       ORDER BY ran_at DESC
+       LIMIT ${WARMUP_HISTORY_MAX}`
+    );
+    if (rows.length === 0) return;
+    const loaded: CacheWarmupStats[] = rows.reverse().map((r) => ({
+      ran_at: r.ran_at,
+      duration_ms: Number(r.duration_ms),
+      insights: Number(r.insights),
+      campaigns: Number(r.campaigns),
+      overview: Number(r.overview),
+      campaign_details: Number(r.campaign_details),
+      adset_details: Number(r.adset_details),
+      skipped: Number(r.skipped),
+    }));
+    warmupHistory.push(...loaded);
+    logger.info({ count: loaded.length }, "Warm-up history rehydrated from DB");
+  } catch (err) {
+    logger.warn({ err }, "Failed to rehydrate warm-up history from DB");
+  }
+}
+
 // ── Campaigns cache — fallback when Meta rate-limits this ad account ──────────
 const CAMPAIGNS_CACHE = new Map<string, { data: unknown; ts: number }>();
 const CAMPAIGNS_TTL_MS = 30 * 60 * 1000; // 30 minutes
