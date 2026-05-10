@@ -1242,6 +1242,12 @@ interface WarmupStats {
   duration_ms: number;
 }
 
+interface WarmupStatusResponse {
+  stats: WarmupStats | null;
+  history: WarmupStats[];
+  inProgress: boolean;
+}
+
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className={`flex flex-col items-center px-3 py-2 rounded-lg ${color}`}>
@@ -1259,7 +1265,7 @@ function CacheWarmupSection() {
     queryFn: () =>
       fetch(`${API}/meta/cache-warmup-status`, { credentials: "include" })
         .then((r) => r.json())
-        .then((d) => d as { stats: WarmupStats | null; inProgress: boolean }),
+        .then((d) => d as WarmupStatusResponse),
     refetchInterval: 15_000,
   });
 
@@ -1280,6 +1286,7 @@ function CacheWarmupSection() {
   });
 
   const stats = data?.stats;
+  const history = data?.history ?? [];
   const inProgress = data?.inProgress ?? false;
 
   function formatDuration(ms: number) {
@@ -1358,6 +1365,53 @@ function CacheWarmupSection() {
           <p className="text-[10px] text-muted-foreground" dir="ltr">
             Last run: {new Date(stats.ran_at).toLocaleString("ar-EG")} — auto-refreshes every 30 min
           </p>
+        </div>
+      )}
+
+      {/* History table — shown when there are 2+ runs */}
+      {history.length > 1 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium text-muted-foreground">سجل آخر {history.length} تشغيلات</p>
+          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-[11px]" dir="ltr">
+              <thead>
+                <tr className="bg-slate-100 dark:bg-slate-800/60 text-muted-foreground">
+                  <th className="px-2 py-1.5 text-left font-medium">وقت التشغيل</th>
+                  <th className="px-2 py-1.5 text-right font-medium">مدة</th>
+                  <th className="px-2 py-1.5 text-right font-medium">إحصاءات</th>
+                  <th className="px-2 py-1.5 text-right font-medium">حملات</th>
+                  <th className="px-2 py-1.5 text-right font-medium">نظرة عامة</th>
+                  <th className="px-2 py-1.5 text-right font-medium">تفاصيل</th>
+                  <th className="px-2 py-1.5 text-right font-medium">تخطّى</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.slice().reverse().map((run, idx) => {
+                  const total = run.insights + run.campaigns + run.overview + run.campaign_details + run.adset_details;
+                  const isLatest = idx === 0;
+                  return (
+                    <tr
+                      key={run.ran_at}
+                      className={`border-t border-slate-200 dark:border-slate-800 ${isLatest ? "bg-emerald-500/5" : "hover:bg-muted/30"} transition-colors`}
+                    >
+                      <td className="px-2 py-1.5 text-left text-muted-foreground whitespace-nowrap">
+                        {isLatest && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle" />}
+                        {new Date(run.ran_at).toLocaleString("ar-EG", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{formatDuration(run.duration_ms)}</td>
+                      <td className="px-2 py-1.5 text-right text-violet-700 dark:text-violet-400">{run.insights}</td>
+                      <td className="px-2 py-1.5 text-right text-blue-700 dark:text-blue-400">{run.campaigns}</td>
+                      <td className="px-2 py-1.5 text-right text-cyan-700 dark:text-cyan-400">{run.overview}</td>
+                      <td className="px-2 py-1.5 text-right text-emerald-700 dark:text-emerald-400">{run.campaign_details + run.adset_details}</td>
+                      <td className={`px-2 py-1.5 text-right font-medium ${run.skipped > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+                        {run.skipped > 0 ? run.skipped : total === 0 ? <span className="text-emerald-600 dark:text-emerald-400">✓</span> : 0}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

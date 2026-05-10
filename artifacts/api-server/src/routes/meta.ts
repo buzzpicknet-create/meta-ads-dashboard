@@ -49,15 +49,23 @@ export interface CacheWarmupStats {
   duration_ms: number;
 }
 
-let lastWarmupStats: CacheWarmupStats | null = null;
+const WARMUP_HISTORY_MAX = 10;
+const warmupHistory: CacheWarmupStats[] = [];
 let warmupInProgress = false;
 
 export function getLastWarmupStats() {
-  return { stats: lastWarmupStats, inProgress: warmupInProgress };
+  return {
+    stats: warmupHistory.length > 0 ? warmupHistory[warmupHistory.length - 1] : null,
+    history: warmupHistory.slice(),
+    inProgress: warmupInProgress,
+  };
 }
 
 export function setLastWarmupStats(stats: Omit<CacheWarmupStats, "ran_at" | "duration_ms"> & { ran_at: string; duration_ms: number }) {
-  lastWarmupStats = stats;
+  warmupHistory.push(stats);
+  if (warmupHistory.length > WARMUP_HISTORY_MAX) {
+    warmupHistory.splice(0, warmupHistory.length - WARMUP_HISTORY_MAX);
+  }
   warmupInProgress = false;
   query(
     `INSERT INTO cache_warmup_log (ran_at, duration_ms, insights, campaigns, overview, campaign_details, adset_details, skipped)
@@ -608,11 +616,11 @@ async function sleep(ms: number) {
 
 // GET /api/meta/cache-warmup-status — return last proactive-refresh run stats (admin only)
 router.get("/meta/cache-warmup-status", requireAdmin, async (_req, res) => {
-  const { stats, inProgress } = getLastWarmupStats();
-  if (stats !== null) {
-    return res.json({ stats, inProgress });
+  const { stats, history, inProgress } = getLastWarmupStats();
+  if (history.length > 0) {
+    return res.json({ stats, history, inProgress });
   }
-  // In-memory is null (e.g. after a server restart) — fall back to the most recent DB row
+  // In-memory ring buffer is empty (e.g. after a server restart) — fall back to DB
   try {
     const rows = await query<{
       ran_at: string;
@@ -627,24 +635,23 @@ router.get("/meta/cache-warmup-status", requireAdmin, async (_req, res) => {
       `SELECT ran_at, duration_ms, insights, campaigns, overview, campaign_details, adset_details, skipped
        FROM cache_warmup_log
        ORDER BY ran_at DESC
-       LIMIT 1`
+       LIMIT ${WARMUP_HISTORY_MAX}`
     );
-    const dbStats = rows[0]
-      ? {
-          ran_at: rows[0].ran_at,
-          duration_ms: Number(rows[0].duration_ms),
-          insights: Number(rows[0].insights),
-          campaigns: Number(rows[0].campaigns),
-          overview: Number(rows[0].overview),
-          campaign_details: Number(rows[0].campaign_details),
-          adset_details: Number(rows[0].adset_details),
-          skipped: Number(rows[0].skipped),
-        }
-      : null;
-    return res.json({ stats: dbStats, inProgress });
+    const dbHistory: CacheWarmupStats[] = rows.reverse().map((r) => ({
+      ran_at: r.ran_at,
+      duration_ms: Number(r.duration_ms),
+      insights: Number(r.insights),
+      campaigns: Number(r.campaigns),
+      overview: Number(r.overview),
+      campaign_details: Number(r.campaign_details),
+      adset_details: Number(r.adset_details),
+      skipped: Number(r.skipped),
+    }));
+    const dbStats = dbHistory.length > 0 ? dbHistory[dbHistory.length - 1] : null;
+    return res.json({ stats: dbStats, history: dbHistory, inProgress });
   } catch (err) {
     logger.warn({ err }, "Failed to read warmup stats from DB");
-    return res.json({ stats: null, inProgress });
+    return res.json({ stats: null, history: [], inProgress });
   }
 });
 
