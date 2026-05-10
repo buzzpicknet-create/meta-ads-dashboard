@@ -7,7 +7,7 @@ import {
   MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal, Mail, Bot,
   DatabaseZap, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle,
 } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, ReferenceDot } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility, useUpdatePageVisibility } from "@/hooks/use-page-visibility";
 
@@ -1184,60 +1184,87 @@ export default function AdminPage() {
         <div className="mt-3 h-14">
           {noOpTrendQuery.isLoading ? (
             <div className="h-full w-full rounded bg-muted animate-pulse" />
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={noOpTrend} margin={{ top: 2, right: 2, left: 2, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="noOpGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor={noOpCount > 0 ? "#f59e0b" : "#6b7280"}
-                      stopOpacity={0.3}
+          ) : (() => {
+            const avgCount = noOpTrend.length > 0
+              ? noOpTrend.reduce((s, d) => s + d.count, 0) / noOpTrend.length
+              : 0;
+            const outlierDays = noOpTrend.filter(
+              (d) => avgCount > 0 && d.count >= 2 * avgCount
+            );
+            return (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={noOpTrend} margin={{ top: 6, right: 2, left: 2, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="noOpGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop
+                        offset="5%"
+                        stopColor={noOpCount > 0 ? "#f59e0b" : "#6b7280"}
+                        stopOpacity={0.3}
+                      />
+                      <stop
+                        offset="95%"
+                        stopColor={noOpCount > 0 ? "#f59e0b" : "#6b7280"}
+                        stopOpacity={0}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="day"
+                    hide={false}
+                    tick={{ fontSize: 9, fill: "currentColor", opacity: 0.45 }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={3}
+                    tickFormatter={(v: string) => {
+                      const d = new Date(v);
+                      return `${d.getDate()}/${d.getMonth() + 1}`;
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      fontSize: 11,
+                      direction: "rtl",
+                      borderRadius: 8,
+                      padding: "4px 10px",
+                    }}
+                    labelFormatter={(v: string) => {
+                      const d = new Date(v);
+                      return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+                    }}
+                    formatter={(v: number, _name: string, entry: { payload?: { count: number; day: string } }) => {
+                      const day = entry?.payload?.day ?? "";
+                      const isOutlier = outlierDays.some((o) => o.day === day);
+                      return [
+                        `${v} إجراء مكرر${isOutlier ? " ⚠️ يوم شاذ" : ""}`,
+                        "",
+                      ];
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    stroke={noOpCount > 0 ? "#f59e0b" : "#9ca3af"}
+                    strokeWidth={1.5}
+                    fill="url(#noOpGradient)"
+                    dot={false}
+                    activeDot={{ r: 3 }}
+                  />
+                  {outlierDays.map((d) => (
+                    <ReferenceDot
+                      key={d.day}
+                      x={d.day}
+                      y={d.count}
+                      r={5}
+                      fill="#ef4444"
+                      stroke="#fff"
+                      strokeWidth={1.5}
+                      ifOverflow="visible"
                     />
-                    <stop
-                      offset="95%"
-                      stopColor={noOpCount > 0 ? "#f59e0b" : "#6b7280"}
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="day"
-                  hide={false}
-                  tick={{ fontSize: 9, fill: "currentColor", opacity: 0.45 }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={3}
-                  tickFormatter={(v: string) => {
-                    const d = new Date(v);
-                    return `${d.getDate()}/${d.getMonth() + 1}`;
-                  }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    fontSize: 11,
-                    direction: "rtl",
-                    borderRadius: 8,
-                    padding: "4px 10px",
-                  }}
-                  labelFormatter={(v: string) => {
-                    const d = new Date(v);
-                    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-                  }}
-                  formatter={(v: number) => [`${v} إجراء مكرر`, ""]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  stroke={noOpCount > 0 ? "#f59e0b" : "#9ca3af"}
-                  strokeWidth={1.5}
-                  fill="url(#noOpGradient)"
-                  dot={false}
-                  activeDot={{ r: 3 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            );
+          })()}
         </div>
       </a>
 
