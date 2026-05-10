@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Search, X, Globe, MessageSquare, Pin } from "lucide-react";
+import { Search, X, Globe, MessageSquare, Loader2, Pin } from "lucide-react";
 import { useGlobalAiChat } from "@/contexts/GlobalAiChatContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -142,9 +142,9 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
 
   const fetchRecent = useCallback(() => {
     if (fetchTimerRef.current !== null) clearTimeout(fetchTimerRef.current);
+    setRecentLoading(true);
     fetchTimerRef.current = setTimeout(() => {
       fetchTimerRef.current = null;
-      setRecentLoading(true);
       fetch(`${API}/chat/conversations?global=true`, {
         credentials: "include",
         cache: "no-store",
@@ -315,7 +315,7 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
         {/* Results */}
         <div className="max-h-[60vh] overflow-y-auto">
           {!query.trim() ? (
-            recentLoading ? (
+            recentConvs === null && recentLoading ? (
               <div className="flex items-center justify-center py-10">
                 <div className="flex gap-1.5">
                   {[0, 1, 2].map((k) => (
@@ -328,7 +328,7 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
                 </div>
               </div>
             ) : recentConvs && recentConvs.length > 0 ? (
-              <div className="py-2">
+              <div className={`py-2 transition-opacity duration-300 ${recentLoading ? "opacity-60" : "opacity-100"}`}>
                 {/* Pinned section */}
                 {pinnedConvs.length > 0 && (
                   <>
@@ -355,9 +355,14 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
                 {/* Recent section */}
                 {unpinnedConvs.length > 0 && (
                   <>
-                    <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-4 pt-1 pb-2">
-                      المحادثات الأخيرة
-                    </p>
+                    <div className="flex items-center gap-2 px-4 pt-1 pb-2">
+                      <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider flex-1">
+                        المحادثات الأخيرة
+                      </p>
+                      {recentLoading && (
+                        <Loader2 className="h-3 w-3 text-muted-foreground/40 animate-spin" />
+                      )}
+                    </div>
                     <div className="space-y-0.5 px-2">
                       {unpinnedConvs.map((conv) => (
                         <ConvRow
@@ -370,6 +375,7 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
                     </div>
                   </>
                 )}
+
 
                 <p className="text-[10px] text-muted-foreground/40 text-center py-2 border-t border-border mt-1">
                   ابدأ الكتابة للبحث في جميع المحادثات
