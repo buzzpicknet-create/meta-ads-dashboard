@@ -51,6 +51,7 @@ const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Fac
 - get_campaign_daily: الأداء اليومي لحملة معينة
 - get_account_daily: الأداء اليومي للحساب كله
 - get_adsets: المجموعات الإعلانية لحملة معينة
+- get_ad_performance: أداء إعلان بعينه (نسبة الجذب، نسبة النقر، تكلفة التحويل، الظهورات، الإنفاق) — استخدم قبل التوصية بتغيير أو إيقاف إعلان محدد
 
 كل حملة بتمر بمراحل متسلسلة. المشكلة في أي مرحلة بتأثر على كل اللي بعدها:
 
@@ -165,6 +166,8 @@ Frequency (في 7 أيام):
 - الإعلان بأعلى Hook Rate + CTR: الـ Winner — Scale عليه
 - الإعلان بـ Hook عالي + CTR منخفض: الـ Creative كويس بس الـ CTA ضعيف
 - الإعلان بأعلى إنفاق + أعلى CPA: Drain — وقفه وحوّل Budget للـ Winner
+
+⚠️ مهم: قبل توصية بتغيير محتوى إعلان أو إيقافه، استخدم get_ad_performance للتحقق من نسبة الجذب والنقر والتكلفة الفعلية لهذا الإعلان. لا تبني توصية على بيانات الـ context وحده لو عندك ad_id محدد.
 
 ══════════════════════════════════════
 الجزء 4 — قواعد اتخاذ القرار
@@ -362,6 +365,21 @@ const TOOLS = [
           adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
         },
         required: ["adset_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_ad_performance",
+      description: "جيب أداء إعلان بعينه — نسبة الجذب (Hook Rate)، نسبة النقر (CTR)، تكلفة التحويل (CPA)، الإنفاق، والظهورات. استخدم قبل أي توصية بتغيير المحتوى الإعلاني أو إيقاف إعلان معين للتحقق من أرقامه الفعلية.",
+      parameters: {
+        type: "object",
+        properties: {
+          ad_id: { type: "string", description: "رقم الإعلان (id)" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 7" },
+        },
+        required: ["ad_id"],
       },
     },
   },
@@ -601,7 +619,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary, currentValue, proposedValue })}`;
   }
 
-  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : 14));
+  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets") ? 7 : 14));
   // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
   const untilD = new Date(Date.now() + 2 * 60 * 60 * 1000);
   const sinceD = new Date(untilD);
@@ -859,6 +877,59 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       } catch (err) {
         return `خطأ في جلب ميزانية الحملة: ${err instanceof Error ? err.message : String(err)}`;
       }
+    }
+
+    if (name === "get_ad_performance") {
+      const ad_id = String(args.ad_id ?? "");
+      if (!ad_id) return "ad_id مطلوب.";
+
+      // Search all accounts and campaigns for the matching ad in by_ad
+      let foundAd: Awaited<ReturnType<typeof getCampaignInsights>>["by_ad"][number] | null = null;
+      let foundCampaignName = "";
+      let foundCampaignId = "";
+      let cacheNote = "";
+
+      outer: for (const acc of accounts) {
+        const campaignsResult = await fetchCampaignsCached(acc.id);
+        for (const campaign of campaignsResult.data) {
+          try {
+            const result = await fetchInsightsCached(campaign.id);
+            const match = result.data.by_ad.find((ad) => ad.id === ad_id);
+            if (match) {
+              foundAd = match;
+              foundCampaignName = result.data.campaign.name;
+              foundCampaignId = result.data.campaign.id;
+              cacheNote = buildCacheNote(result.fromCache, result.cacheAgeMs);
+              break outer;
+            }
+          } catch {
+            // Skip campaigns that fail to load
+          }
+        }
+      }
+
+      if (!foundAd) {
+        return `لم يتم العثور على إعلان بالرقم ${ad_id} في البيانات المتاحة (آخر ${days} يوم). تأكد من صحة الرقم أو جرّب فترة زمنية أطول.`;
+      }
+
+      const ad = foundAd;
+      const lpvRate = ad.link_clicks > 0 ? (ad.lpv / ad.link_clicks) * 100 : 0;
+      const rows = [
+        `## أداء الإعلان (آخر ${days} يوم):`,
+        `- الاسم: ${ad.label}`,
+        `- رقم الإعلان: ${ad.id}`,
+        `- الحملة: ${foundCampaignName} (id:${foundCampaignId})`,
+        `- الإنفاق: ${fmt(ad.spend)} EGP`,
+        `- الظهورات: ${ad.impressions.toLocaleString()}`,
+        `- نسبة الجذب (Hook Rate): ${fmt(ad.hookRate, 2)}%`,
+        `- نسبة النقر (CTR): ${fmt(ad.ctr, 2)}%`,
+        `- نسبة الوصول للصفحة (LPR): ${fmt(lpvRate, 2)}%`,
+        `- تكلفة التحويل (CPA): ${ad.cpa > 0 ? fmt(ad.cpa) + " EGP" : "—"}`,
+        `- الطلبات: ${ad.purchases}`,
+        `- تكلفة الألف ظهور (CPM): ${fmt(ad.cpm, 2)} EGP`,
+        `- التكرار: ${fmt(ad.frequency, 2)}`,
+      ];
+      return rows.join("\n") + cacheNote;
     }
 
     if (name === "get_adset_status") {
