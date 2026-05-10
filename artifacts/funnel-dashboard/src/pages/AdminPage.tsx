@@ -1473,6 +1473,7 @@ function ScheduledReportsSection() {
 
 // ── Cache Warm-up Status Section ──────────────────────────────────────────────
 interface WarmupStats {
+  id?: number;
   insights: number;
   campaigns: number;
   overview: number;
@@ -1485,7 +1486,6 @@ interface WarmupStats {
 
 interface WarmupStatusResponse {
   stats: WarmupStats | null;
-  history: WarmupStats[];
   inProgress: boolean;
 }
 
@@ -1500,6 +1500,7 @@ function StatBadge({ label, value, color }: { label: string; value: number; colo
 
 function CacheWarmupSection() {
   const qc = useQueryClient();
+  const [showHistory, setShowHistory] = useState(false);
 
   const { data, isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["cache-warmup-status"],
@@ -1508,6 +1509,16 @@ function CacheWarmupSection() {
         .then((r) => r.json())
         .then((d) => d as WarmupStatusResponse),
     refetchInterval: 15_000,
+  });
+
+  const { data: historyData, isLoading: historyLoading } = useQuery({
+    queryKey: ["cache-warmup-history"],
+    queryFn: () =>
+      fetch(`${API}/meta/cache-warmup-history`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((d) => d as { history: WarmupStats[] }),
+    enabled: showHistory,
+    refetchInterval: showHistory ? 30_000 : false,
   });
 
   const trigger = useMutation({
@@ -1521,14 +1532,17 @@ function CacheWarmupSection() {
       return d;
     },
     onSuccess: () => {
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["cache-warmup-status"] }), 1000);
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["cache-warmup-status"] });
+        qc.invalidateQueries({ queryKey: ["cache-warmup-history"] });
+      }, 1000);
     },
     onError: (err) => alert(err instanceof Error ? err.message : "فشل التشغيل"),
   });
 
   const stats = data?.stats;
-  const history = data?.history ?? [];
   const inProgress = data?.inProgress ?? false;
+  const historyRows = historyData?.history ?? [];
 
   function formatDuration(ms: number) {
     if (ms < 1000) return `${ms} ms`;
@@ -1543,9 +1557,20 @@ function CacheWarmupSection() {
     return `منذ ${Math.round(diff / 86400_000)} يوم`;
   }
 
+  function formatAbsTime(iso: string) {
+    return new Date(iso).toLocaleString("ar-EG", {
+      month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+
   const totalWarmed = stats
     ? stats.insights + stats.campaigns + stats.overview + stats.campaign_details + stats.adset_details
     : 0;
+
+  function rowTotal(r: WarmupStats) {
+    return r.insights + r.campaigns + r.overview + r.campaign_details + r.adset_details;
+  }
 
   return (
     <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/40 dark:bg-slate-900/20 p-4 space-y-4">
@@ -1560,6 +1585,14 @@ function CacheWarmupSection() {
               آخر تشغيل {formatRelTime(stats.ran_at)}
             </span>
           )}
+          <button
+            onClick={() => setShowHistory((v) => !v)}
+            className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+          >
+            <Clock className="h-3 w-3" />
+            السجل
+            {showHistory ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
           <button
             onClick={() => trigger.mutate()}
             disabled={trigger.isPending || inProgress}
@@ -1609,50 +1642,73 @@ function CacheWarmupSection() {
         </div>
       )}
 
-      {/* History table — shown when there are 2+ runs */}
-      {history.length > 1 && (
-        <div className="space-y-1.5">
-          <p className="text-[11px] font-medium text-muted-foreground">سجل آخر {history.length} تشغيلات</p>
-          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="w-full text-[11px]" dir="ltr">
-              <thead>
-                <tr className="bg-slate-100 dark:bg-slate-800/60 text-muted-foreground">
-                  <th className="px-2 py-1.5 text-left font-medium">وقت التشغيل</th>
-                  <th className="px-2 py-1.5 text-right font-medium">مدة</th>
-                  <th className="px-2 py-1.5 text-right font-medium">إحصاءات</th>
-                  <th className="px-2 py-1.5 text-right font-medium">حملات</th>
-                  <th className="px-2 py-1.5 text-right font-medium">نظرة عامة</th>
-                  <th className="px-2 py-1.5 text-right font-medium">تفاصيل</th>
-                  <th className="px-2 py-1.5 text-right font-medium">تخطّى</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.slice().reverse().map((run, idx) => {
-                  const total = run.insights + run.campaigns + run.overview + run.campaign_details + run.adset_details;
-                  const isLatest = idx === 0;
-                  return (
-                    <tr
-                      key={run.ran_at}
-                      className={`border-t border-slate-200 dark:border-slate-800 ${isLatest ? "bg-emerald-500/5" : "hover:bg-muted/30"} transition-colors`}
-                    >
-                      <td className="px-2 py-1.5 text-left text-muted-foreground whitespace-nowrap">
-                        {isLatest && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 align-middle" />}
-                        {new Date(run.ran_at).toLocaleString("ar-EG", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono text-muted-foreground">{formatDuration(run.duration_ms)}</td>
-                      <td className="px-2 py-1.5 text-right text-violet-700 dark:text-violet-400">{run.insights}</td>
-                      <td className="px-2 py-1.5 text-right text-blue-700 dark:text-blue-400">{run.campaigns}</td>
-                      <td className="px-2 py-1.5 text-right text-cyan-700 dark:text-cyan-400">{run.overview}</td>
-                      <td className="px-2 py-1.5 text-right text-emerald-700 dark:text-emerald-400">{run.campaign_details + run.adset_details}</td>
-                      <td className={`px-2 py-1.5 text-right font-medium ${run.skipped > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
-                        {run.skipped > 0 ? run.skipped : total === 0 ? <span className="text-emerald-600 dark:text-emerald-400">✓</span> : 0}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      {/* History panel */}
+      {showHistory && (
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5" />
+            آخر 20 تشغيل
+          </p>
+          {historyLoading ? (
+            <div className="h-24 rounded-lg bg-muted animate-pulse" />
+          ) : historyRows.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">لا يوجد سجل حتى الآن</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-[11px] border-collapse" dir="ltr">
+                <thead>
+                  <tr className="bg-slate-100 dark:bg-slate-800 text-muted-foreground">
+                    <th className="px-2 py-1.5 text-left font-medium whitespace-nowrap">وقت التشغيل</th>
+                    <th className="px-2 py-1.5 text-right font-medium">المدة</th>
+                    <th className="px-2 py-1.5 text-right font-medium">إحصاءات</th>
+                    <th className="px-2 py-1.5 text-right font-medium">حملات</th>
+                    <th className="px-2 py-1.5 text-right font-medium">نظرة عامة</th>
+                    <th className="px-2 py-1.5 text-right font-medium">تف.حملة</th>
+                    <th className="px-2 py-1.5 text-right font-medium">تف.أدسيت</th>
+                    <th className="px-2 py-1.5 text-right font-medium">إجمالي</th>
+                    <th className="px-2 py-1.5 text-right font-medium">تخطّى</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyRows.map((row, i) => {
+                    const total = rowTotal(row);
+                    const gapMinutes = i < historyRows.length - 1
+                      ? Math.round((new Date(row.ran_at).getTime() - new Date(historyRows[i + 1].ran_at).getTime()) / 60_000)
+                      : null;
+                    const hasGap = gapMinutes !== null && gapMinutes > 45;
+                    return (
+                      <>
+                        <tr
+                          key={row.id ?? i}
+                          className={`border-t border-slate-100 dark:border-slate-800 ${i === 0 ? "bg-emerald-500/5" : "hover:bg-slate-50 dark:hover:bg-slate-800/40"}`}
+                        >
+                          <td className="px-2 py-1.5 text-left font-mono whitespace-nowrap text-muted-foreground">
+                            {formatAbsTime(row.ran_at)}
+                            {i === 0 && <span className="mr-1 text-[9px] text-emerald-600 font-semibold">آخر</span>}
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-mono">{formatDuration(row.duration_ms)}</td>
+                          <td className="px-2 py-1.5 text-right">{row.insights}</td>
+                          <td className="px-2 py-1.5 text-right">{row.campaigns}</td>
+                          <td className="px-2 py-1.5 text-right">{row.overview}</td>
+                          <td className="px-2 py-1.5 text-right">{row.campaign_details}</td>
+                          <td className="px-2 py-1.5 text-right">{row.adset_details}</td>
+                          <td className={`px-2 py-1.5 text-right font-semibold ${total > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>{total}</td>
+                          <td className={`px-2 py-1.5 text-right ${row.skipped > 0 ? "text-red-500" : "text-muted-foreground"}`}>{row.skipped}</td>
+                        </tr>
+                        {hasGap && (
+                          <tr key={`gap-${i}`} className="bg-amber-500/5">
+                            <td colSpan={9} className="px-2 py-1 text-center text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                              ⚠ فجوة {gapMinutes} دقيقة
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

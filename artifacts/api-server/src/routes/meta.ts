@@ -74,9 +74,8 @@ export function setLastWarmupStats(stats: Omit<CacheWarmupStats, "ran_at" | "dur
   ).then(() =>
     query(
       `DELETE FROM cache_warmup_log WHERE id NOT IN (
-         SELECT id FROM cache_warmup_log ORDER BY ran_at DESC LIMIT 500
-       )`,
-      []
+         SELECT id FROM cache_warmup_log ORDER BY ran_at DESC LIMIT 200
+       )`
     )
   ).catch((err) => logger.warn({ err }, "Failed to persist warmup stats to DB"));
 }
@@ -659,6 +658,44 @@ router.get("/meta/cache-warmup-status", requireAdmin, async (_req, res) => {
   } catch (err) {
     logger.warn({ err }, "Failed to read warmup stats from DB");
     return res.json({ stats: null, history: [], inProgress });
+  }
+});
+
+// GET /api/meta/cache-warmup-history — return last 20 warm-up runs (admin only)
+router.get("/meta/cache-warmup-history", requireAdmin, async (_req, res) => {
+  try {
+    const rows = await query<{
+      id: number;
+      ran_at: string;
+      duration_ms: number;
+      insights: number;
+      campaigns: number;
+      overview: number;
+      campaign_details: number;
+      adset_details: number;
+      skipped: number;
+    }>(
+      `SELECT id, ran_at, duration_ms, insights, campaigns, overview, campaign_details, adset_details, skipped
+       FROM cache_warmup_log
+       ORDER BY ran_at DESC
+       LIMIT 20`
+    );
+    return res.json({
+      history: rows.map((r) => ({
+        id: r.id,
+        ran_at: r.ran_at,
+        duration_ms: Number(r.duration_ms),
+        insights: Number(r.insights),
+        campaigns: Number(r.campaigns),
+        overview: Number(r.overview),
+        campaign_details: Number(r.campaign_details),
+        adset_details: Number(r.adset_details),
+        skipped: Number(r.skipped),
+      })),
+    });
+  } catch (err) {
+    logger.warn({ err }, "Failed to read warmup history from DB");
+    return res.json({ history: [] });
   }
 });
 
