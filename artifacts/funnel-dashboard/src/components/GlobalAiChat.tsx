@@ -887,29 +887,29 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       const localLabels: string[] = [];
+      let doneReceived = false;
 
-      while (true) {
+      outer: while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done || doneReceived) break;
         const chunk = decoder.decode(value, { stream: true });
         for (const line of chunk.split("\n")) {
           if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.error) throw new Error(data.error);
-            if (data.done) break;
-            if (data.searching === true) { setSearching(true); }
-            if (data.searching === false) { setSearching(false); }
-            if (data.tool_call_label) {
-              localLabels.push(data.tool_call_label as string);
-              setToolCallLabels((prev) => [...prev, data.tool_call_label as string]);
-            }
-            if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
-            if (data.pending_action_resolved) {
-              setPendingAction((prev) => prev ? { ...prev, ...(data.pending_action_resolved as Partial<PendingAction>), detailsLoading: false } : prev);
-            }
-            if (data.content) { setToolCallLabels([]); accumulated += data.content; setStreamingText(accumulated); }
-          } catch {}
+          let data: Record<string, unknown>;
+          try { data = JSON.parse(line.slice(6)) as Record<string, unknown>; } catch { continue; }
+          if (data.error) throw new Error(String(data.error));
+          if (data.done) { doneReceived = true; break outer; }
+          if (data.searching === true) { setSearching(true); }
+          if (data.searching === false) { setSearching(false); }
+          if (data.tool_call_label) {
+            localLabels.push(data.tool_call_label as string);
+            setToolCallLabels((prev) => [...prev, data.tool_call_label as string]);
+          }
+          if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
+          if (data.pending_action_resolved) {
+            setPendingAction((prev) => prev ? { ...prev, ...(data.pending_action_resolved as Partial<PendingAction>), detailsLoading: false } : prev);
+          }
+          if (data.content) { setToolCallLabels([]); accumulated += String(data.content); setStreamingText(accumulated); }
         }
       }
 

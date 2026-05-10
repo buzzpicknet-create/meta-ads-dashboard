@@ -1857,6 +1857,20 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       // No tool calls → stream the final answer
       if (toolCalls.length === 0) {
         const finalContent = choice.message.content ?? "";
+
+        // Guard: if the model returned a suspiciously short response (<10 chars)
+        // on the first round, it likely didn't have enough context to answer.
+        // Nudge it to use its tools before giving up.
+        if (round === 0 && finalContent.trim().length < 10) {
+          logger.warn({ content: finalContent, round }, "AI returned suspiciously short content — injecting tool-use nudge");
+          builtMessages.push({ role: "assistant", content: finalContent || null });
+          builtMessages.push({
+            role: "user",
+            content: "استخدم الأدوات المتاحة (get_campaigns, get_account_daily) لجلب البيانات وأجب على السؤال بالتفصيل.",
+          });
+          continue; // go to round 1
+        }
+
         // Stream word-by-word for UX
         const words = finalContent.split(/(?<=\s)/);
         for (const word of words) {
