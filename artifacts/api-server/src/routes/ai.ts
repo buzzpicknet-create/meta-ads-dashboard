@@ -276,7 +276,7 @@ Frequency (في 7 أيام):
 ٢. اجلب بيانات الأداء للتشخيص (get_campaign_daily أو get_adsets)
 ممنوع تقترح إيقاف أو تعديل بدون تشخيص مبني على بيانات حقيقية وحالة حالية موثّقة.
 
-الأدوات المتاحة:
+الأدوات المتاحة — تعديل:
 - pause_campaign(campaign_id, name) — إيقاف حملة مؤقتاً
 - enable_campaign(campaign_id, name) — تشغيل حملة موقوفة
 - update_campaign_budget(campaign_id, name, budget_amount, budget_type) — تعديل الميزانية (budget_type: "daily" أو "lifetime")
@@ -284,6 +284,25 @@ Frequency (في 7 أيام):
 - enable_adset(adset_id, name) — تشغيل مجموعة إعلانية
 - update_adset_budget(adset_id, name, budget_amount) — تعديل ميزانية مجموعة
 - duplicate_adset(adset_id, name) — نسخ مجموعة إعلانية
+
+الأدوات المتاحة — إنشاء:
+- create_campaign(account_id, name, objective, daily_budget, status?) — إنشاء حملة جديدة
+  - استخدم get_campaigns أولاً للحصول على account_id من الحسابات المرتبطة
+  - objectives: OUTCOME_SALES | OUTCOME_LEADS | OUTCOME_TRAFFIC | OUTCOME_AWARENESS | OUTCOME_ENGAGEMENT
+  - status: PAUSED (افتراضي — للمراجعة) أو ACTIVE (تشغيل فوري)
+- create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?) — إنشاء مجموعة إعلانية
+  - optimization_goal: OFFSITE_CONVERSIONS | LEAD_GENERATION | LINK_CLICKS | LANDING_PAGE_VIEWS | THRUPLAY | REACH
+  - billing_event: IMPRESSIONS (الأشيع) | LINK_CLICKS
+  - targeting مثال: {geo_locations: {countries: ["EG"]}, age_min: 25, age_max: 45}
+- duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
+  - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
+  - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
+
+قواعد الإنشاء:
+١. اجمع كل المعلومات من المستخدم قبل استدعاء أداة الإنشاء (الاسم، الهدف، الميزانية، الاستهداف)
+٢. استخدم get_campaigns أولاً للحصول على account_id من الحسابات المرتبطة
+٣. للنسخ: duplicate_campaign أسرع وأأمن من الإنشاء من الصفر
+٤. دايماً اقترح status=PAUSED للمراجعة قبل التشغيل — ما لم يطلب المستخدم صراحةً التشغيل الفوري
 
 مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
 بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".
@@ -617,6 +636,81 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_campaign",
+      description: "اقتراح إنشاء حملة إعلانية جديدة على Meta. استخدم get_campaigns أولاً للحصول على account_id. سيظهر طلب تأكيد للمستخدم قبل الإنشاء.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX) — اجلبه من get_campaigns" },
+          name: { type: "string", description: "اسم الحملة الجديدة" },
+          objective: {
+            type: "string",
+            enum: ["OUTCOME_LEADS", "OUTCOME_SALES", "OUTCOME_AWARENESS", "OUTCOME_TRAFFIC", "OUTCOME_ENGAGEMENT", "OUTCOME_APP_PROMOTION"],
+            description: "هدف الحملة: OUTCOME_SALES (مبيعات)، OUTCOME_LEADS (عملاء محتملين)، OUTCOME_TRAFFIC (زيارات)، OUTCOME_AWARENESS (وعي)، OUTCOME_ENGAGEMENT (تفاعل)",
+          },
+          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP" },
+          status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة الحملة عند الإنشاء — PAUSED (موقوفة، للمراجعة) أو ACTIVE (نشطة مباشرةً)" },
+          special_ad_categories: { type: "string", description: "فئات الإعلانات الخاصة — اتركها فارغة إذا لم تكن إعلانات عقارية أو ائتمانية أو سياسية. افتراضي: NONE" },
+        },
+        required: ["account_id", "name", "objective", "daily_budget"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_adset",
+      description: "اقتراح إنشاء مجموعة إعلانية جديدة داخل حملة موجودة. سيظهر طلب تأكيد للمستخدم قبل الإنشاء.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX)" },
+          campaign_id: { type: "string", description: "رقم الحملة (id) التي ستنتمي إليها المجموعة" },
+          name: { type: "string", description: "اسم المجموعة الإعلانية الجديدة" },
+          optimization_goal: {
+            type: "string",
+            enum: ["OFFSITE_CONVERSIONS", "LEAD_GENERATION", "REACH", "IMPRESSIONS", "LINK_CLICKS", "LANDING_PAGE_VIEWS", "THRUPLAY", "VALUE"],
+            description: "هدف التحسين: OFFSITE_CONVERSIONS (تحويلات)، LEAD_GENERATION (ليدز)، LINK_CLICKS (نقرات)، LANDING_PAGE_VIEWS (زيارات الصفحة)",
+          },
+          billing_event: { type: "string", enum: ["IMPRESSIONS", "LINK_CLICKS"], description: "حدث الفوترة: IMPRESSIONS (دفع لكل 1000 ظهور — الأشيع) أو LINK_CLICKS" },
+          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP (للمجموعة إذا كانت الحملة بدون CBO)" },
+          targeting: {
+            type: "object",
+            description: "إعدادات الاستهداف — مثال: {geo_locations: {countries: [\"EG\"]}, age_min: 25, age_max: 45, genders: [1,2]}",
+            properties: {
+              geo_locations: { type: "object", description: "{countries: [\"EG\", \"SA\", ...]}" },
+              age_min: { type: "number" },
+              age_max: { type: "number" },
+              genders: { type: "array", description: "[1] ذكور، [2] إناث، [1,2] كلاهما" },
+            },
+          },
+          status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة المجموعة عند الإنشاء" },
+        },
+        required: ["account_id", "campaign_id", "name", "optimization_goal", "billing_event"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "duplicate_campaign",
+      description: "اقتراح نسخ حملة إعلانية كاملة (مع مجموعاتها وإعلاناتها). الأسرع لإنشاء نسخة تجريبية أو موسمية. سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة الأصلية المراد نسخها (id)" },
+          name: { type: "string", description: "اسم الحملة الأصلية (للعرض في التأكيد)" },
+          name_suffix: { type: "string", description: "لاحقة تُضاف لاسم النسخة — مثال: ' - نسخة' أو ' - رمضان 2026'" },
+          new_daily_budget: { type: "number", description: "ميزانية يومية جديدة للنسخة بالـ EGP (اختياري — يبقى نفس الأصلية إذا لم تُحدَّد)" },
+          new_status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة النسخة الجديدة — افتراضي PAUSED للمراجعة قبل التشغيل" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
 ];
 
 // ── Arabic label for each read tool (used in tool_call_label SSE events) ─────
@@ -644,6 +738,9 @@ const WRITE_TOOL_NAMES = new Set([
   "enable_adset",
   "update_adset_budget",
   "duplicate_adset",
+  "create_campaign",
+  "create_adset",
+  "duplicate_campaign",
 ]);
 
 // ── Rate-limit error detection (mirrors meta.ts) ─────────────────────────────
@@ -787,6 +884,37 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
     }
     case "duplicate_adset":
       return { tool: name, args, summary: `نسخ المجموعة الإعلانية "${label}"` };
+    case "create_campaign": {
+      const obj: Record<string, string> = {
+        OUTCOME_SALES: "مبيعات", OUTCOME_LEADS: "عملاء محتملين",
+        OUTCOME_TRAFFIC: "زيارات", OUTCOME_AWARENESS: "وعي", OUTCOME_ENGAGEMENT: "تفاعل", OUTCOME_APP_PROMOTION: "تطبيق",
+      };
+      const objAr = obj[String(args.objective ?? "")] ?? String(args.objective ?? "");
+      const budget = Math.round(Number(args.daily_budget ?? 0));
+      const statusAr = args.status === "ACTIVE" ? "نشطة مباشرةً" : "موقوفة للمراجعة";
+      return {
+        tool: name, args,
+        summary: `إنشاء حملة "${String(args.name ?? "")}" — هدف: ${objAr} — ميزانية يومية: ${budget} EGP — الحالة: ${statusAr}`,
+        proposedValue: `حملة جديدة — ${objAr}`,
+      };
+    }
+    case "create_adset": {
+      const campaign_id = String(args.campaign_id ?? "");
+      return {
+        tool: name, args,
+        summary: `إنشاء مجموعة إعلانية "${String(args.name ?? "")}" داخل حملة ${campaign_id}`,
+        proposedValue: "مجموعة إعلانية جديدة",
+      };
+    }
+    case "duplicate_campaign": {
+      const suffix = args.name_suffix ? ` (${String(args.name_suffix)})` : "";
+      const budget = args.new_daily_budget ? ` — ميزانية: ${Math.round(Number(args.new_daily_budget))} EGP` : "";
+      return {
+        tool: name, args,
+        summary: `نسخ الحملة "${label}"${suffix}${budget}`,
+        proposedValue: `نسخة جديدة من "${label}"`,
+      };
+    }
     default:
       return { tool: name, args, summary: label };
   }
@@ -1526,6 +1654,9 @@ const ACTION_LABEL: Record<string, string> = {
   enable_adset:                "تم تشغيل المجموعة الإعلانية",
   update_adset_budget:         "تم تعديل ميزانية المجموعة الإعلانية",
   duplicate_adset:             "تم نسخ المجموعة الإعلانية",
+  create_campaign:             "تم إنشاء الحملة الإعلانية",
+  create_adset:                "تم إنشاء المجموعة الإعلانية",
+  duplicate_campaign:          "تم نسخ الحملة الإعلانية",
 };
 
 function relativeTime(dateStr: string): string {

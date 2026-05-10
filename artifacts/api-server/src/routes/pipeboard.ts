@@ -68,6 +68,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "enable_adset",
     "update_adset_budget",
     "duplicate_adset",
+    "create_campaign",
+    "create_adset",
+    "duplicate_campaign",
   ]);
 
   if (!tool || !ALLOWED_TOOLS.has(tool)) {
