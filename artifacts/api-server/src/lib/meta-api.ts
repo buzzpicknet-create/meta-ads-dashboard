@@ -70,6 +70,31 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Fetch a single Meta Graph API object (no pagination). Respects rate-limit backoff. */
+async function fbGetSingle<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const now = Date.now();
+  if (_rateLimitBackoffUntil > now) {
+    const remaining_s = Math.ceil((_rateLimitBackoffUntil - now) / 1000);
+    logger.warn({ remaining_s }, "Meta rate-limit active — rejecting single fetch immediately");
+    throw new Error(`Meta rate limit active, retry in ${remaining_s}s (17)`);
+  }
+  const url = new URL(`${BASE_URL}${path}`);
+  url.searchParams.set("access_token", getAccessToken());
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, v);
+  }
+  const res = await fetch(url.toString());
+  const json = (await res.json()) as T & { error?: FbApiError };
+  if (json.error) {
+    if (isRateLimitCode((json.error as FbApiError).code)) {
+      _rateLimitBackoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+      logger.warn({ code: (json.error as FbApiError).code, backoff_s: RATE_LIMIT_BACKOFF_MS / 1000 }, "Meta rate-limit hit — backoff recorded");
+    }
+    throw new Error(`Meta API error (${(json.error as FbApiError).code}): ${(json.error as FbApiError).message}`);
+  }
+  return json;
+}
+
 async function fbGet<T>(
   pathOrUrl: string,
   params: Record<string, string> = {},
@@ -1516,5 +1541,63 @@ export async function getAdBreakdowns(opts: {
     by_age: toSegments(ageMap),
     by_gender: toSegments(genderMap),
     by_placement: toSegments(placementMap),
+  };
+}
+
+// ── Campaign / Adset live details (status + budget) ───────────────────────────
+
+export interface CampaignDetails {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  daily_budget?: number;
+  lifetime_budget?: number;
+}
+
+export async function getCampaignDetails(campaign_id: string): Promise<CampaignDetails> {
+  const json = await fbGetSingle<{
+    id?: string;
+    name?: string;
+    status?: string;
+    effective_status?: string;
+    daily_budget?: string;
+    lifetime_budget?: string;
+  }>(`/${campaign_id}`, { fields: "id,name,status,effective_status,daily_budget,lifetime_budget" });
+  return {
+    id: json.id ?? campaign_id,
+    name: json.name ?? "",
+    status: json.status ?? "UNKNOWN",
+    effective_status: json.effective_status ?? "UNKNOWN",
+    daily_budget: json.daily_budget ? Number(json.daily_budget) / 100 : undefined,
+    lifetime_budget: json.lifetime_budget ? Number(json.lifetime_budget) / 100 : undefined,
+  };
+}
+
+export interface AdsetDetails {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  daily_budget?: number;
+  lifetime_budget?: number;
+}
+
+export async function getAdsetDetails(adset_id: string): Promise<AdsetDetails> {
+  const json = await fbGetSingle<{
+    id?: string;
+    name?: string;
+    status?: string;
+    effective_status?: string;
+    daily_budget?: string;
+    lifetime_budget?: string;
+  }>(`/${adset_id}`, { fields: "id,name,status,effective_status,daily_budget,lifetime_budget" });
+  return {
+    id: json.id ?? adset_id,
+    name: json.name ?? "",
+    status: json.status ?? "UNKNOWN",
+    effective_status: json.effective_status ?? "UNKNOWN",
+    daily_budget: json.daily_budget ? Number(json.daily_budget) / 100 : undefined,
+    lifetime_budget: json.lifetime_budget ? Number(json.lifetime_budget) / 100 : undefined,
   };
 }

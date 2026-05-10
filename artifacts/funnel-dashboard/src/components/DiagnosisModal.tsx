@@ -25,6 +25,8 @@ interface PendingAction {
   tool: string;
   args: Record<string, unknown>;
   summary: string;
+  currentValue?: string;
+  proposedValue?: string;
 }
 
 // ── Types ─────────────────────────────────────────────────────
@@ -2093,8 +2095,15 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               </div>
               <div className="min-w-0 rounded-2xl rounded-bl-sm bg-amber-50 border border-amber-200 shadow-sm px-4 py-3" style={{ maxWidth: "85%" }}>
                 <p className="text-[12px] font-semibold text-amber-700 mb-1">⚡ تأكيد الإجراء</p>
-                <p className="text-[13px] text-amber-900 leading-relaxed mb-3">{pendingAction.summary}</p>
-                <div className="flex gap-2">
+                <p className="text-[13px] text-amber-900 leading-relaxed">{pendingAction.summary}</p>
+                {pendingAction.currentValue && pendingAction.proposedValue && (
+                  <div className="mt-2 mb-1 flex items-center gap-2 text-[12px]" dir="ltr">
+                    <span className="px-2 py-0.5 rounded-md bg-red-100 text-red-700 font-medium">{pendingAction.currentValue}</span>
+                    <span className="text-amber-600 font-bold">→</span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-medium">{pendingAction.proposedValue}</span>
+                  </div>
+                )}
+                <div className="flex gap-2 mt-3">
                   <button
                     onClick={executeAction}
                     disabled={executingAction}

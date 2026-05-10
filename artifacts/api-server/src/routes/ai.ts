@@ -5,6 +5,8 @@ import {
   listCampaigns,
   getCampaignInsights,
   getAccountOverview,
+  getCampaignDetails,
+  getAdsetDetails,
   isRateLimitActive,
 } from "../lib/meta-api.js";
 import { query } from "../lib/db.js";
@@ -241,8 +243,13 @@ Frequency (في 7 أيام):
 لديك أدوات تنفيذية تتيح لك اقتراح إجراءات مباشرة على Meta.
 
 ⚠️ قاعدة ذهبية — لازم تلتزم بها دايماً:
-قبل أي write action، لازم تكون جبت البيانات الفعلية أولاً (get_campaign_daily أو get_adsets).
-ممنوع تقترح إيقاف أو تعديل بدون تشخيص مبني على بيانات حقيقية.
+قبل أي write action، لازم تكون جبت البيانات الفعلية أولاً. الترتيب الإلزامي:
+١. اجلب حالة العنصر الحالية:
+   - قبل pause_campaign أو enable_campaign: استخدم get_campaign_status أولاً
+   - قبل update_campaign_budget: استخدم get_campaign_budget أولاً
+   - قبل pause_adset أو enable_adset أو update_adset_budget: استخدم get_adset_status أولاً
+٢. اجلب بيانات الأداء للتشخيص (get_campaign_daily أو get_adsets)
+ممنوع تقترح إيقاف أو تعديل بدون تشخيص مبني على بيانات حقيقية وحالة حالية موثّقة.
 
 الأدوات المتاحة:
 - pause_campaign(campaign_id, name) — إيقاف حملة مؤقتاً
@@ -313,6 +320,48 @@ const TOOLS = [
           days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 7" },
         },
         required: ["campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_campaign_status",
+      description: "جيب الحالة الحالية لحملة معينة (نشطة/موقوفة) مع الاسم. استخدم قبل اقتراح إيقاف أو تشغيل حملة للتحقق من حالتها الفعلية.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_campaign_budget",
+      description: "جيب الميزانية الحالية لحملة معينة (يومية أو إجمالية) بالـ EGP. استخدم قبل اقتراح تعديل الميزانية للتحقق من القيمة الحالية.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_adset_status",
+      description: "جيب الحالة الحالية ومعلومات الميزانية لمجموعة إعلانية معينة. استخدم قبل اقتراح إيقاف أو تعديل مجموعة إعلانية.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
+        },
+        required: ["adset_id"],
       },
     },
   },
@@ -468,26 +517,88 @@ function buildCacheNote(fromCache: boolean, cacheAgeMs: number): string {
 
 // ── Tool executor (cache-first: DB → Meta API → stale fallback) ───────────────
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
-  // Write tools — return a pending-confirmation marker (no Meta API call)
+  // Write tools — fetch current state then return a pending-confirmation marker
   if (WRITE_TOOL_NAMES.has(name)) {
     let summary = "";
+    let currentValue: string | undefined;
+    let proposedValue: string | undefined;
+
+    const statusLabel = (s: string) => {
+      if (s === "ACTIVE") return "نشطة ✅";
+      if (s === "PAUSED" || s === "CAMPAIGN_PAUSED") return "موقوفة ⏸";
+      return s;
+    };
+
     if (name === "pause_campaign") {
-      summary = `إيقاف مؤقت للحملة "${args.name ?? args.campaign_id}"`;
+      const label = String(args.name ?? args.campaign_id);
+      summary = `إيقاف مؤقت للحملة "${label}"`;
+      proposedValue = "موقوفة ⏸";
+      try {
+        const details = await getCampaignDetails(String(args.campaign_id));
+        currentValue = statusLabel(details.effective_status);
+        if (!args.name && details.name) summary = `إيقاف مؤقت للحملة "${details.name}"`;
+      } catch {}
     } else if (name === "enable_campaign") {
-      summary = `تشغيل الحملة "${args.name ?? args.campaign_id}"`;
+      const label = String(args.name ?? args.campaign_id);
+      summary = `تشغيل الحملة "${label}"`;
+      proposedValue = "نشطة ✅";
+      try {
+        const details = await getCampaignDetails(String(args.campaign_id));
+        currentValue = statusLabel(details.effective_status);
+        if (!args.name && details.name) summary = `تشغيل الحملة "${details.name}"`;
+      } catch {}
     } else if (name === "update_campaign_budget") {
       const budgetType = args.budget_type === "lifetime" ? "إجمالية" : "يومية";
-      summary = `تعديل ميزانية الحملة "${args.name ?? args.campaign_id}" إلى ${args.budget_amount} EGP (${budgetType})`;
+      const label = String(args.name ?? args.campaign_id);
+      summary = `تعديل ميزانية الحملة "${label}" إلى ${args.budget_amount} EGP (${budgetType})`;
+      proposedValue = `${args.budget_amount} EGP (${budgetType})`;
+      try {
+        const details = await getCampaignDetails(String(args.campaign_id));
+        if (!args.name && details.name) summary = `تعديل ميزانية الحملة "${details.name}" إلى ${args.budget_amount} EGP (${budgetType})`;
+        const curBudget = args.budget_type === "lifetime" ? details.lifetime_budget : details.daily_budget;
+        if (curBudget !== undefined && curBudget > 0) {
+          currentValue = `${Math.round(curBudget)} EGP (${budgetType})`;
+        }
+      } catch {}
     } else if (name === "pause_adset") {
-      summary = `إيقاف مؤقت للمجموعة الإعلانية "${args.name ?? args.adset_id}"`;
+      const label = String(args.name ?? args.adset_id);
+      summary = `إيقاف مؤقت للمجموعة الإعلانية "${label}"`;
+      proposedValue = "موقوفة ⏸";
+      try {
+        const details = await getAdsetDetails(String(args.adset_id));
+        currentValue = statusLabel(details.effective_status);
+        if (!args.name && details.name) summary = `إيقاف مؤقت للمجموعة الإعلانية "${details.name}"`;
+      } catch {}
     } else if (name === "enable_adset") {
-      summary = `تشغيل المجموعة الإعلانية "${args.name ?? args.adset_id}"`;
+      const label = String(args.name ?? args.adset_id);
+      summary = `تشغيل المجموعة الإعلانية "${label}"`;
+      proposedValue = "نشطة ✅";
+      try {
+        const details = await getAdsetDetails(String(args.adset_id));
+        currentValue = statusLabel(details.effective_status);
+        if (!args.name && details.name) summary = `تشغيل المجموعة الإعلانية "${details.name}"`;
+      } catch {}
     } else if (name === "update_adset_budget") {
-      summary = `تعديل ميزانية المجموعة "${args.name ?? args.adset_id}" إلى ${args.budget_amount} EGP`;
+      const label = String(args.name ?? args.adset_id);
+      summary = `تعديل ميزانية المجموعة "${label}" إلى ${args.budget_amount} EGP`;
+      proposedValue = `${args.budget_amount} EGP`;
+      try {
+        const details = await getAdsetDetails(String(args.adset_id));
+        if (!args.name && details.name) summary = `تعديل ميزانية المجموعة "${details.name}" إلى ${args.budget_amount} EGP`;
+        const curBudget = details.daily_budget ?? details.lifetime_budget;
+        if (curBudget !== undefined && curBudget > 0) {
+          const bType = details.lifetime_budget !== undefined && details.daily_budget === undefined ? "إجمالية" : "يومية";
+          currentValue = `${Math.round(curBudget)} EGP (${bType})`;
+        }
+      } catch {}
     } else if (name === "duplicate_adset") {
       summary = `نسخ المجموعة الإعلانية "${args.name ?? args.adset_id}"`;
+      try {
+        const details = await getAdsetDetails(String(args.adset_id));
+        if (!args.name && details.name) summary = `نسخ المجموعة الإعلانية "${details.name}"`;
+      } catch {}
     }
-    return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary })}`;
+    return `ACTION_PENDING:${JSON.stringify({ tool: name, args, summary, currentValue, proposedValue })}`;
   }
 
   const days = Number(args.days ?? (name === "get_campaigns" ? 30 : 14));
@@ -707,6 +818,77 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
         rows.push(`| ${as.label} | ${fmt(as.spend)} | ${as.purchases} | ${as.cpa > 0 ? fmt(as.cpa) : "—"} | ${fmt(as.ctr, 2)} | ${fmt(as.frequency, 2)} |`);
       }
       return rows.join("\n") + buildCacheNote(result.fromCache, result.cacheAgeMs);
+    }
+
+    if (name === "get_campaign_status") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return "campaign_id مطلوب.";
+      try {
+        const details = await getCampaignDetails(campaign_id);
+        const statusMap: Record<string, string> = {
+          ACTIVE: "نشطة ✅",
+          PAUSED: "موقوفة ⏸",
+          CAMPAIGN_PAUSED: "موقوفة (بسبب الحملة) ⏸",
+          ARCHIVED: "مؤرشفة",
+          DELETED: "محذوفة",
+        };
+        const statusAr = statusMap[details.effective_status] ?? details.effective_status;
+        return `## حالة الحملة:\n- الاسم: ${details.name}\n- الحالة: ${statusAr}\n- الحالة الفعلية: ${details.effective_status}`;
+      } catch (err) {
+        return `خطأ في جلب حالة الحملة: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "get_campaign_budget") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return "campaign_id مطلوب.";
+      try {
+        const details = await getCampaignDetails(campaign_id);
+        const rows = [`## ميزانية الحملة:\n- الاسم: ${details.name}`];
+        if (details.daily_budget !== undefined && details.daily_budget > 0) {
+          rows.push(`- الميزانية اليومية: ${Math.round(details.daily_budget)} EGP`);
+        }
+        if (details.lifetime_budget !== undefined && details.lifetime_budget > 0) {
+          rows.push(`- الميزانية الإجمالية: ${Math.round(details.lifetime_budget)} EGP`);
+        }
+        if ((details.daily_budget === undefined || details.daily_budget === 0) &&
+            (details.lifetime_budget === undefined || details.lifetime_budget === 0)) {
+          rows.push("- الميزانية: غير محددة على مستوى الحملة (محددة على مستوى المجموعات الإعلانية)");
+        }
+        return rows.join("\n");
+      } catch (err) {
+        return `خطأ في جلب ميزانية الحملة: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "get_adset_status") {
+      const adset_id = String(args.adset_id ?? "");
+      if (!adset_id) return "adset_id مطلوب.";
+      try {
+        const details = await getAdsetDetails(adset_id);
+        const statusMap: Record<string, string> = {
+          ACTIVE: "نشطة ✅",
+          PAUSED: "موقوفة ⏸",
+          CAMPAIGN_PAUSED: "موقوفة (بسبب الحملة) ⏸",
+          ARCHIVED: "مؤرشفة",
+          DELETED: "محذوفة",
+        };
+        const statusAr = statusMap[details.effective_status] ?? details.effective_status;
+        const rows = [
+          `## حالة المجموعة الإعلانية:`,
+          `- الاسم: ${details.name}`,
+          `- الحالة: ${statusAr}`,
+        ];
+        if (details.daily_budget !== undefined && details.daily_budget > 0) {
+          rows.push(`- الميزانية اليومية: ${Math.round(details.daily_budget)} EGP`);
+        }
+        if (details.lifetime_budget !== undefined && details.lifetime_budget > 0) {
+          rows.push(`- الميزانية الإجمالية: ${Math.round(details.lifetime_budget)} EGP`);
+        }
+        return rows.join("\n");
+      } catch (err) {
+        return `خطأ في جلب حالة المجموعة: ${err instanceof Error ? err.message : String(err)}`;
+      }
     }
 
     return "أداة غير معروفة.";
