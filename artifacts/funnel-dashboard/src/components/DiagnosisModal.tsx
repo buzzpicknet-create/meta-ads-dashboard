@@ -1584,7 +1584,7 @@ function buildCampaignContext(
 
 // ── AI Chat types ─────────────────────────────────────────────────────────────
 interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string; tool_calls?: string[] }
-interface ConvSummary { id: number; title: string; created_at: string; updated_at: string; snippet?: string | null }
+interface ConvSummary { id: number; title: string; campaign_name?: string | null; created_at: string; updated_at: string; snippet?: string | null }
 
 function fmtRelative(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -2136,6 +2136,11 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
                     <Clock className="h-3 w-3 text-muted-foreground/50" />
                     <span className="text-[11px] text-muted-foreground/60">{fmtRelative(conv.updated_at)}</span>
                   </div>
+                  {conv.campaign_name && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/8 text-primary/70 text-[10px] font-medium leading-none border border-primary/15 truncate max-w-[140px]">
+                      {conv.campaign_name}
+                    </span>
+                  )}
                 </div>
               </div>
               <button
