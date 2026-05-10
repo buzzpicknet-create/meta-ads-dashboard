@@ -1590,6 +1590,17 @@ function CacheWarmupSection() {
   const inProgress = data?.inProgress ?? false;
   const historyRows = historyData?.history ?? [];
 
+  const avgSkipped = historyRows.length > 0
+    ? historyRows.reduce((sum, r) => sum + r.skipped, 0) / historyRows.length
+    : 0;
+  const ABSOLUTE_WARN_THRESHOLD = 3;
+  function skipSeverity(skipped: number): "critical" | "warn" | "none" {
+    if (skipped <= 0) return "none";
+    if (skipped >= Math.max(avgSkipped * 2, ABSOLUTE_WARN_THRESHOLD * 2)) return "critical";
+    if (skipped > avgSkipped || skipped >= ABSOLUTE_WARN_THRESHOLD) return "warn";
+    return "none";
+  }
+
   function formatDuration(ms: number) {
     if (ms < 1000) return `${ms} ms`;
     return `${(ms / 1000).toFixed(1)}s`;
@@ -1691,15 +1702,23 @@ function CacheWarmupSection() {
       {/* History panel */}
       {showHistory && (
         <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" />
-            آخر 20 تشغيل
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              آخر 20 تشغيل
+            </p>
+            {avgSkipped > 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                متوسط التخطّي: <span className="font-mono font-medium">{avgSkipped.toFixed(1)}</span>
+              </span>
+            )}
+          </div>
           {historyLoading ? (
             <div className="h-24 rounded-lg bg-muted animate-pulse" />
           ) : historyRows.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4">لا يوجد سجل حتى الآن</p>
           ) : (
+            <>
             <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
               <table className="w-full text-[11px] border-collapse" dir="ltr">
                 <thead>
@@ -1722,11 +1741,18 @@ function CacheWarmupSection() {
                       ? Math.round((new Date(row.ran_at).getTime() - new Date(historyRows[i + 1].ran_at).getTime()) / 60_000)
                       : null;
                     const hasGap = gapMinutes !== null && gapMinutes > 45;
+                    const severity = skipSeverity(row.skipped);
+                    const rowBg =
+                      severity === "critical"
+                        ? "bg-red-500/10 dark:bg-red-500/15"
+                        : severity === "warn"
+                        ? "bg-amber-500/8 dark:bg-amber-500/12"
+                        : "";
                     return (
                       <>
                         <tr
                           key={row.id ?? i}
-                          className={`border-t border-slate-100 dark:border-slate-800 ${i === 0 ? "bg-emerald-500/5" : "hover:bg-slate-50 dark:hover:bg-slate-800/40"}`}
+                          className={`border-t border-slate-100 dark:border-slate-800 ${rowBg || (i === 0 ? "bg-emerald-500/5" : "")} hover:brightness-95 transition-colors`}
                         >
                           <td className="px-2 py-1.5 text-left font-mono whitespace-nowrap text-muted-foreground">
                             {formatAbsTime(row.ran_at)}
@@ -1739,7 +1765,17 @@ function CacheWarmupSection() {
                           <td className="px-2 py-1.5 text-right">{row.campaign_details}</td>
                           <td className="px-2 py-1.5 text-right">{row.adset_details}</td>
                           <td className={`px-2 py-1.5 text-right font-semibold ${total > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>{total}</td>
-                          <td className={`px-2 py-1.5 text-right ${row.skipped > 0 ? "text-red-500" : "text-muted-foreground"}`}>{row.skipped}</td>
+                          <td className="px-2 py-1.5 text-right font-medium">
+                            {row.skipped > 0 ? (
+                              <span className={`inline-flex items-center gap-1 ${severity === "critical" ? "text-red-600 dark:text-red-400" : severity === "warn" ? "text-amber-600 dark:text-amber-400" : "text-red-500"}`}>
+                                {severity === "critical" && <AlertCircle className="h-3 w-3 shrink-0" />}
+                                {severity === "warn" && <AlertTriangle className="h-3 w-3 shrink-0" />}
+                                {row.skipped}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">{row.skipped}</span>
+                            )}
+                          </td>
                         </tr>
                         {hasGap && (
                           <tr key={`gap-${i}`} className="bg-amber-500/5">
@@ -1754,6 +1790,13 @@ function CacheWarmupSection() {
                 </tbody>
               </table>
             </div>
+            {historyRows.some(r => skipSeverity(r.skipped) !== "none") && (
+              <div className="flex items-center gap-3 text-[10px] text-muted-foreground pt-0.5">
+                <span className="flex items-center gap-1"><AlertTriangle className="h-2.5 w-2.5 text-amber-500" /> فوق المتوسط</span>
+                <span className="flex items-center gap-1"><AlertCircle className="h-2.5 w-2.5 text-red-500" /> مرتفع جداً</span>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}
