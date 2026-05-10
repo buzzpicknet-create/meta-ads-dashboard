@@ -1583,7 +1583,7 @@ function buildCampaignContext(
 
 // ── AI Chat types ─────────────────────────────────────────────────────────────
 interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string; tool_calls?: string[] }
-interface ConvSummary { id: number; title: string; created_at: string; updated_at: string }
+interface ConvSummary { id: number; title: string; created_at: string; updated_at: string; snippet?: string | null }
 
 function fmtRelative(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -2115,14 +2115,16 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
                 <p className="text-[13px] font-medium text-foreground truncate leading-snug">
                   {highlightText(conv.title, searchQuery)}
                 </p>
+                {searchQuery.trim() && conv.snippet && (
+                  <p className="text-[11px] text-muted-foreground/70 mt-0.5 leading-relaxed line-clamp-2 text-start">
+                    {highlightText(conv.snippet, searchQuery)}
+                  </p>
+                )}
                 <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                   <div className="flex items-center gap-1">
                     <Clock className="h-3 w-3 text-muted-foreground/50" />
                     <span className="text-[11px] text-muted-foreground/60">{fmtRelative(conv.updated_at)}</span>
                   </div>
-                  {searchQuery.trim() && searchResults !== null && !conv.title.toLowerCase().includes(searchQuery.trim().toLowerCase()) && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary/70 leading-none">تطابق في المحتوى</span>
-                  )}
                 </div>
               </div>
               <button

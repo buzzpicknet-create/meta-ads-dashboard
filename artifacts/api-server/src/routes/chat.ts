@@ -8,6 +8,27 @@ interface ConvRow {
   title: string;
   created_at: string;
   updated_at: string;
+  matching_content?: string | null;
+}
+
+function extractSnippet(content: string, queryStr: string, maxLen = 120): string {
+  const lc = content.toLowerCase();
+  const lcQ = queryStr.toLowerCase();
+  const idx = lc.indexOf(lcQ);
+  if (idx === -1) {
+    const s = content.slice(0, maxLen);
+    return s + (content.length > maxLen ? "…" : "");
+  }
+  const center = idx + Math.floor(queryStr.length / 2);
+  const half = Math.floor(maxLen / 2);
+  let start = Math.max(0, center - half);
+  let end = start + maxLen;
+  if (end > content.length) {
+    end = content.length;
+    start = Math.max(0, end - maxLen);
+  }
+  const snippet = content.slice(start, end);
+  return (start > 0 ? "…" : "") + snippet + (end < content.length ? "…" : "");
 }
 
 interface MsgRow {
@@ -31,7 +52,12 @@ router.get("/chat/conversations", async (req, res) => {
       const pattern = `%${q}%`;
       if (campaignId) {
         rows = await query<ConvRow>(
-          `SELECT DISTINCT cc.id, cc.title, cc.created_at, cc.updated_at
+          `SELECT DISTINCT cc.id, cc.title, cc.created_at, cc.updated_at,
+             (SELECT cm2.content
+              FROM chat_messages cm2
+              WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $3
+              ORDER BY cm2.created_at ASC
+              LIMIT 1) AS matching_content
            FROM chat_conversations cc
            LEFT JOIN chat_messages cm ON cm.conversation_id = cc.id
            WHERE cc.user_id = $1 AND cc.campaign_id = $2
@@ -42,7 +68,12 @@ router.get("/chat/conversations", async (req, res) => {
         );
       } else {
         rows = await query<ConvRow>(
-          `SELECT DISTINCT cc.id, cc.title, cc.created_at, cc.updated_at
+          `SELECT DISTINCT cc.id, cc.title, cc.created_at, cc.updated_at,
+             (SELECT cm2.content
+              FROM chat_messages cm2
+              WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $2
+              ORDER BY cm2.created_at ASC
+              LIMIT 1) AS matching_content
            FROM chat_conversations cc
            LEFT JOIN chat_messages cm ON cm.conversation_id = cc.id
            WHERE cc.user_id = $1 AND cc.campaign_id IS NULL
@@ -71,7 +102,12 @@ router.get("/chat/conversations", async (req, res) => {
         [userId]
       );
     }
-    res.json({ conversations: rows });
+    const conversations = rows.map((row) => {
+      const { matching_content, ...rest } = row;
+      if (!q || matching_content == null) return { ...rest, snippet: null };
+      return { ...rest, snippet: extractSnippet(matching_content, q) };
+    });
+    res.json({ conversations });
   } catch (err) {
     req.log.error({ err }, "chat/conversations GET error");
     res.status(500).json({ error: "خطأ في جلب المحادثات" });
