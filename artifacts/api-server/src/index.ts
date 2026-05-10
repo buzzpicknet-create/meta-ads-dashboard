@@ -415,6 +415,7 @@ async function runMigrations() {
   `);
 
   await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS campaign_name TEXT`);
+  await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE`);
 
   // One-time backfill: populate campaign_name for historical conversations that
   // already have a campaign_id but were created before the campaign_name column existed.

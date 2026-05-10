@@ -12,6 +12,7 @@ interface ConvRow {
   campaign_name: string | null;
   created_at: string;
   updated_at: string;
+  is_pinned: boolean;
   matching_content?: string | null;
 }
 
@@ -105,20 +106,20 @@ router.get("/chat/conversations", async (req, res) => {
     let rows: ConvRow[];
 
     if (global && !q) {
-      // Global recent: all conversations across all campaigns, most-recent first
+      // Global recent: all conversations across all campaigns, pinned first then most-recent
       rows = await query<ConvRow>(
-        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, NULL AS matching_content
+        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, is_pinned, NULL AS matching_content
          FROM chat_conversations
          WHERE user_id = $1
-         ORDER BY updated_at DESC
-         LIMIT 6`,
+         ORDER BY is_pinned DESC, updated_at DESC
+         LIMIT 20`,
         [userId]
       );
     } else if (q && global) {
       // Global search: across all campaigns, returns matching_content for snippet generation
       const pattern = `%${q}%`;
       rows = await query<ConvRow>(
-        `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at,
+        `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at, cc.is_pinned,
            (SELECT cm2.content
             FROM chat_messages cm2
             WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $2
@@ -136,7 +137,7 @@ router.get("/chat/conversations", async (req, res) => {
       const pattern = `%${q}%`;
       if (campaignId) {
         rows = await query<ConvRow>(
-          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at,
+          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at, cc.is_pinned,
              (SELECT cm2.content
               FROM chat_messages cm2
               WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $3
@@ -152,7 +153,7 @@ router.get("/chat/conversations", async (req, res) => {
         );
       } else {
         rows = await query<ConvRow>(
-          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at,
+          `SELECT DISTINCT cc.id, cc.title, cc.campaign_id, cc.campaign_name, cc.created_at, cc.updated_at, cc.is_pinned,
              (SELECT cm2.content
               FROM chat_messages cm2
               WHERE cm2.conversation_id = cc.id AND cm2.content ILIKE $2
@@ -169,19 +170,19 @@ router.get("/chat/conversations", async (req, res) => {
       }
     } else if (campaignId) {
       rows = await query<ConvRow>(
-        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, NULL AS matching_content
+        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, is_pinned, NULL AS matching_content
          FROM chat_conversations
          WHERE user_id = $1 AND campaign_id = $2
-         ORDER BY updated_at DESC
+         ORDER BY is_pinned DESC, updated_at DESC
          LIMIT 60`,
         [userId, campaignId]
       );
     } else {
       rows = await query<ConvRow>(
-        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, NULL AS matching_content
+        `SELECT id, title, campaign_id, campaign_name, created_at, updated_at, is_pinned, NULL AS matching_content
          FROM chat_conversations
          WHERE user_id = $1 AND campaign_id IS NULL
-         ORDER BY updated_at DESC
+         ORDER BY is_pinned DESC, updated_at DESC
          LIMIT 60`,
         [userId]
       );
@@ -195,6 +196,7 @@ router.get("/chat/conversations", async (req, res) => {
       if (!q || matching_content == null) return { ...base, snippet: null };
       return { ...base, snippet: extractSnippet(matching_content, q) };
     });
+
     res.json({ conversations });
   } catch (err) {
     req.log.error({ err }, "chat/conversations GET error");
@@ -276,6 +278,26 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "chat/messages POST error");
     res.status(500).json({ error: "خطأ في حفظ الرسائل" });
+  }
+});
+
+// PATCH /api/chat/conversations/:id/pin — toggle pin status
+router.patch("/chat/conversations/:id/pin", async (req, res) => {
+  try {
+    const userId = req.session.userId!;
+    const convId = Number(req.params["id"]);
+    if (!convId || isNaN(convId)) return res.status(400).json({ error: "معرف المحادثة غير صالح" });
+    const { pinned } = req.body as { pinned: boolean };
+    if (typeof pinned !== "boolean") return res.status(400).json({ error: "pinned مطلوب (boolean)" });
+    const updated = await query<{ id: number }>(
+      `UPDATE chat_conversations SET is_pinned = $1 WHERE id = $2 AND user_id = $3 RETURNING id`,
+      [pinned, convId, userId]
+    );
+    if (!updated.length) return res.status(404).json({ error: "المحادثة غير موجودة" });
+    res.json({ ok: true, pinned });
+  } catch (err) {
+    req.log.error({ err }, "chat/conversations/:id/pin PATCH error");
+    res.status(500).json({ error: "خطأ في تحديث التثبيت" });
   }
 });
 

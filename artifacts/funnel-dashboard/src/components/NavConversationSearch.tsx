@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Search, X, Globe, MessageSquare } from "lucide-react";
+import { Search, X, Globe, MessageSquare, Pin } from "lucide-react";
 import { useLocation } from "wouter";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -12,6 +12,7 @@ interface ConvSummary {
   snippet?: string | null;
   created_at: string;
   updated_at: string;
+  is_pinned: boolean;
 }
 
 function formatRelative(dateStr: string): string {
@@ -43,6 +44,74 @@ function highlightText(text: string, query: string): React.ReactNode {
 interface NavConversationSearchProps {
   open: boolean;
   onClose: () => void;
+}
+
+function ConvRow({
+  conv,
+  query,
+  onOpen,
+  onTogglePin,
+}: {
+  conv: ConvSummary;
+  query?: string;
+  onOpen: (conv: ConvSummary) => void;
+  onTogglePin: (conv: ConvSummary) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const isCampaign = !!conv.campaign_id;
+
+  return (
+    <div
+      className="relative group"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <button
+        onClick={() => onOpen(conv)}
+        className="w-full flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-muted/60 text-start pr-9"
+      >
+        {isCampaign
+          ? <Globe className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+          : <MessageSquare className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+        }
+        <div className="flex-1 min-w-0">
+          <p className="text-sm truncate leading-tight font-medium">
+            {query ? highlightText(conv.title, query) : conv.title}
+          </p>
+          {isCampaign && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
+              <Globe className="h-2.5 w-2.5" />
+              حملة
+            </span>
+          )}
+          {query && conv.snippet && (
+            <p className="text-xs text-muted-foreground/70 mt-1 line-clamp-2 leading-snug">
+              {highlightText(conv.snippet.slice(0, 140), query)}
+            </p>
+          )}
+          <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+            {formatRelative(conv.updated_at)}
+          </p>
+        </div>
+      </button>
+
+      {/* Pin toggle button — visible on hover or when already pinned */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onTogglePin(conv); }}
+        title={conv.is_pinned ? "إلغاء التثبيت" : "تثبيت المحادثة"}
+        className={[
+          "absolute top-1/2 -translate-y-1/2 left-2 p-1.5 rounded-lg transition-all",
+          conv.is_pinned
+            ? "text-primary opacity-100"
+            : hovered
+              ? "text-muted-foreground opacity-100 hover:text-foreground hover:bg-muted"
+              : "opacity-0 pointer-events-none",
+        ].join(" ")}
+      >
+        <Pin className={`h-3.5 w-3.5 ${conv.is_pinned ? "fill-primary" : ""}`} />
+      </button>
+    </div>
+  );
 }
 
 export function NavConversationSearchModal({ open, onClose }: NavConversationSearchProps) {
@@ -148,11 +217,39 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
     navigate("/");
   }, [navigate, onClose]);
 
+  const togglePin = useCallback(async (conv: ConvSummary) => {
+    const newPinned = !conv.is_pinned;
+    // Optimistic update
+    const update = (list: ConvSummary[] | null) =>
+      list ? list.map((c) => c.id === conv.id ? { ...c, is_pinned: newPinned } : c) : null;
+    setRecentConvs(update);
+    setResults(update);
+
+    try {
+      const res = await fetch(`${API}/chat/conversations/${conv.id}/pin`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: newPinned }),
+      });
+      if (!res.ok) throw new Error("pin failed");
+    } catch {
+      // Revert on error or non-OK response
+      const revert = (list: ConvSummary[] | null) =>
+        list ? list.map((c) => c.id === conv.id ? { ...c, is_pinned: conv.is_pinned } : c) : null;
+      setRecentConvs(revert);
+      setResults(revert);
+    }
+  }, []);
+
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === overlayRef.current) onClose();
   };
 
   if (!open) return null;
+
+  const pinnedConvs = recentConvs?.filter((c) => c.is_pinned) ?? [];
+  const unpinnedConvs = recentConvs?.filter((c) => !c.is_pinned) ?? [];
 
   return (
     <div
@@ -207,38 +304,48 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
               </div>
             ) : recentConvs && recentConvs.length > 0 ? (
               <div className="py-2">
-                <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-4 pt-1 pb-2">
-                  المحادثات الأخيرة
-                </p>
-                <div className="space-y-0.5 px-2">
-                  {recentConvs.map((conv) => {
-                    const isCampaign = !!conv.campaign_id;
-                    return (
-                      <button
-                        key={conv.id}
-                        onClick={() => openConversation(conv)}
-                        className="w-full flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-muted/60 text-start"
-                      >
-                        {isCampaign
-                          ? <Globe className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
-                          : <MessageSquare className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                        }
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate leading-tight font-medium">{conv.title}</p>
-                          {isCampaign && (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
-                              <Globe className="h-2.5 w-2.5" />
-                              حملة
-                            </span>
-                          )}
-                          <p className="text-[10px] text-muted-foreground/50 mt-0.5">
-                            {formatRelative(conv.updated_at)}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* Pinned section */}
+                {pinnedConvs.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-4 pt-1 pb-2 flex items-center gap-1.5">
+                      <Pin className="h-2.5 w-2.5 fill-muted-foreground/60" />
+                      محادثات مثبتة
+                    </p>
+                    <div className="space-y-0.5 px-2">
+                      {pinnedConvs.map((conv) => (
+                        <ConvRow
+                          key={conv.id}
+                          conv={conv}
+                          onOpen={openConversation}
+                          onTogglePin={togglePin}
+                        />
+                      ))}
+                    </div>
+                    {unpinnedConvs.length > 0 && (
+                      <div className="my-1.5 mx-4 border-t border-border" />
+                    )}
+                  </>
+                )}
+
+                {/* Recent section */}
+                {unpinnedConvs.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider px-4 pt-1 pb-2">
+                      المحادثات الأخيرة
+                    </p>
+                    <div className="space-y-0.5 px-2">
+                      {unpinnedConvs.map((conv) => (
+                        <ConvRow
+                          key={conv.id}
+                          conv={conv}
+                          onOpen={openConversation}
+                          onTogglePin={togglePin}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
                 <p className="text-[10px] text-muted-foreground/40 text-center py-2 border-t border-border mt-1">
                   ابدأ الكتابة للبحث في جميع المحادثات
                 </p>
@@ -272,40 +379,15 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
                 {results.length} نتيجة
               </p>
               <div className="space-y-0.5 px-2">
-                {results.map((conv) => {
-                  const isCampaign = !!conv.campaign_id;
-                  return (
-                    <button
-                      key={conv.id}
-                      onClick={() => openConversation(conv)}
-                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors hover:bg-muted/60 text-start"
-                    >
-                      {isCampaign
-                        ? <Globe className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
-                        : <MessageSquare className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                      }
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm truncate leading-tight font-medium">
-                          {highlightText(conv.title, query)}
-                        </p>
-                        {isCampaign && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
-                            <Globe className="h-2.5 w-2.5" />
-                            حملة
-                          </span>
-                        )}
-                        {conv.snippet && (
-                          <p className="text-xs text-muted-foreground/70 mt-1 line-clamp-2 leading-snug">
-                            {highlightText(conv.snippet.slice(0, 140), query)}
-                          </p>
-                        )}
-                        <p className="text-[10px] text-muted-foreground/50 mt-0.5">
-                          {formatRelative(conv.updated_at)}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
+                {results.map((conv) => (
+                  <ConvRow
+                    key={conv.id}
+                    conv={conv}
+                    query={query}
+                    onOpen={openConversation}
+                    onTogglePin={togglePin}
+                  />
+                ))}
               </div>
             </div>
           )}
