@@ -15,6 +15,12 @@ interface ConvSummary {
   is_pinned: boolean;
 }
 
+const NEW_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+function isNew(conv: ConvSummary): boolean {
+  return Date.now() - new Date(conv.created_at).getTime() < NEW_THRESHOLD_MS;
+}
+
 function formatRelative(dateStr: string): string {
   const now = Date.now();
   const ts = new Date(dateStr).getTime();
@@ -59,10 +65,11 @@ function ConvRow({
 }) {
   const [hovered, setHovered] = useState(false);
   const isCampaign = !!conv.campaign_id;
+  const isNewConv = isNew(conv);
 
   return (
     <div
-      className="relative group"
+      className={`relative group${isNewConv ? " new-row-highlight" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -75,9 +82,16 @@ function ConvRow({
           : <MessageSquare className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
         }
         <div className="flex-1 min-w-0">
-          <p className="text-sm truncate leading-tight font-medium">
-            {query ? highlightText(conv.title, query) : conv.title}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm truncate leading-tight font-medium">
+              {query ? highlightText(conv.title, query) : conv.title}
+            </p>
+            {isNewConv && (
+              <span className="new-badge inline-flex items-center shrink-0 text-[9px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700 rounded-full px-1.5 py-0.5">
+                جديد
+              </span>
+            )}
+          </div>
           {isCampaign && (
             <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-full px-1.5 py-0.5 mt-0.5">
               <Globe className="h-2.5 w-2.5" />
@@ -257,6 +271,23 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
       onClick={handleOverlayClick}
       className="fixed inset-0 z-[200] flex items-start justify-center bg-black/40 backdrop-blur-sm pt-[10vh]"
     >
+      <style>{`
+        @keyframes newBadgeFade {
+          0%, 70% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        .new-badge {
+          animation: newBadgeFade 20s ease-in forwards;
+        }
+        @keyframes newRowPulse {
+          0%, 100% { background-color: transparent; }
+          30% { background-color: rgba(16, 185, 129, 0.1); }
+        }
+        .new-row-highlight {
+          animation: newRowPulse 3s ease-in-out forwards;
+          border-radius: 0.75rem;
+        }
+      `}</style>
       <div
         className="w-full max-w-xl mx-4 rounded-2xl border border-border bg-background shadow-2xl overflow-hidden"
         dir="rtl"
