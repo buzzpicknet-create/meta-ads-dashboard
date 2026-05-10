@@ -5,7 +5,7 @@ import {
   Loader2, X, ChevronDown, LogIn, Stethoscope, Film, LayoutDashboard,
   Clock, WifiOff, Bell, BellOff, ChevronUp, Save, CheckSquare, Square,
   MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal,
-  DatabaseZap, RefreshCw, CheckCircle2, AlertCircle,
+  DatabaseZap, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle, Bot,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility, useUpdatePageVisibility } from "@/hooks/use-page-visibility";
@@ -1070,6 +1070,19 @@ export default function AdminPage() {
     refetchInterval: 30 * 1000,
   });
 
+  const noOpCountQuery = useQuery({
+    queryKey: ["pipeboard-no-op-count"],
+    queryFn: async () => {
+      const r = await fetch(`${API}/pipeboard/no-op-count`, { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json() as { count: number };
+      return d.count;
+    },
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+  const noOpCount = noOpCountQuery.data ?? 0;
+
   const deleteUser = useMutation({
     mutationFn: async (id: number) => {
       const r = await fetch(`${API}/admin/users/${id}`, {
@@ -1122,6 +1135,35 @@ export default function AdminPage() {
           مستخدم جديد
         </button>
       </div>
+
+      {/* ── Redundant AI actions KPI card ── */}
+      <a
+        href={`${BASE}/activity?noOp=1`}
+        className={`mb-6 flex items-center gap-4 rounded-xl border px-5 py-4 transition-colors hover:bg-muted/40 ${
+          noOpCount > 0
+            ? "border-amber-400/50 bg-amber-500/5"
+            : "border-border bg-card"
+        }`}
+      >
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${noOpCount > 0 ? "bg-amber-500/15" : "bg-muted"}`}>
+          {noOpCount > 0 ? (
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+          ) : (
+            <Bot className="h-5 w-5 text-muted-foreground" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-2xl font-bold leading-none ${noOpCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-foreground"}`}>
+            {noOpCountQuery.isLoading ? (
+              <span className="inline-block h-6 w-8 rounded bg-muted animate-pulse" />
+            ) : (
+              noOpCount
+            )}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">إجراء مكرر خلال آخر 14 يوم</p>
+        </div>
+        <span className="text-xs text-muted-foreground shrink-0">عرض التفاصيل ←</span>
+      </a>
 
       {isLoading ? (
         <div className="flex items-center justify-center h-32">

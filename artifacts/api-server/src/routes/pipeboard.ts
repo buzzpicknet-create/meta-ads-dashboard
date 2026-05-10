@@ -122,6 +122,22 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/pipeboard/no-op-count ─────────────────────────────
+router.get("/pipeboard/no-op-count", async (_req: Request, res: Response) => {
+  try {
+    const rows = await query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM pipeboard_actions
+       WHERE is_no_op = TRUE
+         AND executed_at > NOW() - INTERVAL '14 days'`,
+      []
+    );
+    res.json({ count: parseInt(rows[0]?.count ?? "0", 10) });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ── GET /api/pipeboard/history ─────────────────────────────────
 router.get("/pipeboard/history", async (req: Request, res: Response) => {
   const rawDays = parseInt(String(req.query.days ?? "14"), 10);

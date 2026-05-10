@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, CheckCircle2, Clock, Bell, XCircle, RefreshCw,
@@ -1253,7 +1253,16 @@ export default function ActivityPage() {
   const [custom, setCustom]       = useState<DateRange>({ since: cairoOffset(13), until: cairoToday() });
   const [filterActor, setFilterActor] = useState<string | null>(null);
   const [filterCat,   setFilterCat]   = useState<ActionCat | "all">("all");
-  const [filterNoOp,  setFilterNoOp]  = useState(false);
+  const [filterNoOp,  setFilterNoOp]  = useState(
+    () => new URLSearchParams(window.location.search).get("noOp") === "1"
+  );
+  const aiSectionRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (filterNoOp && aiSectionRef.current) {
+      aiSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [filterNoOp]);
 
   const range = presetToRange(preset, custom);
 
@@ -1583,7 +1592,7 @@ export default function ActivityPage() {
             const noOpCount  = allActions.filter(a => a.is_no_op).length;
             const visibleActions = filterNoOp ? allActions.filter(a => a.is_no_op) : allActions;
             return (
-              <section className="space-y-3">
+              <section className="space-y-3" ref={aiSectionRef}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-sm font-bold flex items-center gap-2">
                     <Bot className="h-4 w-4 text-primary" />
@@ -1594,7 +1603,11 @@ export default function ActivityPage() {
                     </span>
                   </h2>
                   <button
-                    onClick={() => setFilterNoOp(p => !p)}
+                    onClick={() => {
+                      const next = !filterNoOp;
+                      setFilterNoOp(next);
+                      if (!next) window.history.pushState({}, "", window.location.pathname);
+                    }}
                     disabled={noOpCount === 0 && !filterNoOp}
                     className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
                       filterNoOp
