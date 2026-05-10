@@ -1,14 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
-  History, Plus, ChevronRight, ChevronDown, Clock, Zap, AlertTriangle, Search,
-  Globe, BarChart2,
+  History, Plus, ChevronRight, ChevronDown, ChevronUp, Clock, Zap, AlertTriangle, Search,
+  Globe, BarChart2, Minimize2, Maximize2,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Cell,
 } from "recharts";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 
@@ -580,6 +579,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   const [, navigate] = useLocation();
 
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState<View>("chat");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [convId, setConvId] = useState<number | null>(null);
@@ -1064,64 +1064,73 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
   return (
     <>
-      {/* Floating button */}
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-6 left-6 z-50 h-13 w-13 rounded-2xl bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 transition-all flex items-center justify-center group"
-        title="مساعد الإعلانات"
-        style={{ height: 52, width: 52 }}
-      >
-        <MessageSquare className="h-5 w-5" />
-        {hasUnread && (
-          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-emerald-500 border-2 border-background" />
-        )}
-      </button>
+      {/* Floating button — hidden when panel is open */}
+      {!open && (
+        <button
+          onClick={() => { setOpen(true); setCollapsed(false); }}
+          className="fixed bottom-6 left-6 z-50 rounded-2xl bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 transition-all flex items-center justify-center"
+          title="مساعد الإعلانات"
+          style={{ height: 52, width: 52 }}
+        >
+          <MessageSquare className="h-5 w-5" />
+          {hasUnread && (
+            <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-emerald-500 border-2 border-background" />
+          )}
+        </button>
+      )}
 
-      {/* Chat Sheet */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-full p-0 flex flex-col" style={{ width: "70vw", maxWidth: "920px" }} dir="rtl">
+      {/* Chat Panel — fixed bottom, full width, collapsible */}
+      {open && (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border/60 shadow-2xl flex flex-col overflow-hidden"
+          style={{
+            height: collapsed ? "56px" : "90vh",
+            transition: "height 0.3s cubic-bezier(0.4,0,0.2,1)",
+          }}
+          dir="rtl"
+        >
 
           {/* ── Header ── */}
-          <SheetHeader className="shrink-0 px-4 py-3 border-b border-border/60">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                {view === "history" ? (
-                  <button
-                    onClick={() => setView("chat")}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
-                    title="رجوع للمحادثة"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Bot className="h-5 w-5 text-primary" />
-                  </div>
-                )}
-                <div>
-                  <SheetTitle className="text-sm font-semibold leading-tight">
-                    {view === "history" ? "المحادثات السابقة" : "مساعد الإعلانات"}
-                  </SheetTitle>
-                  <p className="text-[10px] text-muted-foreground">
-                    {view === "history"
-                      ? `${conversations.length} محادثة محفوظة`
-                      : "أسئلة عامة عن Meta Ads"}
-                  </p>
+          <div className="shrink-0 h-14 px-4 flex items-center justify-between border-b border-border/60 bg-background">
+            <div className="flex items-center gap-2.5">
+              {view === "history" ? (
+                <button
+                  onClick={() => setView("chat")}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                  title="رجوع للمحادثة"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              ) : (
+                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Bot className="h-5 w-5 text-primary" />
                 </div>
+              )}
+              <div>
+                <p className="text-sm font-semibold leading-tight text-foreground">
+                  {view === "history" ? "المحادثات السابقة" : "مساعد الإعلانات"}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {view === "history"
+                    ? `${conversations.length} محادثة محفوظة`
+                    : "أسئلة عامة عن Meta Ads"}
+                </p>
               </div>
+            </div>
 
-              <div className="flex items-center gap-1">
-                {/* New chat */}
-                {view === "chat" && (
-                  <button
-                    onClick={startNewChat}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
-                    title="محادثة جديدة"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                )}
-                {/* History toggle */}
+            <div className="flex items-center gap-1">
+              {/* New chat */}
+              {view === "chat" && !collapsed && (
+                <button
+                  onClick={startNewChat}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                  title="محادثة جديدة"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              )}
+              {/* History toggle */}
+              {!collapsed && (
                 <button
                   onClick={() => setView((v) => v === "history" ? "chat" : "history")}
                   className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${
@@ -1133,25 +1142,35 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                 >
                   <History className="h-4 w-4" />
                 </button>
-                {/* Clear current chat */}
-                {view === "chat" && messages.length > 0 && (
-                  <button
-                    onClick={clearCurrentChat}
-                    className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-all"
-                    title="مسح المحادثة"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
+              )}
+              {/* Clear current chat */}
+              {view === "chat" && messages.length > 0 && !collapsed && (
                 <button
-                  onClick={() => setOpen(false)}
-                  className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                  onClick={clearCurrentChat}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-all"
+                  title="مسح المحادثة"
                 >
-                  <X className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
-              </div>
+              )}
+              {/* Collapse / Expand */}
+              <button
+                onClick={() => setCollapsed(c => !c)}
+                className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                title={collapsed ? "توسيع" : "طي"}
+              >
+                {collapsed ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
+              </button>
+              {/* Close */}
+              <button
+                onClick={() => setOpen(false)}
+                className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                title="إغلاق"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-          </SheetHeader>
+          </div>
 
           {/* ── History View ── */}
           {view === "history" ? (
@@ -1590,8 +1609,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
               </div>
             </>
           )}
-        </SheetContent>
-      </Sheet>
+        </div>
+      )}
     </>
   );
 }
