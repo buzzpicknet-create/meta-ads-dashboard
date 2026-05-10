@@ -13,6 +13,9 @@ import {
 } from "../lib/meta-api.js";
 import { query } from "../lib/db.js";
 import { upsertCampaignNameCache } from "../lib/campaign-name-cache.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
@@ -881,7 +884,152 @@ async function resolveWriteToolDetails(name: string, args: Record<string, unknow
   return {};
 }
 
-// ── Tool executor (cache-first: DB → Meta API → stale fallback) ───────────────
+// ── Pipeboard MCP read helper ────────────────────────────────────────────────
+// Connects to Pipeboard, calls a read tool, and returns its text output.
+// Each call opens a fresh connection (stateless per request).
+async function callPipeboardRead(
+  toolName: string,
+  toolArgs: Record<string, unknown>
+): Promise<string> {
+  const token = process.env.PIPEBOARD_API_TOKEN;
+  if (!token) throw new Error("PIPEBOARD_API_TOKEN not set");
+
+  const client = new Client({ name: "meta-ads-dashboard", version: "1.0.0" });
+  const transport = new StreamableHTTPClientTransport(
+    new URL("https://mcp.pipeboard.co/meta-ads-mcp"),
+    { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
+  );
+
+  try {
+    await client.connect(transport);
+    const result = await client.callTool({ name: toolName, arguments: toolArgs });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    return content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text ?? "")
+      .join("\n")
+      .trim();
+  } finally {
+    await client.close().catch(() => null);
+  }
+}
+
+// Maps our AI tool names → Pipeboard MCP read calls.
+// Returns null if the tool isn't mapped (caller falls through to native Meta API).
+async function tryExecuteViaPipeboard(
+  name: string,
+  args: Record<string, unknown>,
+  since: string,
+  until: string
+): Promise<string | null> {
+  if (!process.env.PIPEBOARD_API_TOKEN) return null;
+
+  const timeRange = { since, until };
+
+  try {
+    // ── Per-object tools (direct id → get_insights / get_*_details) ──────────
+    if (name === "get_campaign_daily") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return null;
+      return await callPipeboardRead("get_insights", {
+        object_id: campaign_id,
+        level: "campaign",
+        time_breakdown: "day",
+        time_range: timeRange,
+      });
+    }
+
+    if (name === "get_adsets") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return null;
+      return await callPipeboardRead("get_insights", {
+        object_id: campaign_id,
+        level: "adset",
+        time_range: timeRange,
+      });
+    }
+
+    if (name === "get_campaign_status" || name === "get_campaign_budget") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return null;
+      return await callPipeboardRead("get_campaign_details", { campaign_id });
+    }
+
+    if (name === "get_adset_status") {
+      const adset_id = String(args.adset_id ?? "");
+      if (!adset_id) return null;
+      return await callPipeboardRead("get_adset_details", { adset_id });
+    }
+
+    if (name === "get_ad_performance") {
+      const ad_id = String(args.ad_id ?? "");
+      if (!ad_id) return null;
+      return await callPipeboardRead("get_insights", {
+        object_id: ad_id,
+        level: "ad",
+        time_range: timeRange,
+      });
+    }
+
+    if (name === "get_ads_in_adset") {
+      const adset_id = String(args.adset_id ?? "");
+      if (!adset_id) return null;
+      return await callPipeboardRead("get_insights", {
+        object_id: adset_id,
+        level: "ad",
+        time_range: timeRange,
+      });
+    }
+
+    // ── Account-level tools: pull account IDs from DB cache ──────────────────
+    // DB stores account_id WITHOUT the "act_" prefix — we add it back for Pipeboard.
+    if (name === "get_campaigns") {
+      const accRows = await query<{ account_id: string }>(
+        `SELECT DISTINCT account_id FROM meta_campaigns_cache LIMIT 5`
+      ).catch(() => [] as { account_id: string }[]);
+      if (accRows.length === 0) return null;
+
+      const results = await Promise.all(
+        accRows.map((r) =>
+          callPipeboardRead("get_insights", {
+            object_id: `act_${r.account_id}`,
+            level: "campaign",
+            time_range: timeRange,
+          }).catch((e: unknown) => `[خطأ حساب act_${r.account_id}: ${e instanceof Error ? e.message : String(e)}]`)
+        )
+      );
+      const combined = results.join("\n\n---\n\n");
+      return combined || null;
+    }
+
+    if (name === "get_account_daily") {
+      const accRows = await query<{ account_id: string }>(
+        `SELECT DISTINCT account_id FROM meta_overview_cache LIMIT 5`
+      ).catch(() => [] as { account_id: string }[]);
+      if (accRows.length === 0) return null;
+
+      const results = await Promise.all(
+        accRows.map((r) =>
+          callPipeboardRead("get_insights", {
+            object_id: `act_${r.account_id}`,
+            level: "account",
+            time_breakdown: "day",
+            time_range: timeRange,
+          }).catch((e: unknown) => `[خطأ حساب act_${r.account_id}: ${e instanceof Error ? e.message : String(e)}]`)
+        )
+      );
+      const combined = results.join("\n\n---\n\n");
+      return combined || null;
+    }
+  } catch (err) {
+    logger.warn({ err, tool: name }, "Pipeboard read failed — falling back to native Meta API");
+    return null;
+  }
+
+  return null; // unmapped tool
+}
+
+// ── Tool executor (Pipeboard-first → cache-first: DB → Meta API → stale fallback) ──
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   // Write tools are handled via the two-phase optimistic flow in the streaming
   // loop (buildOptimisticPendingAction → resolveWriteToolDetails).
@@ -898,6 +1046,17 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
   const u = fmtDate(untilD);
   const s = fmtDate(sinceD);
+
+  // ── Pipeboard-first: try live data via Pipeboard MCP before our Meta API ────
+  // Pipeboard handles rate-limiting and auth independently — no cache needed.
+  // Falls back silently to our native Meta API + DB cache if it fails.
+  {
+    const pbResult = await tryExecuteViaPipeboard(name, args, s, u);
+    if (pbResult !== null && pbResult.trim().length > 0) {
+      logger.info({ tool: name }, "executeTool: served via Pipeboard MCP");
+      return pbResult;
+    }
+  }
 
   const fmt = (n: number, dec = 0) => n.toFixed(dec);
 
