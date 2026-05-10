@@ -1919,7 +1919,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     abortRef.current = ctrl;
 
     try {
-      const body: Record<string, unknown> = { campaignContext, messages: newMessages };
+      const body: Record<string, unknown> = { campaignContext, messages: newMessages, campaign_id: campaignId, conversation_id: convId };
       if (att?.isImage)  { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)     { body.fileText = att.text; body.fileName = att.name; }
 

@@ -700,7 +700,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     try {
       const activeCid = await ensureConversation(userText);
 
-      const body: Record<string, unknown> = { campaignContext: buildContext(), messages: newMessages };
+      const body: Record<string, unknown> = { campaignContext: buildContext(), messages: newMessages, conversation_id: activeCid };
       if (att?.isImage) { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)    { body.fileText = att.text; body.fileName = att.name; }
 

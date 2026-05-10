@@ -1239,6 +1239,74 @@ interface AiChatBody {
   imageMimeType?: string;
   fileText?: string;
   fileName?: string;
+  campaign_id?: string;
+  conversation_id?: number;
+}
+
+interface MemoryRow {
+  conv_id: number;
+  title: string;
+  updated_at: string;
+  content: string;
+}
+
+async function fetchCampaignMemory(
+  userId: number,
+  campaignId: string,
+  excludeConvId: number | null
+): Promise<string> {
+  try {
+    const rows = await query<MemoryRow>(
+      `SELECT cm.content, cc.id AS conv_id, cc.title, cc.updated_at
+       FROM chat_messages cm
+       JOIN chat_conversations cc ON cc.id = cm.conversation_id
+       WHERE cc.campaign_id = $1
+         AND cc.user_id = $2
+         AND ($3::int IS NULL OR cc.id != $3)
+         AND cm.role = 'assistant'
+         AND cm.content IS NOT NULL
+         AND length(cm.content) > 30
+       ORDER BY cc.updated_at DESC, cm.created_at DESC
+       LIMIT 20`,
+      [campaignId, userId, excludeConvId ?? null]
+    );
+
+    if (!rows.length) return "";
+
+    const byConv = new Map<number, { title: string; updated_at: string; msgs: string[] }>();
+    for (const r of rows) {
+      if (!byConv.has(r.conv_id)) {
+        byConv.set(r.conv_id, { title: r.title, updated_at: r.updated_at, msgs: [] });
+      }
+      const entry = byConv.get(r.conv_id)!;
+      if (entry.msgs.length < 2) {
+        entry.msgs.push(r.content.slice(0, 600));
+      }
+    }
+
+    const convEntries = [...byConv.values()].slice(0, 3);
+
+    const lines: string[] = [
+      "══════════════════════════════════════",
+      "ذاكرة المحادثات السابقة مع هذه الحملة (استخدمها كخلفية — لا تُكرّرها على المستخدم)",
+      "══════════════════════════════════════",
+    ];
+
+    for (const conv of convEntries) {
+      const daysAgo = Math.round(
+        (Date.now() - new Date(conv.updated_at).getTime()) / 86_400_000
+      );
+      const when = daysAgo === 0 ? "اليوم" : `منذ ${daysAgo} يوم`;
+      lines.push(`\n📅 محادثة: "${conv.title}" (${when})`);
+      for (const msg of conv.msgs) {
+        lines.push(`→ ${msg}`);
+      }
+    }
+
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
 }
 
 type OpenAiMessage =
@@ -1249,8 +1317,9 @@ type OpenAiMessage =
 
 // ── Route ────────────────────────────────────────────────────────────────────
 router.post("/ai/chat", async (req: Request, res: Response) => {
-  const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName } = req.body as AiChatBody;
+  const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName, campaign_id, conversation_id } = req.body as AiChatBody;
   const isAdmin = req.session?.role === "admin";
+  const userId = req.session?.userId;
 
   if (!campaignContext || !Array.isArray(messages) || messages.length === 0) {
     res.status(400).json({ error: "campaignContext and messages are required" });
@@ -1263,7 +1332,11 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   res.setHeader("X-Accel-Buffering", "no");
 
   try {
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n══════════════════════════════════════\nبيانات الحملة الحالية (استخدمها في كل تشخيص)\n══════════════════════════════════════\n${campaignContext}`;
+    const memory = (userId && campaign_id)
+      ? await fetchCampaignMemory(userId, campaign_id, conversation_id ?? null)
+      : "";
+
+    const systemWithContext = `${SYSTEM_PROMPT}\n\n══════════════════════════════════════\nبيانات الحملة الحالية (استخدمها في كل تشخيص)\n══════════════════════════════════════\n${campaignContext}${memory ? `\n\n${memory}` : ""}`;
 
     const builtMessages: OpenAiMessage[] = [
       { role: "system", content: systemWithContext },
