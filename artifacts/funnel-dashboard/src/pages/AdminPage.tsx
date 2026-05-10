@@ -4,8 +4,8 @@ import {
   UserPlus, Trash2, KeyRound, Shield, Clapperboard, Activity,
   Loader2, X, ChevronDown, LogIn, Stethoscope, Film, LayoutDashboard,
   Clock, WifiOff, Bell, BellOff, ChevronUp, Save, CheckSquare, Square,
-  MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal,
-  DatabaseZap, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle, Bot,
+  MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal, Mail, Bot,
+  DatabaseZap, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle,
 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1274,6 +1274,15 @@ export default function AdminPage() {
         <PageVisibilitySection />
       </div>
 
+      {/* Scheduled Reports section */}
+      <div className="mt-8 space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+          <Mail className="h-4 w-4" />
+          التقارير المجدولة
+        </h2>
+        <ScheduledReportsSection />
+      </div>
+
       {/* Cache warm-up diagnostics section */}
       <div className="mt-8 space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
@@ -1302,6 +1311,162 @@ export default function AdminPage() {
 
       {showAdd && <AddUserModal onClose={() => setShowAdd(false)} />}
       {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
+    </div>
+  );
+}
+
+// ── Scheduled Reports Section ──────────────────────────────────────────────────
+interface ScheduledReport {
+  id: number;
+  email: string;
+  frequency: "daily" | "weekly";
+  created_by: string;
+  created_at: string;
+  last_sent_at: string | null;
+  next_send_at: string;
+  is_active: boolean;
+}
+
+function ScheduledReportsSection() {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["scheduled-reports"],
+    queryFn: () =>
+      fetch(`${API}/reports/schedules`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((d) => d as { schedules: ScheduledReport[]; smtp_configured: boolean }),
+    enabled: open,
+    refetchInterval: open ? 30_000 : false,
+  });
+
+  const schedules = data?.schedules ?? [];
+  const smtpOk = data?.smtp_configured ?? false;
+
+  const cancel = useMutation({
+    mutationFn: (id: number) =>
+      fetch(`${API}/reports/schedules/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      }).then((r) => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled-reports"] }),
+    onError: (err) => alert(err instanceof Error ? err.message : "فشل الإلغاء"),
+  });
+
+  function fmtDate(iso: string) {
+    return new Date(iso).toLocaleDateString("ar-EG", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+  function fmtDateTime(iso: string) {
+    return new Date(iso).toLocaleString("ar-EG", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden bg-card">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/40 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Bot className="h-4 w-4 text-blue-500" />
+          تقارير الإجراءات المكررة المجدولة
+          {schedules.length > 0 && (
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600">
+              {schedules.length} نشط
+            </span>
+          )}
+        </div>
+        {open ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+
+      {open && (
+        <div className="border-t border-border">
+          {!smtpOk && !isLoading && (
+            <div className="m-4 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-700 dark:text-amber-400">
+                <p className="font-medium">SMTP غير مضبوط — التقارير لن تُرسَل</p>
+                <p className="mt-0.5 text-amber-600/80 dark:text-amber-500/80">
+                  أضف <span className="font-mono bg-amber-500/10 px-1 rounded">SMTP_HOST</span>،{" "}
+                  <span className="font-mono bg-amber-500/10 px-1 rounded">SMTP_USER</span>،{" "}
+                  <span className="font-mono bg-amber-500/10 px-1 rounded">SMTP_PASS</span> للمتغيرات البيئية لتفعيل الإرسال.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex items-center justify-center h-20">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : schedules.length === 0 ? (
+            <div className="p-6 text-center">
+              <Mail className="h-7 w-7 mx-auto mb-2 text-muted-foreground opacity-30" />
+              <p className="text-sm text-muted-foreground">لا توجد جداول نشطة</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">
+                افتح صفحة نشاط الميدياباير، فعّل فلتر الإجراءات المكررة، ثم اضغط "جدولة التقرير"
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {schedules.map((s) => (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+                    <Mail className="h-4 w-4 text-blue-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" dir="ltr">{s.email}</p>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600">
+                        {s.frequency === "daily" ? "يومي" : "أسبوعي"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        بواسطة {s.created_by} · {fmtDate(s.created_at)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 text-[10px] text-muted-foreground">
+                      {s.last_sent_at ? (
+                        <span>آخر إرسال: {fmtDateTime(s.last_sent_at)}</span>
+                      ) : (
+                        <span>لم يُرسَل بعد</span>
+                      )}
+                      <span>·</span>
+                      <span>الإرسال القادم: {fmtDateTime(s.next_send_at)}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (confirm(`إلغاء الجدول لـ ${s.email}؟`)) cancel.mutate(s.id);
+                    }}
+                    disabled={cancel.isPending}
+                    className="h-8 w-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-colors"
+                    title="إلغاء الجدول"
+                  >
+                    {cancel.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

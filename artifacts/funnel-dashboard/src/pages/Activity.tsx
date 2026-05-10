@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Bell, XCircle, RefreshCw,
   Activity as ActivityIcon, Pause, Play, Plus, Edit3, Trash2,
   DollarSign, Target, Eye, Zap, ChevronDown, ChevronUp,
-  CalendarRange, CalendarDays, Bot, Download, Copy, Check,
+  CalendarRange, CalendarDays, Bot, Download, Copy, Check, Mail, Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1213,6 +1213,147 @@ function CampaignAttentionCard({ campaign, accountId, since, until }: {
   );
 }
 
+// ── Schedule Report Modal ─────────────────────────────────────
+function ScheduleReportModal({ onClose }: { onClose: () => void }) {
+  const [email, setEmail]         = useState("");
+  const [frequency, setFrequency] = useState<"daily" | "weekly">("weekly");
+  const [result, setResult]       = useState<{ ok: boolean; text: string } | null>(null);
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/reports/schedules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email, frequency }),
+      });
+      const d = await r.json() as { error?: string; next_send_at?: string };
+      if (!r.ok) throw new Error(d.error ?? "فشل إنشاء الجدول");
+      return d;
+    },
+    onSuccess: (d) => {
+      const next = d.next_send_at
+        ? new Date(d.next_send_at).toLocaleString("ar-EG", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
+        : "";
+      setResult({ ok: true, text: `✓ تم — الإرسال القادم: ${next}` });
+    },
+    onError: (err) => {
+      setResult({ ok: false, text: err instanceof Error ? err.message : "خطأ" });
+    },
+  });
+
+  const sendNow = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/reports/send-now`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email }),
+      });
+      const d = await r.json() as { error?: string };
+      if (!r.ok) throw new Error(d.error ?? "فشل الإرسال");
+    },
+    onSuccess: () => {
+      setResult({ ok: true, text: "✓ تم الإرسال — تحقق من بريدك الإلكتروني" });
+    },
+    onError: (err) => {
+      setResult({ ok: false, text: err instanceof Error ? err.message : "فشل الإرسال" });
+    },
+  });
+
+  const isValidEmail = email.includes("@") && email.length > 4;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" dir="rtl">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card shadow-xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div>
+            <h2 className="font-semibold flex items-center gap-2">
+              <Mail className="h-4 w-4 text-primary" />
+              جدولة تقرير الإجراءات المكررة
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">يُرسَل كملف CSV على بريدك تلقائياً</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4 p-5">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">البريد الإلكتروني</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              dir="ltr"
+              className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">التكرار</label>
+            <div className="flex gap-2">
+              {(["daily", "weekly"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFrequency(f)}
+                  className={`flex-1 h-9 rounded-lg border text-sm font-medium transition-colors ${
+                    frequency === f
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : "border-border text-muted-foreground hover:border-emerald-400"
+                  }`}
+                >
+                  {f === "daily" ? "يومي" : "أسبوعي"}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {frequency === "daily"
+                ? "يُرسَل كل يوم الساعة 8 صباحاً — يوضح إجراءات آخر 24 ساعة"
+                : "يُرسَل كل إثنين الساعة 8 صباحاً — يوضح إجراءات آخر 7 أيام"}
+            </p>
+          </div>
+
+          {result && (
+            <div className={`rounded-lg px-3 py-2 text-sm ${result.ok ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-red-500/10 text-red-600"}`}>
+              {result.text}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => sendNow.mutate()}
+              disabled={!isValidEmail || sendNow.isPending || create.isPending}
+              title="أرسل تقرير فوري لاختبار الإعداد"
+              className="h-9 px-3 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted disabled:opacity-40 flex items-center gap-1.5 transition-colors"
+            >
+              {sendNow.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+              إرسال الآن
+            </button>
+            <div className="flex-1" />
+            <button
+              onClick={onClose}
+              className="h-9 px-4 rounded-lg border border-border text-sm hover:bg-muted"
+            >
+              إلغاء
+            </button>
+            <button
+              onClick={() => create.mutate()}
+              disabled={!isValidEmail || create.isPending}
+              className="h-9 px-4 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-2"
+            >
+              {create.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              جدولة
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── CSV Export ───────────────────────────────────────────────
 function buildRedundantTabSeparated(actions: PipeboardAction[]): string {
   const toolLabel = (name: string) => TOOL_LABELS[name]?.label ?? name;
@@ -1262,6 +1403,7 @@ function exportRedundantCsv(actions: PipeboardAction[]) {
 const PRESETS: PresetKey[] = ["today", "yesterday", "7d", "custom"];
 
 export default function ActivityPage() {
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const accounts = useAccounts();
   const [accountId, setAccountId] = useState<string>("");
   const [preset, setPreset]       = useState<PresetKey>("7d");
@@ -1681,6 +1823,13 @@ export default function ActivityPage() {
                           </>
                         )}
                       </button>
+                      <button
+                        onClick={() => setShowScheduleModal(true)}
+                        className="text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 bg-blue-500/15 text-blue-700 dark:text-blue-300 hover:bg-blue-500/25"
+                      >
+                        <Mail className="h-3 w-3" />
+                        جدولة التقرير
+                      </button>
                     </>
                   )}
                 </div>
@@ -1849,6 +1998,10 @@ export default function ActivityPage() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {showScheduleModal && (
+        <ScheduleReportModal onClose={() => setShowScheduleModal(false)} />
       )}
     </main>
   );

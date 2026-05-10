@@ -6,6 +6,7 @@ import { warmCreativeCache, proactiveInsightsRefresh, setLastWarmupStats, setWar
 import { getAdAccountIds } from "./lib/meta-token";
 import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
+import { runScheduledReportsCron } from "./routes/scheduled-reports";
 import bcrypt from "bcryptjs";
 
 async function runMigrations() {
@@ -344,6 +345,24 @@ async function runMigrations() {
   `);
   await query(`ALTER TABLE pipeboard_actions ADD COLUMN IF NOT EXISTS is_no_op BOOLEAN NOT NULL DEFAULT FALSE`);
 
+  // Scheduled redundant-actions email reports
+  await query(`
+    CREATE TABLE IF NOT EXISTS scheduled_reports (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(254) NOT NULL,
+      frequency VARCHAR(10) NOT NULL DEFAULT 'weekly',
+      created_by VARCHAR(200) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      last_sent_at TIMESTAMPTZ,
+      next_send_at TIMESTAMPTZ NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_scheduled_reports_next_send
+    ON scheduled_reports (next_send_at) WHERE is_active = TRUE
+  `);
+
   // Track one-time migrations
   await query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -578,6 +597,25 @@ function startProactiveRefreshCron() {
   logger.info({ interval_min: 30 }, "Proactive cache refresh cron scheduled");
 }
 
+// ── Scheduled Reports Cron ────────────────────────────────────────────────────
+// Runs every 15 minutes — sends due scheduled redundant-actions CSV reports by email.
+const SCHEDULED_REPORTS_CRON_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
+function startScheduledReportsCron() {
+  // First run: 2 minutes after startup
+  setTimeout(() => {
+    runScheduledReportsCron().catch((err) =>
+      logger.error({ err }, "Initial scheduled-reports cron failed")
+    );
+    setInterval(() => {
+      runScheduledReportsCron().catch((err) =>
+        logger.error({ err }, "Scheduled-reports cron failed")
+      );
+    }, SCHEDULED_REPORTS_CRON_INTERVAL_MS);
+  }, 2 * 60 * 1000);
+  logger.info({ interval_min: 15 }, "Scheduled reports cron started");
+}
+
 function startScanCron() {
   const runScan = () => {
     runMediaScan().catch((err) => logger.error({ err }, "Scheduled media scan failed"));
@@ -618,6 +656,7 @@ runMigrations()
       startScanCron();
       startCpaAlertCron();
       startProactiveRefreshCron();
+      startScheduledReportsCron();
       // Pre-warm creative cache in background (don't block server startup)
       startCreativeCacheWarmer();
     });

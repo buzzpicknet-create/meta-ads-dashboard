@@ -11,6 +11,7 @@ import pushRouter from "./push";
 import aiRouter from "./ai";
 import chatRouter from "./chat";
 import pipeboardRouter from "./pipeboard";
+import scheduledReportsRouter from "./scheduled-reports";
 
 const router = Router();
 
@@ -37,5 +38,6 @@ router.use(pushRouter);
 router.use(aiRouter);
 router.use(chatRouter);
 router.use(pipeboardRouter);
+router.use(scheduledReportsRouter);
 
 export default router;
