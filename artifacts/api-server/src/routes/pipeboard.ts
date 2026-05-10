@@ -3,8 +3,52 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { query } from "../lib/db";
 import { logger } from "../lib/logger";
+import { sendPushForEvent } from "../lib/push";
 
 const router = Router();
+
+const NO_OP_DAILY_THRESHOLD = 3;
+const NO_OP_SPIKE_EVENT = "no_op_spike";
+const NO_OP_SPIKE_URL = "/activity?noOp=1";
+
+async function checkAndNotifyNoOpSpike(): Promise<void> {
+  try {
+    const countRows = await query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM pipeboard_actions
+       WHERE is_no_op = TRUE
+         AND executed_at >= CURRENT_DATE`,
+      []
+    );
+    const todayCount = parseInt(countRows[0]?.count ?? "0", 10);
+
+    if (todayCount < NO_OP_DAILY_THRESHOLD) return;
+
+    // Dedup: only send one notification per day for this event.
+    // Match on the event URL rather than title text so it's resilient to
+    // copy/localization changes.
+    const already = await query<{ id: number }>(
+      `SELECT id FROM notification_log
+       WHERE url = $1
+         AND sent_at >= CURRENT_DATE
+       LIMIT 1`,
+      [NO_OP_SPIKE_URL]
+    );
+    if (already.length > 0) return;
+
+    // Route through sendPushForEvent so notification_settings controls
+    // whether this fires and which roles receive it.
+    await sendPushForEvent(NO_OP_SPIKE_EVENT, {
+      title: "⚠️ تكرار إجراءات الذكاء الاصطناعي",
+      body: `تم تسجيل ${todayCount} إجراء مكرر (No-Op) اليوم — راجع سجل النشاط`,
+      url: NO_OP_SPIKE_URL,
+    });
+
+    logger.info({ todayCount }, "No-op spike push notification sent to admins");
+  } catch (err) {
+    logger.warn({ err }, "checkAndNotifyNoOpSpike failed");
+  }
+}
 
 // ── POST /api/pipeboard/action ─────────────────────────────────
 router.post("/pipeboard/action", async (req: Request, res: Response) => {
@@ -119,6 +163,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     ).catch((err: unknown) => {
       logger.warn({ err, tool, executedBy }, "Failed to insert pipeboard audit row");
     });
+
+    // After every no-op action, check whether the daily threshold has been
+    // crossed and send a push notification to admins if so (once per day).
+    if (isNoOp) {
+      void checkAndNotifyNoOpSpike();
+    }
   }
 });
 

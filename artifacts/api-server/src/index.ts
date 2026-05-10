@@ -252,7 +252,8 @@ async function runMigrations() {
       ('manual_request_created', true, ARRAY['media_manager']),
       ('request_completed', true, ARRAY['admin','media_buyer']),
       ('request_rejected', true, ARRAY['admin']),
-      ('new_scan_request', true, ARRAY['admin','media_manager'])
+      ('new_scan_request', true, ARRAY['admin','media_manager']),
+      ('no_op_spike', true, ARRAY['admin'])
     ON CONFLICT (event_type) DO NOTHING
   `);
 
