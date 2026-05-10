@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Bell, XCircle, RefreshCw,
   Activity as ActivityIcon, Pause, Play, Plus, Edit3, Trash2,
   DollarSign, Target, Eye, Zap, ChevronDown, ChevronUp,
-  CalendarRange, CalendarDays, Bot, Download,
+  CalendarRange, CalendarDays, Bot, Download, Copy, Check,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1214,6 +1214,21 @@ function CampaignAttentionCard({ campaign, accountId, since, until }: {
 }
 
 // ── CSV Export ───────────────────────────────────────────────
+function buildRedundantTabSeparated(actions: PipeboardAction[]): string {
+  const toolLabel = (name: string) => TOOL_LABELS[name]?.label ?? name;
+  const escapeCell = (val: string | null | undefined) => (val ?? "").replace(/[\t\r\n]+/g, " ");
+  const header = ["نوع الإجراء", "اسم الحملة", "اسم المجموعة", "منفّذ بواسطة", "وقت التنفيذ", "رسالة النتيجة"];
+  const rows = actions.map(a => [
+    toolLabel(a.tool_name),
+    a.campaign_name ?? "",
+    a.adset_name ?? "",
+    a.executed_by,
+    a.executed_at,
+    a.result_message ?? "",
+  ].map(escapeCell).join("\t"));
+  return [header.join("\t"), ...rows].join("\n");
+}
+
 function exportRedundantCsv(actions: PipeboardAction[]) {
   const toolLabel = (name: string) => TOOL_LABELS[name]?.label ?? name;
   const escapeCell = (val: string | null | undefined) => {
@@ -1256,6 +1271,8 @@ export default function ActivityPage() {
   const [filterNoOp,  setFilterNoOp]  = useState(
     () => new URLSearchParams(window.location.search).get("noOp") === "1"
   );
+  const [copied,      setCopied]      = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const aiSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -1622,18 +1639,49 @@ export default function ActivityPage() {
                     <span className="text-[10px] opacity-70">{noOpCount}</span>
                   </button>
                   {filterNoOp && (
-                    <button
-                      onClick={() => exportRedundantCsv(visibleActions)}
-                      disabled={visibleActions.length === 0}
-                      className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
-                        visibleActions.length === 0
-                          ? "bg-muted/40 text-muted-foreground/40 cursor-default"
-                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25"
-                      }`}
-                    >
-                      <Download className="h-3 w-3" />
-                      تصدير CSV
-                    </button>
+                    <>
+                      <button
+                        onClick={() => exportRedundantCsv(visibleActions)}
+                        disabled={visibleActions.length === 0}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
+                          visibleActions.length === 0
+                            ? "bg-muted/40 text-muted-foreground/40 cursor-default"
+                            : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25"
+                        }`}
+                      >
+                        <Download className="h-3 w-3" />
+                        تصدير CSV
+                      </button>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(buildRedundantTabSeparated(visibleActions)).then(() => {
+                            if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+                            setCopied(true);
+                            copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+                          }).catch(() => {
+                            setCopied(false);
+                          });
+                        }}
+                        disabled={visibleActions.length === 0}
+                        className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
+                          visibleActions.length === 0
+                            ? "bg-muted/40 text-muted-foreground/40 cursor-default"
+                            : "bg-blue-500/15 text-blue-700 dark:text-blue-300 hover:bg-blue-500/25"
+                        }`}
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="h-3 w-3" />
+                            تم النسخ ✓
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3 w-3" />
+                            نسخ
+                          </>
+                        )}
+                      </button>
+                    </>
                   )}
                 </div>
                 <NoOpStatsStrip actions={allActions} />
