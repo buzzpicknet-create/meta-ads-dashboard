@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query } from "../lib/db";
 import { getCampaignDetails } from "../lib/meta-api";
 import { logger } from "../lib/logger";
+import { getCachedCampaignNames, upsertCampaignNameCache } from "../lib/campaign-name-cache";
 
 const router = Router();
 
@@ -70,7 +71,29 @@ async function resolveMissingCampaignNames(rows: ConvRow[]): Promise<Map<string,
   const resolved = new Map<string, string>();
   if (needsResolution.size === 0) return resolved;
 
-  const entries = [...needsResolution.entries()].slice(0, RESOLVE_CONCURRENCY);
+  const campaignIds = [...needsResolution.keys()];
+
+  // ① Check local campaign_name_cache first — works even when Meta API is unavailable
+  const cachedNames = await getCachedCampaignNames(campaignIds);
+  const stillNeeds = new Map<string, number[]>();
+
+  for (const [campaignId, convIds] of needsResolution) {
+    const cached = cachedNames.get(campaignId);
+    if (cached) {
+      resolved.set(campaignId, cached);
+      query(
+        `UPDATE chat_conversations SET campaign_name = $1 WHERE id = ANY($2::int[]) AND campaign_name IS NULL`,
+        [cached, convIds]
+      ).catch((err) => logger.warn({ err, campaignId }, "chat: failed to persist cached campaign_name"));
+    } else {
+      stillNeeds.set(campaignId, convIds);
+    }
+  }
+
+  if (stillNeeds.size === 0) return resolved;
+
+  // ② Fall back to Meta API for any IDs not found in local cache
+  const entries = [...stillNeeds.entries()].slice(0, RESOLVE_CONCURRENCY);
 
   await Promise.all(
     entries.map(async ([campaignId, convIds]) => {
@@ -81,6 +104,8 @@ async function resolveMissingCampaignNames(rows: ConvRow[]): Promise<Map<string,
         const details = await Promise.race([getCampaignDetails(campaignId), timeout]);
         if (!details.name) return;
         resolved.set(campaignId, details.name);
+        // Persist to local cache so future requests don't need to hit Meta API
+        upsertCampaignNameCache([{ id: campaignId, name: details.name }]).catch(() => null);
         query(
           `UPDATE chat_conversations SET campaign_name = $1 WHERE id = ANY($2::int[]) AND campaign_name IS NULL`,
           [details.name, convIds]

@@ -12,6 +12,7 @@ import {
   type AdsetDetails,
 } from "../lib/meta-api.js";
 import { query } from "../lib/db.js";
+import { upsertCampaignNameCache } from "../lib/campaign-name-cache.js";
 
 const router = Router();
 
@@ -864,6 +865,10 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
          ON CONFLICT (account_id, period_since, period_until)
          DO UPDATE SET campaigns=$4, fetched_at=NOW()`,
         [accountId, s, u, JSON.stringify(campaigns)]
+      ).catch(() => null);
+      // Write-through to campaign_name_cache
+      upsertCampaignNameCache(
+        campaigns.filter((c) => c.id && c.name).map((c) => ({ id: c.id, name: c.name! }))
       ).catch(() => null);
       return { data: campaigns, fromCache: false, cacheAgeMs: 0 };
     } catch (err) {

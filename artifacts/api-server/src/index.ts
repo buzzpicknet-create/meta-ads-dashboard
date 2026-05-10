@@ -417,6 +417,46 @@ async function runMigrations() {
   await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS campaign_name TEXT`);
   await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE`);
 
+  // campaign_name_cache: persistent lookup of campaign_id → name
+  // Populated from any path that receives a campaign name (campaigns API, insights, alerts).
+  // Used by the chat resolver as a first-pass before calling the Meta API.
+  await query(`
+    CREATE TABLE IF NOT EXISTS campaign_name_cache (
+      campaign_id VARCHAR(100) PRIMARY KEY,
+      campaign_name TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  // Backfill campaign_name_cache from the existing meta_campaigns_cache JSONB store.
+  // Guarded by schema_migrations so it runs exactly once.
+  const campaignNameCacheBackfillMig = await query<{ id: string }>(
+    `SELECT id FROM schema_migrations WHERE id = 'backfill_campaign_name_cache_2026'`
+  );
+  if (campaignNameCacheBackfillMig.length === 0) {
+    const backfilled = await query<{ count: string }>(`
+      WITH src AS (
+        SELECT DISTINCT ON (camp->>'id')
+          camp->>'id'   AS campaign_id,
+          camp->>'name' AS campaign_name
+        FROM meta_campaigns_cache,
+             jsonb_array_elements(campaigns) AS camp
+        WHERE camp->>'id' IS NOT NULL AND camp->>'name' IS NOT NULL
+        ORDER BY camp->>'id', fetched_at DESC
+      ),
+      ins AS (
+        INSERT INTO campaign_name_cache (campaign_id, campaign_name)
+        SELECT campaign_id, campaign_name FROM src
+        ON CONFLICT (campaign_id) DO UPDATE SET campaign_name = EXCLUDED.campaign_name, updated_at = NOW()
+        RETURNING 1
+      )
+      SELECT COUNT(*) AS count FROM ins
+    `);
+    const count = Number(backfilled[0]?.count ?? 0);
+    logger.info({ count }, "Backfilled campaign_name_cache from meta_campaigns_cache");
+    await query(`INSERT INTO schema_migrations (id) VALUES ('backfill_campaign_name_cache_2026') ON CONFLICT (id) DO NOTHING`);
+  }
+
   // One-time backfill: populate campaign_name for historical conversations that
   // already have a campaign_id but were created before the campaign_name column existed.
   // Guarded by schema_migrations so it runs exactly once (not on every boot).

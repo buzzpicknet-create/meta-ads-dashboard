@@ -18,6 +18,7 @@ import {
 import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
 import { query } from "../lib/db";
+import { upsertCampaignNameCache } from "../lib/campaign-name-cache";
 
 const router: IRouter = Router();
 
@@ -313,6 +314,12 @@ async function dbSetCampaignsCache(accountId: string, since: string, until: stri
      DO UPDATE SET campaigns=$4, fetched_at=NOW()`,
     [accountId, since, until, JSON.stringify(campaigns)]
   );
+  // Write-through: keep campaign_name_cache up to date whenever we receive fresh campaign data
+  const arr = Array.isArray(campaigns) ? campaigns : [];
+  const entries = (arr as { id?: string; name?: string }[])
+    .filter((c) => c.id && c.name)
+    .map((c) => ({ id: c.id!, name: c.name! }));
+  upsertCampaignNameCache(entries).catch(() => null);
 }
 
 router.get("/meta/campaigns", async (req, res) => {
@@ -449,6 +456,10 @@ router.get("/meta/insights", async (req, res) => {
     }
     const data = await fetchPromise;
     await dbSetInsightsCache(campaign_id, since, until, data).catch(() => null);
+    // Write-through: persist campaign name from insights response
+    if (data.name) {
+      upsertCampaignNameCache([{ id: campaign_id, name: data.name }]).catch(() => null);
+    }
     return res.json({ ...data, account_id: accountId || undefined });
   } catch (err) {
     INSIGHTS_IN_FLIGHT.delete(inflight_key);

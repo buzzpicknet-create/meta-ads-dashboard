@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { upsertCampaignNameCache } from "../lib/campaign-name-cache";
 
 const router = Router();
 
@@ -87,6 +88,10 @@ router.post("/alerts/snapshot", async (req, res) => {
           ]
         );
         if (rows[0]) inserted.push(rows[0]);
+        // Write-through: cache campaign name if present so it's available even when Meta API is down
+        if (alert.campaignId && alert.campaignName) {
+          upsertCampaignNameCache([{ id: alert.campaignId, name: alert.campaignName }]).catch(() => null);
+        }
       }
     }
 
