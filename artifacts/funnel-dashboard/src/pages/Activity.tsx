@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Bell, XCircle, RefreshCw,
   Activity as ActivityIcon, Pause, Play, Plus, Edit3, Trash2,
   DollarSign, Target, Eye, Zap, ChevronDown, ChevronUp,
-  CalendarRange, CalendarDays,
+  CalendarRange, CalendarDays, Bot,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -452,6 +452,88 @@ function MetaActivityCard({
                 <span className="hidden sm:inline opacity-70">{formatDateShort(act.event_time)}</span>
               </>
             )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Pipeboard (AI assistant) action log ──────────────────────
+interface PipeboardAction {
+  id: number;
+  executed_at: string;
+  executed_by: string;
+  tool_name: string;
+  args: Record<string, unknown>;
+  success: boolean;
+  result_message: string | null;
+  campaign_name: string | null;
+  adset_name: string | null;
+}
+
+const TOOL_LABELS: Record<string, { label: string; icon: React.ElementType; color: string }> = {
+  pause_campaign:        { label: "إيقاف حملة",         icon: Pause,      color: "text-rose-500" },
+  enable_campaign:       { label: "تفعيل حملة",         icon: Play,       color: "text-emerald-500" },
+  update_campaign_budget:{ label: "تعديل ميزانية حملة", icon: DollarSign, color: "text-amber-500" },
+  pause_adset:           { label: "إيقاف مجموعة",       icon: Pause,      color: "text-rose-400" },
+  enable_adset:          { label: "تفعيل مجموعة",       icon: Play,       color: "text-emerald-400" },
+  update_adset_budget:   { label: "تعديل ميزانية مجموعة", icon: DollarSign, color: "text-amber-400" },
+  duplicate_adset:       { label: "نسخ مجموعة",         icon: Plus,       color: "text-blue-500" },
+};
+
+function PipeboardActionCard({ action }: { action: PipeboardAction }) {
+  const meta = TOOL_LABELS[action.tool_name] ?? { label: action.tool_name, icon: Zap, color: "text-muted-foreground" };
+  const Icon = meta.icon;
+  const budgetArg = typeof action.args.daily_budget === "number"
+    ? action.args.daily_budget
+    : typeof action.args.budget === "number"
+    ? action.args.budget
+    : null;
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${action.success ? "border-border bg-card" : "border-rose-500/30 bg-rose-500/5"}`}>
+      <div className="flex items-start gap-3">
+        <div className={`mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0 border ${meta.color}`}>
+          <Icon className={`h-3 w-3 ${meta.color}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`text-sm font-bold ${meta.color}`}>{meta.label}</span>
+            {!action.success && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-400 font-bold">فشل</span>
+            )}
+            {action.campaign_name && (
+              <span className="text-xs font-semibold text-foreground/80 truncate max-w-[220px]">
+                {action.campaign_name}
+              </span>
+            )}
+            {action.adset_name && (
+              <span className="text-xs text-muted-foreground truncate max-w-[160px]">
+                ← {action.adset_name}
+              </span>
+            )}
+          </div>
+          {budgetArg !== null && (
+            <p className="text-sm font-bold text-amber-600 dark:text-amber-400 mt-0.5">
+              ميزانية جديدة: {Number(budgetArg).toLocaleString("ar-EG")} ج.م/يوم
+            </p>
+          )}
+          {action.result_message && (
+            <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[400px]">
+              {action.result_message}
+            </p>
+          )}
+          <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground flex-wrap">
+            <span className="font-medium text-foreground/70 flex items-center gap-1">
+              <Bot className="h-3 w-3" /> {action.executed_by}
+            </span>
+            <span>·</span>
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {timeAgo(action.executed_at)}
+            </span>
+            <span className="hidden sm:inline opacity-70">{formatDateShort(action.executed_at)}</span>
           </div>
         </div>
       </div>
@@ -1107,6 +1189,17 @@ export default function ActivityPage() {
     refetchInterval: 60_000,
   });
 
+  // AI assistant action history
+  const pipeboardHistory = useQuery({
+    queryKey: ["pipeboard-history"],
+    queryFn: async (): Promise<{ actions: PipeboardAction[] }> => {
+      const res = await fetch(`${BASE}/api/pipeboard/history?days=14`);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json() as Promise<{ actions: PipeboardAction[] }>;
+    },
+    staleTime: 2 * 60_000,
+  });
+
   // 7-day window for campaign health scan
   const until7d = cairoToday();
   const since7d  = cairoOffset(6);
@@ -1389,6 +1482,25 @@ export default function ActivityPage() {
               </div>
             )}
           </section>
+
+          {/* ── AI Assistant Campaign Changes ─── */}
+          {(pipeboardHistory.data?.actions?.length ?? 0) > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-sm font-bold flex items-center gap-2">
+                <Bot className="h-4 w-4 text-primary" />
+                تغييرات الحملات
+                <span className="text-[11px] text-muted-foreground font-normal">عبر المساعد الذكي — آخر 14 يوم</span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                  {pipeboardHistory.data!.actions.length} إجراء
+                </span>
+              </h2>
+              <div className="space-y-2">
+                {pipeboardHistory.data!.actions.map((action) => (
+                  <PipeboardActionCard key={action.id} action={action} />
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* ── Meta Activity Feed ─── */}
           <section className="space-y-4">

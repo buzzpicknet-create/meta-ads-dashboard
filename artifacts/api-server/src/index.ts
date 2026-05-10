@@ -307,6 +307,25 @@ async function runMigrations() {
       ('/decisions', 'media_manager', false)
     ON CONFLICT (page_path, role) DO NOTHING
   `);
+  // AI assistant action log — every write action executed via pipeboard
+  await query(`
+    CREATE TABLE IF NOT EXISTS pipeboard_actions (
+      id SERIAL PRIMARY KEY,
+      executed_at TIMESTAMPTZ DEFAULT NOW(),
+      executed_by VARCHAR(200) NOT NULL,
+      tool_name VARCHAR(100) NOT NULL,
+      args JSONB NOT NULL DEFAULT '{}',
+      success BOOLEAN NOT NULL,
+      result_message TEXT,
+      campaign_name VARCHAR(500),
+      adset_name VARCHAR(500)
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_pipeboard_actions_executed_at
+    ON pipeboard_actions (executed_at DESC)
+  `);
+
   // Track one-time migrations
   await query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
