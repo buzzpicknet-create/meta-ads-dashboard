@@ -1071,10 +1071,12 @@ export default function AdminPage() {
     refetchInterval: 30 * 1000,
   });
 
+  const [trendDays, setTrendDays] = useState<7 | 14 | 30>(14);
+
   const noOpCountQuery = useQuery({
-    queryKey: ["pipeboard-no-op-count"],
+    queryKey: ["pipeboard-no-op-count", trendDays],
     queryFn: async () => {
-      const r = await fetch(`${API}/pipeboard/no-op-count`, { credentials: "include" });
+      const r = await fetch(`${API}/pipeboard/no-op-count?days=${trendDays}`, { credentials: "include" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json() as { count: number };
       return d.count;
@@ -1085,9 +1087,9 @@ export default function AdminPage() {
   const noOpCount = noOpCountQuery.data ?? 0;
 
   const noOpTrendQuery = useQuery({
-    queryKey: ["pipeboard-no-op-trend"],
+    queryKey: ["pipeboard-no-op-trend", trendDays],
     queryFn: async () => {
-      const r = await fetch(`${API}/pipeboard/no-op-trend`, { credentials: "include" });
+      const r = await fetch(`${API}/pipeboard/no-op-trend?days=${trendDays}`, { credentials: "include" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json() as { trend: { day: string; count: number }[] };
       return d.trend;
@@ -1175,13 +1177,30 @@ export default function AdminPage() {
                 noOpCount
               )}
             </p>
-            <p className="text-sm text-muted-foreground mt-1">إجراء مكرر خلال آخر 14 يوم</p>
+            <p className="text-sm text-muted-foreground mt-1">إجراء مكرر خلال آخر {trendDays} يوم</p>
           </div>
           <span className="text-xs text-muted-foreground shrink-0">عرض التفاصيل ←</span>
         </div>
 
-        {/* Sparkline */}
-        <div className="mt-3 h-14">
+        {/* Days toggle + Sparkline */}
+        <div className="mt-3 flex items-center gap-2">
+          <div className="flex gap-1 shrink-0" onClick={(e) => e.preventDefault()}>
+            {([7, 14, 30] as const).map((d) => (
+              <button
+                key={d}
+                onClick={(e) => { e.preventDefault(); setTrendDays(d); }}
+                className={`h-5 px-1.5 rounded text-[10px] font-medium transition-colors ${
+                  trendDays === d
+                    ? "bg-amber-500 text-white"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {d}ي
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-1.5 h-14">
           {noOpTrendQuery.isLoading ? (
             <div className="h-full w-full rounded bg-muted animate-pulse" />
           ) : (() => {

@@ -173,44 +173,51 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 });
 
 // ── GET /api/pipeboard/no-op-count ─────────────────────────────
-router.get("/pipeboard/no-op-count", async (_req: Request, res: Response) => {
+router.get("/pipeboard/no-op-count", async (req: Request, res: Response) => {
+  const rawDays = parseInt(String(req.query.days ?? "14"), 10);
+  const days = isNaN(rawDays) || rawDays < 1 ? 14 : Math.min(rawDays, 60);
+
   try {
     const rows = await query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM pipeboard_actions
        WHERE is_no_op = TRUE
-         AND executed_at > NOW() - INTERVAL '14 days'`,
-      []
+         AND executed_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') - ($1::int * INTERVAL '1 day')`,
+      [days - 1]
     );
-    res.json({ count: parseInt(rows[0]?.count ?? "0", 10) });
+    res.json({ count: parseInt(rows[0]?.count ?? "0", 10), days });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
 });
 
 // ── GET /api/pipeboard/no-op-trend ─────────────────────────────
-router.get("/pipeboard/no-op-trend", async (_req: Request, res: Response) => {
+router.get("/pipeboard/no-op-trend", async (req: Request, res: Response) => {
+  const rawDays = parseInt(String(req.query.days ?? "14"), 10);
+  const days = isNaN(rawDays) || rawDays < 1 ? 14 : Math.min(rawDays, 60);
+  const lookback = days - 1; // e.g. days=14 → go back 13 days from today
+
   try {
     // Use calendar-day boundaries so SQL rows and the zero-fill loop
-    // cover the exact same 14 days (today-13 through today, UTC).
+    // cover the exact same N days (today-lookback through today, UTC).
     const rows = await query<{ day: string; count: string }>(
       `SELECT
          TO_CHAR(DATE_TRUNC('day', executed_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day,
          COUNT(*)::text AS count
        FROM pipeboard_actions
        WHERE is_no_op = TRUE
-         AND executed_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') - INTERVAL '13 days'
+         AND executed_at >= DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') - ($1::int * INTERVAL '1 day')
          AND executed_at <  DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC') + INTERVAL '1 day'
        GROUP BY DATE_TRUNC('day', executed_at AT TIME ZONE 'UTC')
        ORDER BY DATE_TRUNC('day', executed_at AT TIME ZONE 'UTC') ASC`,
-      []
+      [lookback]
     );
 
-    // Zero-fill: emit exactly 14 UTC calendar days (today-13 .. today)
+    // Zero-fill: emit exactly `days` UTC calendar days (today-lookback .. today)
     const todayUTC = new Date();
     todayUTC.setUTCHours(0, 0, 0, 0);
     const trend: { day: string; count: number }[] = [];
-    for (let i = 13; i >= 0; i--) {
+    for (let i = lookback; i >= 0; i--) {
       const d = new Date(todayUTC);
       d.setUTCDate(d.getUTCDate() - i);
       const dayStr = d.toISOString().slice(0, 10); // "YYYY-MM-DD"
@@ -218,7 +225,7 @@ router.get("/pipeboard/no-op-trend", async (_req: Request, res: Response) => {
       trend.push({ day: dayStr, count: found ? parseInt(found.count, 10) : 0 });
     }
 
-    res.json({ trend });
+    res.json({ trend, days });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
