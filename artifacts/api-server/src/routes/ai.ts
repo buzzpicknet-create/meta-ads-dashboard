@@ -558,12 +558,12 @@ function isRateLimitErr(err: unknown): boolean {
   );
 }
 
-// 60 min — same freshness window as the dashboard routes
-const TOOL_CACHE_FRESH_MS = 60 * 60 * 1000;
-// Only annotate cache note when data is older than this threshold
-const CACHE_NOTE_THRESHOLD_MS = 5 * 60 * 1000;
-// Details (status/budget) are lighter and can change sooner — use 5-min freshness
-const DETAILS_CACHE_FRESH_MS = 5 * 60 * 1000;
+// 0 — AI tools always fetch live data directly from Meta (no cache)
+const TOOL_CACHE_FRESH_MS = 0;
+// Always show cache note since AI always fetches fresh
+const CACHE_NOTE_THRESHOLD_MS = 0;
+// Details (status/budget) — also live, no cache
+const DETAILS_CACHE_FRESH_MS = 0;
 
 interface CacheResult<T> {
   data: T;
