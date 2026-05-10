@@ -55,22 +55,48 @@ export function NavConversationSearchModal({ open, onClose }: NavConversationSea
   const inputRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
+  const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchRecent = useCallback(() => {
+    if (fetchTimerRef.current !== null) clearTimeout(fetchTimerRef.current);
+    fetchTimerRef.current = setTimeout(() => {
+      fetchTimerRef.current = null;
+      setRecentLoading(true);
+      fetch(`${API}/chat/conversations?global=true`, {
+        credentials: "include",
+        cache: "no-store",
+      })
+        .then((r) => r.ok ? r.json() as Promise<{ conversations: ConvSummary[] }> : Promise.reject())
+        .then((d) => setRecentConvs(d.conversations))
+        .catch(() => setRecentConvs([]))
+        .finally(() => setRecentLoading(false));
+    }, 100);
+  }, []);
+
   // Focus input and fetch recent conversations when modal opens
   useEffect(() => {
     if (open) {
       setQuery("");
       setResults(null);
       setTimeout(() => inputRef.current?.focus(), 50);
-
-      // Fetch recent conversations (up to 6)
-      setRecentLoading(true);
-      fetch(`${API}/chat/conversations?global=true`, { credentials: "include" })
-        .then((r) => r.ok ? r.json() as Promise<{ conversations: ConvSummary[] }> : Promise.reject())
-        .then((d) => setRecentConvs(d.conversations))
-        .catch(() => setRecentConvs([]))
-        .finally(() => setRecentLoading(false));
+      fetchRecent();
     }
-  }, [open]);
+  }, [open, fetchRecent]);
+
+  // Re-fetch when the window regains focus while the palette is open
+  useEffect(() => {
+    if (!open) return;
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") fetchRecent();
+    };
+    const handleFocus = () => fetchRecent();
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [open, fetchRecent]);
 
   // Close on Escape
   useEffect(() => {
