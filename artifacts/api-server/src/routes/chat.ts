@@ -18,13 +18,41 @@ interface MsgRow {
   created_at: string;
 }
 
-// GET /api/chat/conversations — list user conversations (optionally filter by campaign_id)
+// GET /api/chat/conversations — list user conversations (optionally filter by campaign_id or search q)
 router.get("/chat/conversations", async (req, res) => {
   try {
     const userId = req.session.userId!;
     const campaignId = String(req.query["campaign_id"] || "").trim() || null;
+    const q = String(req.query["q"] || "").trim();
+
     let rows: ConvRow[];
-    if (campaignId) {
+
+    if (q) {
+      const pattern = `%${q}%`;
+      if (campaignId) {
+        rows = await query<ConvRow>(
+          `SELECT DISTINCT cc.id, cc.title, cc.created_at, cc.updated_at
+           FROM chat_conversations cc
+           LEFT JOIN chat_messages cm ON cm.conversation_id = cc.id
+           WHERE cc.user_id = $1 AND cc.campaign_id = $2
+             AND (cc.title ILIKE $3 OR cm.content ILIKE $3)
+           ORDER BY cc.updated_at DESC
+           LIMIT 60`,
+          [userId, campaignId, pattern]
+        );
+      } else {
+        rows = await query<ConvRow>(
+          `SELECT DISTINCT cc.id, cc.title, cc.created_at, cc.updated_at
+           FROM chat_conversations cc
+           LEFT JOIN chat_messages cm ON cm.conversation_id = cc.id
+           WHERE cc.user_id = $1 AND cc.campaign_id IS NULL
+             AND (cc.title ILIKE $2 OR cm.content ILIKE $2)
+           ORDER BY cc.updated_at DESC
+           LIMIT 60`,
+          [userId, pattern]
+        );
+      }
+    } else if (campaignId) {
       rows = await query<ConvRow>(
         `SELECT id, title, created_at, updated_at
          FROM chat_conversations

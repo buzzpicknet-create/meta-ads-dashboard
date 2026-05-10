@@ -1742,6 +1742,9 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
   const [conversations, setConversations] = useState<ConvSummary[]>([]);
   const [histLoading, setHistLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ConvSummary[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [executingAction, setExecutingAction] = useState(false);
   const [toolCallLabels, setToolCallLabels] = useState<string[]>([]);
@@ -1769,6 +1772,32 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       setHistLoading(false);
     }
   }, [campaignId]);
+
+  // Debounced backend search when searchQuery changes
+  useEffect(() => {
+    setSearchResults(null);
+    if (!searchQuery.trim()) {
+      setSearchLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const params = new URLSearchParams({ campaign_id: campaignId, q: searchQuery.trim() });
+        const r = await fetch(`${CHAT_API}/chat/conversations?${params}`, { credentials: "include", signal: controller.signal });
+        if (r.ok) {
+          const d = await r.json() as { conversations: ConvSummary[] };
+          setSearchResults(d.conversations);
+        }
+      } catch (e) {
+        if ((e as { name?: string }).name !== "AbortError") setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 350);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [searchQuery, campaignId]);
 
   // Ensure a conversation exists (create if needed), returns convId
   const ensureConversation = useCallback(async (firstMsg: string): Promise<number | null> => {
@@ -1982,6 +2011,25 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
+  // Helper: wrap matching text with a highlight span
+  const highlightText = (text: string, query: string) => {
+    if (!query.trim()) return <>{text}</>;
+    const idx = text.toLowerCase().indexOf(query.trim().toLowerCase());
+    if (idx === -1) return <>{text}</>;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark className="bg-yellow-200 dark:bg-yellow-500/30 text-foreground rounded-sm px-0.5">{text.slice(idx, idx + query.trim().length)}</mark>
+        {text.slice(idx + query.trim().length)}
+      </>
+    );
+  };
+
+  // Conversations to display in history (search results or full list)
+  const displayedConversations = searchQuery.trim()
+    ? (searchResults ?? conversations.filter((c) => c.title.toLowerCase().includes(searchQuery.trim().toLowerCase())))
+    : conversations;
+
   // History view
   if (view === "history") {
     return (
@@ -1990,7 +2038,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setView("chat")}
+              onClick={() => { setView("chat"); setSearchQuery(""); setSearchResults(null); }}
               className="h-7 w-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
             >
               <ChevronRight className="h-4 w-4" />
@@ -2006,6 +2054,30 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
           </button>
         </div>
 
+        {/* Search input */}
+        <div className="relative mb-2.5">
+          <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="بحث في المحادثات..."
+            dir="rtl"
+            className="w-full h-8 rounded-lg border border-border/60 bg-muted/30 pr-8 pl-7 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(""); setSearchResults(null); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+          {searchLoading && (
+            <div className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+          )}
+        </div>
+
         {/* List */}
         <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5" style={{ overscrollBehavior: "contain" }}>
           {histLoading && (
@@ -2013,17 +2085,26 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               <div className="w-5 h-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
             </div>
           )}
-          {!histLoading && conversations.length === 0 && (
+          {!histLoading && displayedConversations.length === 0 && (
             <div className="flex flex-col items-center gap-2 py-10 text-center">
               <MessageSquare className="h-8 w-8 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">لا توجد محادثات محفوظة</p>
-              <p className="text-xs text-muted-foreground/60">ابدأ محادثة وسيتم حفظها تلقائياً</p>
+              {searchQuery.trim() ? (
+                <>
+                  <p className="text-sm text-muted-foreground">لا توجد نتائج</p>
+                  <p className="text-xs text-muted-foreground/60">جرّب كلمة بحث مختلفة</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">لا توجد محادثات محفوظة</p>
+                  <p className="text-xs text-muted-foreground/60">ابدأ محادثة وسيتم حفظها تلقائياً</p>
+                </>
+              )}
             </div>
           )}
-          {conversations.map((conv) => (
+          {displayedConversations.map((conv) => (
             <button
               key={conv.id}
-              onClick={() => loadConversation(conv)}
+              onClick={() => { loadConversation(conv); setSearchQuery(""); setSearchResults(null); }}
               className={`w-full text-end flex items-start gap-2.5 px-3 py-2.5 rounded-xl border transition-all group ${
                 convId === conv.id
                   ? "border-primary/40 bg-primary/5"
@@ -2031,10 +2112,17 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               }`}
             >
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-foreground truncate leading-snug">{conv.title}</p>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Clock className="h-3 w-3 text-muted-foreground/50" />
-                  <span className="text-[11px] text-muted-foreground/60">{fmtRelative(conv.updated_at)}</span>
+                <p className="text-[13px] font-medium text-foreground truncate leading-snug">
+                  {highlightText(conv.title, searchQuery)}
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-muted-foreground/50" />
+                    <span className="text-[11px] text-muted-foreground/60">{fmtRelative(conv.updated_at)}</span>
+                  </div>
+                  {searchQuery.trim() && searchResults !== null && !conv.title.toLowerCase().includes(searchQuery.trim().toLowerCase()) && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary/70 leading-none">تطابق في المحتوى</span>
+                  )}
                 </div>
               </div>
               <button
@@ -2046,6 +2134,11 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
               </button>
             </button>
           ))}
+          {searchQuery.trim() && searchResults !== null && searchResults.length > 0 && (
+            <p className="text-center text-[11px] text-muted-foreground/50 pt-1">
+              {searchResults.length} نتيجة بحث
+            </p>
+          )}
         </div>
       </div>
     );
