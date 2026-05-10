@@ -1005,44 +1005,50 @@ export function GlobalAiChat() {
                   ))}
 
                   {/* Pending action confirmation card — admin only */}
-                  {pendingAction && !streaming && user?.role === "admin" && (
-                    <div className="flex gap-2.5 flex-row items-start" dir="rtl">
-                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-amber-100 border border-amber-300">
-                        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-                      </div>
-                      <div
-                        className="min-w-0 rounded-2xl rounded-bl-sm bg-amber-50 border border-amber-200 shadow-sm px-4 py-3"
-                        style={{ maxWidth: "85%" }}
-                      >
-                        <p className="text-[12px] font-semibold text-amber-700 mb-1">⚡ تأكيد الإجراء</p>
-                        <p className="text-[13px] text-amber-900 leading-relaxed">{pendingAction.summary}</p>
-                        {pendingAction.currentValue && pendingAction.proposedValue && (
-                          <div className="mt-2 mb-1 flex items-center gap-2 text-[12px]" dir="ltr">
-                            <span className="px-2 py-0.5 rounded-md bg-red-100 text-red-700 font-medium">{pendingAction.currentValue}</span>
-                            <span className="text-amber-600 font-bold">→</span>
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 font-medium">{pendingAction.proposedValue}</span>
+                  {pendingAction && !streaming && user?.role === "admin" && (() => {
+                    const isSameState = !!(pendingAction.currentValue && pendingAction.proposedValue && pendingAction.currentValue === pendingAction.proposedValue);
+                    return (
+                      <div className="flex gap-2.5 flex-row items-start" dir="rtl">
+                        <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 ${isSameState ? "bg-slate-100 border border-slate-300" : "bg-amber-100 border border-amber-300"}`}>
+                          <AlertTriangle className={`h-3.5 w-3.5 ${isSameState ? "text-slate-500" : "text-amber-600"}`} />
+                        </div>
+                        <div
+                          className={`min-w-0 rounded-2xl rounded-bl-sm shadow-sm px-4 py-3 ${isSameState ? "bg-slate-50 border border-slate-200" : "bg-amber-50 border border-amber-200"}`}
+                          style={{ maxWidth: "85%" }}
+                        >
+                          <p className={`text-[12px] font-semibold mb-1 ${isSameState ? "text-slate-600" : "text-amber-700"}`}>⚡ تأكيد الإجراء</p>
+                          <p className={`text-[13px] leading-relaxed ${isSameState ? "text-slate-700" : "text-amber-900"}`}>{pendingAction.summary}</p>
+                          {pendingAction.currentValue && pendingAction.proposedValue && (
+                            <div className="mt-2 mb-1 flex items-center gap-2 text-[12px]" dir="ltr">
+                              <span className={`px-2 py-0.5 rounded-md font-medium ${isSameState ? "bg-slate-100 text-slate-600" : "bg-red-100 text-red-700"}`}>{pendingAction.currentValue}</span>
+                              <span className={`font-bold ${isSameState ? "text-slate-400" : "text-amber-600"}`}>→</span>
+                              <span className={`px-2 py-0.5 rounded-md font-medium ${isSameState ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-700"}`}>{pendingAction.proposedValue}</span>
+                            </div>
+                          )}
+                          {isSameState && (
+                            <p className="text-[12px] text-slate-500 mt-1.5 mb-0.5 font-medium">⚠ هذه الحملة بالفعل في هذه الحالة</p>
+                          )}
+                          <div className="flex gap-2 mt-3">
+                            <button
+                              onClick={executeAction}
+                              disabled={executingAction}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isSameState ? "bg-slate-500 hover:bg-slate-600" : "bg-emerald-600 hover:bg-emerald-700"}`}
+                            >
+                              <Zap className="h-3 w-3" />
+                              {executingAction ? "جاري التنفيذ…" : "نفّذ"}
+                            </button>
+                            <button
+                              onClick={cancelAction}
+                              disabled={executingAction}
+                              className="px-3 py-1.5 rounded-lg border border-border text-[12px] text-muted-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+                            >
+                              إلغاء
+                            </button>
                           </div>
-                        )}
-                        <div className="flex gap-2 mt-3">
-                          <button
-                            onClick={executeAction}
-                            disabled={executingAction}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[12px] font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Zap className="h-3 w-3" />
-                            {executingAction ? "جاري التنفيذ…" : "نفّذ"}
-                          </button>
-                          <button
-                            onClick={cancelAction}
-                            disabled={executingAction}
-                            className="px-3 py-1.5 rounded-lg border border-border text-[12px] text-muted-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
-                          >
-                            إلغاء
-                          </button>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Streaming */}
                   {streaming && streamingText && (
