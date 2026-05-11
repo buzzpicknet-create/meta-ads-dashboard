@@ -28,7 +28,7 @@ const router = Router();
 //   gpt-5.4     = most capable (use only if quality drops noticeably)
 // MINI_MODEL: simple extraction / classification — no tools needed
 //   gpt-5-nano  = fastest & cheapest (JSON-only tasks)
-const CHAT_MODEL = "gpt-5-mini";
+const CHAT_MODEL = "gpt-5.4";
 const MINI_MODEL = "gpt-5-nano";
 
 const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Facebook/Instagram) بخبرة 10+ سنوات.
