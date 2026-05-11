@@ -442,12 +442,21 @@ function RenderMarkdown({ text }: { text: string }) {
       i++;
       const raw = codeLines.join("\n");
       if (isBulk) {
+        let bulkPayload: BulkActionPayload | null = null;
         try {
-          elements.push(<BulkActionPanel key={`bulk-${i}`} payload={JSON.parse(raw) as BulkActionPayload} />);
-        } catch {
-          elements.push(
-            <pre key={`code-${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>
-          );
+          const parsed = JSON.parse(raw) as unknown;
+          if (Array.isArray(parsed)) {
+            bulkPayload = { actions: parsed as BulkActionPayload["actions"] };
+          } else if (parsed && typeof parsed === "object") {
+            const obj = parsed as Record<string, unknown>;
+            if (Array.isArray(obj.actions)) bulkPayload = parsed as BulkActionPayload;
+            else if (typeof obj.type === "string") bulkPayload = { actions: [parsed as BulkActionPayload["actions"][0]] };
+          }
+        } catch {}
+        if (bulkPayload) {
+          elements.push(<BulkActionPanel key={`bulk-${i}`} payload={bulkPayload} />);
+        } else {
+          elements.push(<pre key={`code-${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>);
         }
       } else if (isChart) {
         try {
@@ -461,15 +470,24 @@ function RenderMarkdown({ text }: { text: string }) {
           );
         }
       } else {
-        // Structural fallback: if JSON has "actions" array → treat as BulkActionPanel
+        // Structural fallback: if JSON has "actions" array or is an array of action items
         // (model sometimes outputs ```json instead of ```bulk_action)
         let renderedAsBulk = false;
         if (lang === "json" || lang === "") {
           try {
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            if (Array.isArray(parsed.actions)) {
-              elements.push(<BulkActionPanel key={`bulk-${i}`} payload={parsed as unknown as BulkActionPayload} />);
-              renderedAsBulk = true;
+            const parsed = JSON.parse(raw) as unknown;
+            if (Array.isArray(parsed)) {
+              const arr = parsed as Record<string, unknown>[];
+              if (arr.length > 0 && typeof arr[0]?.type === "string") {
+                elements.push(<BulkActionPanel key={`bulk-${i}`} payload={{ actions: parsed as BulkActionPayload["actions"] }} />);
+                renderedAsBulk = true;
+              }
+            } else if (parsed && typeof parsed === "object") {
+              const obj = parsed as Record<string, unknown>;
+              if (Array.isArray(obj.actions)) {
+                elements.push(<BulkActionPanel key={`bulk-${i}`} payload={parsed as unknown as BulkActionPayload} />);
+                renderedAsBulk = true;
+              }
             }
           } catch { /* fall through to generic */ }
         }
@@ -656,7 +674,8 @@ interface GlobalAiChatProps {
 export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiChatProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const [, navigate] = useLocation();
+  const [loc, navigate] = useLocation();
+  const isOnChatPage = loc === "/chat";
 
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -1246,11 +1265,11 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
   return (
     <>
-      {/* Floating button — hidden when panel is open */}
-      {!open && (
+      {/* Floating button — hidden when panel is open OR when on /chat page */}
+      {!open && !isOnChatPage && (
         <button
           onClick={() => { setOpen(true); setCollapsed(false); }}
-          className="fixed bottom-6 left-6 z-50 rounded-2xl bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 transition-all flex items-center justify-center"
+          className="fixed bottom-20 sm:bottom-6 left-6 z-[60] rounded-2xl bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 hover:scale-105 transition-all flex items-center justify-center"
           title="مساعد الإعلانات"
           style={{ height: 52, width: 52 }}
         >
@@ -1261,12 +1280,12 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         </button>
       )}
 
-      {/* Chat Panel — fixed bottom, full width, collapsible */}
-      {open && (
+      {/* Chat Panel — fixed bottom, full width, collapsible — hidden on /chat page */}
+      {open && !isOnChatPage && (
         <div
-          className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border/60 shadow-2xl flex flex-col overflow-hidden"
+          className="fixed bottom-0 left-0 right-0 z-[60] bg-background border-t border-border/60 shadow-2xl flex flex-col overflow-hidden"
           style={{
-            height: collapsed ? "56px" : "90vh",
+            height: collapsed ? "56px" : "min(90vh, calc(100dvh - 120px))",
             transition: "height 0.3s cubic-bezier(0.4,0,0.2,1)",
           }}
           dir="rtl"

@@ -150,21 +150,44 @@ function RenderMarkdown({ text }: { text: string }) {
       i++;
       const raw = code.join("\n");
       if (isBulk) {
-        try { elems.push(<BulkActionPanel key={`b${i}`} payload={JSON.parse(raw) as BulkActionPayload} />); }
-        catch { elems.push(<pre key={`p${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>); }
+        let bulkPayload: BulkActionPayload | null = null;
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (Array.isArray(parsed)) {
+            bulkPayload = { actions: parsed as BulkActionPayload["actions"] };
+          } else if (parsed && typeof parsed === "object") {
+            const obj = parsed as Record<string, unknown>;
+            if (Array.isArray(obj.actions)) bulkPayload = parsed as BulkActionPayload;
+            else if (typeof obj.type === "string") bulkPayload = { actions: [parsed as BulkActionPayload["actions"][0]] };
+          }
+        } catch {}
+        if (bulkPayload) {
+          elems.push(<BulkActionPanel key={`b${i}`} payload={bulkPayload} />);
+        } else {
+          elems.push(<pre key={`p${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>);
+        }
       } else if (isChart) {
         try { elems.push(<ChartBlock key={`c${i}`} spec={JSON.parse(raw) as ChartSpec} />); }
         catch { elems.push(<pre key={`p${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>); }
       } else {
-        // Structural fallback: if JSON has "actions" array → treat as BulkActionPanel
+        // Structural fallback: if JSON has "actions" array or is array of items
         // (model sometimes outputs ```json instead of ```bulk_action)
         let renderedAsBulk = false;
         if (lang === "json" || lang === "") {
           try {
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
-            if (Array.isArray(parsed.actions)) {
-              elems.push(<BulkActionPanel key={`b${i}`} payload={parsed as unknown as BulkActionPayload} />);
-              renderedAsBulk = true;
+            const parsed = JSON.parse(raw) as unknown;
+            if (Array.isArray(parsed)) {
+              const arr = parsed as Record<string, unknown>[];
+              if (arr.length > 0 && typeof arr[0]?.type === "string") {
+                elems.push(<BulkActionPanel key={`b${i}`} payload={{ actions: parsed as BulkActionPayload["actions"] }} />);
+                renderedAsBulk = true;
+              }
+            } else if (parsed && typeof parsed === "object") {
+              const obj = parsed as Record<string, unknown>;
+              if (Array.isArray(obj.actions)) {
+                elems.push(<BulkActionPanel key={`b${i}`} payload={parsed as unknown as BulkActionPayload} />);
+                renderedAsBulk = true;
+              }
             }
           } catch { /* fall through to generic */ }
         }
