@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   UserPlus, Trash2, KeyRound, Shield, Clapperboard, Activity,
@@ -326,6 +326,154 @@ function ResetPasswordModal({ user, onClose }: { user: User; onClose: () => void
   );
 }
 
+interface AccountItem { id: string; name: string; type: string; currency?: string }
+
+function AccountPermissionsPanel({ userId }: { userId: number }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const { data: allAccountsData } = useQuery({
+    queryKey: ["ai-accounts-admin"],
+    queryFn: async () => {
+      const r = await fetch(`${API}/ai/accounts`, { credentials: "include" });
+      if (!r.ok) return { accounts: [] as AccountItem[] };
+      return r.json() as Promise<{ accounts: AccountItem[] }>;
+    },
+    staleTime: 60000,
+  });
+
+  const { data: permsData, isLoading: permsLoading } = useQuery({
+    queryKey: ["user-account-perms", userId],
+    queryFn: async () => {
+      const r = await fetch(`${API}/admin/users/${userId}/account-permissions`, { credentials: "include" });
+      if (!r.ok) return { permissions: [] as { account_id: string; account_type: string; account_name: string }[] };
+      return r.json() as Promise<{ permissions: { account_id: string; account_type: string; account_name: string }[] }>;
+    },
+    enabled: open,
+  });
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (permsData?.permissions) {
+      setSelected(new Set(permsData.permissions.map(p => p.account_id)));
+    }
+  }, [permsData]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const allAcc = allAccountsData?.accounts ?? [];
+      const permissions = allAcc
+        .filter(a => selected.has(a.id))
+        .map(a => ({ account_id: a.id, account_type: a.type, account_name: a.name }));
+      const r = await fetch(`${API}/admin/users/${userId}/account-permissions`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ permissions }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "فشل الحفظ");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-account-perms", userId] });
+      setOpen(false);
+    },
+    onError: (err) => alert(err instanceof Error ? err.message : "فشل الحفظ"),
+  });
+
+  const toggle = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allAcc = allAccountsData?.accounts ?? [];
+  const permCount = permsData?.permissions.length ?? 0;
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors group"
+      >
+        <DatabaseZap className="h-3 w-3 shrink-0" />
+        {permCount > 0 ? (
+          <span className="font-mono bg-violet-500/10 text-violet-600 px-1.5 py-0.5 rounded text-[10px]">
+            {permCount} حساب مسموح
+          </span>
+        ) : (
+          <span className="text-muted-foreground/60 text-[10px]">كل الحسابات (بدون قيود)</span>
+        )}
+        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">✏️</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 border border-border/60 rounded-lg p-3 bg-muted/10 space-y-2" dir="rtl">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">صلاحيات الحسابات الإعلانية</span>
+        <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {permsLoading || !permsData ? (
+        <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          جاري التحميل...
+        </div>
+      ) : allAcc.length === 0 ? (
+        <p className="text-xs text-muted-foreground py-2">لا توجد حسابات إعلانية متاحة</p>
+      ) : (
+        <div className="space-y-1 max-h-52 overflow-y-auto">
+          <label className="flex items-center gap-2 py-1 px-2 rounded hover:bg-muted/40 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selected.size === 0}
+              onChange={() => setSelected(new Set())}
+              className="rounded accent-emerald-500 h-3.5 w-3.5"
+            />
+            <span className="text-xs text-muted-foreground italic">بدون قيود — يرى كل الحسابات</span>
+          </label>
+          {allAcc.map(acc => (
+            <label key={acc.id} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-muted/40 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.has(acc.id)}
+                onChange={() => toggle(acc.id)}
+                className="rounded accent-emerald-500 h-3.5 w-3.5"
+              />
+              <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                acc.type === "meta"
+                  ? "bg-blue-100 dark:bg-blue-900/40 text-blue-600"
+                  : "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600"
+              }`}>{acc.type === "meta" ? "M" : "G"}</span>
+              <span className="flex-1 text-xs truncate">{acc.name}</span>
+              <span className="text-muted-foreground/40 font-mono text-[10px] shrink-0 hidden sm:block" dir="ltr">{acc.id}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center justify-between pt-1 border-t border-border/40">
+        <span className="text-[11px] text-muted-foreground">
+          {selected.size === 0 ? "كل الحسابات (بدون قيود)" : `${selected.size} حساب مختار`}
+        </span>
+        <button
+          onClick={() => save.mutate()}
+          disabled={save.isPending}
+          className="h-7 px-3 rounded-lg text-xs font-medium bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {save.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          حفظ
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function UserActivityCard({
   u,
   me,
@@ -338,27 +486,6 @@ function UserActivityCard({
   onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [editingAccount, setEditingAccount] = useState(false);
-  const [accountInput, setAccountInput] = useState(u.ad_account_id ?? "");
-  const qc = useQueryClient();
-
-  const saveAccount = useMutation({
-    mutationFn: async (val: string) => {
-      const r = await fetch(`${API}/admin/users/${u.id}/account`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ ad_account_id: val.trim() || null }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error ?? "فشل التحديث");
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-user-activity"] });
-      setEditingAccount(false);
-    },
-    onError: (err) => alert(err instanceof Error ? err.message : "فشل التحديث"),
-  });
 
   const statsMap = u.recent_activity.reduce<Record<string, number>>((acc, e) => {
     acc[e.action] = (acc[e.action] ?? 0) + 1;
@@ -379,46 +506,8 @@ function UserActivityCard({
               <RoleBadge role={u.role} />
             </div>
             <OnlineIndicator lastSeen={u.last_seen_at} />
-            {/* Ad account assignment */}
-            {editingAccount ? (
-              <div className="flex items-center gap-1.5 mt-1.5" dir="ltr">
-                <input
-                  autoFocus
-                  value={accountInput}
-                  onChange={(e) => setAccountInput(e.target.value)}
-                  placeholder="رقم الحساب الإعلاني"
-                  dir="ltr"
-                  className="h-7 px-2 text-xs rounded-md border border-border bg-background font-mono w-44 focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-                <button
-                  onClick={() => saveAccount.mutate(accountInput)}
-                  disabled={saveAccount.isPending}
-                  className="h-7 px-2 rounded-md text-xs font-medium bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
-                >
-                  {saveAccount.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                </button>
-                <button
-                  onClick={() => { setEditingAccount(false); setAccountInput(u.ad_account_id ?? ""); }}
-                  className="h-7 px-2 rounded-md text-xs text-muted-foreground hover:bg-muted"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => { setAccountInput(u.ad_account_id ?? ""); setEditingAccount(true); }}
-                className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors group"
-              >
-                {u.ad_account_id ? (
-                  <span className="font-mono bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded text-[10px]">
-                    {u.ad_account_id}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground/60">بدون حساب إعلاني محدد</span>
-                )}
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
-              </button>
-            )}
+            {/* Account permissions */}
+            <AccountPermissionsPanel userId={u.id} />
           </div>
         </div>
 

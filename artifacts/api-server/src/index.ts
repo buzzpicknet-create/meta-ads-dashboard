@@ -502,6 +502,20 @@ async function runMigrations() {
     )
   `);
 
+  // Account-level permissions per user (replaces single ad_account_id)
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_account_permissions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      account_id TEXT NOT NULL,
+      account_type TEXT NOT NULL,
+      account_name TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, account_id)
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_uap_user_id ON user_account_permissions (user_id)`);
+
   logger.info("Database migrations complete");
 }
 

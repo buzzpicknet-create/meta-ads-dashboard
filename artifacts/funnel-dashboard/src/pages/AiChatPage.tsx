@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, User, Plus, Loader2, CheckCircle2,
   Brain, Paperclip, X, SquarePen, MessageSquare, Clock,
-  BarChart2, Zap, AlertTriangle, Square, AtSign,
+  BarChart2, Zap, AlertTriangle, Square, CheckSquare,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import {
@@ -373,13 +373,9 @@ export default function AiChatPage() {
   const [campCtx, setCampCtx] = useState<string|null>(null);
   const [campLoad, setCL]     = useState(false);
 
-  // ── @mention ──
-  const [allAccounts, setAllAccounts]     = useState<AccountMention[]>([]);
-  const [pinnedAccounts, setPinned]       = useState<AccountMention[]>([]);
-  const [mentionQuery, setMentionQuery]   = useState("");
-  const [mentionOpen, setMentionOpen]     = useState(false);
-  const [mentionIdx, setMentionIdx]       = useState(0);
-  const mentionBoxRef = useRef<HTMLDivElement>(null);
+  // ── Account selector ──
+  const [allAccounts, setAllAccounts]   = useState<AccountMention[]>([]);
+  const [selectedAccIds, setSelAccIds]  = useState<Set<string>>(new Set());
 
   // ── Refs ──
   const bottomRef   = useRef<HTMLDivElement>(null);
@@ -442,43 +438,50 @@ export default function AiChatPage() {
     }).catch(()=>setCampCtx(GEN_CTX)).finally(()=>setCL(false));
   }, [campCtx, campLoad]);
 
-  // ── Load accounts for @mention ───────────────────────────────────────────────
+  // ── Load accounts for selector ───────────────────────────────────────────────
   useEffect(() => {
     fetch(`${API}/ai/accounts`, {credentials:"include"})
       .then(r=>r.ok?r.json():null)
-      .then((d:{accounts?:AccountMention[]})=>{ if (d?.accounts?.length) setAllAccounts(d.accounts); })
+      .then((d:{accounts?:AccountMention[]})=>{
+        if (d?.accounts?.length) {
+          setAllAccounts(d.accounts);
+          // Restore from localStorage, or auto-select if single account
+          const stored = localStorage.getItem("chat_selected_accounts");
+          if (stored) {
+            try { setSelAccIds(new Set(JSON.parse(stored) as string[])); } catch {}
+          } else if (d.accounts.length === 1) {
+            setSelAccIds(new Set([d.accounts[0]!.id]));
+          }
+        }
+      })
       .catch(()=>{});
   }, []);
 
-  // ── Mention helpers ──────────────────────────────────────────────────────────
-  const filteredAccounts = mentionQuery === ""
-    ? allAccounts
-    : allAccounts.filter(a =>
-        a.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
-        a.id.includes(mentionQuery)
-      );
+  // ── Account selector helpers ──────────────────────────────────────────────────
+  const toggleAccId = useCallback((id: string) => {
+    setSelAccIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      localStorage.setItem("chat_selected_accounts", JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
 
-  const selectMention = useCallback((acc: AccountMention) => {
-    const cursor = inputRef.current?.selectionStart ?? input.length;
-    const before = input.slice(0, cursor).replace(/@[^\s@]*$/, "");
-    const after  = input.slice(cursor);
-    setInput(before + after);
-    setPinned(p => p.find(a=>a.id===acc.id) ? p : [...p, acc]);
-    setMentionOpen(false);
-    setMentionQuery("");
-    setMentionIdx(0);
-    setTimeout(()=>inputRef.current?.focus(), 10);
-  }, [input]);
+  const selectAllAccounts = useCallback(() => {
+    const ids = allAccounts.map(a => a.id);
+    setSelAccIds(new Set(ids));
+    localStorage.setItem("chat_selected_accounts", JSON.stringify(ids));
+  }, [allAccounts]);
 
-  const removePinned = useCallback((id: string) => {
-    setPinned(p=>p.filter(a=>a.id!==id));
+  const clearAllAccounts = useCallback(() => {
+    setSelAccIds(new Set());
+    localStorage.setItem("chat_selected_accounts", JSON.stringify([]));
   }, []);
 
   // ── Conversation helpers ─────────────────────────────────────────────────────
   const newChat = useCallback(() => {
     abortRef.current?.abort();
     setMsgs([]); setStr(false); setStTxt(""); setAtt(null); setConvId(null); setPending(null);
-    setPinned([]); setMentionOpen(false);
     setTimeout(()=>inputRef.current?.focus(), 50);
   }, []);
 
@@ -539,11 +542,12 @@ export default function AiChatPage() {
       const cid = await ensureConv(userText);
       const junk = /^[?؟!.\s]*$|^❌|^عذراً، لم أتمكن/;
       const clean = history.filter(m=>m.role!=="assistant"||(m.content.trim().length>5&&!junk.test(m.content.trim())));
-      // Inject pinned accounts into context so AI focuses on them
+      // Inject selected accounts — AI must focus only on these
       let ctx = campCtx ?? GEN_CTX;
-      if (pinnedAccounts.length > 0) {
-        const names = pinnedAccounts.map(a=>`${a.name} (${a.type==="meta"?"Meta Ads":"Google Ads"} — ID: ${a.id})`).join("، ");
-        ctx = `⚠️ تعليمات المستخدم: ركّز حصرياً على الحسابات التالية في هذه المحادثة:\n${names}\n\n` + ctx;
+      const selAccList = allAccounts.filter(a => selectedAccIds.has(a.id));
+      if (selAccList.length > 0) {
+        const names = selAccList.map(a=>`${a.name} (${a.type==="meta"?"Meta Ads":"Google Ads"} — ID: ${a.id})`).join("، ");
+        ctx = `⚠️ تعليمات المستخدم: ركّز حصرياً على الحسابات التالية في هذه المحادثة:\n${names}\n\nأي سؤال عن حسابات أخرى غير المذكورة → اعتذر بأدب وأخبر المستخدم أن صلاحياته مقصورة على الحسابات المحددة.\n\n` + ctx;
       }
       const body: Record<string,unknown> = {campaignContext:ctx, messages:clean, conversation_id:cid};
       if (att?.isImage) { body.imageBase64=att.base64; body.imageMimeType=att.mimeType; }
@@ -609,12 +613,6 @@ export default function AiChatPage() {
   }, [pending, executing, saveToDB]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mentionOpen && filteredAccounts.length > 0) {
-      if (e.key === "ArrowDown")  { e.preventDefault(); setMentionIdx(i=>Math.min(i+1, filteredAccounts.length-1)); return; }
-      if (e.key === "ArrowUp")    { e.preventDefault(); setMentionIdx(i=>Math.max(i-1, 0)); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); selectMention(filteredAccounts[mentionIdx]!); return; }
-      if (e.key === "Escape")     { setMentionOpen(false); setMentionQuery(""); return; }
-    }
     if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
   };
 
@@ -692,6 +690,59 @@ export default function AiChatPage() {
 
       {/* ══════════════════════════════════════════════════════ MAIN */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* ── Account selector bar (mandatory, always visible) ── */}
+        {allAccounts.length > 0 && (
+          <div className="border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0" dir="rtl">
+            <div className="max-w-3xl mx-auto flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-medium text-muted-foreground shrink-0 ml-1">تحليل:</span>
+              {allAccounts.length > 1 && (
+                <button
+                  onClick={selectedAccIds.size === allAccounts.length ? clearAllAccounts : selectAllAccounts}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-all ${
+                    selectedAccIds.size === allAccounts.length
+                      ? "bg-primary/15 border-primary/40 text-primary font-medium"
+                      : "bg-card border-border/60 text-muted-foreground hover:border-primary/30"
+                  }`}
+                >
+                  {selectedAccIds.size === allAccounts.length
+                    ? <CheckSquare className="h-3 w-3" />
+                    : <Square className="h-3 w-3 opacity-50" />}
+                  الكل
+                </button>
+              )}
+              {allAccounts.map(acc => {
+                const sel = selectedAccIds.has(acc.id);
+                return (
+                  <button
+                    key={acc.id}
+                    onClick={() => toggleAccId(acc.id)}
+                    title={acc.id}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all ${
+                      sel
+                        ? acc.type === "meta"
+                          ? "bg-blue-100 dark:bg-blue-950/40 border-blue-400/60 text-blue-700 dark:text-blue-300 font-medium"
+                          : "bg-emerald-100 dark:bg-emerald-950/40 border-emerald-400/60 text-emerald-700 dark:text-emerald-300 font-medium"
+                        : "bg-card border-border/50 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                    }`}
+                  >
+                    {sel
+                      ? <CheckSquare className="h-3 w-3 shrink-0" />
+                      : <Square className="h-3 w-3 shrink-0 opacity-30" />}
+                    <span className="max-w-[130px] truncate">{acc.name}</span>
+                    <span className="text-[10px] opacity-50 font-mono shrink-0">{acc.type === "meta" ? "M" : "G"}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedAccIds.size === 0 && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 max-w-3xl mx-auto flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                اختر حساباً إعلانياً واحداً على الأقل للبدء
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Messages or Welcome */}
         <div className="flex-1 overflow-y-auto">
@@ -922,30 +973,6 @@ export default function AiChatPage() {
             </div>
           )}
 
-          {/* @mention — pinned account pills */}
-          {pinnedAccounts.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-2 max-w-3xl mx-auto">
-              {pinnedAccounts.map(acc=>(
-                <span key={acc.id}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-                    acc.type === "meta"
-                      ? "bg-blue-50 dark:bg-blue-950/30 border-blue-300/50 text-blue-700 dark:text-blue-300"
-                      : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300/50 text-emerald-700 dark:text-emerald-300"
-                  }`}>
-                  <AtSign className="h-3 w-3 shrink-0"/>
-                  <span className="max-w-[150px] truncate">{acc.name}</span>
-                  <span className={`text-[10px] opacity-60`}>{acc.type === "meta" ? "Meta" : "Google"}</span>
-                  <button onClick={()=>removePinned(acc.id)} className="opacity-60 hover:opacity-100 transition-opacity mr-0.5">
-                    <X className="h-3 w-3"/>
-                  </button>
-                </span>
-              ))}
-              <button onClick={()=>setPinned([])} className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground px-1.5 py-0.5 rounded transition-colors">
-                مسح الكل
-              </button>
-            </div>
-          )}
-
           {/* Input row */}
           <div className="relative flex gap-2 items-end max-w-3xl mx-auto">
             <input ref={fileRef} type="file" accept="image/*,.txt,.csv,.json,.md" className="hidden" onChange={async e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;try{setAtt(await readFile(f));}catch(err){alert(err instanceof Error?err.message:"خطأ");}}} />
@@ -955,52 +982,10 @@ export default function AiChatPage() {
               <Paperclip className="h-4.5 w-4.5" />
             </button>
 
-            {/* @mention dropdown */}
-            {mentionOpen && filteredAccounts.length > 0 && (
-              <div ref={mentionBoxRef}
-                className="absolute bottom-full mb-2 right-12 z-50 min-w-[260px] max-w-[340px] rounded-xl border border-border/60 bg-popover shadow-lg overflow-hidden"
-                onMouseDown={e=>e.preventDefault()}>
-                <div className="px-3 py-2 border-b border-border/40 flex items-center gap-2">
-                  <AtSign className="h-3.5 w-3.5 text-primary shrink-0"/>
-                  <span className="text-xs text-muted-foreground">اختر حساباً للتركيز عليه</span>
-                </div>
-                <div className="max-h-52 overflow-y-auto py-1">
-                  {filteredAccounts.map((acc,idx)=>(
-                    <button key={acc.id}
-                      onMouseDown={()=>selectMention(acc)}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-right transition-colors ${
-                        idx===mentionIdx ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"
-                      }`}>
-                      <span className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                        acc.type==="meta"
-                          ? "bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300"
-                          : "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300"
-                      }`}>{acc.type==="meta"?"M":"G"}</span>
-                      <span className="flex-1 text-sm truncate">{acc.name}</span>
-                      {acc.currency && <span className="text-[11px] text-muted-foreground shrink-0">{acc.currency}</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             <textarea
               ref={inputRef}
               value={input}
-              onChange={e=>{
-                const val = e.target.value;
-                setInput(val);
-                const cursor = e.target.selectionStart ?? val.length;
-                const match = val.slice(0, cursor).match(/@([^\s@]*)$/);
-                if (match) {
-                  setMentionQuery(match[1] ?? "");
-                  setMentionOpen(true);
-                  setMentionIdx(0);
-                } else {
-                  setMentionOpen(false);
-                  setMentionQuery("");
-                }
-              }}
+              onChange={e=>setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={async e=>{
                 const img=Array.from(e.clipboardData.items).find(it=>it.type.startsWith("image/"));
@@ -1009,8 +994,7 @@ export default function AiChatPage() {
                 try{setAtt(await readFile(f));}catch{}
               }}
               onInput={e=>{const t=e.currentTarget;t.style.height="auto";t.style.height=Math.min(t.scrollHeight,128)+"px";}}
-              onBlur={()=>{ setTimeout(()=>setMentionOpen(false), 150); }}
-              placeholder="اكتب رسالتك... أو اكتب @ لتحديد حساب"
+              placeholder="اكتب رسالتك..."
               rows={1}
               disabled={streaming}
               className="flex-1 resize-none bg-card border border-border/60 rounded-2xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 min-h-[44px] max-h-32 leading-relaxed disabled:opacity-50 transition-all"
@@ -1028,7 +1012,7 @@ export default function AiChatPage() {
             ) : (
               <button
                 onClick={()=>void send()}
-                disabled={!input.trim()&&!attachment}
+                disabled={(!input.trim()&&!attachment)||(allAccounts.length>0&&selectedAccIds.size===0)}
                 className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-all shadow-sm"
               >
                 <Send className="h-5 w-5"/>

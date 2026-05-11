@@ -218,4 +218,39 @@ router.put("/admin/page-visibility", requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/users/:id/account-permissions — list accounts this user can access
+router.get("/admin/users/:id/account-permissions", requireAdmin, async (req, res) => {
+  const id = Number(req.params["id"]);
+  try {
+    const rows = await query<{ account_id: string; account_type: string; account_name: string }>(
+      `SELECT account_id, account_type, account_name FROM user_account_permissions WHERE user_id = $1 ORDER BY account_type, account_name`,
+      [id]
+    );
+    res.json({ permissions: rows });
+  } catch {
+    res.status(500).json({ error: "فشل جلب صلاحيات الحسابات" });
+  }
+});
+
+// PUT /api/admin/users/:id/account-permissions — replace all account permissions for a user
+router.put("/admin/users/:id/account-permissions", requireAdmin, async (req, res) => {
+  const id = Number(req.params["id"]);
+  const { permissions } = req.body as { permissions?: { account_id: string; account_type: string; account_name: string }[] };
+  if (!Array.isArray(permissions)) return res.status(400).json({ error: "permissions مطلوبة كمصفوفة" });
+  try {
+    await query(`DELETE FROM user_account_permissions WHERE user_id = $1`, [id]);
+    for (const p of permissions) {
+      if (!p.account_id || !p.account_type) continue;
+      await query(
+        `INSERT INTO user_account_permissions (user_id, account_id, account_type, account_name)
+         VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, account_id) DO UPDATE SET account_type=$3, account_name=$4`,
+        [id, p.account_id, p.account_type, p.account_name ?? ""]
+      );
+    }
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "فشل حفظ صلاحيات الحسابات" });
+  }
+});
+
 export default router;

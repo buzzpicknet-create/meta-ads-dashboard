@@ -2852,7 +2852,9 @@ router.delete("/ai/memory", async (req: Request, res: Response) => {
   }
 });
 
-// ── GET /ai/accounts — combined Meta + Google Ads account list for @mention ──
+// ── GET /ai/accounts — combined Meta + Google Ads account list ──
+// Admin sees all accounts. Others see only accounts in user_account_permissions.
+// If a non-admin user has no permissions set, they see all (no restrictions yet).
 router.get("/ai/accounts", async (req: Request, res: Response) => {
   try {
     const [metaResult, gaResult] = await Promise.allSettled([
@@ -2874,7 +2876,23 @@ router.get("/ai/accounts", async (req: Request, res: Response) => {
       ? gaResult.value.map(c => ({ id: c.id, name: c.descriptive_name || c.id, type: "google" as const, currency: c.currency_code }))
       : [];
 
-    res.json({ accounts: [...metaAccounts, ...gaAccounts] });
+    const allAccounts = [...metaAccounts, ...gaAccounts];
+
+    // Filter by permissions for non-admin users
+    const role = req.session?.role;
+    const userId = req.session?.userId;
+    if (role !== "admin" && userId) {
+      const perms = await query<{ account_id: string }>(
+        `SELECT account_id FROM user_account_permissions WHERE user_id = $1`,
+        [userId]
+      );
+      if (perms.length > 0) {
+        const allowed = new Set(perms.map(p => p.account_id));
+        return res.json({ accounts: allAccounts.filter(a => allowed.has(a.id)) });
+      }
+    }
+
+    res.json({ accounts: allAccounts });
   } catch (err) {
     req.log.error({ err }, "GET /ai/accounts error");
     res.status(500).json({ error: "خطأ في جلب الحسابات", accounts: [] });
