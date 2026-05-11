@@ -646,7 +646,7 @@ export default function AiChatPage() {
                 {QA_DAY.map(q=>(
                   <button
                     key={q.label}
-                    onClick={()=>void send(q.prompt)}
+                    onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }}
                     className="group text-right px-4 py-3.5 rounded-xl border border-primary/30 bg-primary/5 hover:border-primary/60 hover:bg-primary/10 transition-all text-sm shadow-sm"
                   >
                     <span className="block font-semibold text-foreground">{q.label}</span>
@@ -662,7 +662,7 @@ export default function AiChatPage() {
                 {QA.map(q=>(
                   <button
                     key={q.label}
-                    onClick={()=>void send(q.prompt)}
+                    onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }}
                     className="group text-right px-3 py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all text-sm"
                   >
                     <span className="block font-medium text-foreground text-xs">{q.label}</span>
@@ -810,7 +810,7 @@ export default function AiChatPage() {
           {!isEmpty && (
             <div className="flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">
               {QA_ALL.map((q,idx)=>(
-                <button key={q.label} onClick={()=>void send(q.prompt)} disabled={streaming}
+                <button key={q.label} onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }} disabled={streaming}
                   className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 whitespace-nowrap ${
                     idx < QA_DAY.length
                       ? "border-primary/35 bg-primary/8 text-foreground hover:bg-primary/15 hover:border-primary/60"
