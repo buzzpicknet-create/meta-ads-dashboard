@@ -8,12 +8,16 @@ import authRouter from "./auth";
 import adminRouter from "./admin";
 import activityRouter from "./activity";
 import pushRouter from "./push";
-import aiRouter from "./ai";
+import aiRouter, { warmUpPipeboard } from "./ai";
 import chatRouter from "./chat";
 import pipeboardRouter from "./pipeboard";
 import scheduledReportsRouter from "./scheduled-reports";
 
 const router = Router();
+
+// Pre-warm Pipeboard MCP connection so the first chat request doesn't
+// pay the connect+handshake overhead (usually 2-5 seconds).
+warmUpPipeboard();
 
 // ── Public routes (no auth required) ──────────────────────────────────────────
 router.use(authRouter);

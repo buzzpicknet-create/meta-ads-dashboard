@@ -7,6 +7,37 @@ import { sendPushForEvent } from "../lib/push";
 
 const router = Router();
 
+// ── Singleton Pipeboard client for write actions ──────────────────────────────
+let _pbWriteClient: Client | null = null;
+let _pbWriteConnecting: Promise<Client> | null = null;
+
+async function getPipeboardWriteClient(): Promise<Client> {
+  if (_pbWriteClient) return _pbWriteClient;
+  if (_pbWriteConnecting) return _pbWriteConnecting;
+
+  _pbWriteConnecting = (async () => {
+    const token = process.env.PIPEBOARD_API_TOKEN;
+    if (!token) throw new Error("PIPEBOARD_API_TOKEN not set");
+    const c = new Client({ name: "meta-ads-dashboard", version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL("https://mcp.pipeboard.co/meta-ads-mcp"),
+      { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+    await c.connect(transport);
+    _pbWriteClient = c;
+    _pbWriteConnecting = null;
+    logger.info("Pipeboard write singleton connected");
+    return c;
+  })();
+
+  try {
+    return await _pbWriteConnecting;
+  } catch (err) {
+    _pbWriteConnecting = null;
+    throw err;
+  }
+}
+
 const NO_OP_DAILY_THRESHOLD = 3;
 const NO_OP_SPIKE_EVENT = "no_op_spike";
 const NO_OP_SPIKE_URL = "/activity?noOp=1";
@@ -132,17 +163,11 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   const { mcpTool, mcpArgs } = translateToMcp(tool, args ?? {});
 
-  const client = new Client({ name: "meta-ads-dashboard", version: "1.0.0" });
-  const url = new URL("https://mcp.pipeboard.co/meta-ads-mcp");
-  const transport = new StreamableHTTPClientTransport(url, {
-    requestInit: { headers: { Authorization: `Bearer ${token}` } },
-  });
-
   let success = false;
   let resultMessage = "";
 
   try {
-    await client.connect(transport);
+    const client = await getPipeboardWriteClient();
     const result = await client.callTool({ name: mcpTool, arguments: mcpArgs });
 
     const textContent = (result.content as Array<{ type: string; text?: string }>)
@@ -184,10 +209,11 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     resultMessage = msg;
+    // Reset singleton on error so next action reconnects fresh
+    _pbWriteClient = null;
+    _pbWriteConnecting = null;
     res.status(500).json({ error: msg });
   } finally {
-    await client.close().catch(() => null);
-
     // Extract human-readable names from args for audit log
     const campaignName =
       typeof args?.campaign_name === "string" ? args.campaign_name :

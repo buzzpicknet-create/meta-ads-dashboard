@@ -1013,24 +1013,47 @@ async function resolveWriteToolDetails(name: string, args: Record<string, unknow
   return {};
 }
 
+// ── Singleton Pipeboard MCP client ───────────────────────────────────────────
+// One persistent connection per server process — eliminates the 2-5s
+// connect+handshake overhead that was paid on every read tool call.
+let _pbClient: Client | null = null;
+let _pbConnecting: Promise<Client> | null = null;
+
+async function getPipeboardClient(): Promise<Client> {
+  if (_pbClient) return _pbClient;
+  if (_pbConnecting) return _pbConnecting;
+
+  _pbConnecting = (async () => {
+    const token = process.env.PIPEBOARD_API_TOKEN;
+    if (!token) throw new Error("PIPEBOARD_API_TOKEN not set");
+    const c = new Client({ name: "meta-ads-dashboard", version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL("https://mcp.pipeboard.co/meta-ads-mcp"),
+      { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+    await c.connect(transport);
+    _pbClient = c;
+    _pbConnecting = null;
+    logger.info("Pipeboard singleton connected");
+    return c;
+  })();
+
+  try {
+    return await _pbConnecting;
+  } catch (err) {
+    _pbConnecting = null;
+    throw err;
+  }
+}
+
 // ── Pipeboard MCP read helper ────────────────────────────────────────────────
-// Connects to Pipeboard, calls a read tool, and returns its text output.
-// Each call opens a fresh connection (stateless per request).
+// Uses the singleton client — no per-call connection overhead.
 async function callPipeboardRead(
   toolName: string,
   toolArgs: Record<string, unknown>
 ): Promise<string> {
-  const token = process.env.PIPEBOARD_API_TOKEN;
-  if (!token) throw new Error("PIPEBOARD_API_TOKEN not set");
-
-  const client = new Client({ name: "meta-ads-dashboard", version: "1.0.0" });
-  const transport = new StreamableHTTPClientTransport(
-    new URL("https://mcp.pipeboard.co/meta-ads-mcp"),
-    { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
-  );
-
   try {
-    await client.connect(transport);
+    const client = await getPipeboardClient();
     const result = await client.callTool({ name: toolName, arguments: toolArgs });
     const content = result.content as Array<{ type: string; text?: string }>;
     return content
@@ -1038,8 +1061,11 @@ async function callPipeboardRead(
       .map((c) => c.text ?? "")
       .join("\n")
       .trim();
-  } finally {
-    await client.close().catch(() => null);
+  } catch (err) {
+    // Stale connection — reset so next call reconnects fresh
+    _pbClient = null;
+    _pbConnecting = null;
+    throw err;
   }
 }
 
@@ -1848,7 +1874,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: "gpt-5.4",
-        max_completion_tokens: 8192,
+        max_completion_tokens: 2048,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (isAdmin ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
@@ -1963,7 +1989,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     // Fallback: ran out of rounds — final streaming answer without tools
     const fallbackStream = await openai.chat.completions.create({
       model: "gpt-5.4",
-      max_completion_tokens: 8192,
+      max_completion_tokens: 2048,
       messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
       stream: true,
     });
@@ -1981,5 +2007,13 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     res.end();
   }
 });
+
+// Pre-warm the Pipeboard singleton connection on server startup
+// so the first user message doesn't pay the handshake cost.
+export function warmUpPipeboard(): void {
+  if (process.env.PIPEBOARD_API_TOKEN) {
+    getPipeboardClient().catch(() => null);
+  }
+}
 
 export default router;
