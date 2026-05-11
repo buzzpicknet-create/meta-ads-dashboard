@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { query } from "../lib/db";
+import { openai } from "@workspace/integrations-openai-ai-server";
 
 const router = Router();
 
@@ -153,6 +154,84 @@ router.delete("/library/assets/:id", async (req, res) => {
   try {
     await query(`DELETE FROM lib_assets WHERE id = $1`, [req.params["id"]]);
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── AI Content Generation ──────────────────────────────────────────────────────
+
+router.post("/library/angles/:angleId/generate-content", async (req, res) => {
+  const { productName, angleName, landingPageUrls } = req.body as {
+    productName?: string;
+    angleName?: string;
+    landingPageUrls?: string[];
+  };
+
+  if (!angleName || !landingPageUrls?.length) {
+    return res.status(400).json({ error: "اسم الزاوية وروابط اللاندينج مطلوبة" });
+  }
+
+  const urlList = landingPageUrls.slice(0, 3).join("، ");
+
+  const systemPrompt = `أنت خبير كتابة إعلانات Meta Ads محترف متخصص في اللهجة المصرية العامية.
+أسلوبك: عاطفي، حياتي، يخلق Empathy مع الجمهور، يبدأ بـ Hook قوي يصف مشكلة أو موقف يعيشه العميل.
+
+قواعد الأسلوب الإلزامية:
+- ابدأ كل نص بـ Hook حياتي يصف لحظة أو مشاعر العميل (مثال: "بترجع من الشغل آخر اليوم… دماغك لسه شغالة ألف فكرة؟ 🤯")
+- استخدم إيموجي بشكل طبيعي (2-4 إيموجي لكل نص)
+- استخدم ✅ لقائمة 3-4 مميزات محددة
+- اختم بـ CTA قوي مع "الدفع عند الاستلام"
+- اللهجة: عربي مصري عامي بسيط ومفهوم
+- طول النص: 80-150 كلمة فعلية
+- العناوين: 4-7 كلمات فقط، جذابة ومباشرة
+
+مهم جداً: يجب أن تولّد المحتوى بناءً على اسم المنتج والزاوية التسويقية المذكورة — لا تنتظر محتوى خارجياً.`;
+
+  const userPrompt = `المنتج: ${productName ?? "منتج"}
+الزاوية التسويقية: ${angleName}
+رابط اللاندينج (للإشارة فقط): ${urlList}
+
+ولّد الآن بناءً على الزاوية التسويقية "${angleName}" للمنتج "${productName ?? "المنتج"}":
+1. أربعة (4) نصوص إعلانية كاملة مختلفة الـ Hook — كل نص يبدأ بـ Hook مختلف
+2. ستة (6) عناوين قصيرة مختلفة (لا تتجاوز 7 كلمات لكل عنوان)
+
+أعد JSON بهذا الشكل الدقيق فقط، بدون أي نص خارج الـ JSON:
+{"texts":[{"title":"hook_1","content":"نص كامل هنا"},{"title":"hook_2","content":"نص كامل هنا"},{"title":"hook_3","content":"نص كامل هنا"},{"title":"hook_4","content":"نص كامل هنا"}],"headlines":[{"content":"عنوان 1"},{"content":"عنوان 2"},{"content":"عنوان 3"},{"content":"عنوان 4"},{"content":"عنوان 5"},{"content":"عنوان 6"}]}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt },
+      ],
+      max_completion_tokens: 3000,
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    let parsed: { texts?: { title?: string; content?: string }[]; headlines?: { content?: string }[] };
+    try { parsed = JSON.parse(raw); } catch { parsed = {}; }
+
+    const texts    = (parsed.texts    ?? []).filter(t => t.content?.trim());
+    const headlines = (parsed.headlines ?? []).filter(h => h.content?.trim());
+
+    // Save all generated items as assets in DB
+    const angleId = req.params["angleId"];
+    for (const t of texts) {
+      await query(
+        `INSERT INTO lib_assets (angle_id, type, content, title) VALUES ($1, 'PRIMARY_TEXT', $2, $3)`,
+        [angleId, t.content!.trim(), t.title?.trim() ?? "AI ✨"]
+      );
+    }
+    for (const h of headlines) {
+      await query(
+        `INSERT INTO lib_assets (angle_id, type, content, title) VALUES ($1, 'HEADLINE', $2, $3)`,
+        [angleId, h.content!.trim(), "AI ✨"]
+      );
+    }
+
+    res.json({ texts, headlines });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
