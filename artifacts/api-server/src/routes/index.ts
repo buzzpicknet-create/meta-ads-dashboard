@@ -12,8 +12,6 @@ import aiRouter, { warmUpPipeboard } from "./ai";
 import chatRouter from "./chat";
 import pipeboardRouter from "./pipeboard";
 import scheduledReportsRouter from "./scheduled-reports";
-import shopifyRouter from "./shopify";
-
 const router = Router();
 
 // Pre-warm Pipeboard MCP connection so the first chat request doesn't
@@ -44,6 +42,5 @@ router.use(aiRouter);
 router.use(chatRouter);
 router.use(pipeboardRouter);
 router.use(scheduledReportsRouter);
-router.use(shopifyRouter);
 
 export default router;

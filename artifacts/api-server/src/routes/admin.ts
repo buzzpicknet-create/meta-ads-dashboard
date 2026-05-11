@@ -10,14 +10,13 @@ interface UserRow {
   username: string;
   role: string;
   created_at: string;
-  allowed_pages: string[] | null;
 }
 
 // GET /api/admin/users — list all users
 router.get("/admin/users", requireAdmin, async (_req, res) => {
   try {
     const rows = await query<UserRow>(
-      `SELECT id, username, role, created_at, allowed_pages FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC`
+      `SELECT id, username, role, created_at FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC`
     );
     res.json({ users: rows });
   } catch {
@@ -105,48 +104,6 @@ router.delete("/admin/users/:id", requireAdmin, async (req, res) => {
     res.json({ success: true });
   } catch {
     res.status(500).json({ error: "فشل حذف المستخدم" });
-  }
-});
-
-// GET /api/admin/users/:id/pages — get user's allowed pages
-router.get("/admin/users/:id/pages", requireAdmin, async (req, res) => {
-  const id = Number(req.params["id"]);
-  try {
-    const rows = await query<{ allowed_pages: string[] | null }>(
-      `SELECT allowed_pages FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: "المستخدم غير موجود" });
-    res.json({ allowed_pages: rows[0]!.allowed_pages });
-  } catch {
-    res.status(500).json({ error: "فشل جلب صلاحيات الصفحات" });
-  }
-});
-
-// PUT /api/admin/users/:id/pages — set user's allowed pages (null = all pages)
-router.put("/admin/users/:id/pages", requireAdmin, async (req, res) => {
-  const id = Number(req.params["id"]);
-  const { allowed_pages } = req.body as { allowed_pages: string[] | null };
-  const VALID_SLUGS = ["campaigns","creative","video-studio","audience","landing-page","shopify","winning-products","settings"];
-  if (allowed_pages !== null) {
-    if (!Array.isArray(allowed_pages)) {
-      return res.status(400).json({ error: "allowed_pages يجب أن تكون مصفوفة أو null" });
-    }
-    for (const s of allowed_pages) {
-      if (!VALID_SLUGS.includes(s)) {
-        return res.status(400).json({ error: `slug غير صحيح: ${s}` });
-      }
-    }
-  }
-  try {
-    const rows = await query<{ id: number }>(
-      `UPDATE users SET allowed_pages = $1 WHERE id = $2 AND deleted_at IS NULL RETURNING id`,
-      [allowed_pages === null ? null : JSON.stringify(allowed_pages), id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: "المستخدم غير موجود" });
-    res.json({ success: true });
-  } catch {
-    res.status(500).json({ error: "فشل تحديث صلاحيات الصفحات" });
   }
 });
 
