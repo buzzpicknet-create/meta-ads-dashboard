@@ -1506,10 +1506,11 @@ function buildCampaignContext(
     lines.push(``);
   }
 
-  // Daily breakdown — gives AI ability to compare any sub-period (last 48h, last 3 days, etc.)
-  const sortedDaily = [...insights.daily].sort((a, b) => a.day.localeCompare(b.day));
+  // Daily breakdown — last 14 days only to keep context size manageable
+  const sortedAllDaily = [...insights.daily].sort((a, b) => a.day.localeCompare(b.day));
+  const sortedDaily = sortedAllDaily.slice(-14);
   if (sortedDaily.length > 0) {
-    lines.push(`━━ البيانات اليومية (يوم بيوم — ${sortedDaily.length} يوم) ━━`);
+    lines.push(`━━ البيانات اليومية (آخر ${sortedDaily.length} يوم) ━━`);
     lines.push(`[اليوم | الإنفاق | الأوردرات | CPA | نسبة النقر | الظهورات | نسبة الوصول للصفحة]`);
     sortedDaily.forEach((d) => {
       const dayCpa  = d.purchases > 0 ? `${n(d.cpa, 0)} EGP` : "—";
@@ -1519,10 +1520,12 @@ function buildCampaignContext(
     });
     lines.push(``);
 
-    // Also include prev period daily if available
-    const sortedPrevDaily = prevInsights ? [...prevInsights.daily].sort((a, b) => a.day.localeCompare(b.day)) : [];
+    // Also include prev period daily (last 14 days) if available
+    const sortedPrevDaily = prevInsights
+      ? [...prevInsights.daily].sort((a, b) => a.day.localeCompare(b.day)).slice(-14)
+      : [];
     if (sortedPrevDaily.length > 0) {
-      lines.push(`━━ البيانات اليومية للفترة السابقة (${sortedPrevDaily.length} يوم) ━━`);
+      lines.push(`━━ البيانات اليومية للفترة السابقة (آخر ${sortedPrevDaily.length} يوم) ━━`);
       sortedPrevDaily.forEach((d) => {
         const dayCpa  = d.purchases > 0 ? `${n(d.cpa, 0)} EGP` : "—";
         const dayCtr  = d.impressions > 0 ? `${((d.link_clicks / d.impressions) * 100).toFixed(1)}%` : "—";
@@ -1917,8 +1920,8 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    // 90-second hard timeout — write-tool flows need more time than simple Q&A
-    const timeoutId = setTimeout(() => ctrl.abort(), 90000);
+    // 180-second hard timeout — model + multi-tool flows need time
+    const timeoutId = setTimeout(() => ctrl.abort(), 180000);
 
     try {
       // Filter out junk assistant messages before sending as context

@@ -189,7 +189,9 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
   // Build lookup map for 7d by campaign id
   const map7d = new Map<string, CampaignData>(campaigns7d.map((c) => [c.id, c]));
 
-  const base = campaigns30d.length > 0 ? campaigns30d : campaigns7d;
+  // Cap at top 15 campaigns by spend to keep context size manageable
+  const allBase = campaigns30d.length > 0 ? campaigns30d : campaigns7d;
+  const base = [...allBase].sort((a, b) => b.spend - a.spend).slice(0, 15);
   const totalSpend30 = campaigns30d.reduce((s, c) => s + c.spend, 0);
   const totalPurchases30 = campaigns30d.reduce((s, c) => s + c.purchases, 0);
   const avgCpa30 = totalPurchases30 > 0 ? totalSpend30 / totalPurchases30 : 0;
@@ -240,36 +242,22 @@ function buildCampaignsContext(campaigns30d: CampaignData[], campaigns7d: Campai
     lines.push("");
   }
 
-  // Daily breakdown table (last 14 days sorted ascending)
-  if (dailyRows.length > 0) {
-    const sorted = [...dailyRows].sort((a, b) => a.day.localeCompare(b.day)).slice(-14);
-    lines.push("## الأداء اليومي (آخر 14 يوم):");
+  // Daily trend: summary only (last 3 days vs prev 3) — AI uses get_account_daily for full table
+  if (dailyRows.length >= 6) {
+    const sorted = [...dailyRows].sort((a, b) => a.day.localeCompare(b.day));
+    const last3 = sorted.slice(-3);
+    const prev3 = sorted.slice(-6, -3);
+    const avgCpaLast = last3.reduce((s, d) => s + d.cpa, 0) / last3.length;
+    const avgCpaPrev = prev3.reduce((s, d) => s + d.cpa, 0) / prev3.length;
+    const cpaChange = avgCpaPrev > 0 ? ((avgCpaLast - avgCpaPrev) / avgCpaPrev) * 100 : 0;
+    const avgSpendLast = last3.reduce((s, d) => s + d.spend, 0) / last3.length;
+    const avgSpendPrev = prev3.reduce((s, d) => s + d.spend, 0) / prev3.length;
+    const spendChange = avgSpendPrev > 0 ? ((avgSpendLast - avgSpendPrev) / avgSpendPrev) * 100 : 0;
+    lines.push("### اتجاه آخر 3 أيام (مقارنة بالـ 3 أيام السابقة):");
+    lines.push(`- متوسط CPA: ${fmt(avgCpaLast)} EGP → ${cpaChange > 2 ? `ارتفع ↑${cpaChange.toFixed(0)}%` : cpaChange < -2 ? `انخفض ↓${Math.abs(cpaChange).toFixed(0)}%` : "ثابت"}`);
+    lines.push(`- متوسط الإنفاق اليومي: ${fmt(avgSpendLast)} EGP → ${spendChange > 2 ? `ارتفع ↑${spendChange.toFixed(0)}%` : spendChange < -2 ? `انخفض ↓${Math.abs(spendChange).toFixed(0)}%` : "ثابت"}`);
+    lines.push("_(للأداء اليومي التفصيلي استخدم get_account_daily)_");
     lines.push("");
-    lines.push("| التاريخ | الإنفاق (EGP) | الطلبات | CPA (EGP) | النقرات |");
-    lines.push("|---------|--------------|---------|-----------|---------|");
-    for (const d of sorted) {
-      const dayLabel = new Date(d.day).toLocaleDateString("ar-EG", { weekday: "short", month: "numeric", day: "numeric" });
-      lines.push(
-        `| ${dayLabel} | ${fmt(d.spend)} | ${fmt(d.purchases)} | ${d.cpa > 0 ? fmt(d.cpa) : "—"} | ${fmt(d.link_clicks)} |`
-      );
-    }
-    lines.push("");
-
-    // Highlight trend: compare last 3 days vs previous 3 days
-    if (sorted.length >= 6) {
-      const last3 = sorted.slice(-3);
-      const prev3 = sorted.slice(-6, -3);
-      const avgCpaLast = last3.reduce((s, d) => s + d.cpa, 0) / last3.length;
-      const avgCpaPrev = prev3.reduce((s, d) => s + d.cpa, 0) / prev3.length;
-      const cpaChange = avgCpaPrev > 0 ? ((avgCpaLast - avgCpaPrev) / avgCpaPrev) * 100 : 0;
-      const avgSpendLast = last3.reduce((s, d) => s + d.spend, 0) / last3.length;
-      const avgSpendPrev = prev3.reduce((s, d) => s + d.spend, 0) / prev3.length;
-      const spendChange = avgSpendPrev > 0 ? ((avgSpendLast - avgSpendPrev) / avgSpendPrev) * 100 : 0;
-      lines.push("### تحليل الاتجاه (آخر 3 أيام مقابل السابقة):");
-      lines.push(`- متوسط CPA: ${fmt(avgCpaLast)} EGP → ${cpaChange > 2 ? `ارتفع ↑${cpaChange.toFixed(0)}%` : cpaChange < -2 ? `انخفض ↓${Math.abs(cpaChange).toFixed(0)}%` : "ثابت"}`);
-      lines.push(`- متوسط الإنفاق اليومي: ${fmt(avgSpendLast)} EGP → ${spendChange > 2 ? `ارتفع ↑${spendChange.toFixed(0)}%` : spendChange < -2 ? `انخفض ↓${Math.abs(spendChange).toFixed(0)}%` : "ثابت"}`);
-      lines.push("");
-    }
   }
 
   lines.push("---");
@@ -867,8 +855,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    // 90-second hard timeout — write-tool flows (budget update × N campaigns) need more time
-    const timeoutId = setTimeout(() => ctrl.abort(), 90000);
+    // 180-second hard timeout — write-tool flows + large context models need time
+    const timeoutId = setTimeout(() => ctrl.abort(), 180000);
     let accumulated = "";
 
     try {
