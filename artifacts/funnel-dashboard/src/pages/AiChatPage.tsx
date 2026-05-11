@@ -629,7 +629,11 @@ export default function AiChatPage() {
   }, [pending, executing, saveToDB]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
+    if (e.key==="Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const isDisabled = (!input.trim() && !attachment) || (allAccounts.length > 0 && selectedAccIds.size === 0);
+      if (!isDisabled) void send();
+    }
   };
 
   const [sidebarOpen, setSidebarOpen] = useState(false);

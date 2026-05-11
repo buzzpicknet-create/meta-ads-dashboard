@@ -740,7 +740,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   // Fetch campaigns context (7d + 30d) when chat opens; retries each open if previous attempt failed
   useEffect(() => {
     if (!open || campaignsLoading) return;
-    if (campaignsCtx !== null && campaignsCtx !== GENERAL_CONTEXT) return;
+    if (campaignsCtx !== null) return;
     setCampaignsLoading(true);
 
     const until = new Date();
@@ -790,10 +790,10 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         if (anySuccess) {
           setCampaignsCtx(buildCampaignsContext(all30, all7, allDaily));
         } else {
-          setCampaignsCtx(null);
+          setCampaignsCtx(GENERAL_CONTEXT);
         }
       })
-      .catch(() => { setCampaignsCtx(null); })
+      .catch(() => { setCampaignsCtx(GENERAL_CONTEXT); })
       .finally(() => setCampaignsLoading(false));
   }, [open, campaignsCtx, campaignsLoading]);
 

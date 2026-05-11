@@ -2703,6 +2703,18 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
+  // Flush headers immediately so the production proxy doesn't time out
+  // waiting for the first byte before the OpenAI stream starts.
+  res.flushHeaders();
+
+  // Heartbeat: send SSE comment every 15 s to keep the connection alive
+  // through proxies that close idle connections.
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(": ping\n\n");
+  }, 15000);
+  res.on("close", () => clearInterval(heartbeat));
+
+  req.log.info({ userId, role: req.session?.role }, "ai/chat handler reached");
 
   // LTM extraction trigger — fires after every 8 assistant messages (non-blocking)
   if (userId) {
@@ -2924,11 +2936,15 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     }
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    clearInterval(heartbeat);
     res.end();
   } catch (err) {
+    clearInterval(heartbeat);
     const msg = err instanceof Error ? err.message : "Unknown error";
-    res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
-    res.end();
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+      res.end();
+    }
   }
 });
 
