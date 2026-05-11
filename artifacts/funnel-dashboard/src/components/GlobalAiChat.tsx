@@ -11,6 +11,13 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 
+interface LastIntervention {
+  toolName: string;
+  executedBy: string;
+  executedAt: string;
+  hoursAgo: number;
+}
+
 interface PendingAction {
   tool: string;
   args: Record<string, unknown>;
@@ -18,6 +25,28 @@ interface PendingAction {
   currentValue?: string;
   proposedValue?: string;
   detailsLoading?: boolean;
+  lastIntervention?: LastIntervention;
+}
+
+const INTERVENTION_TOOL_LABELS: Record<string, string> = {
+  pause_campaign: "إيقاف الحملة",
+  enable_campaign: "تشغيل الحملة",
+  update_campaign_budget: "تعديل الميزانية",
+  pause_adset: "إيقاف المجموعة",
+  enable_adset: "تشغيل المجموعة",
+  update_adset_budget: "تعديل ميزانية المجموعة",
+  duplicate_adset: "نسخ المجموعة",
+  duplicate_campaign: "نسخ الحملة",
+};
+
+function formatInterventionAge(hoursAgo: number): string {
+  if (hoursAgo < 1) return "منذ أقل من ساعة";
+  if (hoursAgo < 24) return `منذ ${hoursAgo} ساعة`;
+  const days = Math.floor(hoursAgo / 24);
+  if (days === 1) return "أمس";
+  if (days < 7) return `منذ ${days} أيام`;
+  const weeks = Math.floor(days / 7);
+  return weeks === 1 ? "منذ أسبوع" : `منذ ${weeks} أسابيع`;
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1496,6 +1525,23 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                           style={{ maxWidth: "85%" }}
                         >
                           <p className={`text-[12px] font-semibold mb-1 ${isSameState ? "text-slate-600" : "text-amber-700"}`}>⚡ تأكيد الإجراء</p>
+                          {/* Previous intervention warning */}
+                          {pendingAction.lastIntervention && (
+                            <div className="mb-2 flex items-start gap-1.5 text-[11px] text-orange-700 bg-orange-50 border border-orange-200 rounded-lg px-2.5 py-1.5" dir="rtl">
+                              <Clock className="h-3 w-3 shrink-0 mt-px text-orange-500" />
+                              <span>
+                                آخر تدخل:{" "}
+                                <span className="font-semibold">
+                                  {INTERVENTION_TOOL_LABELS[pendingAction.lastIntervention.toolName] ?? pendingAction.lastIntervention.toolName}
+                                </span>
+                                {" — "}
+                                {formatInterventionAge(pendingAction.lastIntervention.hoursAgo)}
+                                {" (بواسطة "}
+                                {pendingAction.lastIntervention.executedBy}
+                                {")"}
+                              </span>
+                            </div>
+                          )}
                           <p className={`text-[13px] leading-relaxed ${isSameState ? "text-slate-700" : "text-amber-900"}`}>{pendingAction.summary}</p>
                           {/* Current → Proposed value row — shows skeleton while details load */}
                           {pendingAction.proposedValue && (

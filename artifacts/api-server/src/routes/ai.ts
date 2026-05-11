@@ -925,34 +925,85 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
 // Returns a partial update to merge into the optimistic pending action.
 // Sets currentValue = proposedValue when it detects a no-op so the frontend
 // naturally renders the "already in that state" UI via its existing isSameState check.
+
+export interface LastIntervention {
+  toolName: string;
+  executedBy: string;
+  executedAt: string;
+  hoursAgo: number;
+}
+
 interface WriteToolResolved {
   currentValue?: string;
   proposedValue?: string;
   summary?: string;
+  lastIntervention?: LastIntervention;
+}
+
+/** Looks up the most recent successful (non-no-op) action on this entity
+ *  from pipeboard_actions. Returns undefined if no history or query fails. */
+async function getLastIntervention(
+  entityId: string,
+  field: "campaign_id" | "adset_id",
+): Promise<LastIntervention | undefined> {
+  try {
+    const rows = await query<{
+      tool_name: string;
+      executed_by: string;
+      executed_at: string;
+    }>(
+      `SELECT tool_name, executed_by, executed_at
+       FROM pipeboard_actions
+       WHERE args->>'${field}' = $1
+         AND success = TRUE
+         AND is_no_op = FALSE
+         AND executed_at >= NOW() - INTERVAL '60 days'
+       ORDER BY executed_at DESC
+       LIMIT 1`,
+      [entityId]
+    );
+    if (!rows[0]) return undefined;
+    const r = rows[0];
+    const hoursAgo = Math.round((Date.now() - new Date(r.executed_at).getTime()) / 3_600_000);
+    return { toolName: r.tool_name, executedBy: r.executed_by, executedAt: r.executed_at, hoursAgo };
+  } catch {
+    return undefined;
+  }
 }
 
 async function resolveWriteToolDetails(name: string, args: Record<string, unknown>): Promise<WriteToolResolved> {
   if (name === "pause_campaign") {
-    const details = await fetchCampaignDetailsCached(String(args.campaign_id));
+    const campaignId = String(args.campaign_id);
+    const [details, lastIntervention] = await Promise.all([
+      fetchCampaignDetailsCached(campaignId),
+      getLastIntervention(campaignId, "campaign_id"),
+    ]);
     const currentValue = statusLabel(details.effective_status);
     const summary = details.name ? `إيقاف مؤقت للحملة "${details.name}"` : undefined;
-    // No-op: already paused
-    if (currentValue === "موقوفة ⏸") return { currentValue, proposedValue: "موقوفة ⏸", summary };
-    return { currentValue, summary };
+    if (currentValue === "موقوفة ⏸") return { currentValue, proposedValue: "موقوفة ⏸", summary, lastIntervention };
+    return { currentValue, summary, lastIntervention };
   }
 
   if (name === "enable_campaign") {
-    const details = await fetchCampaignDetailsCached(String(args.campaign_id));
+    const campaignId = String(args.campaign_id);
+    const [details, lastIntervention] = await Promise.all([
+      fetchCampaignDetailsCached(campaignId),
+      getLastIntervention(campaignId, "campaign_id"),
+    ]);
     const currentValue = statusLabel(details.effective_status);
     const summary = details.name ? `تشغيل الحملة "${details.name}"` : undefined;
-    if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشطة ✅", summary };
-    return { currentValue, summary };
+    if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشطة ✅", summary, lastIntervention };
+    return { currentValue, summary, lastIntervention };
   }
 
   if (name === "update_campaign_budget") {
+    const campaignId = String(args.campaign_id);
     const budgetType = args.budget_type === "lifetime" ? "إجمالية" : "يومية";
     const proposedBudget = Number(args.budget_amount);
-    const details = await fetchCampaignDetailsCached(String(args.campaign_id));
+    const [details, lastIntervention] = await Promise.all([
+      fetchCampaignDetailsCached(campaignId),
+      getLastIntervention(campaignId, "campaign_id"),
+    ]);
     const summary = details.name
       ? `تعديل ميزانية الحملة "${details.name}" إلى ${Math.round(proposedBudget)} EGP (${budgetType})`
       : undefined;
@@ -960,34 +1011,45 @@ async function resolveWriteToolDetails(name: string, args: Record<string, unknow
     if (curBudget !== undefined && curBudget > 0) {
       const currentValue = `${Math.round(curBudget)} EGP (${budgetType})`;
       const proposedValue = `${Math.round(proposedBudget)} EGP (${budgetType})`;
-      // No-op: same budget (numeric comparison avoids float/int mismatch)
       if (Math.round(curBudget) === Math.round(proposedBudget)) {
-        return { currentValue, proposedValue: currentValue, summary };
+        return { currentValue, proposedValue: currentValue, summary, lastIntervention };
       }
-      return { currentValue, proposedValue, summary };
+      return { currentValue, proposedValue, summary, lastIntervention };
     }
-    return { summary };
+    return { summary, lastIntervention };
   }
 
   if (name === "pause_adset") {
-    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const adsetId = String(args.adset_id);
+    const [details, lastIntervention] = await Promise.all([
+      fetchAdsetDetailsCached(adsetId),
+      getLastIntervention(adsetId, "adset_id"),
+    ]);
     const currentValue = statusLabel(details.effective_status);
     const summary = details.name ? `إيقاف مؤقت للمجموعة الإعلانية "${details.name}"` : undefined;
-    if (currentValue === "موقوفة ⏸") return { currentValue, proposedValue: "موقوفة ⏸", summary };
-    return { currentValue, summary };
+    if (currentValue === "موقوفة ⏸") return { currentValue, proposedValue: "موقوفة ⏸", summary, lastIntervention };
+    return { currentValue, summary, lastIntervention };
   }
 
   if (name === "enable_adset") {
-    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const adsetId = String(args.adset_id);
+    const [details, lastIntervention] = await Promise.all([
+      fetchAdsetDetailsCached(adsetId),
+      getLastIntervention(adsetId, "adset_id"),
+    ]);
     const currentValue = statusLabel(details.effective_status);
     const summary = details.name ? `تشغيل المجموعة الإعلانية "${details.name}"` : undefined;
-    if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشطة ✅", summary };
-    return { currentValue, summary };
+    if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشطة ✅", summary, lastIntervention };
+    return { currentValue, summary, lastIntervention };
   }
 
   if (name === "update_adset_budget") {
+    const adsetId = String(args.adset_id);
     const proposedBudget = Number(args.budget_amount);
-    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const [details, lastIntervention] = await Promise.all([
+      fetchAdsetDetailsCached(adsetId),
+      getLastIntervention(adsetId, "adset_id"),
+    ]);
     const summary = details.name
       ? `تعديل ميزانية المجموعة "${details.name}" إلى ${Math.round(proposedBudget)} EGP`
       : undefined;
@@ -997,17 +1059,21 @@ async function resolveWriteToolDetails(name: string, args: Record<string, unknow
       const currentValue = `${Math.round(curBudget)} EGP (${bType})`;
       const proposedValue = `${Math.round(proposedBudget)} EGP (${bType})`;
       if (Math.round(curBudget) === Math.round(proposedBudget)) {
-        return { currentValue, proposedValue: currentValue, summary };
+        return { currentValue, proposedValue: currentValue, summary, lastIntervention };
       }
-      return { currentValue, proposedValue, summary };
+      return { currentValue, proposedValue, summary, lastIntervention };
     }
-    return { summary };
+    return { summary, lastIntervention };
   }
 
   if (name === "duplicate_adset") {
-    const details = await fetchAdsetDetailsCached(String(args.adset_id));
+    const adsetId = String(args.adset_id);
+    const [details, lastIntervention] = await Promise.all([
+      fetchAdsetDetailsCached(adsetId),
+      getLastIntervention(adsetId, "adset_id"),
+    ]);
     const summary = details.name ? `نسخ المجموعة الإعلانية "${details.name}"` : undefined;
-    return { summary };
+    return { summary, lastIntervention };
   }
 
   return {};
