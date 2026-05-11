@@ -29,10 +29,10 @@ export function useMyPageVisibility(): Record<string, boolean> | null {
   const { data } = useQuery({
     queryKey: ["page-visibility-mine"],
     queryFn: () =>
-      fetch(`${API}/page-visibility`, { credentials: "include" })
+      fetch(`${API}/page-visibility`, { credentials: "include", cache: "no-store" })
         .then((r) => r.json())
         .then((d) => (d.visibility ?? null) as Record<string, boolean> | null),
-    staleTime: 30 * 1000,
+    staleTime: 0,
   });
   return data ?? null;
 }
@@ -42,10 +42,10 @@ export function usePageVisibility() {
   return useQuery({
     queryKey: ["page-visibility"],
     queryFn: () =>
-      fetch(`${API}/admin/page-visibility`, { credentials: "include" })
+      fetch(`${API}/admin/page-visibility`, { credentials: "include", cache: "no-store" })
         .then((r) => r.json())
         .then((d) => rowsToMap((d.settings ?? []) as VisibilityRow[])),
-    staleTime: 30 * 1000,
+    staleTime: 0,
   });
 }
 

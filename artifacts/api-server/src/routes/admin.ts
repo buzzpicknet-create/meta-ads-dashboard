@@ -127,6 +127,7 @@ router.patch("/admin/users/:id/account", requireAdmin, async (req, res) => {
 router.get("/page-visibility", async (req, res) => {
   const role = req.session?.role;
   if (!role) return res.status(401).json({ error: "غير مصرح" });
+  res.setHeader("Cache-Control", "no-store");
   try {
     const rows = await query<{ page_path: string; visible: boolean }>(
       `SELECT page_path, visible FROM page_visibility WHERE role = $1`,
@@ -144,6 +145,7 @@ router.get("/page-visibility", async (req, res) => {
 
 // GET /api/admin/page-visibility — fetch all settings
 router.get("/admin/page-visibility", requireAdmin, async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const rows = await query<{ page_path: string; role: string; visible: boolean }>(
       `SELECT page_path, role, visible FROM page_visibility ORDER BY page_path, role`
