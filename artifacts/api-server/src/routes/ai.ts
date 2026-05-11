@@ -22,6 +22,12 @@ import { logger } from "../lib/logger.js";
 
 const router = Router();
 
+// ── Model constants — change here to switch globally ─────────────────────────
+// CHAT_MODEL: main conversational model (tool-use capable, streaming)
+// MINI_MODEL: cheap extraction/classification tasks (no tools needed)
+const CHAT_MODEL = "gpt-4o";
+const MINI_MODEL = "gpt-4o-mini";
+
 const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Facebook/Instagram) بخبرة 10+ سنوات.
 مهمتك: تشخيص الحملات بمنهجية علمية تربط المقاييس ببعضها — مش مجرد قراءة أرقام منفصلة.
 
@@ -1553,6 +1559,25 @@ async function getPipeboardClient(): Promise<Client> {
 
 // ── Pipeboard MCP read helper ────────────────────────────────────────────────
 // Uses the singleton client — no per-call connection overhead.
+// ── Tool-result truncation ────────────────────────────────────────────────────
+// Pipeboard/Meta API responses can be thousands of tokens.
+// We keep only the first MAX_TOOL_RESULT_CHARS characters so the LLM receives
+// the most-relevant rows (top of the list) without ballooning the context window.
+const MAX_TOOL_RESULT_CHARS = 4000;
+
+function truncateToolResult(text: string, maxChars = MAX_TOOL_RESULT_CHARS): string {
+  if (text.length <= maxChars) return text;
+  // Cut at the last newline before the limit so we don't break a mid-row
+  const slice = text.slice(0, maxChars);
+  const lastNl = slice.lastIndexOf("\n");
+  const cutAt = lastNl > maxChars * 0.75 ? lastNl : maxChars;
+  const removed = text.length - cutAt;
+  return (
+    text.slice(0, cutAt) +
+    `\n\n⚠️ [تم اختصار ${Math.round(removed / 1000)}K حرف — أرسل نتائج جزئية فقط لتوفير التكلفة]`
+  );
+}
+
 async function callPipeboardRead(
   toolName: string,
   toolArgs: Record<string, unknown>
@@ -1561,11 +1586,12 @@ async function callPipeboardRead(
     const client = await getPipeboardClient();
     const result = await client.callTool({ name: toolName, arguments: toolArgs });
     const content = result.content as Array<{ type: string; text?: string }>;
-    return content
+    const raw = content
       .filter((c) => c.type === "text")
       .map((c) => c.text ?? "")
       .join("\n")
       .trim();
+    return truncateToolResult(raw);
   } catch (err) {
     // Stale connection — reset so next call reconnects fresh
     _pbClient = null;
@@ -1610,7 +1636,8 @@ async function callGoogleAdsRead(toolName: string, toolArgs: Record<string, unkn
     const client = await getGoogleAdsClient();
     const result = await client.callTool({ name: toolName, arguments: toolArgs });
     const content = result.content as Array<{ type: string; text?: string }>;
-    return content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n").trim();
+    const raw = content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n").trim();
+    return truncateToolResult(raw);
   } catch (err) {
     _gaClient = null;
     _gaConnecting = null;
@@ -2610,7 +2637,7 @@ ${historyText}
 إذا لم تجد شيئاً قابلاً للاستخراج: {"no_update":true}`;
 
     const extraction = await openai.chat.completions.create({
-      model: "gpt-5.4",
+      model: MINI_MODEL,
       max_completion_tokens: 400,
       messages: [{ role: "user", content: extractionPrompt }],
     });
@@ -2883,10 +2910,10 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
       }
     }
 
-    const MAX_TOOL_ROUNDS = 4;
+    const MAX_TOOL_ROUNDS = 3;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
-        model: "gpt-5.4",
+        model: CHAT_MODEL,
         max_completion_tokens: 2048,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
@@ -2980,7 +3007,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
     }
 
     const fallbackStream = await openai.chat.completions.create({
-      model: "gpt-5.4",
+      model: CHAT_MODEL,
       max_completion_tokens: 2048,
       messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
       stream: true,
@@ -3124,10 +3151,10 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     // ── TRUE streaming tool-use loop ────────────────────────────────────────
     // Uses stream:true for every round so tokens flow to the client immediately
     // (eliminates the 3-5s "wait for full response" before any text appears).
-    const MAX_TOOL_ROUNDS = 4;
+    const MAX_TOOL_ROUNDS = 3;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
-        model: "gpt-5.4",
+        model: CHAT_MODEL,
         max_completion_tokens: 2048,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
@@ -3242,7 +3269,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
 
     // Fallback: ran out of rounds — final streaming answer without tools
     const fallbackStream = await openai.chat.completions.create({
-      model: "gpt-5.4",
+      model: CHAT_MODEL,
       max_completion_tokens: 2048,
       messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
       stream: true,
