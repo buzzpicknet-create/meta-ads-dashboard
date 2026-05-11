@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, User, Plus, Loader2, CheckCircle2,
   Brain, Paperclip, X, SquarePen, MessageSquare, Clock,
-  BarChart2, Zap, AlertTriangle,
+  BarChart2, Zap, AlertTriangle, Square,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -322,6 +322,7 @@ export default function AiChatPage() {
   const inputRef    = useRef<HTMLTextAreaElement>(null);
   const fileRef     = useRef<HTMLInputElement>(null);
   const abortRef    = useRef<AbortController|null>(null);
+  const stoppedRef  = useRef(false);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs, streamTxt]);
   useEffect(() => { setTimeout(()=>inputRef.current?.focus(), 100); }, [convId]);
@@ -471,8 +472,19 @@ export default function AiChatPage() {
       setMsgs(p=>[...p,aMsg]);
       if (acc.trim().length>3) void saveToDB(cid, userText, acc, localLabels.length?localLabels:undefined);
     } catch(err) {
-      if (err instanceof Error && err.name!=="AbortError") setMsgs(p=>[...p,{role:"assistant",content:"❌ حصل خطأ في الاتصال. حاول تاني."}]);
+      if (err instanceof Error) {
+        if (err.name==="AbortError") {
+          if (stoppedRef.current && acc.trim().length>3) {
+            setMsgs(p=>[...p,{role:"assistant",content:acc.trim()}]);
+          } else if (!stoppedRef.current) {
+            setMsgs(p=>[...p,{role:"assistant",content:"⚠️ انتهى وقت الانتظار. حاول مرة أخرى."}]);
+          }
+        } else {
+          setMsgs(p=>[...p,{role:"assistant",content:"❌ حصل خطأ في الاتصال. حاول تاني."}]);
+        }
+      }
     } finally {
+      stoppedRef.current=false;
       clearTimeout(tid); setStr(false); setStTxt(""); setTL([]); abortRef.current=null;
       setTimeout(()=>inputRef.current?.focus(),50);
     }
@@ -785,13 +797,23 @@ export default function AiChatPage() {
               style={{height:"auto"}}
             />
 
-            <button
-              onClick={()=>void send()}
-              disabled={(!input.trim()&&!attachment)||streaming}
-              className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-all shadow-sm"
-            >
-              {streaming ? <Loader2 className="h-5 w-5 animate-spin"/> : <Send className="h-5 w-5"/>}
-            </button>
+            {streaming ? (
+              <button
+                onClick={()=>{ stoppedRef.current=true; abortRef.current?.abort(); }}
+                className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border-2 border-foreground/30 bg-card text-foreground hover:border-foreground/60 hover:bg-muted transition-all shadow-sm"
+                title="إيقاف الرد"
+              >
+                <Square className="h-4 w-4 fill-current"/>
+              </button>
+            ) : (
+              <button
+                onClick={()=>void send()}
+                disabled={!input.trim()&&!attachment}
+                className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-all shadow-sm"
+              >
+                <Send className="h-5 w-5"/>
+              </button>
+            )}
           </div>
 
           <p className="text-center text-[11px] text-muted-foreground/50 mt-2 max-w-3xl mx-auto">

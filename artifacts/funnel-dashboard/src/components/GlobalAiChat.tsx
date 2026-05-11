@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
+  Bot, Send, Trash2, X, MessageSquare, User, Paperclip, Square,
   History, Plus, ChevronRight, ChevronDown, ChevronUp, Clock, Zap, AlertTriangle, Search,
   Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2, Brain,
 } from "lucide-react";
@@ -676,6 +676,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const stoppedRef = useRef(false);
   const convIdRef = useRef<number | null>(null);
   useEffect(() => { convIdRef.current = convId; }, [convId]);
 
@@ -1005,16 +1006,19 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     } catch (err: unknown) {
       if (err instanceof Error) {
         if (err.name === "AbortError") {
-          // Could be manual cancel OR our 45s timeout
-          const timedOut = !abortRef.current; // already cleared = we fired the timeout
-          if (timedOut || ctrl.signal.aborted) {
-            setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ انتهى وقت الانتظار (90 ثانية). حاول مرة أخرى." }]);
+          if (stoppedRef.current) {
+            if (accumulated.trim().length > 3) {
+              setMessages((prev) => [...prev, { role: "assistant", content: accumulated.trim() }]);
+            }
+          } else {
+            setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ انتهى وقت الانتظار. حاول مرة أخرى." }]);
           }
         } else {
           setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ في الاتصال. حاول تاني." }]);
         }
       }
     } finally {
+      stoppedRef.current = false;
       clearTimeout(timeoutId);
       setStreaming(false);
       setStreamingText("");
@@ -1943,13 +1947,23 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                         t.style.height = Math.min(t.scrollHeight, 100) + "px";
                       }}
                     />
-                    <button
-                      onClick={() => void send()}
-                      disabled={(!input.trim() && !attachment) || streaming}
-                      className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                    </button>
+                    {streaming ? (
+                      <button
+                        onClick={() => { stoppedRef.current = true; abortRef.current?.abort(); }}
+                        className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-foreground/30 bg-card text-foreground hover:border-foreground/60 hover:bg-muted transition-colors mb-0.5"
+                        title="إيقاف الرد"
+                      >
+                        <Square className="h-3 w-3 fill-current" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void send()}
+                        disabled={!input.trim() && !attachment}
+                        className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground/50 text-center mt-1.5">Shift+Enter لسطر جديد</p>
