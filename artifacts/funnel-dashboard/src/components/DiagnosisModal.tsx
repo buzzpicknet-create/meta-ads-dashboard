@@ -1738,7 +1738,7 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
 }
 
 function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText, campaignId, campaignName, initialConvId }: AiChatTabProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
   const canExecuteActions = user?.role === "admin" || user?.role === "media_buyer";
   const [input, setInput] = useState("");
@@ -1943,6 +1943,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
         signal: ctrl.signal,
       });
 
+      if (resp.status === 401) { logout(); return; }
       if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
       const reader = resp.body.getReader();
@@ -2005,7 +2006,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, messages, streaming, campaignContext, ensureConversation, saveToDB, loadConversations, setMessages, setStreaming, setStreamingText]);
+  }, [input, messages, streaming, campaignContext, ensureConversation, saveToDB, loadConversations, setMessages, setStreaming, setStreamingText, logout]);
 
   const executeAction = useCallback(async () => {
     if (!pendingAction || executingAction) return;

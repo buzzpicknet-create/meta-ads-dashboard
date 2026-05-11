@@ -568,6 +568,7 @@ export default function AiChatPage() {
       if (att?.isImage) { body.imageBase64=att.base64; body.imageMimeType=att.mimeType; }
       if (att?.text)   { body.fileText=att.text; body.fileName=att.name; }
       const resp = await fetch(`${API}/ai/chat`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:ctrl.signal, credentials:"include"});
+      if (resp.status === 401) { logout(); return; }
       if (!resp.ok||!resp.body) throw new Error(`HTTP ${resp.status}`);
       const reader=resp.body.getReader(), dec=new TextDecoder();
       const localLabels: string[] = [];
@@ -610,7 +611,7 @@ export default function AiChatPage() {
       clearTimeout(tid); setStr(false); setStTxt(""); setTL([]); abortRef.current=null;
       setTimeout(()=>inputRef.current?.focus(),50);
     }
-  }, [input, msgs, streaming, attachment, campCtx, ensureConv, saveToDB]);
+  }, [input, msgs, streaming, attachment, campCtx, ensureConv, saveToDB, logout]);
 
   const execAction = useCallback(async () => {
     if (!pending||executing) return;

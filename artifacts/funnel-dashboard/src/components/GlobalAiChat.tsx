@@ -666,7 +666,7 @@ interface GlobalAiChatProps {
 }
 
 export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiChatProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
   const [loc, navigate] = useLocation();
   const isOnChatPage = loc === "/chat";
@@ -996,6 +996,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         credentials: "include",
       });
 
+      if (resp.status === 401) { logout(); return; }
       if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
       const reader = resp.body.getReader();
@@ -1065,7 +1066,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       abortRef.current = null;
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [input, messages, streaming, buildContext, ensureConversation, saveToDB, attachment]);
+  }, [input, messages, streaming, buildContext, ensureConversation, saveToDB, attachment, logout]);
 
   const executeAction = useCallback(async () => {
     if (!pendingAction || executingAction) return;

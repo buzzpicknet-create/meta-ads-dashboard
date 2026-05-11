@@ -53,12 +53,13 @@ app.use(
     name: "sid",
     secret: process.env["SESSION_SECRET"] ?? "fallback-dev-secret-change-in-prod",
     resave: false,
+    rolling: true,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
       secure: false,
       sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: 30 * 24 * 60 * 60 * 1000,
     },
   }),
 );
