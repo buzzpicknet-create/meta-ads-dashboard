@@ -1777,7 +1777,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                   ))}
 
                   {/* Pending action confirmation card — shown immediately (optimistic) */}
-                  {pendingAction && user?.role === "admin" && (() => {
+                  {pendingAction && (user?.role === "admin" || user?.role === "media_buyer") && (() => {
                     const isSameState = !!(pendingAction.currentValue && pendingAction.proposedValue && pendingAction.currentValue === pendingAction.proposedValue);
                     return (
                       <div className="flex gap-2.5 flex-row items-start" dir="rtl">

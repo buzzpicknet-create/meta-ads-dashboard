@@ -1740,6 +1740,7 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
 function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, streaming, setStreaming, streamingText, setStreamingText, campaignId, campaignName, initialConvId }: AiChatTabProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const canExecuteActions = user?.role === "admin" || user?.role === "media_buyer";
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [view, setView] = useState<"chat" | "history">("chat");
@@ -2264,7 +2265,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
           ))}
 
           {/* Pending action confirmation card — shown immediately (optimistic) */}
-          {pendingAction && isAdmin && (() => {
+          {pendingAction && canExecuteActions && (() => {
             const isSameState = !!(pendingAction.currentValue && pendingAction.proposedValue && pendingAction.currentValue === pendingAction.proposedValue);
             return (
               <div className="flex gap-2.5 flex-row items-start" dir="rtl">

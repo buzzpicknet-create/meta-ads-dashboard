@@ -119,8 +119,9 @@ async function checkAndNotifyNoOpSpike(): Promise<void> {
 
 // ── POST /api/pipeboard/action ─────────────────────────────────
 router.post("/pipeboard/action", async (req: Request, res: Response) => {
-  if (req.session?.role !== "admin") {
-    res.status(403).json({ error: "غير مصرح — هذه الميزة للأدمن فقط" });
+  const role = req.session?.role;
+  if (role !== "admin" && role !== "media_buyer") {
+    res.status(403).json({ error: "غير مصرح — هذه الميزة للأدمن والميدياباير فقط" });
     return;
   }
 

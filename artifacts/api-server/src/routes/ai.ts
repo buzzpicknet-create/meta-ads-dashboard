@@ -2571,6 +2571,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     ? new Set(selectedAccountIds.map(id => id.replace(/^act_/, "")))
     : null;
   const isAdmin = req.session?.role === "admin";
+  const canExecuteActions = req.session?.role === "admin" || req.session?.role === "media_buyer";
   const userId = req.session?.userId;
 
   if (!campaignContext || !Array.isArray(messages) || messages.length === 0) {
@@ -2679,7 +2680,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
         model: "gpt-5.4",
         max_completion_tokens: 2048,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
-        tools: (isAdmin ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
+        tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
         stream: true,
       });
