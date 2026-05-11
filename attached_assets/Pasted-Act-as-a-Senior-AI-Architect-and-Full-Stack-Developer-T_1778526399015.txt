@@ -1,0 +1,74 @@
+Act as a Senior AI Architect and Full-Stack Developer. The user wants to integrate the "Pipeboard Campaign Creation" pipeline DIRECTLY into the AI Chat interface as a callable MCP Tool (Function Calling).
+
+The goal is for the user to paste a Landing Page URL and a Google Drive URL in the chat, and the AI agent will automatically generate the ad copy and trigger the Pipeboard API to launch the campaign.
+
+Please implement the following architecture:
+
+1. BACKEND: CREATE MCP TOOL launch_pipeboard_campaign
+
+Add a new tool to the AI's available functions (MCP tools).
+Tool Name: launch_pipeboard_campaign
+Description: "Use this tool to create a new Meta Ads campaign via Pipeboard CMP when the user provides a Landing Page URL and a media URL (like Google Drive)."
+Parameters Schema:
+
+campaign_name (string): A generated, catchy name for the campaign.
+
+landing_page_url (string): The destination URL.
+
+media_url (string): The Google Drive or video/image URL.
+
+daily_budget (number): The budget in the user's currency (default to 20 if not specified).
+
+primary_text (string): The AI-generated primary ad copy (persuasive, includes emojis).
+
+headline (string): The AI-generated short headline.
+
+Tool Execution Logic (Backend Route):
+When the LLM calls this tool, the backend should take these parameters and construct the payload for Pipeboard CMP.
+
+const pipeboardPayload = {
+  campaign_name: args.campaign_name,
+  status: "PAUSED", // ALWAYS PAUSED FOR SAFETY
+  daily_budget: args.daily_budget,
+  objective: "CONVERSIONS",
+  targeting: "BROAD",
+  creative: {
+    media_url: args.media_url,
+    primary_text: args.primary_text,
+    headline: args.headline,
+    destination_url: args.landing_page_url
+  }
+};
+// Axios POST to Pipeboard API...
+
+
+2. AI SYSTEM PROMPT UPDATE
+
+Inject this instruction into the LLM System Prompt:
+"CAMPAIGN CREATION PIPELINE: If the user asks to create a campaign and provides a Landing Page URL and a Media URL (e.g., Google Drive):
+
+Acknowledge the request.
+
+If you have a web scraping tool, use it to read the Landing Page. If not, deduce the product from the URL slug.
+
+Write a high-converting primary_text and headline in Arabic.
+
+Call the launch_pipeboard_campaign tool with all the gathered parameters. Do NOT ask the user to write the copy, do it for them."
+
+3. FRONTEND: CHAT UI INTERCEPTOR (Custom Message Render)
+
+When the AI calls the launch_pipeboard_campaign tool, the Chat UI should NOT just show raw JSON.
+
+Create a React component PipeboardLaunchCard that renders in the chat.
+
+While the tool is executing, show a loading state: "🚀 جاري تجهيز الحملة وإرسالها لـ Pipeboard..."
+
+On success, display a beautiful summary card showing:
+
+📦 اسم الحملة: [Campaign Name]
+
+💰 الميزانية: [Budget]
+
+✍️ النص الإعلاني: [Preview of Primary Text]
+
+✅ الحالة: تم الإنشاء بنجاح (PAUSED)

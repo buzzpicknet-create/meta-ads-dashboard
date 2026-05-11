@@ -141,6 +141,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "create_campaign",
     "create_adset",
     "duplicate_campaign",
+    "launch_pipeboard_campaign",
     // Google Ads
     "ga_pause_campaign",
     "ga_enable_campaign",
@@ -240,6 +241,92 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       default:
         return { mcpTool: t, mcpArgs: a };
     }
+  }
+
+  // ── Special multi-step: launch_pipeboard_campaign ────────────────────────
+  if (tool === "launch_pipeboard_campaign") {
+    let pipeSuccess = false;
+    let pipeMsg = "";
+    let campaignId = "";
+    let adsetId = "";
+    try {
+      const client = await getPipeboardWriteClient();
+      const egpToCents = (v: unknown) => Math.round(Number(v) * 100);
+      const budget = egpToCents(args?.daily_budget ?? 20);
+      const accountId = String(args?.account_id ?? "");
+      const campaignName = String(args?.campaign_name ?? "حملة جديدة");
+
+      // Step 1: create campaign
+      const campResult = await client.callTool({
+        name: "create_campaign",
+        arguments: {
+          account_id: accountId,
+          name: campaignName,
+          objective: "OUTCOME_SALES",
+          status: "PAUSED",
+          daily_budget: budget,
+        },
+      });
+      const campText = (campResult.content as Array<{ type: string; text?: string }>)
+        ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+      // Extract campaign id from response (Meta returns {"id":"XXXX"} or text containing id)
+      const campIdMatch = campText.match(/"id"\s*:\s*"(\d+)"/) ?? campText.match(/\b(\d{10,})\b/);
+      campaignId = campIdMatch?.[1] ?? "";
+
+      // Step 2: create adset (if we have a campaign_id)
+      if (campaignId) {
+        try {
+          const adsetResult = await client.callTool({
+            name: "create_adset",
+            arguments: {
+              account_id: accountId,
+              campaign_id: campaignId,
+              name: `${campaignName} — مجموعة رئيسية`,
+              optimization_goal: "OFFSITE_CONVERSIONS",
+              billing_event: "IMPRESSIONS",
+              status: "PAUSED",
+              targeting: { geo_locations: { countries: ["EG"] } },
+            },
+          });
+          const adsetText = (adsetResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          const adsetIdMatch = adsetText.match(/"id"\s*:\s*"(\d+)"/) ?? adsetText.match(/\b(\d{10,})\b/);
+          adsetId = adsetIdMatch?.[1] ?? "";
+        } catch (adsetErr) {
+          logger.warn({ adsetErr }, "launch_pipeboard_campaign: create_adset failed (non-fatal)");
+        }
+      }
+
+      pipeSuccess = true;
+      pipeMsg = campaignId ? `campaign_id:${campaignId}${adsetId ? ` adset_id:${adsetId}` : ""}` : "";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      pipeMsg = msg;
+      _pbWriteClient = null;
+      _pbWriteConnecting = null;
+    } finally {
+      await query(
+        `INSERT INTO pipeboard_actions
+           (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [executedBy, tool, JSON.stringify(args ?? {}), pipeSuccess, pipeMsg,
+          String(args?.campaign_name ?? ""), null, false]
+      ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
+    }
+
+    if (pipeSuccess) {
+      res.json({
+        success: true,
+        message: pipeMsg,
+        launchData: {
+          campaign_id: campaignId || undefined,
+          adset_id: adsetId || undefined,
+        },
+      });
+    } else {
+      res.status(500).json({ error: pipeMsg });
+    }
+    return;
   }
 
   const isGaTool = GA_WRITE_TOOLS.has(tool);

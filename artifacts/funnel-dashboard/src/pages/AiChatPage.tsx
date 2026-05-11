@@ -5,6 +5,7 @@ import {
   BarChart2, Zap, AlertTriangle, Square, CheckSquare, Menu,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
+import PipeboardLaunchCard, { type PipeboardLaunchData } from "@/components/PipeboardLaunchCard";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, Cell,
@@ -142,6 +143,7 @@ function RenderMarkdown({ text }: { text: string }) {
     if (line.trim().startsWith("```")) {
       const lang = line.trim().slice(3).trim().toLowerCase();
       const isChart = lang === "json chart" || lang === "chart" || lang === "json-chart";
+      const isPipeboardLaunch = lang === "pipeboard_launch" || lang === "pipeboard-launch";
       const isBulkLang = lang === "bulk_action" || lang === "json bulk_action" || lang === "bulk-action"
                       || lang === "bulk action"  || lang === "json_bulk_action" || lang.includes("bulk");
       const code: string[] = [];
@@ -167,7 +169,14 @@ function RenderMarkdown({ text }: { text: string }) {
         return null;
       };
 
-      if (isBulkLang) {
+      if (isPipeboardLaunch) {
+        try {
+          const launchData = JSON.parse(raw) as PipeboardLaunchData;
+          elems.push(<PipeboardLaunchCard key={`launch-${i}`} data={launchData} />);
+        } catch {
+          elems.push(<pre key={`p${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>);
+        }
+      } else if (isBulkLang) {
         const bulkPayload = tryParseBulk();
         if (bulkPayload) {
           elems.push(<BulkActionPanel key={`b${i}`} payload={bulkPayload} />);
@@ -623,9 +632,24 @@ export default function AiChatPage() {
     try {
       const isNoOp = pending.currentValue!=null && pending.proposedValue!=null && pending.currentValue===pending.proposedValue;
       const r = await fetch(`${API}/pipeboard/action`, {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include", body:JSON.stringify({tool:pending.tool,args:pending.args,isNoOp})});
-      const d = await r.json() as {success?:boolean;message?:string;error?:string};
-      const extra = d.message&&!d.message.trim().startsWith("{") ? ` — ${d.message.trim()}` : "";
-      const res = r.ok&&d.success ? `✅ تم بنجاح: ${pending.summary}${extra}` : `❌ فشل التنفيذ: ${d.error||"خطأ"}`;
+      const d = await r.json() as {success?:boolean;message?:string;error?:string;launchData?:Record<string,unknown>};
+      let res: string;
+      if (r.ok && d.success && pending.tool === "launch_pipeboard_campaign") {
+        const cardData: PipeboardLaunchData = {
+          campaign_name: String(pending.args.campaign_name ?? ""),
+          daily_budget: Number(pending.args.daily_budget ?? 20),
+          primary_text: String(pending.args.primary_text ?? ""),
+          headline: String(pending.args.headline ?? ""),
+          status: "PAUSED",
+          landing_page_url: String(pending.args.landing_page_url ?? ""),
+          campaign_id: String(d.launchData?.campaign_id ?? ""),
+          adset_id: String(d.launchData?.adset_id ?? ""),
+        };
+        res = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
+      } else {
+        const extra = d.message&&!d.message.trim().startsWith("{") ? ` — ${d.message.trim()}` : "";
+        res = r.ok&&d.success ? `✅ تم بنجاح: ${pending.summary}${extra}` : `❌ فشل التنفيذ: ${d.error||"خطأ"}`;
+      }
       setMsgs(p=>[...p,{role:"assistant",content:res}]);
       const cid=convIdRef.current; if(cid!==null) void saveToDB(cid,pending.summary,res);
     } catch { setMsgs(p=>[...p,{role:"assistant",content:"❌ خطأ في الاتصال."}]); }

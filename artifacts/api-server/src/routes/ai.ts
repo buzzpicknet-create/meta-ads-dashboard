@@ -336,12 +336,29 @@ Frequency (في 7 أيام):
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
+- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, media_url, daily_budget?, primary_text, headline) — إنشاء حملة كاملة مع إعلان ومحتوى إبداعي دفعة واحدة عبر Pipeboard CMP
+  - استخدم هذه الأداة تحديداً عندما يُعطيك المستخدم رابط صفحة هبوطية ورابط ميديا (Google Drive أو فيديو)
+  - الميزانية الافتراضية: 20 EGP — دائماً PAUSED للمراجعة
+  - أنت المسؤول عن كتابة primary_text وheadline بالعربية — لا تطلب من المستخدم كتابتهم
 
 قواعد الإنشاء:
 ١. اجمع كل المعلومات من المستخدم قبل استدعاء أداة الإنشاء (الاسم، الهدف، الميزانية، الاستهداف)
 ٢. استخدم get_campaigns أولاً للحصول على account_id من الحسابات المرتبطة
 ٣. للنسخ: duplicate_campaign أسرع وأأمن من الإنشاء من الصفر
 ٤. دايماً اقترح status=PAUSED للمراجعة قبل التشغيل — ما لم يطلب المستخدم صراحةً التشغيل الفوري
+
+══════════════════════════════════════
+CAMPAIGN CREATION PIPELINE (Pipeboard CMP)
+══════════════════════════════════════
+
+إذا أعطاك المستخدم رابط صفحة هبوطية ورابط ميديا (Google Drive أو فيديو/صورة) وطلب إنشاء حملة:
+١. اعترف بالطلب فوراً: "سأقوم بإعداد الحملة الآن…"
+٢. استخدم get_campaigns للحصول على account_id من الحسابات المرتبطة (مرة واحدة فقط)
+٣. استنبط اسم المنتج أو الخدمة من الـ URL slug أو محتوى الرابط
+٤. اكتب primary_text بالعربية: نص مقنع 2-3 أسطر يتضمن إيموجي، يُبرز الفائدة، ويُنهي بـ call-to-action
+٥. اكتب headline بالعربية: عنوان مختصر ومؤثر (15-25 حرف)
+٦. استدعِ launch_pipeboard_campaign مباشرةً بكل المعلومات — لا تتوقف لتسأل المستخدم عن النص
+⚠️ لا تطلب من المستخدم كتابة النص الإعلاني — هذه مهمتك أنت كـ AI.
 
 مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
 بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".
@@ -848,6 +865,27 @@ const TOOLS = [
       },
     },
   },
+  // ── Campaign Launch Pipeline (Pipeboard CMP) ────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "launch_pipeboard_campaign",
+      description: "استخدم هذه الأداة لإنشاء حملة Meta Ads كاملة عبر Pipeboard CMP عندما يزوّد المستخدم رابط الصفحة الهبوطية ورابط الميديا (Google Drive أو فيديو). تُنشئ الحملة والمجموعة الإعلانية في طلب واحد — دائماً بحالة PAUSED للمراجعة.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX) — اجلبه من get_campaigns" },
+          campaign_name: { type: "string", description: "اسم جذّاب ومعبّر للحملة (مولّد تلقائياً من الـ AI)" },
+          landing_page_url: { type: "string", description: "رابط الصفحة الهبوطية — الـ URL التي سيُحوَّل إليها المستخدم بعد النقر" },
+          media_url: { type: "string", description: "رابط الميديا (Google Drive أو رابط فيديو/صورة مباشر)" },
+          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — افتراضي 20 إذا لم يُحدَّد" },
+          primary_text: { type: "string", description: "النص الإعلاني الرئيسي — مقنع، يتضمن إيموجي، مكتوب بالعربية" },
+          headline: { type: "string", description: "عنوان الإعلان المختصر بالعربية (15-25 حرف)" },
+        },
+        required: ["account_id", "campaign_name", "landing_page_url", "media_url", "primary_text", "headline"],
+      },
+    },
+  },
   // ── Google Ads tools ────────────────────────────────────────────────────────
   {
     type: "function" as const,
@@ -1064,6 +1102,7 @@ const WRITE_TOOL_NAMES = new Set([
   "create_campaign",
   "create_adset",
   "duplicate_campaign",
+  "launch_pipeboard_campaign",
   // Google Ads write tools
   "ga_pause_campaign",
   "ga_enable_campaign",
@@ -1258,6 +1297,15 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
         tool: name, args,
         summary: `نسخ الحملة "${label}"${suffix}${budget}`,
         proposedValue: `نسخة جديدة من "${label}"`,
+      };
+    }
+    case "launch_pipeboard_campaign": {
+      const cName = String(args.campaign_name ?? "");
+      const budget = Math.round(Number(args.daily_budget ?? 20));
+      return {
+        tool: name, args,
+        summary: `🚀 إطلاق حملة "${cName}" — ميزانية: ${budget} EGP/يوم — موقوفة للمراجعة`,
+        proposedValue: `حملة جديدة مع إعلان`,
       };
     }
     // ── Google Ads write tools ────────────────────────────────────────────────
@@ -2622,6 +2670,7 @@ const ACTION_LABEL: Record<string, string> = {
   create_campaign:             "تم إنشاء الحملة الإعلانية",
   create_adset:                "تم إنشاء المجموعة الإعلانية",
   duplicate_campaign:          "تم نسخ الحملة الإعلانية",
+  launch_pipeboard_campaign:   "تم إطلاق الحملة عبر Pipeboard CMP",
 };
 
 function relativeTime(dateStr: string): string {

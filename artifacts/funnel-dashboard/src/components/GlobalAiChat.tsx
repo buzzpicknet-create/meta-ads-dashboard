@@ -5,6 +5,7 @@ import {
   Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2, Brain,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
+import PipeboardLaunchCard, { type PipeboardLaunchData } from "@/components/PipeboardLaunchCard";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Cell,
@@ -433,6 +434,7 @@ function RenderMarkdown({ text }: { text: string }) {
     if (line.trim().startsWith("```")) {
       const lang = line.trim().slice(3).trim().toLowerCase();
       const isChart = lang === "json chart" || lang === "chart" || lang === "json-chart";
+      const isPipeboardLaunch = lang === "pipeboard_launch" || lang === "pipeboard-launch";
       const isBulkLang = lang === "bulk_action" || lang === "json bulk_action" || lang === "bulk-action"
                       || lang === "bulk action"  || lang === "json_bulk_action" || lang.includes("bulk");
       const codeLines: string[] = [];
@@ -461,7 +463,14 @@ function RenderMarkdown({ text }: { text: string }) {
         return null;
       };
 
-      if (isBulkLang) {
+      if (isPipeboardLaunch) {
+        try {
+          const launchData = JSON.parse(raw) as PipeboardLaunchData;
+          elements.push(<PipeboardLaunchCard key={`launch-${i}`} data={launchData} />);
+        } catch {
+          elements.push(<pre key={`code-${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>);
+        }
+      } else if (isBulkLang) {
         const bulkPayload = tryParseBulkG();
         if (bulkPayload) {
           elements.push(<BulkActionPanel key={`bulk-${i}`} payload={bulkPayload} />);
@@ -1091,15 +1100,30 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         credentials: "include",
         body: JSON.stringify({ tool: pendingAction.tool, args: pendingAction.args, isNoOp }),
       });
-      const data = await resp.json() as { success?: boolean; message?: string; error?: string };
-      // Always prefer pendingAction.summary for the success label (Arabic, human-readable).
-      // data.message from Pipeboard may be raw JSON or English text — only append if clean text.
-      const extraMsg = data.message && data.message.trim() && !data.message.trimStart().startsWith("{")
-        ? ` — ${data.message.trim()}`
-        : "";
-      const resultText = resp.ok && data.success
-        ? `✅ تم بنجاح: ${pendingAction.summary}${extraMsg}`
-        : `❌ فشل التنفيذ: ${data.error || "خطأ غير معروف"}`;
+      const data = await resp.json() as { success?: boolean; message?: string; error?: string; launchData?: Record<string, unknown> };
+      let resultText: string;
+      if (resp.ok && data.success && pendingAction.tool === "launch_pipeboard_campaign") {
+        const cardData: PipeboardLaunchData = {
+          campaign_name: String(pendingAction.args.campaign_name ?? ""),
+          daily_budget: Number(pendingAction.args.daily_budget ?? 20),
+          primary_text: String(pendingAction.args.primary_text ?? ""),
+          headline: String(pendingAction.args.headline ?? ""),
+          status: "PAUSED",
+          landing_page_url: String(pendingAction.args.landing_page_url ?? ""),
+          campaign_id: String(data.launchData?.campaign_id ?? ""),
+          adset_id: String(data.launchData?.adset_id ?? ""),
+        };
+        resultText = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
+      } else {
+        // Always prefer pendingAction.summary for the success label (Arabic, human-readable).
+        // data.message from Pipeboard may be raw JSON or English text — only append if clean text.
+        const extraMsg = data.message && data.message.trim() && !data.message.trimStart().startsWith("{")
+          ? ` — ${data.message.trim()}`
+          : "";
+        resultText = resp.ok && data.success
+          ? `✅ تم بنجاح: ${pendingAction.summary}${extraMsg}`
+          : `❌ فشل التنفيذ: ${data.error || "خطأ غير معروف"}`;
+      }
       setMessages((prev) => [...prev, { role: "assistant", content: resultText }]);
       const cid = convIdRef.current;
       if (cid !== null) {
