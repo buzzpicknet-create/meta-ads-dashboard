@@ -1,0 +1,38 @@
+Act as a Senior Meta Ads API Engineer and AI Architect. I need to apply a SURGICAL UPDATE to the existing "Meta Ads Assistant" backend logic and System Prompt.
+CRITICAL: DO NOT rewrite the entire app or remove existing UI features. Only patch the following specific data-fetching and reasoning issues.
+
+Please implement these 4 specific fixes:
+
+1. ABO vs CBO BUDGET FETCHING LOGIC (Backend Fix):
+
+Update the MCP tool that fetches campaigns/adsets.
+
+The AI is failing to read ABO budgets. You must ensure the API fetches daily_budget and lifetime_budget at BOTH the Campaign level AND the Adset level.
+
+Provide the AI with clear JSON structure: If it's a CBO, budget is at the campaign level. If it's an ABO, budget is at the adset level. Do not let it return "Failed to fetch budget" for ABOs.
+
+2. UI BULK ACTION DISPLAY (Frontend/Backend Fix):
+
+When outputting the bulk_action JSON block for an ABO campaign, the AI must set the target entity as the Adset.
+
+Update the Bulk Action UI component: If the action is on an Adset, display the [Adset Name] in a large font, and append the (Campaign Name) next to it in a smaller, lighter font (e.g., text-sm text-gray-500) so the user knows exactly where this adset belongs.
+
+3. "COOLDOWN PERIOD" & RECENT CHANGES AWARENESS (Backend Prompt Fix):
+
+Ensure the MCP tool fetches the updated_time field for all Campaigns, Adsets, and Ads.
+
+Inject this STRICT RULE into the LLM System Prompt:
+"COOLDOWN RULE: Before suggesting ANY budget scale, scale down, or pause, you MUST check the updated_time of that specific entity.
+If the entity was modified within the last 24 hours, you MUST reject modifying it.
+Instead, output a message like: '⚠️ لا يمكن تعديل [اسم الحملة/المجموعة] لأنك قمت بتعديلها منذ [X] ساعات. يجب تركها لتخرج من مرحلة التعلم (Learning Phase).' Do NOT include it in the bulk_action array."
+
+4. CREATIVE-LEVEL DEEP DIVE (System Prompt Update):
+
+Update the LLM System Prompt to enforce 3-Tier Analysis (Campaign -> Adset -> AD LEVEL).
+
+Add this instruction to the prompt:
+"CREATIVE DIAGNOSTICS: Never stop your analysis at the Adset level. You must drill down into the specific Ads (Creatives).
+If an Adset is failing, tell me WHICH specific ad is dragging it down. Calculate the Ad-level Hook Rate, CTR, and CPA.
+Speak like an expert: e.g., 'المجموعة الإعلانية ممتازة، ولكن الكرييتف رقم 2 يستنزف الميزانية بـ CTR ضعيف جداً (0.5%)، أقترح إيقاف هذا الكرييتف فقط مع الإبقاء على المجموعة.'"
+
+Please apply these precise patches to the API data mapping, the UI formatting for ABOs, and the LLM's core system prompt.

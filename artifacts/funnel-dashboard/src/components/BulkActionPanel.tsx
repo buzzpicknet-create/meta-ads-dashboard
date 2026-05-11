@@ -18,6 +18,7 @@ export interface BulkActionItem {
   adsetId?: string;
   adId?: string;
   name: string;
+  campaignName?: string;
   label: string;
   currentBudget?: number;
   newBudget?: number;
@@ -238,7 +239,10 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
                       <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${meta.badge}`}>
                         {meta.icon}{action.label}
                       </span>
-                      <span className="text-[13px] font-medium text-foreground truncate">{action.name}</span>
+                      <span className="text-[13px] font-semibold text-foreground truncate">{action.name}</span>
+                      {action.adsetId && action.campaignName && (
+                        <span className="text-[11px] text-muted-foreground truncate">({action.campaignName})</span>
+                      )}
                     </div>
                     {(action.type === "update_campaign_budget" || action.type === "update_adset_budget") &&
                       action.currentBudget !== undefined && action.newBudget !== undefined && (

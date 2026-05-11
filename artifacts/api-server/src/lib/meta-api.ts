@@ -1585,6 +1585,7 @@ export interface CampaignDetails {
   effective_status: string;
   daily_budget?: number;
   lifetime_budget?: number;
+  updated_time?: string;
 }
 
 export async function getCampaignDetails(campaign_id: string): Promise<CampaignDetails> {
@@ -1595,7 +1596,8 @@ export async function getCampaignDetails(campaign_id: string): Promise<CampaignD
     effective_status?: string;
     daily_budget?: string;
     lifetime_budget?: string;
-  }>(`/${campaign_id}`, { fields: "id,name,status,effective_status,daily_budget,lifetime_budget" });
+    updated_time?: string;
+  }>(`/${campaign_id}`, { fields: "id,name,status,effective_status,daily_budget,lifetime_budget,updated_time" });
   return {
     id: json.id ?? campaign_id,
     name: json.name ?? "",
@@ -1603,6 +1605,7 @@ export async function getCampaignDetails(campaign_id: string): Promise<CampaignD
     effective_status: json.effective_status ?? "UNKNOWN",
     daily_budget: json.daily_budget ? Number(json.daily_budget) / 100 : undefined,
     lifetime_budget: json.lifetime_budget ? Number(json.lifetime_budget) / 100 : undefined,
+    updated_time: json.updated_time,
   };
 }
 
@@ -1613,6 +1616,7 @@ export interface AdsetDetails {
   effective_status: string;
   daily_budget?: number;
   lifetime_budget?: number;
+  updated_time?: string;
 }
 
 export async function getAdsetDetails(adset_id: string): Promise<AdsetDetails> {
@@ -1623,7 +1627,8 @@ export async function getAdsetDetails(adset_id: string): Promise<AdsetDetails> {
     effective_status?: string;
     daily_budget?: string;
     lifetime_budget?: string;
-  }>(`/${adset_id}`, { fields: "id,name,status,effective_status,daily_budget,lifetime_budget" });
+    updated_time?: string;
+  }>(`/${adset_id}`, { fields: "id,name,status,effective_status,daily_budget,lifetime_budget,updated_time" });
   return {
     id: json.id ?? adset_id,
     name: json.name ?? "",
@@ -1631,6 +1636,7 @@ export async function getAdsetDetails(adset_id: string): Promise<AdsetDetails> {
     effective_status: json.effective_status ?? "UNKNOWN",
     daily_budget: json.daily_budget ? Number(json.daily_budget) / 100 : undefined,
     lifetime_budget: json.lifetime_budget ? Number(json.lifetime_budget) / 100 : undefined,
+    updated_time: json.updated_time,
   };
 }
 
@@ -1639,6 +1645,7 @@ export interface AdDetails {
   name: string;
   status: string;
   effective_status: string;
+  updated_time?: string;
 }
 
 export async function getAdDetails(ad_id: string): Promise<AdDetails> {
@@ -1647,11 +1654,13 @@ export async function getAdDetails(ad_id: string): Promise<AdDetails> {
     name?: string;
     status?: string;
     effective_status?: string;
-  }>(`/${ad_id}`, { fields: "id,name,status,effective_status" });
+    updated_time?: string;
+  }>(`/${ad_id}`, { fields: "id,name,status,effective_status,updated_time" });
   return {
     id: json.id ?? ad_id,
     name: json.name ?? "",
     status: json.status ?? "UNKNOWN",
     effective_status: json.effective_status ?? "UNKNOWN",
+    updated_time: json.updated_time,
   };
 }

@@ -212,9 +212,23 @@ Frequency (في 7 أيام):
 
 ⚠️ مهم جداً: لو عندك adset_id وتريد تقارن الإعلانات داخله لتحديد الأفضل أو اقتراح نقل الميزانية، استخدم get_ads_in_adset أولاً. الأداة بترتّب الإعلانات حسب الكفاءة وتحدد الـ Winner والـ Drain بشكل واضح — لا تبني توصية بنقل الميزانية بدون هذه البيانات.
 
+🎨 تشخيص مستوى المحتوى الإعلاني (Creatives) — إلزامي:
+لا تتوقف عند مستوى المجموعة الإعلانية — اغُص دائماً في الإعلانات الفردية:
+- المجموعة فيها مشكلة (CPA مرتفع / CTR منخفض) → استخدم get_ads_in_adset فوراً لتحديد أي إعلان بالضبط يسرق الميزانية
+- احسب على مستوى كل إعلان: نسبة الجذب + نسبة النقر + تكلفة التحويل
+- تكلم بلغة الخبير: "المجموعة الإعلانية ممتازة، لكن الإعلان رقم ٢ يستنزف الميزانية بنسبة نقر ضعيفة جداً (٠٫٥٪)، أقترح إيقاف هذا الإعلان فقط مع الإبقاء على المجموعة."
+- الحل الذكي دائماً: أوقف الإعلان الضعيف (pause_ad) وليس المجموعة كلها — حافظ على ما بناه الـ Learning
+
 ══════════════════════════════════════
 الجزء 4 — قواعد اتخاذ القرار
 ══════════════════════════════════════
+
+🚫 قاعدة الـ Cooldown (إلزامية — لا استثناء):
+قبل اقتراح أي scale أو إيقاف أو تعديل ميزانية، تحقق من updated_time للكيان المستهدف.
+- updated_time مذكور في ردود get_campaign_status / get_adset_status / get_campaign_budget
+- لو الكيان تعدّل خلال آخر 24 ساعة: ارفض التعديل وقل:
+  "⚠️ لا يمكن تعديل [اسم الحملة/المجموعة] لأنك قمت بتعديلها منذ [X] ساعات. يجب تركها لتخرج من مرحلة التعلم (Learning Phase)."
+- لا تُدرجه في bulk_action. هذه القاعدة تُقدَّم على كل قرارات Scale والإيقاف.
 
 متى توقف:
 - CPA أعلى من 2× الهدف + مرت 7 أيام + الـ Learning Phase خلصت
@@ -413,8 +427,9 @@ Frequency (في 7 أيام):
 
 أنواع الإجراءات المتاحة (Meta): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset | pause_ad | enable_ad
 - لـ update_campaign_budget: campaignId + currentBudget + newBudget + budgetType ("daily" أو "lifetime") إلزامي
-- لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي
-- لـ pause/enable campaign/adset: campaignId أو adsetId حسب النوع
+- لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي — أضف campaignName (اسم الحملة الأم) دائماً للـ ABO ليظهر في الواجهة
+- لـ pause_adset / enable_adset: adsetId إلزامي — أضف campaignName لتوضيح الحملة الأم في الواجهة
+- لـ pause/enable campaign: campaignId حسب النوع
 - لـ pause_ad / enable_ad: adId (رقم الإعلان الفردي)
 - label: وصف قصير للإجراء (زيادة 20%، إيقاف، تقليل 30%، إلخ)
 - reason: السبب المبني على البيانات (اختياري لكن مفيد جداً)
@@ -1730,10 +1745,29 @@ async function tryExecuteViaPipeboard(
       });
     }
 
-    if (name === "get_campaign_status" || name === "get_campaign_budget") {
+    if (name === "get_campaign_status") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return null;
       return await callPipeboardRead("get_campaign_details", { campaign_id });
+    }
+
+    if (name === "get_campaign_budget") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return null;
+      const [campaignDetailsResult, adsetDataResult] = await Promise.allSettled([
+        callPipeboardRead("get_campaign_details", { campaign_id }),
+        callPipeboardRead("get_insights", {
+          object_id: campaign_id,
+          level: "adset",
+          time_range: timeRange,
+        }),
+      ]);
+      const details = campaignDetailsResult.status === "fulfilled" ? campaignDetailsResult.value : "";
+      const adsets = adsetDataResult.status === "fulfilled" && adsetDataResult.value.trim().length > 0
+        ? adsetDataResult.value
+        : null;
+      if (!adsets) return details || null;
+      return `${details}\n\n---\n## ميزانيات المجموعات الإعلانية (ABO):\nملاحظة: إذا كانت الحملة ABO فالميزانية على مستوى كل مجموعة — استخدم adset_id الموجود في البيانات أدناه مع update_adset_budget:\n${adsets}`;
     }
 
     if (name === "get_adset_status") {
@@ -2105,7 +2139,10 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
           DELETED: "محذوفة",
         };
         const statusAr = statusMap[details.effective_status] ?? details.effective_status;
-        return `## حالة الحملة:\n- الاسم: ${details.name}\n- الحالة: ${statusAr}\n- الحالة الفعلية: ${details.effective_status}`;
+        const updatedLine = details.updated_time
+          ? `\n- آخر تعديل (updated_time): ${details.updated_time}`
+          : "";
+        return `## حالة الحملة:\n- الاسم: ${details.name}\n- الحالة: ${statusAr}\n- الحالة الفعلية: ${details.effective_status}${updatedLine}`;
       } catch (err) {
         return `خطأ في جلب حالة الحملة: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -2255,6 +2292,9 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         }
         if (details.lifetime_budget !== undefined && details.lifetime_budget > 0) {
           rows.push(`- الميزانية الإجمالية: ${Math.round(details.lifetime_budget)} EGP`);
+        }
+        if (details.updated_time) {
+          rows.push(`- آخر تعديل (updated_time): ${details.updated_time}`);
         }
         return rows.join("\n");
       } catch (err) {
