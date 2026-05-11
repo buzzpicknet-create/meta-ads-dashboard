@@ -1,0 +1,48 @@
+Act as a Senior React/Frontend Developer. The user wants to add "Quick Action Prompts" (Suggestion Chips/Buttons) to the Meta Ads Assistant Chat UI to save the Media Buyer time.
+
+Please implement this exact UI/UX feature:
+
+FRONTEND: QUICK ACTIONS COMPONENT
+
+Create a row of horizontal, scrollable "Suggestion Chips" (buttons) located directly above the chat input box.
+
+Style them beautifully using Tailwind CSS (e.g., pill-shaped, subtle hover effects, light background with a distinct icon for each).
+
+THE PRE-DEFINED PROMPTS
+Include these 5 specific buttons with their hidden execution prompts:
+
+Button 1: ☕ التقرير الصباحي (Morning Brief)
+
+Visible Label: ☕ التقرير الصباحي
+
+Action Prompt sent to LLM: "اسحب داتا كل الحملات النشطة لليوم وقارنها بمتوسط بيانات آخر 7 أيام. أعطني ملخصاً سريعاً: ما هي الحملات الرابحة وما هي الحملات التي تتخطى الـ CPA المستهدف وتحتاج تدخل فوري؟ ارسم لي جدول مقارنة يعتمد على الـ CPA كأساس للتقييم."
+
+Button 2: 🚀 فرص التوسيع (Scale)
+
+Visible Label: 🚀 فرص الـ Scale
+
+Action Prompt sent to LLM: "حلل الحملات النشطة بناءً على أداء آخر 7 أيام، وحدد الـ Adsets التي تحقق تكلفة شراء (CPA) أقل من المستهدف ومستقرة. جهّز لي مقترحات لزيادة ميزانيتها (Scale) بنسبة 20% مع أزرار التنفيذ المباشر (Approve & Execute) عبر الـ MCP."
+
+Button 3: 🔬 تشخيص الكرييتف (Funnel Check)
+
+Visible Label: 🔬 تشخيص الـ Funnel
+
+Action Prompt sent to LLM: "قم بفحص مسار المبيعات (Funnel) لكل الإعلانات النشطة بناءً على إسناد آخر 7 أيام. استخرج الإعلانات التي تمتلك Hook Rate ممتاز ولكن معدل التحويل (CVR) أو نسبة النقر (CTR) ضعيفة. حدد لي أين الخلل بالضبط (هل المشكلة في الإعلان أم صفحة الهبوط؟) بناءً على الأرقام."
+
+Button 4: 📉 تقليل الميزانية (Scale Down)
+
+Visible Label: 📉 تقليل الميزانية والتشخيص
+
+Action Prompt sent to LLM: "استخرج فوراً أي إعلان أو Adset تخطى تكلفة الشراء المستهدفة (Target CPA) بشكل ملحوظ في آخر 7 أيام. بدلاً من الإيقاف الفوري، قم بتحليل أسباب التراجع (هل هو تشبع الكرييتف، التكرار Frequency، أم انخفاض الـ CTR؟)، واعرضهم في جدول مع وضع أزرار لتقليل الميزانية (Decrease Budget) بنسبة 30% إلى 50% بجوار كل منهم عبر MCP لتقليل الخسارة أثناء حل المشكلة."
+
+Button 5: 🕵️ تقييم التعديلات (Intervention Review)
+
+Visible Label: 🕵️ تقييم التعديلات السابقة
+
+Action Prompt sent to LLM: "ابحث عن الحملات أو الـ Adsets التي قمنا بإجراء تعديلات عليها مؤخراً (مثل تقليل الميزانية) خلال الـ 7 أيام الماضية. قارن أداءها (CPA, CVR) في الأيام التي سبقت التعديل بالأيام التي تلته. هل نجح الإجراء في تحسين الأداء ووقف النزيف؟ أم أن الحملة مستمرة في الخسارة وتحتاج إلى إيقاف نهائي (Pause)؟ اعرض النتائج في جدول يوضح: (الأداء قبل التعديل | الأداء بعد التعديل | القرار النهائي المقترح) مع وضع زر الإيقاف إذا لزم الأمر."
+
+BEHAVIOR
+
+When a user clicks one of these chips, it should INSTANTLY populate the chat input and send the message to the AI (triggering the MCP tool calling state).
+
+Ensure the UI looks clean, perfectly aligned, and smoothly scrollable horizontally (hide scrollbar) so it doesn't clutter the screen on mobile devices.

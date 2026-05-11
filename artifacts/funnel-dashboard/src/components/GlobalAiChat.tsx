@@ -50,6 +50,29 @@ const ROLE_LABELS: Record<string, string> = {
   media_manager: "ميدياكيزتر",
 };
 
+const QUICK_ACTIONS = [
+  {
+    label: "☕ التقرير الصباحي",
+    prompt: "اسحب داتا كل الحملات النشطة لليوم وقارنها بمتوسط بيانات آخر 7 أيام. أعطني ملخصاً سريعاً: ما هي الحملات الرابحة وما هي الحملات التي تتخطى الـ CPA المستهدف وتحتاج تدخل فوري؟ ارسم لي جدول مقارنة يعتمد على الـ CPA كأساس للتقييم.",
+  },
+  {
+    label: "🚀 فرص الـ Scale",
+    prompt: "حلل الحملات النشطة بناءً على أداء آخر 7 أيام، وحدد الـ Adsets التي تحقق تكلفة شراء (CPA) أقل من المستهدف ومستقرة. جهّز لي مقترحات لزيادة ميزانيتها (Scale) بنسبة 20% مع أزرار التنفيذ المباشر (Approve & Execute) عبر الـ MCP.",
+  },
+  {
+    label: "🔬 تشخيص الـ Funnel",
+    prompt: "قم بفحص مسار المبيعات (Funnel) لكل الإعلانات النشطة بناءً على إسناد آخر 7 أيام. استخرج الإعلانات التي تمتلك Hook Rate ممتاز ولكن معدل التحويل (CVR) أو نسبة النقر (CTR) ضعيفة. حدد لي أين الخلل بالضبط (هل المشكلة في الإعلان أم صفحة الهبوط؟) بناءً على الأرقام.",
+  },
+  {
+    label: "📉 تقليل الميزانية",
+    prompt: "استخرج فوراً أي إعلان أو Adset تخطى تكلفة الشراء المستهدفة (Target CPA) بشكل ملحوظ في آخر 7 أيام. بدلاً من الإيقاف الفوري، قم بتحليل أسباب التراجع (هل هو تشبع الكرييتف، التكرار Frequency، أم انخفاض الـ CTR؟)، واعرضهم في جدول مع وضع أزرار لتقليل الميزانية (Decrease Budget) بنسبة 30%.",
+  },
+  {
+    label: "🕵️ تقييم التعديلات",
+    prompt: "ابحث عن الحملات أو الـ Adsets التي قمنا بإجراء تعديلات عليها مؤخراً (مثل تقليل الميزانية) خلال الـ 7 أيام الماضية. قارن أداءها (CPA, CVR) في الأيام التي سبقت التعديل بالأيام التي تلته. هل نجح الإجراء في تحسين الأداء ووقف النزيف؟ أم أن الحملة مستمرة في الخسارة وتحتاج إجراء أقوى؟",
+  },
+] as const;
+
 function formatRelative(dateStr: string): string {
   const now = Date.now();
   const ts = new Date(dateStr).getTime();
@@ -835,8 +858,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     } catch {}
   }, []);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  const send = useCallback(async (quickActionText?: string) => {
+    const text = (quickActionText !== undefined ? quickActionText : input).trim();
     if ((!text && !attachment) || streaming) return;
     const userText = text || (attachment?.isImage ? "[صورة مرفقة]" : `📎 ${attachment?.name}`);
     setInput("");
@@ -1580,6 +1603,23 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
               {/* ── Input ── */}
               <div className="shrink-0 border-t border-border/60 px-4 pt-3 pb-4">
+                {/* Quick Action Chips */}
+                <div
+                  dir="rtl"
+                  className="flex gap-2 overflow-x-auto pb-2.5 mb-2.5"
+                  style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+                >
+                  {QUICK_ACTIONS.map((action) => (
+                    <button
+                      key={action.label}
+                      disabled={streaming}
+                      onClick={() => send(action.prompt)}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap border border-border/70 bg-muted/40 text-foreground/75 hover:bg-primary/10 hover:border-primary/40 hover:text-primary transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
                 {attachment && (
                   <div className="mb-2 flex items-center gap-2">
                     {attachment.isImage && attachment.previewUrl ? (
