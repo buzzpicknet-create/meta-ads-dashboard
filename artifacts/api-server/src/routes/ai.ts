@@ -2852,6 +2852,35 @@ router.delete("/ai/memory", async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /ai/accounts — combined Meta + Google Ads account list for @mention ──
+router.get("/ai/accounts", async (req: Request, res: Response) => {
+  try {
+    const [metaResult, gaResult] = await Promise.allSettled([
+      listAdAccounts(),
+      (async () => {
+        const client = await getGoogleAdsClient();
+        const r = await client.callTool({ name: "list_google_ads_customers", arguments: {} });
+        const txt = (r.content as {type:string;text?:string}[]).filter(x=>x.type==="text").map(x=>x.text).join("");
+        const parsed = JSON.parse(txt) as {customers?:{id:string;descriptive_name?:string;currency_code?:string;can_query_metrics?:boolean}[]};
+        return parsed.customers ?? [];
+      })(),
+    ]);
+
+    const metaAccounts = metaResult.status === "fulfilled"
+      ? metaResult.value.map(a => ({ id: a.id, name: a.name || a.id, type: "meta" as const, currency: a.currency }))
+      : [];
+
+    const gaAccounts = gaResult.status === "fulfilled"
+      ? gaResult.value.map(c => ({ id: c.id, name: c.descriptive_name || c.id, type: "google" as const, currency: c.currency_code }))
+      : [];
+
+    res.json({ accounts: [...metaAccounts, ...gaAccounts] });
+  } catch (err) {
+    req.log.error({ err }, "GET /ai/accounts error");
+    res.status(500).json({ error: "خطأ في جلب الحسابات", accounts: [] });
+  }
+});
+
 // Pre-warm the Pipeboard singleton connection on server startup
 // so the first user message doesn't pay the handshake cost.
 export function warmUpPipeboard(): void {
