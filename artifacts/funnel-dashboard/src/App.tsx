@@ -15,12 +15,13 @@ import DecisionsPage from "@/pages/Decisions";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
 import { GlobalAiChatContext } from "@/contexts/GlobalAiChatContext";
 import AiChatPage from "@/pages/AiChatPage";
+import AssetLibrary from "@/pages/AssetLibrary";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,7 @@ const ALL_NAV_ITEMS = [
   { href: "/media",      label: "طلبات الميديا",    Icon: Clapperboard,    useRoute: "/media",      roles: ["admin", "media_buyer", "media_manager"] },
   { href: "/activity",   label: "نشاط الفريق",      Icon: ClipboardList,   useRoute: "/activity",   roles: ["admin", "media_buyer"] },
   { href: "/creative",   label: "مركز الكريتف",     Icon: Sparkles,        useRoute: "/creative",   roles: ["admin", "media_buyer"] },
+  { href: "/library",    label: "مكتبة الأصول",     Icon: Library,         useRoute: "/library",    roles: ["admin", "media_buyer"] },
   { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
 ];
 
@@ -318,6 +320,7 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
         <Route path="/activity"   component={canAccess("/activity")   ? ActivityPage       : NotFound} />
         <Route path="/media"      component={canAccess("/media")      ? MediaRequestsPage  : NotFound} />
         <Route path="/decisions"  component={canAccess("/decisions")  ? DecisionsPage      : NotFound} />
+        <Route path="/library"    component={canAccess("/library")    ? AssetLibrary       : NotFound} />
         <Route path="/admin"      component={isAdmin                  ? AdminPage          : NotFound} />
         <Route path="/"           component={ChatRedirect} />
         <Route component={NotFound} />

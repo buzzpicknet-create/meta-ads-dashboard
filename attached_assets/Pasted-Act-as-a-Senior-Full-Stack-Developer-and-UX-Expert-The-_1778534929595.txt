@@ -1,0 +1,50 @@
+Act as a Senior Full-Stack Developer and UX Expert. The user wants to build a "Manual Product Asset Library" organized by "Marketing Angles" (الزوايا التسويقية), with a Prompt Generator and a History Log.
+
+Please implement the following architecture:
+
+1. DATABASE SCHEMA (Prisma/Postgres or similar):
+
+Product: id, name.
+
+MarketingAngle: id, productId, name (e.g., "Before & After", "Discount Angle").
+
+Asset: id, angleId, type (ENUM: 'LANDING_PAGE', 'PRIMARY_TEXT', 'HEADLINE', 'DRIVE_LINK'), content (URL or Text), title (optional label).
+
+PromptHistory: id, productId, generatedPrompt, timestamp.
+
+2. FRONTEND: ASSET MANAGER UI
+
+Create a dedicated page for "Asset Library".
+
+Allow the user to manually create a Product, then add multiple "Marketing Angles" under it.
+
+Under each Angle, provide forms to manually add specific Landing Pages, Primary Texts, Headlines, and Google Drive links.
+
+The Selection UI: Render each Angle as an accordion or card. Inside, list the assets grouped by type. Place a radio button (mark) next to each asset so the user can select exactly ONE Landing Page, ONE Text, ONE Headline, and ONE Drive Link per launch.
+
+3. FRONTEND: PROMPT GENERATOR & CLIPBOARD
+
+Add a primary button below the selections: "🪄 توليد أمر الإطلاق" (Generate Launch Prompt).
+
+When clicked, gather the selected assets and generate this exact Arabic string:
+
+قم بإنشاء حملة إعلانية جديدة عبر Pipeboard.
+- المنتج: [Product Name]
+- الزاوية التسويقية: [Angle Name]
+- رابط صفحة الهبوط: [Selected Landing Page URL]
+- النص الإعلاني: [Selected Primary Text]
+- العنوان: [Selected Headline]
+- رابط الميديا (درايف): [Selected Drive Link]
+
+
+Display this generated prompt in a nice Modal or Textarea with a prominent "📋 نسخ إلى الحافظة" (Copy to Clipboard) button.
+
+4. HISTORY LOG (هيستوري الإطلاقات)
+
+Whenever the user clicks "Generate/Copy", save that exact prompt string and timestamp to the PromptHistory database table.
+
+Create a Sidebar or a section at the bottom of the page called "سجل الإطلاقات" (Launch History).
+
+Display a list of previously generated prompts. Add a "Copy Again" button next to each historical record.
+
+Please implement the UI components (forms, radio selections, modals) and the database logic to support this manual, angle-based workflow.
