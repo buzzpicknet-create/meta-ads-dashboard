@@ -23,10 +23,13 @@ import { logger } from "../lib/logger.js";
 const router = Router();
 
 // ── Model constants — change here to switch globally ─────────────────────────
-// CHAT_MODEL: main conversational model (tool-use capable, streaming)
-// MINI_MODEL: cheap extraction/classification tasks (no tools needed)
-const CHAT_MODEL = "gpt-4o";
-const MINI_MODEL = "gpt-4o-mini";
+// CHAT_MODEL: main conversational model (tool-use, streaming, Arabic)
+//   gpt-5-mini  = cost-effective, high-volume tasks (recommended)
+//   gpt-5.4     = most capable (use only if quality drops noticeably)
+// MINI_MODEL: simple extraction / classification — no tools needed
+//   gpt-5-nano  = fastest & cheapest (JSON-only tasks)
+const CHAT_MODEL = "gpt-5-mini";
+const MINI_MODEL = "gpt-5-nano";
 
 const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Facebook/Instagram) بخبرة 10+ سنوات.
 مهمتك: تشخيص الحملات بمنهجية علمية تربط المقاييس ببعضها — مش مجرد قراءة أرقام منفصلة.
