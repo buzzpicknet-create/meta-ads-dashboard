@@ -250,6 +250,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     let campaignId = "";
     let adsetId = "";
     let adsetError = "";
+    let creativeId = "";
+    let creativeError = "";
+    let adId = "";
+    let adError = "";
     const pixelId = String(args?.pixel_id ?? "").trim();
     const hasPixel = pixelId.length > 0;
     // Without a pixel we fall back to TRAFFIC+LINK_CLICKS which never requires promoted_object
@@ -320,8 +324,113 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
       }
 
+      // Step 3: Get Facebook Page ID (auto-fetch if not provided in args)
+      let pageId = String(args?.page_id ?? "").trim();
+      let pageError = "";
+      if (!pageId) {
+        try {
+          const pagesResult = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
+          const pagesText = (pagesResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          logger.info({ pagesText: pagesText.slice(0, 300) }, "launch_pipeboard_campaign: get_account_pages response");
+          // Parse first page id — can appear as {"id":"12345"} or "id": "12345"
+          const pageMatch = pagesText.match(/"id"\s*:\s*"(\d+)"/) ?? pagesText.match(/\b(\d{10,})\b/);
+          pageId = pageMatch?.[1] ?? "";
+          if (!pageId) pageError = "لم يُعثر على صفحة Facebook مرتبطة بالحساب";
+        } catch (e) {
+          pageError = e instanceof Error ? e.message : String(e);
+          logger.warn({ pageError }, "launch_pipeboard_campaign: get_account_pages threw");
+        }
+      }
+
+      // Step 4: Upload image from media_url → get image_hash
+      const mediaUrl = String(args?.media_url ?? "").trim();
+      let imageHash = "";
+      let imageError = "";
+      if (mediaUrl && pageId) {
+        try {
+          const imgResult = await client.callTool({
+            name: "upload_ad_image",
+            arguments: { account_id: accountId, image_url: mediaUrl, name: `${campaignName}-img` },
+          });
+          const imgText = (imgResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          logger.info({ imgText: imgText.slice(0, 300) }, "launch_pipeboard_campaign: upload_ad_image response");
+          // Meta returns {"images":{"filename":{"hash":"abc..."}}} — extract first hash value
+          const hashMatch = imgText.match(/"hash"\s*:\s*"([^"]+)"/);
+          imageHash = hashMatch?.[1] ?? "";
+          if (!imageHash) imageError = `رفع الصورة فشل — التحقق من رابط الميديا. ${imgText.slice(0, 200)}`;
+        } catch (e) {
+          imageError = e instanceof Error ? e.message : String(e);
+          logger.warn({ imageError }, "launch_pipeboard_campaign: upload_ad_image threw");
+        }
+      } else if (!pageId) {
+        imageError = "يحتاج page_id لرفع الصورة";
+      } else if (!mediaUrl) {
+        imageError = "لم يُزوَّد رابط الميديا";
+      }
+
+      // Step 5: Create ad creative
+      if (adsetId && pageId && imageHash) {
+        try {
+          const creativeResult = await client.callTool({
+            name: "create_ad_creative",
+            arguments: {
+              account_id: accountId,
+              name: `${campaignName} — creative`,
+              page_id: pageId,
+              link_url: String(args?.landing_page_url ?? ""),
+              message: String(args?.primary_text ?? ""),
+              headline: String(args?.headline ?? ""),
+              image_hash: imageHash,
+              call_to_action_type: String(args?.call_to_action ?? "LEARN_MORE"),
+            },
+          });
+          const creativeText = (creativeResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          logger.info({ creativeText }, "launch_pipeboard_campaign: create_ad_creative response");
+          const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d+)"/) ?? creativeText.match(/\b(\d{10,})\b/);
+          creativeId = creativeMatch?.[1] ?? "";
+          if (!creativeId) creativeError = creativeText.slice(0, 300);
+        } catch (e) {
+          creativeError = e instanceof Error ? e.message : String(e);
+          logger.warn({ creativeError }, "launch_pipeboard_campaign: create_ad_creative threw");
+        }
+      } else if (!adsetId) {
+        creativeError = "يحتاج adset_id — المجموعة الإعلانية لم تُنشأ";
+      } else if (!imageHash) {
+        creativeError = imageError || "يحتاج image_hash — الصورة لم تُرفع";
+      }
+
+      // Step 6: Create ad
+      if (adsetId && creativeId) {
+        try {
+          const adResult = await client.callTool({
+            name: "create_ad",
+            arguments: {
+              account_id: accountId,
+              name: `${campaignName} — إعلان`,
+              adset_id: adsetId,
+              creative_id: creativeId,
+              status: "PAUSED",
+            },
+          });
+          const adText = (adResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          logger.info({ adText }, "launch_pipeboard_campaign: create_ad response");
+          const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
+          adId = adMatch?.[1] ?? "";
+          if (!adId) adError = adText.slice(0, 300);
+        } catch (e) {
+          adError = e instanceof Error ? e.message : String(e);
+          logger.warn({ adError }, "launch_pipeboard_campaign: create_ad threw");
+        }
+      } else if (!creativeId) {
+        adError = creativeError || "يحتاج creative_id — المحتوى الإبداعي لم يُنشأ";
+      }
+
       pipeSuccess = true;
-      pipeMsg = campaignId ? `campaign_id:${campaignId}${adsetId ? ` adset_id:${adsetId}` : ""}` : "";
+      pipeMsg = campaignId ? `campaign_id:${campaignId}${adsetId ? ` adset_id:${adsetId}` : ""}${adId ? ` ad_id:${adId}` : ""}` : "";
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       pipeMsg = msg;
@@ -345,6 +454,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           campaign_id: campaignId || undefined,
           adset_id: adsetId || undefined,
           adset_error: adsetError || undefined,
+          creative_id: creativeId || undefined,
+          creative_error: creativeError || undefined,
+          ad_id: adId || undefined,
+          ad_error: adError || undefined,
           objective: campObjective,
           has_pixel: hasPixel,
         },

@@ -1114,6 +1114,10 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
           campaign_id: ld.campaign_id ? String(ld.campaign_id) : undefined,
           adset_id: ld.adset_id ? String(ld.adset_id) : undefined,
           adset_error: ld.adset_error ? String(ld.adset_error) : undefined,
+          creative_id: ld.creative_id ? String(ld.creative_id) : undefined,
+          creative_error: ld.creative_error ? String(ld.creative_error) : undefined,
+          ad_id: ld.ad_id ? String(ld.ad_id) : undefined,
+          ad_error: ld.ad_error ? String(ld.ad_error) : undefined,
           objective: ld.objective ? String(ld.objective) : undefined,
           has_pixel: Boolean(ld.has_pixel),
         };
