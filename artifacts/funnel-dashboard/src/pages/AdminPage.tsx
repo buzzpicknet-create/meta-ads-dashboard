@@ -980,17 +980,20 @@ function VisToggle({
 function PageVisibilitySection() {
   const { data: visMap, isLoading } = usePageVisibility();
   const update = useUpdatePageVisibility();
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
-  function toggle(path: string, role: string, current: boolean) {
-    const key = `${path}|${role}`;
-    setPendingKey(key);
+  function toggle(path: string, role: string, newVisible: boolean) {
+    if (update.isPending) return;
     update.mutate(
-      { page_path: path, role, visible: !current },
-      {
-        onSettled: () => setPendingKey(null),
-        onError: (err) => alert(err instanceof Error ? err.message : "فشل التحديث"),
-      }
+      { page_path: path, role, visible: newVisible },
+      { onError: (err) => alert(err instanceof Error ? err.message : "فشل التحديث") }
+    );
+  }
+
+  function isLoading_(path: string, role: string) {
+    return (
+      update.isPending &&
+      update.variables?.page_path === path &&
+      update.variables?.role === role
     );
   }
 
@@ -1032,14 +1035,13 @@ function PageVisibilitySection() {
                   </td>
                   {VISIBILITY_ROLES.map((r) => {
                     const visible = visMap?.[page.path]?.[r.role] ?? true;
-                    const key = `${page.path}|${r.role}`;
                     return (
                       <td key={r.role} className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center">
                           <VisToggle
                             checked={visible}
-                            loading={pendingKey === key}
-                            onChange={(v) => toggle(page.path, r.role, !v)}
+                            loading={isLoading_(page.path, r.role)}
+                            onChange={(v) => toggle(page.path, r.role, v)}
                           />
                         </div>
                       </td>
