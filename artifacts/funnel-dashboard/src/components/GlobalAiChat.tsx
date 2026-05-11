@@ -986,8 +986,13 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         body: JSON.stringify({ tool: pendingAction.tool, args: pendingAction.args, isNoOp }),
       });
       const data = await resp.json() as { success?: boolean; message?: string; error?: string };
+      // Always prefer pendingAction.summary for the success label (Arabic, human-readable).
+      // data.message from Pipeboard may be raw JSON or English text — only append if clean text.
+      const extraMsg = data.message && data.message.trim() && !data.message.trimStart().startsWith("{")
+        ? ` — ${data.message.trim()}`
+        : "";
       const resultText = resp.ok && data.success
-        ? `✅ تم بنجاح: ${data.message || pendingAction.summary}`
+        ? `✅ تم بنجاح: ${pendingAction.summary}${extraMsg}`
         : `❌ فشل التنفيذ: ${data.error || "خطأ غير معروف"}`;
       setMessages((prev) => [...prev, { role: "assistant", content: resultText }]);
       const cid = convIdRef.current;

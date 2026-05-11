@@ -177,7 +177,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       .trim();
 
     success = true;
-    resultMessage = textContent || "تم التنفيذ بنجاح";
+    // Pipeboard sometimes returns raw JSON (e.g. {"success":true}) — detect and discard it
+    // so the frontend falls back to the human-readable pendingAction.summary.
+    const looksLikeJson = textContent.trimStart().startsWith("{") || textContent.trimStart().startsWith("[");
+    resultMessage = textContent && !looksLikeJson ? textContent : "";
 
     // Invalidate the details cache for the affected entity so the next
     // read-tool call returns the updated status/budget without waiting
