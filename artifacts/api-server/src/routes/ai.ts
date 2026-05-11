@@ -1670,11 +1670,13 @@ async function tryExecuteViaPipeboard(
             object_id: `act_${r.account_id}`,
             level: "campaign",
             time_range: timeRange,
-          }).catch((e: unknown) => `[خطأ حساب act_${r.account_id}: ${e instanceof Error ? e.message : String(e)}]`)
+          }).catch(() => null)
         )
       );
-      const combined = results.join("\n\n---\n\n");
-      return combined || null;
+      // If ALL accounts failed → return null so native API fallback kicks in
+      const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
+      if (successes.length === 0) return null;
+      return successes.join("\n\n---\n\n");
     }
 
     if (name === "get_account_daily") {
@@ -1690,11 +1692,13 @@ async function tryExecuteViaPipeboard(
             level: "account",
             time_breakdown: "day",
             time_range: timeRange,
-          }).catch((e: unknown) => `[خطأ حساب act_${r.account_id}: ${e instanceof Error ? e.message : String(e)}]`)
+          }).catch(() => null)
         )
       );
-      const combined = results.join("\n\n---\n\n");
-      return combined || null;
+      // If ALL accounts failed → return null so native API fallback kicks in
+      const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
+      if (successes.length === 0) return null;
+      return successes.join("\n\n---\n\n");
     }
   } catch (err) {
     logger.warn({ err, tool: name }, "Pipeboard read failed — falling back to native Meta API");
