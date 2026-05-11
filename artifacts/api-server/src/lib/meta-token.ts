@@ -76,7 +76,7 @@ export function getAdAccountId(): string {
 }
 
 export function getAdAccountIds(): string[] {
-  return ["1714386865726065", "838054421405431"];
+  return ["1714386865726065", "838054421405431", "898360605246408"];
 }
 
 export function getAppId(): string {
