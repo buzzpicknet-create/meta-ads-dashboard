@@ -10,8 +10,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const API = `${BASE}/api`;
+const API = "/api";
 
 interface UserLtmData {
   target_kpis: Record<string, number | null>;
