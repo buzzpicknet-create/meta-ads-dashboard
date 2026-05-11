@@ -311,7 +311,7 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
     <GlobalAiChatContext.Provider value={ctxValue}>
       <NavBar />
       <Switch>
-        <Route path="/chat"       component={AiChatPage} />
+        <Route path="/chat"       component={canAccess("/chat")       ? AiChatPage         : NotFound} />
         <Route path="/dashboard"  component={canAccess("/dashboard")  ? Dashboard          : NotFound} />
         <Route path="/overview"   component={canAccess("/overview")   ? Overview          : NotFound} />
         <Route path="/creative"   component={canAccess("/creative")   ? CreativePage       : NotFound} />

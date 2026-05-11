@@ -195,7 +195,7 @@ router.put("/admin/page-visibility", requireAdmin, async (req, res) => {
     role?: string;
     visible?: boolean;
   };
-  const VALID_PATHS = ["/overview", "/", "/creative", "/activity", "/media", "/decisions"];
+  const VALID_PATHS = ["/chat", "/overview", "/", "/creative", "/activity", "/media", "/decisions"];
   const VALID_ROLES = ["admin", "media_buyer", "media_manager"];
   if (!page_path || !VALID_PATHS.includes(page_path)) {
     return res.status(400).json({ error: "المسار غير صحيح" });

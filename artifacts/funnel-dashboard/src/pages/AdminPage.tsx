@@ -922,6 +922,7 @@ function BroadcastSection() {
 
 // ── Page Visibility Section ────────────────────────────────────────────────────
 const CONTROLLABLE_PAGES = [
+  { path: "/chat",      label: "المساعد الذكي" },
   { path: "/overview",  label: "نظرة عامة" },
   { path: "/",          label: "تحليل الحملة" },
   { path: "/creative",  label: "مركز الكريتف" },
