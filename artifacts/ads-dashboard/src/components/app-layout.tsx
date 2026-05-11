@@ -4,6 +4,7 @@ import { useAuth } from "@/context/auth-context";
 import { useDashboard } from "@/context/dashboard-context";
 import { useQuery } from "@tanstack/react-query";
 import { API } from "@/context/auth-context";
+import { META_PAGES, GOOGLE_PAGES, GENERAL_PAGES, type PageSlug } from "@/lib/pages";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,14 +16,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Zap,
-  LayoutDashboard,
-  Video,
-  Scissors,
-  FileText,
-  ShoppingBag,
-  Users,
-  Trophy,
-  Settings,
   Shield,
   LogOut,
   ChevronDown,
@@ -37,36 +30,6 @@ interface AdAccount {
   id: string;
   name: string;
 }
-
-export const PAGE_SLUGS = [
-  "campaigns",
-  "creative",
-  "video-studio",
-  "audience",
-  "landing-page",
-  "shopify",
-  "winning-products",
-  "settings",
-] as const;
-
-export type PageSlug = typeof PAGE_SLUGS[number];
-
-const META_PAGES = [
-  { slug: "campaigns" as PageSlug, path: "/campaigns", label: "القرارات", icon: LayoutDashboard },
-  { slug: "creative" as PageSlug, path: "/creative", label: "مركز الكريتف", icon: Video },
-  { slug: "video-studio" as PageSlug, path: "/video-studio", label: "استوديو الفيديو", icon: Scissors },
-  { slug: "audience" as PageSlug, path: "/audience", label: "الجمهور والمنصات", icon: Users },
-];
-
-const GOOGLE_PAGES = [
-  { slug: "landing-page" as PageSlug, path: "/landing-page", label: "صفحات البيع", icon: FileText },
-  { slug: "shopify" as PageSlug, path: "/shopify", label: "Shopify", icon: ShoppingBag },
-  { slug: "winning-products" as PageSlug, path: "/winning-products", label: "منتجات رابحة", icon: Trophy },
-];
-
-const GENERAL_PAGES = [
-  { slug: "settings" as PageSlug, path: "/settings", label: "الإعدادات", icon: Settings },
-];
 
 const DATE_PRESETS = [
   { label: "اليوم", days: 0 },
@@ -174,6 +137,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {/* ── Top Header ── */}
       <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800 shadow-sm">
         <div className="flex items-center gap-3 px-4 h-14">
+          {/* Hamburger — right side in RTL */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSidebarOpen(true)}
+            className="text-slate-300 hover:text-white hover:bg-slate-700 h-9 w-9 p-0 rounded-lg"
+            aria-label="القائمة"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+
           {/* Logo */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
@@ -291,16 +265,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Hamburger */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSidebarOpen(true)}
-            className="text-slate-400 hover:text-white h-8 w-8 p-0"
-            aria-label="القائمة"
-          >
-            <Menu className="w-5 h-5" />
-          </Button>
         </div>
       </header>
 

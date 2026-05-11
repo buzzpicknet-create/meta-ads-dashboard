@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { API, useAuth } from "@/context/auth-context";
 import { AIChatWidget } from "@/components/ai-chat-widget";
-import { PAGE_SLUGS, type PageSlug } from "@/components/app-layout";
+import { PAGE_SLUGS, ALL_PAGES } from "@/lib/pages";
 import { cn } from "@/lib/utils";
 import {
   Shield,
@@ -15,14 +15,6 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  LayoutDashboard,
-  Video,
-  Scissors,
-  FileText,
-  ShoppingBag,
-  Users,
-  Trophy,
-  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -40,22 +32,17 @@ const ROLES = [
   { value: "media_manager", label: "مدير وسائط" },
 ];
 
-const ALL_PAGES: { slug: PageSlug; label: string; icon: React.ElementType; group: string }[] = [
-  { slug: "campaigns", label: "القرارات", icon: LayoutDashboard, group: "Meta Ads" },
-  { slug: "creative", label: "مركز الكريتف", icon: Video, group: "Meta Ads" },
-  { slug: "video-studio", label: "استوديو الفيديو", icon: Scissors, group: "Meta Ads" },
-  { slug: "audience", label: "الجمهور والمنصات", icon: Users, group: "Meta Ads" },
-  { slug: "landing-page", label: "صفحات البيع", icon: FileText, group: "Google / DemandGen" },
-  { slug: "shopify", label: "Shopify", icon: ShoppingBag, group: "Google / DemandGen" },
-  { slug: "winning-products", label: "منتجات رابحة", icon: Trophy, group: "Google / DemandGen" },
-  { slug: "settings", label: "الإعدادات", icon: Settings, group: "عام" },
+const PAGE_GROUPS_CONFIG = [
+  { group: "Meta Ads", color: "text-blue-400" },
+  { group: "Google / DemandGen", color: "text-emerald-400" },
+  { group: "عام", color: "text-slate-400" },
 ];
 
-const GROUP_COLORS: Record<string, string> = {
-  "Meta Ads": "text-blue-400",
-  "Google / DemandGen": "text-emerald-400",
-  "عام": "text-slate-400",
-};
+const ALL_PAGES_WITH_GROUP = [
+  ...ALL_PAGES.filter(p => ["campaigns","creative","video-studio","audience"].includes(p.slug)).map(p => ({ ...p, group: "Meta Ads" })),
+  ...ALL_PAGES.filter(p => ["landing-page","shopify","winning-products"].includes(p.slug)).map(p => ({ ...p, group: "Google / DemandGen" })),
+  ...ALL_PAGES.filter(p => ["settings"].includes(p.slug)).map(p => ({ ...p, group: "عام" })),
+];
 
 function roleLabel(r: string) {
   return ROLES.find((x) => x.value === r)?.label ?? r;
@@ -67,12 +54,11 @@ function roleColor(r: string) {
   return "text-slate-300 bg-slate-700/60 border-slate-600";
 }
 
-// Group pages by group name
-const PAGE_GROUPS = ALL_PAGES.reduce<Record<string, typeof ALL_PAGES>>((acc, p) => {
-  if (!acc[p.group]) acc[p.group] = [];
-  acc[p.group]!.push(p);
-  return acc;
-}, {});
+const GROUP_COLOR: Record<string, string> = {
+  "Meta Ads": "text-blue-400",
+  "Google / DemandGen": "text-emerald-400",
+  "عام": "text-slate-400",
+};
 
 export default function AdminPage() {
   const { user: me } = useAuth();
@@ -435,9 +421,11 @@ export default function AdminPage() {
 
                           {/* Pages by group */}
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {Object.entries(PAGE_GROUPS).map(([group, pages]) => (
+                            {PAGE_GROUPS_CONFIG.map(({ group, color }) => {
+                              const pages = ALL_PAGES_WITH_GROUP.filter(p => p.group === group);
+                              return (
                               <div key={group} className="space-y-2">
-                                <p className={cn("text-[11px] font-bold uppercase tracking-wider", GROUP_COLORS[group] ?? "text-slate-400")}>
+                                <p className={cn("text-[11px] font-bold uppercase tracking-wider", color)}>
                                   {group}
                                 </p>
                                 <div className="space-y-1">
@@ -467,7 +455,8 @@ export default function AdminPage() {
                                   })}
                                 </div>
                               </div>
-                            ))}
+                            );
+                            })}
                           </div>
 
                           {permMsg && (
