@@ -1031,14 +1031,12 @@ function PageVisibilitySection() {
                   </td>
                   {VISIBILITY_ROLES.map((r) => {
                     const visible = visMap?.[page.path]?.[r.role] ?? true;
-                    const isAdmin = r.role === "admin";
                     const key = `${page.path}|${r.role}`;
                     return (
                       <td key={r.role} className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center">
                           <VisToggle
                             checked={visible}
-                            disabled={isAdmin}
                             loading={pendingKey === key}
                             onChange={(v) => toggle(page.path, r.role, !v)}
                           />

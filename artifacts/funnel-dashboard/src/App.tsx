@@ -280,9 +280,10 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
   const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(null);
   const clearPendingCampaignId = useCallback(() => setPendingCampaignId(null), []);
 
-  // A page is accessible if: admin always yes, OR visibility map says yes for this role
+  // A page is accessible based on the visibility map (applies to all roles including admin).
+  // Falls back to hardcoded roles if no DB setting exists yet.
+  // /admin is always accessible to admin regardless of visibility settings.
   function canAccess(path: string) {
-    if (isAdmin) return true;
     if (visibilityMap && Object.prototype.hasOwnProperty.call(visibilityMap, path)) {
       return visibilityMap[path] === true;
     }
@@ -300,13 +301,13 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
     <GlobalAiChatContext.Provider value={ctxValue}>
       <NavBar />
       <Switch>
-        <Route path="/overview" component={Overview} />
-        <Route path="/creative" component={CreativePage} />
-        <Route path="/activity" component={ActivityPage} />
-        <Route path="/media" component={MediaRequestsPage} />
-        <Route path="/admin" component={isAdmin ? AdminPage : NotFound} />
-        <Route path="/decisions" component={canAccess("/decisions") ? DecisionsPage : NotFound} />
-        <Route path="/" component={Dashboard} />
+        <Route path="/overview"   component={canAccess("/overview")   ? Overview          : NotFound} />
+        <Route path="/creative"   component={canAccess("/creative")   ? CreativePage       : NotFound} />
+        <Route path="/activity"   component={canAccess("/activity")   ? ActivityPage       : NotFound} />
+        <Route path="/media"      component={canAccess("/media")      ? MediaRequestsPage  : NotFound} />
+        <Route path="/decisions"  component={canAccess("/decisions")  ? DecisionsPage      : NotFound} />
+        <Route path="/admin"      component={isAdmin                  ? AdminPage          : NotFound} />
+        <Route path="/"           component={canAccess("/")           ? Dashboard          : NotFound} />
         <Route component={NotFound} />
       </Switch>
       <GlobalAiChat
