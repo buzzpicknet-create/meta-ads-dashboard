@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/context/auth-context";
 import { useDashboard } from "@/context/dashboard-context";
@@ -30,24 +30,42 @@ import {
   Menu,
   X,
   User,
+  ChevronLeft,
 } from "lucide-react";
 
 interface AdAccount {
   id: string;
   name: string;
-  account_status?: number;
 }
 
-const NAV_ITEMS = [
-  { path: "/", label: "القرارات", icon: LayoutDashboard, exact: true },
-  { path: "/creative", label: "مركز الكريتف", icon: Video },
-  { path: "/video-studio", label: "استوديو الفيديو", icon: Scissors },
-  { path: "/landing-page", label: "صفحات البيع", icon: FileText },
-  { path: "/shopify", label: "Shopify", icon: ShoppingBag },
-  { path: "/audience", label: "الجمهور والمنصات", icon: Users },
-  { path: "/winning-products", label: "منتجات رابحة", icon: Trophy },
-  { path: "/settings", label: "الإعدادات", icon: Settings },
-  { path: "/admin", label: "الإدارة", icon: Shield, adminOnly: true },
+export const PAGE_SLUGS = [
+  "campaigns",
+  "creative",
+  "video-studio",
+  "audience",
+  "landing-page",
+  "shopify",
+  "winning-products",
+  "settings",
+] as const;
+
+export type PageSlug = typeof PAGE_SLUGS[number];
+
+const META_PAGES = [
+  { slug: "campaigns" as PageSlug, path: "/campaigns", label: "القرارات", icon: LayoutDashboard },
+  { slug: "creative" as PageSlug, path: "/creative", label: "مركز الكريتف", icon: Video },
+  { slug: "video-studio" as PageSlug, path: "/video-studio", label: "استوديو الفيديو", icon: Scissors },
+  { slug: "audience" as PageSlug, path: "/audience", label: "الجمهور والمنصات", icon: Users },
+];
+
+const GOOGLE_PAGES = [
+  { slug: "landing-page" as PageSlug, path: "/landing-page", label: "صفحات البيع", icon: FileText },
+  { slug: "shopify" as PageSlug, path: "/shopify", label: "Shopify", icon: ShoppingBag },
+  { slug: "winning-products" as PageSlug, path: "/winning-products", label: "منتجات رابحة", icon: Trophy },
+];
+
+const GENERAL_PAGES = [
+  { slug: "settings" as PageSlug, path: "/settings", label: "الإعدادات", icon: Settings },
 ];
 
 const DATE_PRESETS = [
@@ -65,25 +83,69 @@ function fmtDate(d: Date) {
 
 function applyPreset(days: number): { since: string; until: string } {
   const today = new Date();
-  const since = new Date(today);
-  if (days === 0) {
-    return { since: fmtDate(today), until: fmtDate(today) };
-  }
+  if (days === 0) return { since: fmtDate(today), until: fmtDate(today) };
   if (days === 1) {
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    return { since: fmtDate(yesterday), until: fmtDate(yesterday) };
+    const y = new Date(today);
+    y.setDate(today.getDate() - 1);
+    return { since: fmtDate(y), until: fmtDate(y) };
   }
+  const since = new Date(today);
   since.setDate(today.getDate() - days + 1);
   return { since: fmtDate(since), until: fmtDate(today) };
 }
 
+function canSee(slug: PageSlug, allowed: string[] | null): boolean {
+  if (allowed === null) return true;
+  return allowed.includes(slug);
+}
+
+interface NavItemProps {
+  path: string;
+  label: string;
+  icon: React.ElementType;
+  active: boolean;
+  onClick: () => void;
+}
+
+function NavItem({ path, label, icon: Icon, active, onClick }: NavItemProps) {
+  return (
+    <Link href={path}>
+      <button
+        onClick={onClick}
+        className={cn(
+          "w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all",
+          active
+            ? "bg-blue-600 text-white shadow-lg shadow-blue-900/30"
+            : "text-slate-400 hover:text-white hover:bg-slate-800"
+        )}
+      >
+        <Icon className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-right">{label}</span>
+        {active && <ChevronLeft className="w-3.5 h-3.5 text-blue-300" />}
+      </button>
+    </Link>
+  );
+}
+
+function GroupHeader({ label, color }: { label: string; color: string }) {
+  return (
+    <div className={cn("flex items-center gap-2 px-4 pt-2 pb-1")}>
+      <div className={cn("w-1.5 h-1.5 rounded-full", color)} />
+      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{label}</span>
+    </div>
+  );
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
-  const { dateRange, setDateRange, selectedAccount, setSelectedAccount } =
-    useDashboard();
+  const { dateRange, setDateRange, selectedAccount, setSelectedAccount } = useDashboard();
   const [location] = useLocation();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Close sidebar on route change
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location]);
 
   const { data: accounts = [] } = useQuery<AdAccount[]>({
     queryKey: ["meta-accounts"],
@@ -94,222 +156,282 @@ export function AppLayout({ children }: { children: ReactNode }) {
     staleTime: 5 * 60_000,
   });
 
-  const currentAccount =
-    accounts.find((a) => a.id === selectedAccount) ?? accounts[0];
+  const currentAccount = accounts.find((a) => a.id === selectedAccount) ?? accounts[0];
+  const allowed = user?.allowed_pages ?? null;
 
-  function isActive(path: string, exact?: boolean) {
-    if (exact) return location === "/" || location === "";
+  function isActive(path: string) {
+    if (path === "/campaigns") return location === "/" || location === "/campaigns" || location === "";
     return location.startsWith(path) && path !== "/";
   }
 
-  const visibleNav = NAV_ITEMS.filter(
-    (n) => !n.adminOnly || user?.role === "admin"
-  );
+  const visibleMeta = META_PAGES.filter((p) => canSee(p.slug, allowed));
+  const visibleGoogle = GOOGLE_PAGES.filter((p) => canSee(p.slug, allowed));
+  const visibleGeneral = GENERAL_PAGES.filter((p) => canSee(p.slug, allowed));
+  const showAdmin = user?.role === "admin";
 
   return (
     <div className="min-h-screen bg-slate-950 text-white" dir="rtl">
       {/* ── Top Header ── */}
-      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 shadow-sm">
+      <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800 shadow-sm">
         <div className="flex items-center gap-3 px-4 h-14">
           {/* Logo */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
               <Zap className="w-4 h-4 text-white" />
             </div>
-            <span className="font-bold text-sm text-white hidden sm:block">
-              DemandGen Ops
-            </span>
+            <span className="font-bold text-sm text-white hidden sm:block">DemandGen Ops</span>
           </div>
 
-          {/* Desktop Nav */}
-          <nav className="hidden lg:flex items-center gap-0.5 mr-4 flex-1 overflow-x-auto">
-            {visibleNav.map((item) => {
-              const active = isActive(item.path, item.exact);
-              return (
-                <Link key={item.path} href={item.path}>
-                  <button
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all",
-                      active
-                        ? "bg-blue-600 text-white"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
-                    )}
-                  >
-                    <item.icon className="w-3.5 h-3.5" />
-                    {item.label}
-                  </button>
-                </Link>
-              );
-            })}
-          </nav>
+          {/* Spacer */}
+          <div className="flex-1" />
 
-          {/* Right side controls */}
-          <div className="flex items-center gap-2 mr-auto">
-            {/* Account Selector */}
-            {accounts.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs h-8 gap-1 max-w-[160px]"
-                  >
-                    <span className="truncate">
-                      {currentAccount?.name ?? "اختر حساباً"}
-                    </span>
-                    <ChevronDown className="w-3 h-3 shrink-0" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="bg-slate-800 border-slate-700 text-white"
-                >
-                  {accounts.map((acc) => (
-                    <DropdownMenuItem
-                      key={acc.id}
-                      onClick={() => setSelectedAccount(acc.id)}
-                      className={cn(
-                        "text-slate-200 hover:bg-slate-700 cursor-pointer",
-                        acc.id === (selectedAccount || accounts[0]?.id) &&
-                          "bg-blue-700/40"
-                      )}
-                    >
-                      {acc.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-
-            {/* Date Preset */}
+          {/* Account Selector */}
+          {accounts.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs h-8 gap-1"
+                  className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs h-8 gap-1 max-w-[150px]"
                 >
-                  <Calendar className="w-3 h-3" />
-                  <span className="hidden sm:inline">
-                    {dateRange.since === dateRange.until
-                      ? dateRange.since
-                      : `${dateRange.since} → ${dateRange.until}`}
-                  </span>
-                  <ChevronDown className="w-3 h-3" />
+                  <span className="truncate">{currentAccount?.name ?? "اختر حساباً"}</span>
+                  <ChevronDown className="w-3 h-3 shrink-0" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="bg-slate-800 border-slate-700 text-white"
-              >
-                {DATE_PRESETS.map((p) => (
+              <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700 text-white">
+                {accounts.map((acc) => (
                   <DropdownMenuItem
-                    key={p.label}
-                    onClick={() => setDateRange(applyPreset(p.days))}
-                    className="text-slate-200 hover:bg-slate-700 cursor-pointer"
-                  >
-                    {p.label}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator className="bg-slate-700" />
-                <div className="px-2 py-2 flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>من:</span>
-                    <input
-                      type="date"
-                      value={dateRange.since}
-                      onChange={(e) =>
-                        setDateRange({ ...dateRange, since: e.target.value })
-                      }
-                      className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-xs"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>إلى:</span>
-                    <input
-                      type="date"
-                      value={dateRange.until}
-                      onChange={(e) =>
-                        setDateRange({ ...dateRange, until: e.target.value })
-                      }
-                      className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-xs"
-                    />
-                  </div>
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* User Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-slate-400 hover:text-white h-8 w-8 p-0"
-                >
-                  <User className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="bg-slate-800 border-slate-700 text-white"
-              >
-                <div className="px-3 py-2 text-xs text-slate-400">
-                  <p className="font-medium text-white">{user?.username}</p>
-                  <p>{user?.role}</p>
-                </div>
-                <DropdownMenuSeparator className="bg-slate-700" />
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="text-red-400 hover:bg-red-950/40 cursor-pointer gap-2"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  تسجيل الخروج
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Mobile menu button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="lg:hidden text-slate-400 hover:text-white h-8 w-8 p-0"
-              onClick={() => setMobileOpen((v) => !v)}
-            >
-              {mobileOpen ? (
-                <X className="w-4 h-4" />
-              ) : (
-                <Menu className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* Mobile Nav */}
-        {mobileOpen && (
-          <nav className="lg:hidden border-t border-slate-800 bg-slate-900 px-3 py-2 flex flex-wrap gap-1">
-            {visibleNav.map((item) => {
-              const active = isActive(item.path, item.exact);
-              return (
-                <Link key={item.path} href={item.path}>
-                  <button
-                    onClick={() => setMobileOpen(false)}
+                    key={acc.id}
+                    onClick={() => setSelectedAccount(acc.id)}
                     className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-                      active
-                        ? "bg-blue-600 text-white"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                      "text-slate-200 hover:bg-slate-700 cursor-pointer",
+                      acc.id === (selectedAccount || accounts[0]?.id) && "bg-blue-700/40"
                     )}
                   >
-                    <item.icon className="w-3.5 h-3.5" />
-                    {item.label}
-                  </button>
-                </Link>
-              );
-            })}
-          </nav>
-        )}
+                    {acc.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* Date Preset */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs h-8 gap-1"
+              >
+                <Calendar className="w-3 h-3 shrink-0" />
+                <span className="hidden sm:inline">
+                  {dateRange.since === dateRange.until
+                    ? dateRange.since
+                    : `${dateRange.since} ← ${dateRange.until}`}
+                </span>
+                <ChevronDown className="w-3 h-3 shrink-0" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700 text-white min-w-[200px]">
+              {DATE_PRESETS.map((p) => (
+                <DropdownMenuItem
+                  key={p.label}
+                  onClick={() => setDateRange(applyPreset(p.days))}
+                  className="text-slate-200 hover:bg-slate-700 cursor-pointer"
+                >
+                  {p.label}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator className="bg-slate-700" />
+              <div className="px-2 py-2 flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>من:</span>
+                  <input
+                    type="date"
+                    value={dateRange.since}
+                    onChange={(e) => setDateRange({ ...dateRange, since: e.target.value })}
+                    className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-xs flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>إلى:</span>
+                  <input
+                    type="date"
+                    value={dateRange.until}
+                    onChange={(e) => setDateRange({ ...dateRange, until: e.target.value })}
+                    className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-xs flex-1"
+                  />
+                </div>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* User Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white h-8 w-8 p-0">
+                <User className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700 text-white">
+              <div className="px-3 py-2 text-xs text-slate-400">
+                <p className="font-medium text-white">{user?.username}</p>
+                <p className="text-slate-500 mt-0.5">
+                  {user?.role === "admin" ? "مدير النظام" : user?.role === "media_buyer" ? "ميدياباير" : "مدير وسائط"}
+                </p>
+              </div>
+              <DropdownMenuSeparator className="bg-slate-700" />
+              <DropdownMenuItem
+                onClick={logout}
+                className="text-red-400 hover:bg-red-950/40 cursor-pointer gap-2"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                تسجيل الخروج
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Hamburger */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSidebarOpen(true)}
+            className="text-slate-400 hover:text-white h-8 w-8 p-0"
+            aria-label="القائمة"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+        </div>
       </header>
+
+      {/* ── Sidebar Overlay ── */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* ── Sidebar Drawer (slides from right) ── */}
+      <aside
+        className={cn(
+          "fixed top-0 right-0 h-full z-50 w-72 bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col transition-transform duration-300",
+          sidebarOpen ? "translate-x-0" : "translate-x-full"
+        )}
+        dir="rtl"
+      >
+        {/* Sidebar Header */}
+        <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <Zap className="w-4 h-4 text-white" />
+            </div>
+            <span className="font-bold text-sm text-white">DemandGen Ops</span>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Nav Groups */}
+        <nav className="flex-1 overflow-y-auto py-3 space-y-1">
+
+          {/* META Group */}
+          {visibleMeta.length > 0 && (
+            <div>
+              <GroupHeader label="Meta Ads" color="bg-blue-500" />
+              <div className="space-y-0.5 px-2 mt-1">
+                {visibleMeta.map((item) => (
+                  <NavItem
+                    key={item.slug}
+                    path={item.path}
+                    label={item.label}
+                    icon={item.icon}
+                    active={isActive(item.path)}
+                    onClick={() => setSidebarOpen(false)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* GOOGLE Group */}
+          {visibleGoogle.length > 0 && (
+            <div className="mt-2">
+              <GroupHeader label="Google / DemandGen" color="bg-emerald-500" />
+              <div className="space-y-0.5 px-2 mt-1">
+                {visibleGoogle.map((item) => (
+                  <NavItem
+                    key={item.slug}
+                    path={item.path}
+                    label={item.label}
+                    icon={item.icon}
+                    active={isActive(item.path)}
+                    onClick={() => setSidebarOpen(false)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* GENERAL */}
+          {visibleGeneral.length > 0 && (
+            <div className="mt-2">
+              <div className="border-t border-slate-800 mx-4 my-2" />
+              <div className="space-y-0.5 px-2">
+                {visibleGeneral.map((item) => (
+                  <NavItem
+                    key={item.slug}
+                    path={item.path}
+                    label={item.label}
+                    icon={item.icon}
+                    active={isActive(item.path)}
+                    onClick={() => setSidebarOpen(false)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN (admin only) */}
+          {showAdmin && (
+            <div className="px-2">
+              <NavItem
+                path="/admin"
+                label="إدارة المستخدمين"
+                icon={Shield}
+                active={isActive("/admin")}
+                onClick={() => setSidebarOpen(false)}
+              />
+            </div>
+          )}
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div className="border-t border-slate-800 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
+              <User className="w-4 h-4 text-slate-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user?.username}</p>
+              <p className="text-xs text-slate-500">
+                {user?.role === "admin" ? "مدير النظام" : user?.role === "media_buyer" ? "ميدياباير" : "مدير وسائط"}
+              </p>
+            </div>
+            <button
+              onClick={logout}
+              className="text-slate-500 hover:text-red-400 transition-colors"
+              title="تسجيل الخروج"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </aside>
 
       {/* ── Main Content ── */}
       <main className="min-h-[calc(100vh-56px)]">{children}</main>

@@ -224,6 +224,8 @@ async function runMigrations() {
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`);
   // Account-specific notification: link user to a specific ad account
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ad_account_id VARCHAR(50)`);
+  // Per-user page permissions for ads-dashboard (null = all pages visible)
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_pages JSONB`);
   await query(`ALTER TABLE media_requests ADD COLUMN IF NOT EXISTS account_id VARCHAR(50)`);
   await query(`
     CREATE TABLE IF NOT EXISTS push_config (

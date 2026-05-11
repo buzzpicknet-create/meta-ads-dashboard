@@ -64,17 +64,34 @@ router.post("/auth/logout", (req, res) => {
 });
 
 // GET /api/auth/me
-router.get("/auth/me", (req, res) => {
+router.get("/auth/me", async (req, res) => {
   if (!req.session?.userId) {
     return res.status(401).json({ error: "غير مسجّل" });
   }
-  res.json({
-    user: {
-      id: req.session.userId,
-      username: req.session.username,
-      role: req.session.role,
-    },
-  });
+  try {
+    const rows = await query<{ allowed_pages: string[] | null }>(
+      `SELECT allowed_pages FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      [req.session.userId]
+    );
+    const allowed_pages = rows[0]?.allowed_pages ?? null;
+    return res.json({
+      user: {
+        id: req.session.userId,
+        username: req.session.username,
+        role: req.session.role,
+        allowed_pages,
+      },
+    });
+  } catch {
+    return res.json({
+      user: {
+        id: req.session.userId,
+        username: req.session.username,
+        role: req.session.role,
+        allowed_pages: null,
+      },
+    });
+  }
 });
 
 export default router;

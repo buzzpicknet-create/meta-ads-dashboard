@@ -83,8 +83,8 @@ function pct(a?: number, b?: number) {
   return ((a - b) / b) * 100;
 }
 
-function fmt(n: number, dec = 0) {
-  return n.toLocaleString("ar-EG", { maximumFractionDigits: dec });
+function fmt(n: number | undefined | null, dec = 0) {
+  return (n ?? 0).toLocaleString("ar-EG", { maximumFractionDigits: dec });
 }
 
 function safe(n: number | undefined | null, fallback = 0) {
@@ -134,16 +134,17 @@ export default function Campaigns() {
     enabled: !!accountId || true,
   });
 
-  const { data: campaigns = [], isLoading: cLoading } = useQuery<Campaign[]>({
+  const { data: campaignsRaw = [], isLoading: cLoading } = useQuery<Campaign[]>({
     queryKey: ["campaigns", accountId, dateRange],
     queryFn: () =>
       fetch(`${API}/meta/campaigns?${params}`, {
         credentials: "include",
       })
         .then((r) => r.json())
-        .then((d) => d.campaigns ?? d ?? []),
+        .then((d) => Array.isArray(d.campaigns) ? d.campaigns : Array.isArray(d) ? d : []),
     staleTime: 2 * 60_000,
   });
+  const campaigns: Campaign[] = Array.isArray(campaignsRaw) ? campaignsRaw : [];
 
   const t = overview?.totals;
   const prev = overview?.previous_period;

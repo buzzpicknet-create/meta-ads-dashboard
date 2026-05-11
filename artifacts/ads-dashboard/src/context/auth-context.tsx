@@ -8,6 +8,7 @@ export interface AuthUser {
   id: number;
   username: string;
   role: UserRole;
+  allowed_pages: string[] | null; // null = all pages allowed
 }
 
 interface AuthContextValue {
@@ -15,20 +16,25 @@ interface AuthContextValue {
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+async function fetchMe(): Promise<AuthUser | null> {
+  const r = await fetch(`${API}/auth/me`, { credentials: "include" });
+  if (!r.ok) return null;
+  const data = await r.json();
+  return data?.user ?? null;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/auth/me`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.user) setUser(data.user as AuthUser);
-      })
+    fetchMe()
+      .then((u) => { if (u) setUser(u); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -50,8 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
+  async function refreshUser() {
+    const u = await fetchMe();
+    if (u) setUser(u);
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
