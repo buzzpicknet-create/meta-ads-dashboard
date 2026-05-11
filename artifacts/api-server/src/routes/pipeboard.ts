@@ -214,9 +214,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       case "ga_enable_campaign":
         return { mcpTool: "enable_google_ads_campaign", mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id } };
       case "ga_update_campaign_budget":
-        return { mcpTool: "update_google_ads_campaign", mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id, daily_budget_micros: egpToMicros(a.budget_amount) } };
-      case "ga_update_keyword_bid":
-        return { mcpTool: "update_google_ads_keyword_bid", mcpArgs: { customer_id: a.customer_id, ad_group_id: a.ad_group_id, criterion_ids: a.criterion_ids, cpc_bid_micros: egpToMicros(a.cpc_bid_egp) } };
+        // Correct param is budget_amount_micros (not daily_budget_micros)
+        return { mcpTool: "update_google_ads_campaign", mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id, budget_amount_micros: egpToMicros(a.budget_amount) } };
+      case "ga_update_keyword_bid": {
+        // API accepts either criterion_id (singular) + cpc_bid_micros for one keyword,
+        // or keyword_bids array for batch. AI sends criterion_ids (array) + cpc_bid_egp.
+        const bidMicros = egpToMicros(a.cpc_bid_egp);
+        const ids = Array.isArray(a.criterion_ids) ? (a.criterion_ids as string[]) : [String(a.criterion_ids ?? "")];
+        if (ids.length === 1) {
+          return { mcpTool: "update_google_ads_keyword_bid", mcpArgs: { customer_id: a.customer_id, ad_group_id: a.ad_group_id, criterion_id: ids[0], cpc_bid_micros: bidMicros } };
+        }
+        return { mcpTool: "update_google_ads_keyword_bid", mcpArgs: { customer_id: a.customer_id, ad_group_id: a.ad_group_id, keyword_bids: ids.map(id => ({ criterion_id: id, cpc_bid_micros: bidMicros })) } };
+      }
       case "ga_pause_keyword":
         return { mcpTool: "pause_google_ads_keyword", mcpArgs: { customer_id: a.customer_id, ad_group_id: a.ad_group_id, criterion_ids: a.criterion_ids } };
       case "ga_enable_keyword":
@@ -280,9 +289,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     resultMessage = msg;
-    // Reset singleton on error so next action reconnects fresh
-    _pbWriteClient = null;
-    _pbWriteConnecting = null;
+    // Reset the correct singleton on error so next action reconnects fresh
+    if (isGaTool) {
+      _gaWriteClient = null;
+      _gaWriteConnecting = null;
+    } else {
+      _pbWriteClient = null;
+      _pbWriteConnecting = null;
+    }
     res.status(500).json({ error: msg });
   } finally {
     // Extract human-readable names from args for audit log
