@@ -22,14 +22,15 @@ interface CampData { id: string; name: string; effective_status: string; objecti
 interface PendingAction { tool: string; args: Record<string,unknown>; summary: string; currentValue?: string; proposedValue?: string; detailsLoading?: boolean }
 
 // ─── Quick actions ─────────────────────────────────────────────────────────────
-const QA = [
+// Day-focused (intra-day) — shown prominently at top
+const QA_DAY = [
   {
     label: "⚡ فرص Scale اليوم (Bulk)",
     prompt: `قم بتحليل أداء حملات اليوم (Today) وقارنها بتاريخها في آخر 3 أيام. ابحث عن الحملات التي تحقق CPA أقل من المستهدف اليوم.
 القواعد الصارمة:
 - إذا كانت مبيعات اليوم أقل من 3 (حتى لو الـ CPA ممتاز)، اقترح زيادة ميزانية طفيفة جداً (10-15% كحد أقصى) لتجنب التذبذب.
 - إذا كانت مبيعات اليوم 3 أو أكثر والـ CPA ممتاز والتاريخ جيد، اقترح زيادة (20-30%).
-أخرج النتائج في جدول، وقم بتوليد كود bulk_action لإنشاء واجهة تتيح لي تنفيذ كل هذه الزيادات بضغطة زر واحدة.`,
+لكل حملة تستحق Scale: أخرج تحليل موجز (سطرين) ثم أخرج bulk_action فوري بإجراء واحد لتلك الحملة. في النهاية أخرج جدول ملخص + bulk_action جماعي لكل الإجراءات.`,
   },
   {
     label: "🛡️ صيانة خسائر اليوم",
@@ -37,13 +38,25 @@ const QA = [
 القواعد الصارمة:
 - انظر إلى تاريخ الحملة وأرقام المسار (CTR, Hook Rate). إذا كان التاريخ جيداً والأرقام مستقرة ولكن اليوم سيء، اقترح 'تقليل الميزانية' (Scale Down) بنسبة 20-30% ولا تقترح الإيقاف.
 - إذا كان أداء اليوم سيئاً والتاريخ سيء وأرقام النقر تتدهور، اقترح 'إيقاف' (Pause).
-أخرج النتائج في جدول يوضح (القرار | السبب التاريخي)، وقم بتوليد bulk_action لتنفيذ هذه الإجراءات.`,
+لكل حملة تستحق تدخل: أخرج تحليل موجز ثم bulk_action فوري بإجراء واحد. في النهاية أخرج جدول ملخص (القرار | السبب التاريخي) + bulk_action جماعي.`,
   },
   {
     label: "🔍 فحص منتصف اليوم",
-    prompt: `نحن في منتصف اليوم. استخرج الحملات التي صرفت أكثر من 40% من ميزانيتها اليومية ولكنها لم تحقق أي مبيعات (0 Conversions) حتى الآن. هل أرقام النقرات (CTR) ومعدل التحويل (CVR) تشير إلى أنها ستتعافى أم يجب تقليل ميزانيتها فوراً؟`,
+    prompt: `نحن في منتصف اليوم. استخرج الحملات التي صرفت أكثر من 40% من ميزانيتها اليومية ولكنها لم تحقق أي مبيعات (0 Conversions) حتى الآن. هل أرقام النقرات (CTR) ومعدل التحويل (CVR) تشير إلى أنها ستتعافى أم يجب تقليل ميزانيتها فوراً؟ لكل حملة تستحق تدخل أخرج bulk_action فوري.`,
   },
 ];
+
+// Classic actions — shown in second row
+const QA = [
+  { label: "☕ التقرير الصباحي",   prompt: "اسحب داتا كل الحملات النشطة لليوم وقارنها بمتوسط بيانات آخر 7 أيام. أعطني ملخصاً سريعاً: ما هي الحملات الرابحة وما هي الحملات التي تتخطى الـ CPA المستهدف وتحتاج تدخل فوري؟ ارسم لي جدول مقارنة يعتمد على الـ CPA كأساس للتقييم." },
+  { label: "🚀 فرص الـ Scale",     prompt: "حلل الحملات النشطة بناءً على أداء آخر 7 أيام، وحدد الـ Adsets التي تحقق CPA أقل من المستهدف ومستقرة. جهّز مقترحات لزيادة ميزانيتها 20% مع أزرار التنفيذ المباشر عبر الـ MCP." },
+  { label: "🔬 تشخيص الـ Funnel",  prompt: "افحص مسار المبيعات لكل الإعلانات النشطة. استخرج الإعلانات التي تمتلك Hook Rate ممتاز لكن CVR أو CTR ضعيفة. حدد أين الخلل بالضبط." },
+  { label: "📉 تقليل الميزانية",   prompt: "استخرج أي إعلان أو Adset تخطى CPA المستهدف بشكل ملحوظ في آخر 7 أيام. حلل أسباب التراجع واعرضهم في جدول مع bulk_action لتقليل الميزانية 30%." },
+  { label: "🕵️ تقييم التعديلات",  prompt: "ابحث عن الحملات التي أجرينا عليها تعديلات مؤخراً. قارن أداءها قبل وبعد التعديل. هل نجح الإجراء؟" },
+];
+
+// All for the bottom strip
+const QA_ALL = [...QA_DAY, ...QA];
 
 // ─── Chart block ──────────────────────────────────────────────────────────────
 const C = ["#6366f1","#10b981","#f59e0b","#ef4444","#3b82f6","#8b5cf6","#ec4899"];
@@ -628,17 +641,33 @@ export default function AiChatPage() {
                 )}
               </div>
 
-              {/* Quick action grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full max-w-3xl">
+              {/* Day-focused quick actions — prominent top row */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-3xl">
+                {QA_DAY.map(q=>(
+                  <button
+                    key={q.label}
+                    onClick={()=>void send(q.prompt)}
+                    className="group text-right px-4 py-3.5 rounded-xl border border-primary/30 bg-primary/5 hover:border-primary/60 hover:bg-primary/10 transition-all text-sm shadow-sm"
+                  >
+                    <span className="block font-semibold text-foreground">{q.label}</span>
+                    <span className="block text-xs text-muted-foreground mt-1 line-clamp-2 group-hover:text-foreground/70">
+                      {q.prompt.slice(0,65)}...
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Classic quick actions — second row */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 w-full max-w-3xl">
                 {QA.map(q=>(
                   <button
                     key={q.label}
                     onClick={()=>void send(q.prompt)}
-                    className="group text-right px-4 py-3.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all text-sm"
+                    className="group text-right px-3 py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all text-sm"
                   >
-                    <span className="block font-medium text-foreground">{q.label}</span>
-                    <span className="block text-xs text-muted-foreground mt-1 line-clamp-2 group-hover:text-foreground/70">
-                      {q.prompt.slice(0,65)}...
+                    <span className="block font-medium text-foreground text-xs">{q.label}</span>
+                    <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
+                      {q.prompt.slice(0,45)}...
                     </span>
                   </button>
                 ))}
@@ -780,9 +809,13 @@ export default function AiChatPage() {
           {/* Quick actions strip (when chat has messages) */}
           {!isEmpty && (
             <div className="flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">
-              {QA.map(q=>(
+              {QA_ALL.map((q,idx)=>(
                 <button key={q.label} onClick={()=>void send(q.prompt)} disabled={streaming}
-                  className="shrink-0 text-xs px-3 py-1.5 rounded-full border border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all disabled:opacity-50 whitespace-nowrap">
+                  className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 whitespace-nowrap ${
+                    idx < QA_DAY.length
+                      ? "border-primary/35 bg-primary/8 text-foreground hover:bg-primary/15 hover:border-primary/60"
+                      : "border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
+                  }`}>
                   {q.label}
                 </button>
               ))}

@@ -25,6 +25,7 @@ export interface BulkActionItem {
 export interface BulkActionPayload {
   actions: BulkActionItem[];
   title?: string;
+  compact?: boolean;
 }
 
 type ActionStatus = "idle" | "running" | "success" | "error";
@@ -70,7 +71,9 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
 }
 
 export default function BulkActionPanel({ payload }: { payload: BulkActionPayload }) {
-  const actions = payload.actions ?? [];
+  const actions  = payload.actions ?? [];
+  const isCompact = payload.compact === true && actions.length === 1;
+
   const [checked, setChecked]   = useState<boolean[]>(() => actions.map(() => true));
   const [statuses, setStatuses] = useState<ActionStatus[]>(() => actions.map(() => "idle"));
   const [errors, setErrors]     = useState<string[]>(() => actions.map(() => ""));
@@ -78,16 +81,18 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
   const [done, setDone]         = useState(false);
   const [expanded, setExpanded] = useState(true);
 
-  const selected = checked.filter(Boolean).length;
+  const selected  = checked.filter(Boolean).length;
   const succeeded = statuses.filter(s => s === "success").length;
   const failed    = statuses.filter(s => s === "error").length;
 
-  async function execute() {
+  const fmt = (v: number) => v.toLocaleString("ar-EG", { maximumFractionDigits: 0 });
+
+  async function executeAll() {
     if (running || done) return;
     setRunning(true);
-
-    const toRun = actions.map((a, i) => ({ action: a, idx: i, selected: checked[i] })).filter(x => x.selected);
-
+    const toRun = actions
+      .map((a, i) => ({ action: a, idx: i, selected: checked[i] }))
+      .filter(x => x.selected);
     await Promise.all(toRun.map(async ({ action, idx }) => {
       setStatuses(prev => { const n = [...prev]; n[idx] = "running"; return n; });
       try {
@@ -109,13 +114,47 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
         setErrors(prev => { const n = [...prev]; n[idx] = err instanceof Error ? err.message : "خطأ"; return n; });
       }
     }));
-
     setRunning(false);
     setDone(true);
   }
 
-  const fmt = (v: number) => v.toLocaleString("ar-EG", { maximumFractionDigits: 0 });
+  // ── Compact mode: single inline action button ──────────────────────────────
+  if (isCompact) {
+    const action = actions[0]!;
+    const meta   = getBudgetMeta(action);
+    const st     = statuses[0]!;
+    const hasBudget = (action.type === "update_campaign_budget" || action.type === "update_adset_budget") &&
+      action.currentBudget !== undefined && action.newBudget !== undefined;
+    return (
+      <span className="inline-flex items-center gap-2 my-1 flex-wrap">
+        <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${meta.badge}`}>
+          {meta.icon}{action.label}
+        </span>
+        <span className="text-[12.5px] font-medium text-foreground">{action.name}</span>
+        {hasBudget && (
+          <span className="text-[11.5px] text-muted-foreground font-mono flex items-center gap-1">
+            <span className="text-red-400">{fmt(action.currentBudget!)} EGP</span>
+            <span>→</span>
+            <span className={action.newBudget! > action.currentBudget! ? "text-emerald-500 font-semibold" : "text-red-500 font-semibold"}>{fmt(action.newBudget!)} EGP</span>
+          </span>
+        )}
+        {st === "idle" && (
+          <button
+            onClick={() => void executeAll()}
+            disabled={running}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary text-primary-foreground text-[11.5px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-all"
+          >
+            <Rocket className="h-3 w-3" /> تنفيذ
+          </button>
+        )}
+        {st === "running" && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin" />}
+        {st === "success" && <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" />تم</span>}
+        {st === "error"   && <span className="inline-flex items-center gap-1 text-[11px] text-red-500"><XCircle className="h-3.5 w-3.5" />{errors[0] || "فشل"}</span>}
+      </span>
+    );
+  }
 
+  // ── Full panel mode ────────────────────────────────────────────────────────
   return (
     <div className="my-3 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/5 to-background overflow-hidden shadow-sm">
       {/* Header */}
@@ -158,8 +197,8 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
           {/* Action list */}
           <div className="divide-y divide-border/40">
             {actions.map((action, i) => {
-              const meta  = getBudgetMeta(action);
-              const st    = statuses[i]!;
+              const meta      = getBudgetMeta(action);
+              const st        = statuses[i]!;
               const isChecked = checked[i]!;
               return (
                 <label
@@ -168,7 +207,6 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
                     isChecked && st === "idle" ? "hover:bg-muted/30" : ""
                   } ${st === "success" ? "bg-emerald-50 dark:bg-emerald-950/20" : ""} ${st === "error" ? "bg-red-50 dark:bg-red-950/20" : ""}`}
                 >
-                  {/* Checkbox / status */}
                   <div className="pt-0.5 shrink-0">
                     {st === "running" ? (
                       <Loader2 className="h-4 w-4 text-primary animate-spin" />
@@ -186,17 +224,13 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
                       />
                     )}
                   </div>
-
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${meta.badge}`}>
-                        {meta.icon}
-                        {action.label}
+                        {meta.icon}{action.label}
                       </span>
                       <span className="text-[13px] font-medium text-foreground truncate">{action.name}</span>
                     </div>
-                    {/* Budget change */}
                     {(action.type === "update_campaign_budget" || action.type === "update_adset_budget") &&
                       action.currentBudget !== undefined && action.newBudget !== undefined && (
                       <p className="text-[12px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
@@ -206,11 +240,9 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
                         <span className="text-muted-foreground/60">({action.budgetType === "lifetime" ? "إجمالي" : "يومي"})</span>
                       </p>
                     )}
-                    {/* Reason */}
                     {action.reason && (
                       <p className="text-[11.5px] text-muted-foreground/70 mt-0.5 line-clamp-2">{action.reason}</p>
                     )}
-                    {/* Error */}
                     {st === "error" && errors[i] && (
                       <p className="text-[11px] text-red-500 mt-0.5">{errors[i]}</p>
                     )}
@@ -227,7 +259,7 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
                 ستُنفَّذ الإجراءات المحددة مباشرةً على Meta Ads
               </p>
               <button
-                onClick={() => void execute()}
+                onClick={() => void executeAll()}
                 disabled={running || selected === 0}
                 className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-40 transition-all shadow-sm"
               >
@@ -241,11 +273,7 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
           )}
           {done && (
             <div className="px-4 py-3 border-t border-primary/15 bg-background/50 flex items-center gap-2">
-              {failed === 0 ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-              ) : (
-                <XCircle className="h-4 w-4 text-red-500 shrink-0" />
-              )}
+              {failed === 0 ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" /> : <XCircle className="h-4 w-4 text-red-500 shrink-0" />}
               <p className="text-[12.5px] text-muted-foreground">
                 {failed === 0
                   ? `✅ تم تنفيذ جميع الإجراءات بنجاح (${succeeded}/${selected})`
