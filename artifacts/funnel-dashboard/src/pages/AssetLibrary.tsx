@@ -79,9 +79,8 @@ function buildVariantPrompts(
     }
   }
 
-  return combos.map((c, i) => {
-    const prefix = combos.length > 1 ? `[فارينت ${i + 1}]\n` : "";
-    return `${prefix}قم بإنشاء حملة إعلانية جديدة عبر Pipeboard.
+  return combos.map((c) => {
+    return `قم بإنشاء حملة إعلانية جديدة عبر Pipeboard.
 - المنتج: ${product}
 - الزاوية التسويقية: ${angle}
 - رابط صفحة الهبوط: ${c.lp?.content ?? "—"}
@@ -350,7 +349,7 @@ function AngleCard({
           <div className="font-semibold text-sm">{angle.name}</div>
           {totalSel > 0 && (
             <div className="text-xs text-primary mt-0.5">
-              {totalSel} محدد{variantCount > 1 ? ` — ${Math.min(variantCount, 9)} فارينت` : ""}
+              {totalSel} محدد{variantCount > 1 ? ` — ${Math.min(variantCount, 9)} حملة اختبار منفصلة` : ""}
             </div>
           )}
         </div>
@@ -408,8 +407,8 @@ function AngleCard({
             <div className="flex items-center gap-2 pt-1 border-t border-border/40">
               <div className="text-xs text-muted-foreground flex-1">
                 {variantCount > 1
-                  ? `سيتم توليد ${Math.min(variantCount, 9)} فارينت (${selByType.LANDING_PAGE.size || 1} LP × ${selByType.PRIMARY_TEXT.size || 1} نص × ${selByType.HEADLINE.size || 1} عنوان)`
-                  : "فارينت واحد"}
+                  ? `${Math.min(variantCount, 9)} حملات منفصلة (${selByType.LANDING_PAGE.size || 1} LP × ${selByType.PRIMARY_TEXT.size || 1} نص × ${selByType.HEADLINE.size || 1} عنوان) — كل حملة تتبعت على حدة`
+                  : "حملة واحدة للإطلاق"}
               </div>
               <Button
                 size="sm"
@@ -436,59 +435,111 @@ function VariantModal({
   open,
   onClose,
   variants,
-  onCopyAll,
   onCopyOne,
 }: {
   open: boolean;
   onClose: () => void;
   variants: string[];
-  onCopyAll: (text: string) => void;
   onCopyOne: (text: string) => void;
 }) {
-  const allText = variants.join("\n\n" + "─".repeat(40) + "\n\n");
+  const [current, setCurrent] = useState(0);
+  const total = variants.length;
+  const v = variants[current] ?? "";
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    onCopyOne(v);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  function next() { if (current < total - 1) { setCurrent(c => c + 1); setCopied(false); } }
+  function prev() { if (current > 0)         { setCurrent(c => c - 1); setCopied(false); } }
+
+  // reset to first when modal opens
+  useState(() => { if (open) { setCurrent(0); setCopied(false); } });
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl h-[85vh] flex flex-col" dir="rtl">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setCurrent(0); setCopied(false); } onClose(); }}>
+      <DialogContent className="max-w-xl" dir="rtl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wand2 className="h-5 w-5 text-primary" />
-            {variants.length > 1 ? `${variants.length} فارينتات للإطلاق` : "أمر الإطلاق"}
+            {total > 1 ? `حملة ${current + 1} من ${total}` : "أمر إطلاق الحملة"}
           </DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 -mx-6 px-6">
-          <div className="space-y-4 pb-4">
-            {variants.map((v, i) => (
-              <div key={i} className="rounded-xl border border-border bg-muted/30 overflow-hidden">
-                {variants.length > 1 && (
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-card">
-                    <span className="text-xs font-semibold text-primary">فارينت {i + 1}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 text-xs gap-1 px-2"
-                      onClick={() => onCopyOne(v)}
-                    >
-                      <Copy className="h-3 w-3" /> نسخ
-                    </Button>
-                  </div>
-                )}
-                <pre className="text-xs leading-relaxed whitespace-pre-wrap font-sans px-3 py-3 text-foreground">
-                  {v}
-                </pre>
-              </div>
+        {/* Warning banner — only when multiple variants */}
+        {total > 1 && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+            <span className="font-bold">⚠️ مهم:</span> كل حملة = أمر <strong>منفصل</strong> يتبعت للمساعد على حدة.
+            لا ترسلهم مع بعض — كل أمر هيعمل <strong>حملة مستقلة</strong> للاختبار.
+          </div>
+        )}
+
+        {/* Stepper dots */}
+        {total > 1 && (
+          <div className="flex items-center justify-center gap-1.5">
+            {variants.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => { setCurrent(i); setCopied(false); }}
+                className={`h-2 rounded-full transition-all ${
+                  i === current ? "w-6 bg-primary" : "w-2 bg-muted-foreground/30 hover:bg-muted-foreground/50"
+                }`}
+              />
             ))}
           </div>
-        </ScrollArea>
+        )}
 
-        <DialogFooter className="gap-2 flex-row-reverse sm:flex-row-reverse">
-          <Button className="gap-2 flex-1" onClick={() => onCopyAll(allText)}>
-            <Copy className="h-4 w-4" />
-            {variants.length > 1 ? `📋 نسخ الكل (${variants.length} فارينتات)` : "📋 نسخ إلى الحافظة"}
-          </Button>
-          <Button variant="outline" onClick={onClose}>إغلاق</Button>
-        </DialogFooter>
+        {/* Prompt content */}
+        <pre className="text-sm leading-relaxed whitespace-pre-wrap font-sans bg-muted rounded-xl px-4 py-3 text-foreground max-h-64 overflow-y-auto">
+          {v}
+        </pre>
+
+        {/* Primary action */}
+        <Button
+          size="lg"
+          className={`w-full gap-2 text-base transition-colors ${copied ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
+          onClick={handleCopy}
+        >
+          {copied ? (
+            <>✅ تم النسخ — الصقه الآن في المساعد</>
+          ) : (
+            <><Copy className="h-5 w-5" /> 📋 نسخ هذه الحملة</>
+          )}
+        </Button>
+
+        {/* Prev / Next navigation */}
+        {total > 1 && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 gap-1"
+              onClick={prev}
+              disabled={current === 0}
+            >
+              → السابقة
+            </Button>
+            <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
+              {current + 1} / {total}
+            </span>
+            <Button
+              variant={copied ? "default" : "outline"}
+              size="sm"
+              className="flex-1 gap-1"
+              onClick={next}
+              disabled={current === total - 1}
+            >
+              ← التالية
+            </Button>
+          </div>
+        )}
+
+        <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground">
+          إغلاق
+        </Button>
       </DialogContent>
     </Dialog>
   );
@@ -738,8 +789,7 @@ export default function AssetLibrary() {
         open={promptModal}
         onClose={() => setPromptModal(false)}
         variants={promptVariants}
-        onCopyAll={(text) => handleCopy(text, promptVariants.length > 1 ? `${promptVariants.length} فارينتات` : "الأمر")}
-        onCopyOne={(text) => handleCopy(text, "الفارينت")}
+        onCopyOne={(text) => handleCopy(text, "الحملة")}
       />
 
       {/* ── History Dialog ───────────────────────────────────────────────────── */}
