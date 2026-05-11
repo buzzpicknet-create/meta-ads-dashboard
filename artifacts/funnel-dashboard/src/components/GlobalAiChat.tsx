@@ -867,8 +867,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    // 45-second hard timeout — abort cleanly if LLM takes too long
-    const timeoutId = setTimeout(() => ctrl.abort(), 45000);
+    // 90-second hard timeout — write-tool flows (budget update × N campaigns) need more time
+    const timeoutId = setTimeout(() => ctrl.abort(), 90000);
     let accumulated = "";
 
     try {
@@ -943,7 +943,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
           // Could be manual cancel OR our 45s timeout
           const timedOut = !abortRef.current; // already cleared = we fired the timeout
           if (timedOut || ctrl.signal.aborted) {
-            setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ انتهى وقت الانتظار (45 ثانية). حاول مرة أخرى." }]);
+            setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ انتهى وقت الانتظار (90 ثانية). حاول مرة أخرى." }]);
           }
         } else {
           setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ في الاتصال. حاول تاني." }]);

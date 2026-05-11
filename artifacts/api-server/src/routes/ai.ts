@@ -271,8 +271,8 @@ Frequency (في 7 أيام):
 قبل أي write action، لازم تكون جبت البيانات الفعلية أولاً. الترتيب الإلزامي:
 ١. اجلب حالة العنصر الحالية:
    - قبل pause_campaign أو enable_campaign: استخدم get_campaign_status أولاً
-   - قبل update_campaign_budget: استخدم get_campaign_budget أولاً
-   - قبل pause_adset أو enable_adset أو update_adset_budget: استخدم get_adset_status أولاً
+   - قبل update_campaign_budget: استخدم get_campaign_budget مرة واحدة فقط لكل حملة — لا تعيد استدعاءه. بعد الجلب يُخزَّن تلقائياً
+   - قبل pause_adset أو enable_adset أو update_adset_budget: استخدم get_adset_status مرة واحدة فقط
 ٢. اجلب بيانات الأداء للتشخيص (get_campaign_daily أو get_adsets)
 ممنوع تقترح إيقاف أو تعديل بدون تشخيص مبني على بيانات حقيقية وحالة حالية موثّقة.
 
@@ -759,8 +759,9 @@ function isRateLimitErr(err: unknown): boolean {
 const TOOL_CACHE_FRESH_MS = 0;
 // Always show cache note since AI always fetches fresh
 const CACHE_NOTE_THRESHOLD_MS = 0;
-// Details (status/budget) — also live, no cache
-const DETAILS_CACHE_FRESH_MS = 0;
+// Details (status/budget) — cache for 10 minutes to avoid repeated Pipeboard calls
+// in the same conversation (resolveWriteToolDetails reuses what executeTool already fetched)
+const DETAILS_CACHE_FRESH_MS = 10 * 60 * 1000;
 
 interface CacheResult<T> {
   data: T;

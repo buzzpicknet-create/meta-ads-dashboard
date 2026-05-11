@@ -338,10 +338,10 @@ router.post("/chat/conversations/:id/messages", async (req, res) => {
     for (const msg of messages ?? []) {
       const hasTc = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
       if (!msg.role || (!msg.content && !hasTc)) continue;
-      const tc = hasTc ? msg.tool_calls! : null;
+      const tc = hasTc ? JSON.stringify(msg.tool_calls!) : null;
       await query(
         `INSERT INTO chat_messages (conversation_id, role, content, tool_calls)
-         VALUES ($1, $2, $3, $4)`,
+         VALUES ($1, $2, $3, $4::json)`,
         [convId, msg.role, msg.content, tc]
       );
     }

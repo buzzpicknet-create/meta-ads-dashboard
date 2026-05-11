@@ -1917,6 +1917,8 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    // 90-second hard timeout — write-tool flows need more time than simple Q&A
+    const timeoutId = setTimeout(() => ctrl.abort(), 90000);
 
     try {
       // Filter out junk assistant messages before sending as context
@@ -1993,6 +1995,7 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
         setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ. حاول تاني." }]);
       }
     } finally {
+      clearTimeout(timeoutId);
       setStreaming(false);
       setStreamingText("");
       abortRef.current = null;
