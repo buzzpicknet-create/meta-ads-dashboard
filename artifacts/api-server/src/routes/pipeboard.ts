@@ -7,7 +7,7 @@ import { sendPushForEvent } from "../lib/push";
 
 const router = Router();
 
-// ── Singleton Pipeboard client for write actions ──────────────────────────────
+// ── Singleton Pipeboard client for Meta Ads write actions ─────────────────────
 let _pbWriteClient: Client | null = null;
 let _pbWriteConnecting: Promise<Client> | null = null;
 
@@ -37,6 +37,42 @@ async function getPipeboardWriteClient(): Promise<Client> {
     throw err;
   }
 }
+
+// ── Singleton Pipeboard client for Google Ads write actions ───────────────────
+let _gaWriteClient: Client | null = null;
+let _gaWriteConnecting: Promise<Client> | null = null;
+
+async function getGoogleAdsWriteClient(): Promise<Client> {
+  if (_gaWriteClient) return _gaWriteClient;
+  if (_gaWriteConnecting) return _gaWriteConnecting;
+
+  _gaWriteConnecting = (async () => {
+    const token = process.env.PIPEBOARD_API_TOKEN;
+    if (!token) throw new Error("PIPEBOARD_API_TOKEN not set");
+    const c = new Client({ name: "google-ads-dashboard", version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL("https://mcp.pipeboard.co/google-ads-mcp"),
+      { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+    await c.connect(transport);
+    _gaWriteClient = c;
+    _gaWriteConnecting = null;
+    logger.info("Google Ads write singleton connected");
+    return c;
+  })();
+
+  try {
+    return await _gaWriteConnecting;
+  } catch (err) {
+    _gaWriteConnecting = null;
+    throw err;
+  }
+}
+
+const GA_WRITE_TOOLS = new Set([
+  "ga_pause_campaign", "ga_enable_campaign", "ga_update_campaign_budget",
+  "ga_update_keyword_bid", "ga_pause_keyword", "ga_enable_keyword",
+]);
 
 const NO_OP_DAILY_THRESHOLD = 3;
 const NO_OP_SPIKE_EVENT = "no_op_spike";
@@ -102,6 +138,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "create_campaign",
     "create_adset",
     "duplicate_campaign",
+    // Google Ads
+    "ga_pause_campaign",
+    "ga_enable_campaign",
+    "ga_update_campaign_budget",
+    "ga_update_keyword_bid",
+    "ga_pause_keyword",
+    "ga_enable_keyword",
   ]);
 
   if (!tool || !ALLOWED_TOOLS.has(tool)) {
@@ -161,13 +204,38 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     }
   }
 
-  const { mcpTool, mcpArgs } = translateToMcp(tool, args ?? {});
+  // ── Google Ads translation ────────────────────────────────────────────────
+  // Budgets from AI are in EGP; Google Ads API expects micros (×1,000,000).
+  function translateToGoogleAdsMcp(t: string, a: Record<string, unknown>): { mcpTool: string; mcpArgs: Record<string, unknown> } {
+    const egpToMicros = (v: unknown) => Math.round(Number(v) * 1_000_000);
+    switch (t) {
+      case "ga_pause_campaign":
+        return { mcpTool: "pause_google_ads_campaign", mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id } };
+      case "ga_enable_campaign":
+        return { mcpTool: "enable_google_ads_campaign", mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id } };
+      case "ga_update_campaign_budget":
+        return { mcpTool: "update_google_ads_campaign", mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id, daily_budget_micros: egpToMicros(a.budget_amount) } };
+      case "ga_update_keyword_bid":
+        return { mcpTool: "update_google_ads_keyword_bid", mcpArgs: { customer_id: a.customer_id, ad_group_id: a.ad_group_id, criterion_ids: a.criterion_ids, cpc_bid_micros: egpToMicros(a.cpc_bid_egp) } };
+      case "ga_pause_keyword":
+        return { mcpTool: "pause_google_ads_keyword", mcpArgs: { customer_id: a.customer_id, ad_group_id: a.ad_group_id, criterion_ids: a.criterion_ids } };
+      case "ga_enable_keyword":
+        return { mcpTool: "enable_google_ads_keyword", mcpArgs: { customer_id: a.customer_id, ad_group_id: a.ad_group_id, criterion_ids: a.criterion_ids } };
+      default:
+        return { mcpTool: t, mcpArgs: a };
+    }
+  }
+
+  const isGaTool = GA_WRITE_TOOLS.has(tool);
+  const { mcpTool, mcpArgs } = isGaTool
+    ? translateToGoogleAdsMcp(tool, args ?? {})
+    : translateToMcp(tool, args ?? {});
 
   let success = false;
   let resultMessage = "";
 
   try {
-    const client = await getPipeboardWriteClient();
+    const client = isGaTool ? await getGoogleAdsWriteClient() : await getPipeboardWriteClient();
     const result = await client.callTool({ name: mcpTool, arguments: mcpArgs });
 
     const textContent = (result.content as Array<{ type: string; text?: string }>)

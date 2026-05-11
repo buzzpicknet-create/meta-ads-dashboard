@@ -66,12 +66,20 @@ const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Fac
 المستخدم يشوف على الشاشة الأداة اللي بتتنفذ في الوقت الفعلي — هذا يبني الثقة ويثبت إنك بتعمل تشخيص حقيقي.
 
 🔧 أدوات متاحة لك:
+**Meta Ads (فيسبوك/إنستجرام):**
 - get_campaigns: قائمة الحملات مع أداءها لأي فترة
 - get_campaign_daily: الأداء اليومي لحملة معينة
 - get_account_daily: الأداء اليومي للحساب كله
 - get_adsets: المجموعات الإعلانية لحملة معينة
 - get_ad_performance: أداء إعلان بعينه (نسبة الجذب، نسبة النقر، تكلفة التحويل، الظهورات، الإنفاق) — استخدم قبل التوصية بتغيير أو إيقاف إعلان محدد
 - get_ads_in_adset: قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية محددة مرتّبة بالكفاءة — استخدم قبل التوصية بزيادة إعلان أو إيقاف آخر لتحديد الـ Winner والـ Drain
+
+**Google Ads (جوجل):**
+- ga_get_campaigns: قائمة حملات Google Ads مع حالتها وميزانياتها عبر كل الحسابات المرتبطة — استخدم أولاً للحصول على customer_id وcampaign_id
+- ga_get_campaign_metrics: أداء حملات جوجل (Clicks، CTR، CPC، Conversions، Cost، ROAS) — استخدم لمقارنة الحملات أو تشخيص الأداء
+- ga_get_ad_groups: المجموعات الإعلانية لحساب جوجل مع أداء كل مجموعة
+- ga_get_keywords: الكلمات المفتاحية مع Quality Score وCPC الفعلي وأداءها — اكتشف كلمات تستنزف الميزانية أو كلمات ذهبية
+- ga_get_search_terms: تقرير مصطلحات البحث الفعلية — اكتشف ما يبحث عنه المستخدمون فعلاً وحدد الكلمات السلبية الضرورية
 
 كل حملة بتمر بمراحل متسلسلة. المشكلة في أي مرحلة بتأثر على كل اللي بعدها:
 
@@ -386,7 +394,7 @@ Frequency (في 7 أيام):
 }
 \`\`\`
 
-أنواع الإجراءات المتاحة: update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset
+أنواع الإجراءات المتاحة (Meta): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset
 - لـ update_campaign_budget: campaignId + currentBudget + newBudget + budgetType ("daily" أو "lifetime") إلزامي
 - لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي
 - لـ pause/enable: campaignId أو adsetId حسب النوع
@@ -757,6 +765,185 @@ const TOOLS = [
       },
     },
   },
+  // ── Google Ads tools ────────────────────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_get_campaigns",
+      description: "جيب قائمة كل حملات Google Ads مع حالتها وميزانياتها عبر كل الحسابات المرتبطة. استخدم أولاً للحصول على customer_id وcampaign_id.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف (7، 14، 30). افتراضي: 30" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_get_campaign_metrics",
+      description: "جيب أداء حملات Google Ads (Clicks، Impressions، CTR، CPC، Conversions، Cost، ROAS). استخدم لتحليل الأداء ومقارنة الحملات.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل (customer_id) من ga_get_campaigns. اتركه فارغاً لكل الحسابات." },
+          campaign_id: { type: "string", description: "رقم الحملة (اختياري — بدونه يجيب كل الحملات)" },
+          days: { type: "number", description: "عدد الأيام: 7، 14، 30، 90. افتراضي: 7" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_get_ad_groups",
+      description: "جيب المجموعات الإعلانية (Ad Groups) لحساب Google Ads مع أداء كل مجموعة. استخدم لتحليل الأداء على مستوى المجموعة.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل (customer_id) — إلزامي" },
+          campaign_id: { type: "string", description: "رقم الحملة (اختياري — بدونه يجيب كل المجموعات)" },
+          days: { type: "number", description: "عدد الأيام. افتراضي: 7" },
+        },
+        required: ["customer_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_get_keywords",
+      description: "جيب الكلمات المفتاحية مع Quality Score وCPC الفعلي وأداءها. استخدم لاكتشاف كلمات تستنزف الميزانية أو كلمات ذهبية تستحق زيادة الـ bid.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل (customer_id) — إلزامي" },
+          ad_group_id: { type: "string", description: "رقم المجموعة الإعلانية (اختياري)" },
+          days: { type: "number", description: "عدد الأيام. افتراضي: 7" },
+        },
+        required: ["customer_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_get_search_terms",
+      description: "جيب تقرير مصطلحات البحث الفعلية — ما يبحث عنه المستخدمون فعلاً. استخدم لاكتشاف كلمات سلبية ضرورية أو فرص كلمات جديدة.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل (customer_id). اتركه فارغاً لكل الحسابات." },
+          days: { type: "number", description: "عدد الأيام. افتراضي: 30" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_pause_campaign",
+      description: "اقتراح إيقاف مؤقت لحملة Google Ads. استخدم بعد تشخيص أداءها. سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل" },
+          campaign_id: { type: "string", description: "رقم الحملة" },
+          name: { type: "string", description: "اسم الحملة للعرض في التأكيد" },
+        },
+        required: ["customer_id", "campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_enable_campaign",
+      description: "اقتراح تشغيل حملة Google Ads موقوفة. سيظهر طلب تأكيد.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل" },
+          campaign_id: { type: "string", description: "رقم الحملة" },
+          name: { type: "string", description: "اسم الحملة" },
+        },
+        required: ["customer_id", "campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_update_campaign_budget",
+      description: "اقتراح تعديل الميزانية اليومية لحملة Google Ads. الميزانية بالـ EGP. سيظهر طلب تأكيد.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل" },
+          campaign_id: { type: "string", description: "رقم الحملة" },
+          name: { type: "string", description: "اسم الحملة" },
+          budget_amount: { type: "number", description: "الميزانية اليومية الجديدة بالـ EGP" },
+        },
+        required: ["customer_id", "campaign_id", "budget_amount"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_update_keyword_bid",
+      description: "اقتراح تعديل سعر المزايدة (Max CPC) لكلمة مفتاحية في Google Ads. الـ bid بالـ EGP. سيظهر طلب تأكيد.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل" },
+          ad_group_id: { type: "string", description: "رقم المجموعة الإعلانية" },
+          criterion_ids: { type: "array", items: { type: "string" }, description: "أرقام الكلمات المفتاحية (criterion IDs)" },
+          cpc_bid_egp: { type: "number", description: "الـ Max CPC الجديد بالـ EGP" },
+          name: { type: "string", description: "وصف للعرض في التأكيد" },
+        },
+        required: ["customer_id", "ad_group_id", "criterion_ids", "cpc_bid_egp"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_pause_keyword",
+      description: "اقتراح إيقاف كلمة مفتاحية في Google Ads. سيظهر طلب تأكيد.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل" },
+          ad_group_id: { type: "string", description: "رقم المجموعة الإعلانية" },
+          criterion_ids: { type: "array", items: { type: "string" }, description: "أرقام الكلمات المفتاحية" },
+          name: { type: "string", description: "وصف الكلمة للعرض في التأكيد" },
+        },
+        required: ["customer_id", "ad_group_id", "criterion_ids"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ga_enable_keyword",
+      description: "اقتراح تشغيل كلمة مفتاحية موقوفة في Google Ads. سيظهر طلب تأكيد.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_id: { type: "string", description: "رقم العميل" },
+          ad_group_id: { type: "string", description: "رقم المجموعة الإعلانية" },
+          criterion_ids: { type: "array", items: { type: "string" }, description: "أرقام الكلمات المفتاحية" },
+          name: { type: "string", description: "وصف الكلمة" },
+        },
+        required: ["customer_id", "ad_group_id", "criterion_ids"],
+      },
+    },
+  },
 ];
 
 // ── Arabic label for each read tool (used in tool_call_label SSE events) ─────
@@ -770,8 +957,13 @@ function getToolLabel(name: string, args: Record<string, unknown>): string {
     case "get_campaign_budget": return `جلب ميزانية الحملة ${String(args.campaign_id ?? "")}…`;
     case "get_adset_status":    return `جلب حالة المجموعة الإعلانية ${String(args.adset_id ?? "")}…`;
     case "get_ad_performance":  return `جلب أداء الإعلان ${String(args.ad_id ?? "")}…`;
-    case "get_ads_in_adset":   return `جلب الإعلانات داخل المجموعة ${String(args.adset_id ?? "")}…`;
-    default:                    return `جلب البيانات (${name})…`;
+    case "get_ads_in_adset":         return `جلب الإعلانات داخل المجموعة ${String(args.adset_id ?? "")}…`;
+    case "ga_get_campaigns":         return "جلب حملات Google Ads…";
+    case "ga_get_campaign_metrics":  return `جلب أداء Google Ads${args.customer_id ? ` (${String(args.customer_id)})` : ""}…`;
+    case "ga_get_ad_groups":         return `جلب المجموعات الإعلانية Google Ads…`;
+    case "ga_get_keywords":          return `جلب الكلمات المفتاحية Google Ads…`;
+    case "ga_get_search_terms":      return "جلب تقرير مصطلحات البحث Google Ads…";
+    default:                         return `جلب البيانات (${name})…`;
   }
 }
 
@@ -787,6 +979,13 @@ const WRITE_TOOL_NAMES = new Set([
   "create_campaign",
   "create_adset",
   "duplicate_campaign",
+  // Google Ads write tools
+  "ga_pause_campaign",
+  "ga_enable_campaign",
+  "ga_update_campaign_budget",
+  "ga_update_keyword_bid",
+  "ga_pause_keyword",
+  "ga_enable_keyword",
 ]);
 
 // ── Rate-limit error detection (mirrors meta.ts) ─────────────────────────────
@@ -962,6 +1161,31 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
         proposedValue: `نسخة جديدة من "${label}"`,
       };
     }
+    // ── Google Ads write tools ────────────────────────────────────────────────
+    case "ga_pause_campaign":
+      return { tool: name, args, summary: `⏸ إيقاف حملة Google Ads "${label}"`, proposedValue: "موقوفة ⏸" };
+    case "ga_enable_campaign":
+      return { tool: name, args, summary: `▶️ تشغيل حملة Google Ads "${label}"`, proposedValue: "نشطة ✅" };
+    case "ga_update_campaign_budget": {
+      const proposed = Math.round(Number(args.budget_amount ?? 0));
+      return {
+        tool: name, args,
+        summary: `💰 تعديل ميزانية Google Ads "${label}" إلى ${proposed} EGP/يوم`,
+        proposedValue: `${proposed} EGP`,
+      };
+    }
+    case "ga_update_keyword_bid": {
+      const bid = Math.round(Number(args.cpc_bid_egp ?? 0));
+      return {
+        tool: name, args,
+        summary: `🎯 تعديل Max CPC "${label}" إلى ${bid} EGP`,
+        proposedValue: `${bid} EGP CPC`,
+      };
+    }
+    case "ga_pause_keyword":
+      return { tool: name, args, summary: `⏸ إيقاف كلمة مفتاحية "${label}"`, proposedValue: "موقوفة ⏸" };
+    case "ga_enable_keyword":
+      return { tool: name, args, summary: `▶️ تشغيل كلمة مفتاحية "${label}"`, proposedValue: "نشطة ✅" };
     default:
       return { tool: name, args, summary: label };
   }
@@ -1181,6 +1405,189 @@ async function callPipeboardRead(
   }
 }
 
+// ── Google Ads MCP singleton ──────────────────────────────────────────────────
+let _gaClient: Client | null = null;
+let _gaConnecting: Promise<Client> | null = null;
+
+async function getGoogleAdsClient(): Promise<Client> {
+  if (_gaClient) return _gaClient;
+  if (_gaConnecting) return _gaConnecting;
+
+  _gaConnecting = (async () => {
+    const token = process.env.PIPEBOARD_API_TOKEN;
+    if (!token) throw new Error("PIPEBOARD_API_TOKEN not set");
+    const c = new Client({ name: "google-ads-dashboard", version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL("https://mcp.pipeboard.co/google-ads-mcp"),
+      { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
+    );
+    await c.connect(transport);
+    _gaClient = c;
+    _gaConnecting = null;
+    logger.info("Google Ads Pipeboard singleton connected");
+    return c;
+  })();
+
+  try {
+    return await _gaConnecting;
+  } catch (err) {
+    _gaConnecting = null;
+    throw err;
+  }
+}
+
+async function callGoogleAdsRead(toolName: string, toolArgs: Record<string, unknown>): Promise<string> {
+  try {
+    const client = await getGoogleAdsClient();
+    const result = await client.callTool({ name: toolName, arguments: toolArgs });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    return content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n").trim();
+  } catch (err) {
+    _gaClient = null;
+    _gaConnecting = null;
+    throw err;
+  }
+}
+
+// In-memory customer cache (refreshed on server restart)
+let _gaCustomers: { id: string; name: string }[] | null = null;
+
+async function getGoogleAdsCustomers(): Promise<{ id: string; name: string }[]> {
+  if (_gaCustomers) return _gaCustomers;
+  try {
+    const raw = await callGoogleAdsRead("list_google_ads_customers", {});
+    const parsed = JSON.parse(raw) as { connections?: { customers?: { id: string; name: string; can_query_metrics?: boolean }[] }[] };
+    const customers: { id: string; name: string }[] = [];
+    for (const conn of parsed.connections ?? []) {
+      for (const c of conn.customers ?? []) {
+        if (c.can_query_metrics !== false) {
+          customers.push({ id: c.id, name: c.name });
+        }
+      }
+    }
+    _gaCustomers = customers;
+    return customers;
+  } catch {
+    return [];
+  }
+}
+
+function daysToGADateRange(days: number): string {
+  if (days <= 1) return "TODAY";
+  if (days <= 7) return "LAST_7_DAYS";
+  if (days <= 14) return "LAST_14_DAYS";
+  if (days <= 30) return "LAST_30_DAYS";
+  return "LAST_90_DAYS";
+}
+
+// Maps ga_* tool names → Google Ads MCP calls via Pipeboard.
+async function tryExecuteViaGoogleAds(
+  name: string,
+  args: Record<string, unknown>
+): Promise<string | null> {
+  if (!process.env.PIPEBOARD_API_TOKEN) return null;
+
+  const days = Number(args.days ?? 30);
+  const dateRange = daysToGADateRange(days);
+
+  try {
+    if (name === "ga_get_campaigns") {
+      const customers = await getGoogleAdsCustomers();
+      if (customers.length === 0) return "لا توجد حسابات Google Ads مرتبطة بـ Pipeboard.";
+      const results = await Promise.all(
+        customers.map(async (cust) => {
+          const r = await callGoogleAdsRead("get_google_ads_campaigns", { customer_id: cust.id });
+          return `### ${cust.name} (customer_id: ${cust.id})\n${r}`;
+        })
+      );
+      return results.join("\n\n---\n\n");
+    }
+
+    if (name === "ga_get_campaign_metrics") {
+      const customer_id = String(args.customer_id ?? "");
+      if (customer_id) {
+        const r = await callGoogleAdsRead("get_google_ads_campaign_metrics", {
+          customer_id,
+          ...(args.campaign_id ? { campaign_id: String(args.campaign_id) } : {}),
+          date_range: dateRange,
+        });
+        return r;
+      }
+      // No customer_id — query all
+      const customers = await getGoogleAdsCustomers();
+      if (customers.length === 0) return "لا توجد حسابات Google Ads مرتبطة.";
+      const results = await Promise.all(
+        customers.map(async (cust) => {
+          const r = await callGoogleAdsRead("get_google_ads_campaign_metrics", {
+            customer_id: cust.id, date_range: dateRange,
+          }).catch((e: unknown) => `[خطأ ${cust.name}: ${e instanceof Error ? e.message : String(e)}]`);
+          return `### ${cust.name}\n${r}`;
+        })
+      );
+      return results.join("\n\n---\n\n");
+    }
+
+    if (name === "ga_get_ad_groups") {
+      const customer_id = String(args.customer_id ?? "");
+      if (!customer_id) return "customer_id إلزامي لجلب المجموعات الإعلانية.";
+      const [groups, metrics] = await Promise.all([
+        callGoogleAdsRead("get_google_ads_ad_groups", {
+          customer_id,
+          ...(args.campaign_id ? { campaign_id: String(args.campaign_id) } : {}),
+        }),
+        callGoogleAdsRead("get_google_ads_ad_group_metrics", {
+          customer_id,
+          ...(args.campaign_id ? { campaign_id: String(args.campaign_id) } : {}),
+          date_range: dateRange,
+        }),
+      ]);
+      return `### المجموعات الإعلانية\n${groups}\n\n### الأداء (${dateRange})\n${metrics}`;
+    }
+
+    if (name === "ga_get_keywords") {
+      const customer_id = String(args.customer_id ?? "");
+      if (!customer_id) return "customer_id إلزامي لجلب الكلمات المفتاحية.";
+      const [kws, metrics] = await Promise.all([
+        callGoogleAdsRead("get_google_ads_keywords", {
+          customer_id,
+          ...(args.ad_group_id ? { ad_group_id: String(args.ad_group_id) } : {}),
+        }),
+        callGoogleAdsRead("get_google_ads_keyword_metrics", {
+          customer_id,
+          ...(args.ad_group_id ? { ad_group_id: String(args.ad_group_id) } : {}),
+          date_range: dateRange,
+        }),
+      ]);
+      return `### الكلمات المفتاحية\n${kws}\n\n### الأداء (${dateRange})\n${metrics}`;
+    }
+
+    if (name === "ga_get_search_terms") {
+      const customer_id = String(args.customer_id ?? "");
+      if (customer_id) {
+        return await callGoogleAdsRead("get_google_ads_search_terms_report", {
+          customer_id, date_range: dateRange,
+        });
+      }
+      const customers = await getGoogleAdsCustomers();
+      if (customers.length === 0) return "لا توجد حسابات Google Ads مرتبطة.";
+      const results = await Promise.all(
+        customers.map(async (cust) => {
+          const r = await callGoogleAdsRead("get_google_ads_search_terms_report", {
+            customer_id: cust.id, date_range: dateRange,
+          }).catch((e: unknown) => `[خطأ ${cust.name}: ${e instanceof Error ? e.message : String(e)}]`);
+          return `### ${cust.name}\n${r}`;
+        })
+      );
+      return results.join("\n\n---\n\n");
+    }
+
+    return null;
+  } catch (err) {
+    logger.warn({ err, tool: name }, "Google Ads read failed");
+    return null;
+  }
+}
+
 // Maps our AI tool names → Pipeboard MCP read calls.
 // Returns null if the tool isn't mapped (caller falls through to native Meta API).
 async function tryExecuteViaPipeboard(
@@ -1303,6 +1710,16 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   // This fallback should not be reached in normal operation.
   if (WRITE_TOOL_NAMES.has(name)) {
     return `ACTION_PENDING:${JSON.stringify(buildOptimisticPendingAction(name, args))}`;
+  }
+
+  // ── Google Ads tools — route directly to Google Ads MCP ──────────────────
+  if (name.startsWith("ga_")) {
+    const gaResult = await tryExecuteViaGoogleAds(name, args);
+    if (gaResult !== null && gaResult.trim().length > 0) {
+      logger.info({ tool: name }, "executeTool: served via Google Ads MCP");
+      return gaResult;
+    }
+    return "فشل جلب بيانات Google Ads. تأكد من ربط الحساب مع Pipeboard.";
   }
 
   const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 7 : 14));
@@ -2439,6 +2856,7 @@ router.delete("/ai/memory", async (req: Request, res: Response) => {
 export function warmUpPipeboard(): void {
   if (process.env.PIPEBOARD_API_TOKEN) {
     getPipeboardClient().catch(() => null);
+    getGoogleAdsClient().catch(() => null);
   }
 }
 

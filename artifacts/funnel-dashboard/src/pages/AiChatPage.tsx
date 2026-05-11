@@ -46,7 +46,7 @@ const QA_DAY = [
   },
 ];
 
-// Classic actions — shown in second row
+// Classic Meta actions — shown in second row
 const QA = [
   { label: "☕ التقرير الصباحي",   prompt: "اسحب داتا كل الحملات النشطة لليوم وقارنها بمتوسط بيانات آخر 7 أيام. أعطني ملخصاً سريعاً: ما هي الحملات الرابحة وما هي الحملات التي تتخطى الـ CPA المستهدف وتحتاج تدخل فوري؟ ارسم لي جدول مقارنة يعتمد على الـ CPA كأساس للتقييم." },
   { label: "🚀 فرص الـ Scale",     prompt: "حلل الحملات النشطة بناءً على أداء آخر 7 أيام، وحدد الـ Adsets التي تحقق CPA أقل من المستهدف ومستقرة. جهّز مقترحات لزيادة ميزانيتها 20% مع أزرار التنفيذ المباشر عبر الـ MCP." },
@@ -55,8 +55,15 @@ const QA = [
   { label: "🕵️ تقييم التعديلات",  prompt: "ابحث عن الحملات التي أجرينا عليها تعديلات مؤخراً. قارن أداءها قبل وبعد التعديل. هل نجح الإجراء؟" },
 ];
 
+// Google Ads quick actions
+const QA_GOOGLE = [
+  { label: "🔍 حملات Google Ads",      prompt: "جيب قائمة كل حملات Google Ads عبر كل الحسابات مع حالتها وميزانياتها. ثم اجلب أداءها في آخر 7 أيام (Clicks، CTR، CPC، Conversions، Cost) ورتّبها من الأفضل للأضعف في جدول. حدد أيها يستحق تحسين الميزانية أو الإيقاف." },
+  { label: "🎯 تحليل الكلمات المفتاحية", prompt: "جيب الكلمات المفتاحية لكل حسابات Google Ads مع Quality Score وCPC الفعلي وأداءها في آخر 7 أيام. رتّبها في جدول وحدد: أي الكلمات تستنزف الميزانية (Quality Score منخفض + تكلفة عالية)؟ وأيها ذهبية تستحق زيادة الـ bid؟" },
+  { label: "🔎 تقرير البحث (Search Terms)", prompt: "جيب تقرير مصطلحات البحث الفعلية من Google Ads لآخر 30 يوم. رتّبها حسب التكلفة. حدد المصطلحات التي لا تحوّل وتستهلك الميزانية وتستحق إضافتها ككلمات سلبية. واذكر أيها يستحق إضافته ككلمة مفتاحية إيجابية." },
+];
+
 // All for the bottom strip
-const QA_ALL = [...QA_DAY, ...QA];
+const QA_ALL = [...QA_DAY, ...QA, ...QA_GOOGLE];
 
 // ─── Chart block ──────────────────────────────────────────────────────────────
 const C = ["#6366f1","#10b981","#f59e0b","#ef4444","#3b82f6","#8b5cf6","#ec4899"];
@@ -630,7 +637,7 @@ export default function AiChatPage() {
                 <div>
                   <h1 className="text-2xl font-bold">مرحباً{user?.username ? ` ${user.username}` : ""}!</h1>
                   <p className="text-muted-foreground mt-2 text-sm max-w-sm">
-                    أنا مساعدك الذكي لإعلانات Meta. اسألني عن حملاتك أو استخدم الأزرار السريعة أدناه.
+                    أنا مساعدك الذكي لإعلانات Meta &amp; Google Ads. اسألني عن حملاتك أو استخدم الأزرار السريعة أدناه.
                   </p>
                 </div>
                 {campLoad && (
@@ -657,7 +664,7 @@ export default function AiChatPage() {
                 ))}
               </div>
 
-              {/* Classic quick actions — second row */}
+              {/* Classic Meta quick actions — second row */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 w-full max-w-3xl">
                 {QA.map(q=>(
                   <button
@@ -671,6 +678,28 @@ export default function AiChatPage() {
                     </span>
                   </button>
                 ))}
+              </div>
+
+              {/* Google Ads quick actions — third row */}
+              <div className="w-full max-w-3xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Google Ads</span>
+                  <div className="flex-1 h-px bg-emerald-200 dark:bg-emerald-900/40" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {QA_GOOGLE.map(q=>(
+                    <button
+                      key={q.label}
+                      onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }}
+                      className="group text-right px-3 py-2.5 rounded-xl border border-emerald-500/25 bg-emerald-50/50 dark:bg-emerald-950/20 hover:border-emerald-500/50 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-all text-sm"
+                    >
+                      <span className="block font-medium text-foreground text-xs">{q.label}</span>
+                      <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
+                        {q.prompt.slice(0,55)}...
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -814,7 +843,9 @@ export default function AiChatPage() {
                   className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 whitespace-nowrap ${
                     idx < QA_DAY.length
                       ? "border-primary/35 bg-primary/8 text-foreground hover:bg-primary/15 hover:border-primary/60"
-                      : "border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
+                      : idx < QA_DAY.length + QA.length
+                        ? "border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
+                        : "border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-500/60"
                   }`}>
                   {q.label}
                 </button>
