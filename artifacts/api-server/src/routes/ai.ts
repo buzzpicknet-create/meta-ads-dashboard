@@ -890,6 +890,7 @@ const TOOLS = [
           daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — افتراضي 20 إذا لم يُحدَّد" },
           primary_text: { type: "string", description: "النص الإعلاني الرئيسي — مقنع، يتضمن إيموجي، مكتوب بالعربية" },
           headline: { type: "string", description: "عنوان الإعلان المختصر بالعربية (15-25 حرف)" },
+          pixel_id: { type: "string", description: "معرّف بيكسل Meta (اختياري) — يُمكّن تتبع التحويلات ويُنشئ حملة OUTCOME_SALES. بدونه تُنشأ حملة OUTCOME_TRAFFIC. اسأل المستخدم إذا أراد حملة مبيعات." },
         },
         required: ["account_id", "campaign_name", "landing_page_url", "media_url", "primary_text", "headline"],
       },

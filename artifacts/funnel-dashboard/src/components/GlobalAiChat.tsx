@@ -1103,6 +1103,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       const data = await resp.json() as { success?: boolean; message?: string; error?: string; launchData?: Record<string, unknown> };
       let resultText: string;
       if (resp.ok && data.success && pendingAction.tool === "launch_pipeboard_campaign") {
+        const ld = data.launchData ?? {};
         const cardData: PipeboardLaunchData = {
           campaign_name: String(pendingAction.args.campaign_name ?? ""),
           daily_budget: Number(pendingAction.args.daily_budget ?? 20),
@@ -1110,8 +1111,11 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
           headline: String(pendingAction.args.headline ?? ""),
           status: "PAUSED",
           landing_page_url: String(pendingAction.args.landing_page_url ?? ""),
-          campaign_id: String(data.launchData?.campaign_id ?? ""),
-          adset_id: String(data.launchData?.adset_id ?? ""),
+          campaign_id: ld.campaign_id ? String(ld.campaign_id) : undefined,
+          adset_id: ld.adset_id ? String(ld.adset_id) : undefined,
+          adset_error: ld.adset_error ? String(ld.adset_error) : undefined,
+          objective: ld.objective ? String(ld.objective) : undefined,
+          has_pixel: Boolean(ld.has_pixel),
         };
         resultText = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
       } else {

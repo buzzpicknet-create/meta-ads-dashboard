@@ -635,6 +635,7 @@ export default function AiChatPage() {
       const d = await r.json() as {success?:boolean;message?:string;error?:string;launchData?:Record<string,unknown>};
       let res: string;
       if (r.ok && d.success && pending.tool === "launch_pipeboard_campaign") {
+        const ld = d.launchData ?? {};
         const cardData: PipeboardLaunchData = {
           campaign_name: String(pending.args.campaign_name ?? ""),
           daily_budget: Number(pending.args.daily_budget ?? 20),
@@ -642,8 +643,11 @@ export default function AiChatPage() {
           headline: String(pending.args.headline ?? ""),
           status: "PAUSED",
           landing_page_url: String(pending.args.landing_page_url ?? ""),
-          campaign_id: String(d.launchData?.campaign_id ?? ""),
-          adset_id: String(d.launchData?.adset_id ?? ""),
+          campaign_id: ld.campaign_id ? String(ld.campaign_id) : undefined,
+          adset_id: ld.adset_id ? String(ld.adset_id) : undefined,
+          adset_error: ld.adset_error ? String(ld.adset_error) : undefined,
+          objective: ld.objective ? String(ld.objective) : undefined,
+          has_pixel: Boolean(ld.has_pixel),
         };
         res = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
       } else {

@@ -249,6 +249,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     let pipeMsg = "";
     let campaignId = "";
     let adsetId = "";
+    let adsetError = "";
+    const pixelId = String(args?.pixel_id ?? "").trim();
+    const hasPixel = pixelId.length > 0;
+    // Without a pixel we fall back to TRAFFIC+LINK_CLICKS which never requires promoted_object
+    const campObjective = hasPixel ? "OUTCOME_SALES" : "OUTCOME_TRAFFIC";
+    const optimizationGoal = hasPixel ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS";
+
     try {
       const client = await getPipeboardWriteClient();
       const egpToCents = (v: unknown) => Math.round(Number(v) * 100);
@@ -262,38 +269,54 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         arguments: {
           account_id: accountId,
           name: campaignName,
-          objective: "OUTCOME_SALES",
+          objective: campObjective,
           status: "PAUSED",
+          special_ad_categories: [],
           daily_budget: budget,
         },
       });
       const campText = (campResult.content as Array<{ type: string; text?: string }>)
         ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
-      // Extract campaign id from response (Meta returns {"id":"XXXX"} or text containing id)
+      logger.info({ campText }, "launch_pipeboard_campaign: create_campaign response");
       const campIdMatch = campText.match(/"id"\s*:\s*"(\d+)"/) ?? campText.match(/\b(\d{10,})\b/);
       campaignId = campIdMatch?.[1] ?? "";
 
-      // Step 2: create adset (if we have a campaign_id)
+      // Step 2: create adset (requires campaign_id)
       if (campaignId) {
         try {
-          const adsetResult = await client.callTool({
-            name: "create_adset",
-            arguments: {
-              account_id: accountId,
-              campaign_id: campaignId,
-              name: `${campaignName} — مجموعة رئيسية`,
-              optimization_goal: "OFFSITE_CONVERSIONS",
-              billing_event: "IMPRESSIONS",
-              status: "PAUSED",
-              targeting: { geo_locations: { countries: ["EG"] } },
+          const adsetArgs: Record<string, unknown> = {
+            account_id: accountId,
+            campaign_id: campaignId,
+            name: `${campaignName} — مجموعة رئيسية`,
+            optimization_goal: optimizationGoal,
+            billing_event: "IMPRESSIONS",
+            status: "PAUSED",
+            targeting: {
+              geo_locations: { countries: ["EG"] },
+              age_min: 18,
+              age_max: 65,
             },
-          });
+          };
+          if (hasPixel) {
+            adsetArgs.promoted_object = {
+              pixel_id: pixelId,
+              custom_event_type: "PURCHASE",
+            };
+          }
+          const adsetResult = await client.callTool({ name: "create_adset", arguments: adsetArgs });
           const adsetText = (adsetResult.content as Array<{ type: string; text?: string }>)
             ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          logger.info({ adsetText }, "launch_pipeboard_campaign: create_adset response");
           const adsetIdMatch = adsetText.match(/"id"\s*:\s*"(\d+)"/) ?? adsetText.match(/\b(\d{10,})\b/);
           adsetId = adsetIdMatch?.[1] ?? "";
+          if (!adsetId) {
+            // Pipeboard may return an error text instead of an id
+            adsetError = adsetText.slice(0, 300);
+            logger.warn({ adsetText }, "launch_pipeboard_campaign: create_adset — no id found in response");
+          }
         } catch (adsetErr) {
-          logger.warn({ adsetErr }, "launch_pipeboard_campaign: create_adset failed (non-fatal)");
+          adsetError = adsetErr instanceof Error ? adsetErr.message : String(adsetErr);
+          logger.warn({ adsetError }, "launch_pipeboard_campaign: create_adset threw");
         }
       }
 
@@ -321,6 +344,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         launchData: {
           campaign_id: campaignId || undefined,
           adset_id: adsetId || undefined,
+          adset_error: adsetError || undefined,
+          objective: campObjective,
+          has_pixel: hasPixel,
         },
       });
     } else {
