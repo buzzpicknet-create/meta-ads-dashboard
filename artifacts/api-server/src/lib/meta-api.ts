@@ -83,7 +83,7 @@ async function fbGetSingle<T>(path: string, params: Record<string, string> = {})
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
   }
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS) });
   const json = (await res.json()) as T & { error?: FbApiError };
   if (json.error) {
     if (isRateLimitCode((json.error as FbApiError).code)) {
@@ -95,9 +95,13 @@ async function fbGetSingle<T>(path: string, params: Record<string, string> = {})
   return json;
 }
 
+// Per-request timeout for Meta API calls — prevents hanging connections.
+const META_FETCH_TIMEOUT_MS = 60_000;
+
 async function fbGet<T>(
   pathOrUrl: string,
   params: Record<string, string> = {},
+  _retryCount = 0,
 ): Promise<T[]> {
   // Honor any active backoff — throw immediately so callers can serve from cache
   // instead of blocking the HTTP connection for up to 90 seconds.
@@ -121,7 +125,19 @@ async function fbGet<T>(
   let pageCount = 0;
 
   while (nextUrl && pageCount < 50) {
-    const res = await fetch(nextUrl);
+    let res: Response;
+    try {
+      res = await fetch(nextUrl, { signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS) });
+    } catch (fetchErr) {
+      // Network / timeout error — exponential backoff up to 2 retries (2s, 4s)
+      if (_retryCount < 2) {
+        const backoffMs = Math.pow(2, _retryCount + 1) * 1000;
+        logger.warn({ retryCount: _retryCount, backoffMs, err: String(fetchErr) }, "Meta API network error — retrying");
+        await sleep(backoffMs);
+        return fbGet<T>(pathOrUrl, params, _retryCount + 1);
+      }
+      throw fetchErr;
+    }
     const json = (await res.json()) as FbApiResponse<T>;
     if (json.error) {
       if (isRateLimitCode(json.error.code)) {
@@ -267,6 +283,9 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
 // When a window's field is absent from the response, Meta means its value is 0.
 const ATTRIBUTION_WINDOW = '["1d_click","7d_click","1d_view"]';
 
+// Full insight fields — used for getCampaignInsights (DiagnosisModal, ad-level detail).
+// Removed: ctr, cpc, cpm, frequency (pre-computed by Meta — we derive ourselves from raw counts),
+//          action_values (never read), video_p25/50/75_watched_actions (stored but never used in derive()).
 const INSIGHT_FIELDS = [
   "campaign_id",
   "campaign_name",
@@ -279,18 +298,20 @@ const INSIGHT_FIELDS = [
   "spend",
   "clicks",
   "inline_link_clicks",
-  "ctr",
-  "cpc",
-  "cpm",
-  "frequency",
   "actions",
-  "action_values",
   "video_play_actions",
-  "video_p25_watched_actions",
-  "video_p50_watched_actions",
-  "video_p75_watched_actions",
   "video_p95_watched_actions",
   "video_p100_watched_actions",
+].join(",");
+
+// Lean fields for campaign-list calls — no video metrics, no reach.
+// Used when we only need spend/purchases/CTR for a campaign summary row.
+const LEAN_CAMPAIGN_FIELDS = [
+  "campaign_id",
+  "impressions",
+  "spend",
+  "inline_link_clicks",
+  "actions",
 ].join(",");
 
 export interface CampaignSummary {
@@ -319,13 +340,20 @@ export async function listCampaigns(opts: {
   since: string;
   until: string;
   adAccountId?: string;
+  /** When true: only fetch ACTIVE/CAMPAIGN_PAUSED campaigns and use lean insight fields.
+   *  Reduces API payload by ~70% — use for AI tool calls. Default: false (full data for dashboard). */
+  activeOnly?: boolean;
 }): Promise<CampaignSummary[]> {
   const rawAccount = opts.adAccountId || getAdAccountId();
   const adAccount = rawAccount.startsWith("act_")
     ? rawAccount.slice(4)
     : rawAccount;
 
-  // 1) Fetch all campaigns metadata (include archived/deleted for activity name-lookup)
+  // 1) Fetch campaigns metadata
+  // activeOnly: restrict to spending statuses only — skips ARCHIVED/DELETED/PAUSED metadata fetch
+  const statusFilter = opts.activeOnly
+    ? ["ACTIVE", "CAMPAIGN_PAUSED"]
+    : ["ACTIVE", "PAUSED", "ARCHIVED", "DELETED", "CAMPAIGN_PAUSED"];
   const campaigns = await fbGet<{
     id: string;
     name: string;
@@ -334,16 +362,17 @@ export async function listCampaigns(opts: {
     objective: string;
   }>(`/act_${adAccount}/campaigns`, {
     fields: "id,name,status,effective_status,objective",
-    filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "ARCHIVED", "DELETED", "CAMPAIGN_PAUSED"] }]),
+    filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: statusFilter }]),
     limit: "500",
   });
 
   // 2) Fetch insights at campaign level for the period
+  // activeOnly: use lean fields (no video, no reach) — sufficient for spend/purchases/CTR summary
   const time_range = JSON.stringify({ since: opts.since, until: opts.until });
   const insights = await fbGet<FbInsightRow>(`/act_${adAccount}/insights`, {
     level: "campaign",
     time_range,
-    fields: INSIGHT_FIELDS,
+    fields: opts.activeOnly ? LEAN_CAMPAIGN_FIELDS : INSIGHT_FIELDS,
     action_attribution_windows: ATTRIBUTION_WINDOW,
     limit: "200",
   });

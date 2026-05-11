@@ -1269,7 +1269,8 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     }
     if (isRateLimitActive() && hit) return { data: hit.campaigns as Awaited<ReturnType<typeof listCampaigns>>, fromCache: true, cacheAgeMs: hitAgeMs };
     try {
-      const campaigns = await listCampaigns({ since: s, until: u, adAccountId });
+      // AI tools only need active + spending campaigns — use lean fields for minimal payload
+      const campaigns = await listCampaigns({ since: s, until: u, adAccountId, activeOnly: true });
       await query(
         `INSERT INTO meta_campaigns_cache (account_id, period_since, period_until, campaigns, fetched_at)
          VALUES ($1,$2,$3,$4,NOW())
@@ -1326,18 +1327,25 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
     if (accounts.length === 0) return "لا توجد حسابات إعلانية مرتبطة.";
 
     if (name === "get_campaigns") {
-      const rows: string[] = [`## الحملات (آخر ${days} يوم):\n`];
+      const rows: string[] = [`## الحملات النشطة (آخر ${days} يوم):\n`];
       rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
       rows.push("|--------|--------|--------------|---------|-----------|------|");
       let maxCacheAgeMs = 0;
       let anyFromCache = false;
+      let totalShown = 0;
       for (const acc of accounts) {
         const result = await fetchCampaignsCached(acc.id);
         if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
-        for (const c of result.data) {
+        // Filter: only campaigns with spend > 0, sorted by spend desc
+        const spending = result.data
+          .filter((c) => c.spend > 0)
+          .sort((a, b) => b.spend - a.spend);
+        for (const c of spending) {
           rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
+          totalShown++;
         }
       }
+      if (totalShown === 0) rows.push("_(لا توجد حملات بإنفاق خلال هذه الفترة)_");
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
 
