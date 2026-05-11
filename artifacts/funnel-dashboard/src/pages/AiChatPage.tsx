@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, User, Plus, Loader2, CheckCircle2,
   Brain, Paperclip, X, SquarePen, MessageSquare, Clock,
-  BarChart2, Zap, AlertTriangle, Square, CheckSquare,
+  BarChart2, Zap, AlertTriangle, Square, CheckSquare, Menu,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import {
@@ -616,23 +616,43 @@ export default function AiChatPage() {
     if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
   };
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const grouped = groupConvs(convs);
   const isEmpty = msgs.length===0 && !streamTxt;
 
   return (
-    <div className="flex h-[calc(100vh-56px)] overflow-hidden bg-background" dir="rtl">
+    <div className="flex h-[calc(100dvh-120px)] sm:h-[calc(100dvh-56px)] overflow-hidden bg-background" dir="rtl">
+
+      {/* ── Mobile backdrop ── */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={()=>setSidebarOpen(false)}
+        />
+      )}
 
       {/* ══════════════════════════════════════════════════════ SIDEBAR */}
-      <aside className="w-64 shrink-0 border-l border-border/60 flex flex-col bg-muted/20">
+      <aside className={`
+        fixed top-14 bottom-16 right-0 z-50 w-72 flex flex-col bg-background border-l border-border/60 transition-transform duration-300
+        sm:top-14 sm:bottom-0
+        md:relative md:top-auto md:bottom-auto md:w-64 md:z-auto md:translate-x-0 md:bg-muted/20
+        ${sidebarOpen ? "translate-x-0" : "translate-x-full"}
+      `}>
 
-        {/* New chat */}
-        <div className="p-3">
+        {/* Sidebar header */}
+        <div className="flex items-center gap-2 p-3">
           <button
-            onClick={newChat}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium border border-border/60 bg-background hover:bg-muted/60 transition-colors text-foreground"
+            onClick={()=>{ newChat(); setSidebarOpen(false); }}
+            className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium border border-border/60 bg-background hover:bg-muted/60 transition-colors text-foreground"
           >
             <SquarePen className="h-4 w-4 text-muted-foreground shrink-0" />
             محادثة جديدة
+          </button>
+          <button
+            onClick={()=>setSidebarOpen(false)}
+            className="md:hidden h-9 w-9 flex items-center justify-center rounded-xl hover:bg-muted text-muted-foreground"
+          >
+            <X className="h-4 w-4" />
           </button>
         </div>
 
@@ -654,7 +674,7 @@ export default function AiChatPage() {
                 {g.items.map(c=>(
                   <div
                     key={c.id}
-                    onClick={()=>void loadConv(c)}
+                    onClick={()=>{ void loadConv(c); setSidebarOpen(false); }}
                     className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors text-right ${convId===c.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground/80"}`}
                   >
                     <span className="flex-1 text-[13px] truncate leading-snug">{c.title}</span>
@@ -691,15 +711,35 @@ export default function AiChatPage() {
       {/* ══════════════════════════════════════════════════════ MAIN */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
+        {/* ── Mobile header ── */}
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-border/60 bg-background shrink-0">
+          <button
+            onClick={()=>setSidebarOpen(true)}
+            className="h-9 w-9 flex items-center justify-center rounded-xl hover:bg-muted text-muted-foreground"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="flex-1 flex items-center justify-center gap-1.5">
+            <Bot className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">مساعد الإعلانات</span>
+          </div>
+          <button
+            onClick={()=>{ newChat(); setSidebarOpen(false); }}
+            className="h-9 w-9 flex items-center justify-center rounded-xl hover:bg-muted text-muted-foreground"
+          >
+            <SquarePen className="h-4 w-4" />
+          </button>
+        </div>
+
         {/* ── Account selector bar (mandatory, always visible) ── */}
         {allAccounts.length > 0 && (
-          <div className="border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0" dir="rtl">
-            <div className="max-w-3xl mx-auto flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-medium text-muted-foreground shrink-0 ml-1">تحليل:</span>
+          <div className="border-b border-border/40 bg-muted/20 px-3 py-2 shrink-0" dir="rtl">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide flex-nowrap">
+              <span className="text-[11px] font-medium text-muted-foreground shrink-0">تحليل:</span>
               {allAccounts.length > 1 && (
                 <button
                   onClick={selectedAccIds.size === allAccounts.length ? clearAllAccounts : selectAllAccounts}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-all ${
+                  className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] border transition-all ${
                     selectedAccIds.size === allAccounts.length
                       ? "bg-primary/15 border-primary/40 text-primary font-medium"
                       : "bg-card border-border/60 text-muted-foreground hover:border-primary/30"
@@ -718,7 +758,7 @@ export default function AiChatPage() {
                     key={acc.id}
                     onClick={() => toggleAccId(acc.id)}
                     title={acc.id}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all ${
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all ${
                       sel
                         ? acc.type === "meta"
                           ? "bg-blue-100 dark:bg-blue-950/40 border-blue-400/60 text-blue-700 dark:text-blue-300 font-medium"
@@ -729,14 +769,14 @@ export default function AiChatPage() {
                     {sel
                       ? <CheckSquare className="h-3 w-3 shrink-0" />
                       : <Square className="h-3 w-3 shrink-0 opacity-30" />}
-                    <span className="max-w-[130px] truncate">{acc.name}</span>
+                    <span className="max-w-[110px] truncate">{acc.name}</span>
                     <span className="text-[10px] opacity-50 font-mono shrink-0">{acc.type === "meta" ? "M" : "G"}</span>
                   </button>
                 );
               })}
             </div>
             {selectedAccIds.size === 0 && (
-              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 max-w-3xl mx-auto flex items-center gap-1">
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 اختر حساباً إعلانياً واحداً على الأقل للبدء
               </p>
@@ -749,14 +789,14 @@ export default function AiChatPage() {
           {isEmpty ? (
 
             /* ── Welcome screen ── */
-            <div className="flex flex-col items-center justify-center h-full px-6 pb-16 gap-8">
-              <div className="flex flex-col items-center gap-4 text-center">
-                <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center shadow-sm">
-                  <Bot className="h-8 w-8 text-primary" />
+            <div className="flex flex-col items-center justify-center h-full px-4 sm:px-6 pb-6 sm:pb-16 gap-5 sm:gap-8">
+              <div className="flex flex-col items-center gap-3 sm:gap-4 text-center">
+                <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-2xl bg-primary/10 flex items-center justify-center shadow-sm">
+                  <Bot className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold">مرحباً{user?.username ? ` ${user.username}` : ""}!</h1>
-                  <p className="text-muted-foreground mt-2 text-sm max-w-sm">
+                  <h1 className="text-xl sm:text-2xl font-bold">مرحباً{user?.username ? ` ${user.username}` : ""}!</h1>
+                  <p className="text-muted-foreground mt-1.5 text-sm max-w-sm">
                     أنا مساعدك الذكي لإعلانات Meta &amp; Google Ads. اسألني عن حملاتك أو استخدم الأزرار السريعة أدناه.
                   </p>
                 </div>
@@ -769,15 +809,15 @@ export default function AiChatPage() {
               </div>
 
               {/* Day-focused quick actions — prominent top row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-3xl">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 w-full max-w-3xl">
                 {QA_DAY.map(q=>(
                   <button
                     key={q.label}
                     onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }}
-                    className="group text-right px-4 py-3.5 rounded-xl border border-primary/30 bg-primary/5 hover:border-primary/60 hover:bg-primary/10 transition-all text-sm shadow-sm"
+                    className="group text-right px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-xl border border-primary/30 bg-primary/5 hover:border-primary/60 hover:bg-primary/10 transition-all text-sm shadow-sm"
                   >
-                    <span className="block font-semibold text-foreground">{q.label}</span>
-                    <span className="block text-xs text-muted-foreground mt-1 line-clamp-2 group-hover:text-foreground/70">
+                    <span className="block font-semibold text-foreground text-xs sm:text-sm">{q.label}</span>
+                    <span className="hidden sm:block text-xs text-muted-foreground mt-1 line-clamp-2 group-hover:text-foreground/70">
                       {q.prompt.slice(0,65)}...
                     </span>
                   </button>
@@ -826,7 +866,7 @@ export default function AiChatPage() {
           ) : (
 
             /* ── Chat messages ── */
-            <div className="max-w-3xl mx-auto w-full px-4 py-6 space-y-6">
+            <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
               {msgs.map((m,i)=>(
                 <div key={i} className={`flex gap-3 ${m.role==="user"?"flex-row-reverse":""}`}>
                   <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${m.role==="user"?"bg-primary text-primary-foreground":"bg-muted"}`}>
@@ -836,7 +876,7 @@ export default function AiChatPage() {
                     {m.role==="user" ? (
                       <>
                         {m.imagePreviewUrl && <img src={m.imagePreviewUrl} alt="" className="mb-2 max-h-48 rounded-lg border border-border" />}
-                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm max-w-[80%] whitespace-pre-wrap">
+                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3 sm:px-4 py-2.5 text-sm max-w-[90%] sm:max-w-[80%] whitespace-pre-wrap">
                           {m.content}
                         </div>
                       </>
@@ -939,7 +979,7 @@ export default function AiChatPage() {
         </div>
 
         {/* ── Bottom input area ── */}
-        <div className="border-t border-border/60 bg-background/80 backdrop-blur px-4 pt-3 pb-4">
+        <div className="border-t border-border/60 bg-background/80 backdrop-blur px-3 sm:px-4 pt-2 sm:pt-3 pb-3 sm:pb-4">
           {/* Attachment preview */}
           {attachment && (
             <div className="mb-2 max-w-3xl mx-auto">
@@ -1020,7 +1060,7 @@ export default function AiChatPage() {
             )}
           </div>
 
-          <p className="text-center text-[11px] text-muted-foreground/50 mt-2 max-w-3xl mx-auto">
+          <p className="hidden sm:block text-center text-[11px] text-muted-foreground/50 mt-2 max-w-3xl mx-auto">
             المساعد يمكنه الوصول لبيانات Meta Ads مباشرة وتنفيذ إجراءات على الحملات
           </p>
         </div>
