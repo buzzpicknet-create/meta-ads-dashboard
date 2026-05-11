@@ -63,6 +63,16 @@ const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Fac
 - سؤال عن مجموعات إعلانية؟ → get_adsets أولاً
 - سؤال عن إيقاف أو تعديل؟ → اجلب الحالة الحالية أولاً (get_campaign_status / get_adset_status)
 
+📅 قواعد تحديد الفترة الزمنية في الأدوات:
+- لو المستخدم طلب "أداء اليوم" → since=today, until=today (نفس التاريخ)
+- لو طلب "أداء أمس" → since=yesterday, until=yesterday
+- لو طلب "الأسبوع الماضي" أو "الأسبوع اللي فات" → since=7 أيام قبل اليوم، until=أمس
+- لو طلب "الشهر الماضي" → since=أول الشهر الفائت، until=آخره
+- لو طلب فترة محددة مثل "من 1 مايو لـ 7 مايو" → since=2025-05-01, until=2025-05-07
+- لو طلب "آخر أسبوع" → استخدم days=7 أو since/until بحساب اليوم الحالي
+- تاريخ اليوم الحقيقي مذكور أعلاه — احسب التواريخ منه دائماً بدقة
+- الأولوية: since/until > days — استخدم since/until دائماً لأي طلب تاريخ محدد
+
 المستخدم يشوف على الشاشة الأداة اللي بتتنفذ في الوقت الفعلي — هذا يبني الثقة ويثبت إنك بتعمل تشخيص حقيقي.
 
 🔧 أدوات متاحة لك:
@@ -457,11 +467,13 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_campaigns",
-      description: "جيب قائمة كل الحملات الإعلانية مع أداءها (إنفاق، طلبات، CPA، CTR، الحالة) لفترة زمنية محددة. استخدم لما تحتاج مقارنة الحملات أو معرفة الأرقام الإجمالية.",
+      description: "جيب قائمة كل الحملات الإعلانية مع أداءها (إنفاق، طلبات، CPA، CTR، الحالة) لفترة زمنية محددة. استخدم لما تحتاج مقارنة الحملات أو معرفة الأرقام الإجمالية. يمكنك تحديد فترة بالضبط باستخدام since وuntil (YYYY-MM-DD) أو استخدام days للرجوع للخلف من اليوم.",
       parameters: {
         type: "object",
         properties: {
-          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 30" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف من اليوم. افتراضي: 30. تجاهل إذا استخدمت since/until." },
+          since: { type: "string", description: "تاريخ البداية بصيغة YYYY-MM-DD (مثال: 2025-05-01). استخدم لفترات محددة أو عند سؤال عن يوم معين." },
+          until: { type: "string", description: "تاريخ النهاية بصيغة YYYY-MM-DD (مثال: 2025-05-07). يجب استخدامه مع since." },
         },
         required: [],
       },
@@ -471,12 +483,14 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_campaign_daily",
-      description: "جيب الأداء اليومي لحملة معينة يوم بيوم (إنفاق، طلبات، CPA، نسبة النقر، ظهورات، نسبة الجذب). استخدم لما تحتاج تحليل تريند حملة معينة أو مقارنة أيام.",
+      description: "جيب الأداء اليومي لحملة معينة يوم بيوم (إنفاق، طلبات، CPA، نسبة النقر، ظهورات، نسبة الجذب). استخدم لما تحتاج تحليل تريند حملة معينة أو مقارنة أيام. يمكنك تحديد since/until لفترة بالضبط.",
       parameters: {
         type: "object",
         properties: {
           campaign_id: { type: "string", description: "رقم الحملة (id)" },
-          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 14" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف من اليوم. افتراضي: 14. تجاهل إذا استخدمت since/until." },
+          since: { type: "string", description: "تاريخ البداية بصيغة YYYY-MM-DD. استخدم لفترات محددة." },
+          until: { type: "string", description: "تاريخ النهاية بصيغة YYYY-MM-DD. يجب استخدامه مع since." },
         },
         required: ["campaign_id"],
       },
@@ -486,11 +500,13 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_account_daily",
-      description: "جيب الأداء اليومي للحساب كله مجتمعاً يوم بيوم (إنفاق، طلبات، CPA). استخدم لمقارنة أيام أو تحليل اتجاه الأداء العام.",
+      description: "جيب الأداء اليومي للحساب كله مجتمعاً يوم بيوم (إنفاق، طلبات، CPA). استخدم لمقارنة أيام أو تحليل اتجاه الأداء العام. يمكنك تحديد since/until لفترة بالضبط أو يوم واحد (since=until=اليوم المطلوب).",
       parameters: {
         type: "object",
         properties: {
-          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 14" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف من اليوم. افتراضي: 14. تجاهل إذا استخدمت since/until." },
+          since: { type: "string", description: "تاريخ البداية بصيغة YYYY-MM-DD. لبيانات يوم واحد اضبط since=until=ذلك اليوم." },
+          until: { type: "string", description: "تاريخ النهاية بصيغة YYYY-MM-DD. يجب استخدامه مع since." },
         },
         required: [],
       },
@@ -1734,12 +1750,14 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
 
   const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 7 : 14));
   // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
-  const untilD = new Date(Date.now() + 2 * 60 * 60 * 1000);
-  const sinceD = new Date(untilD);
-  sinceD.setUTCDate(sinceD.getUTCDate() - days);
+  const nowCairoExec = new Date(Date.now() + 2 * 60 * 60 * 1000);
   const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
-  const u = fmtDate(untilD);
-  const s = fmtDate(sinceD);
+  const dateRx = /^\d{4}-\d{2}-\d{2}$/;
+  // Use explicit since/until from AI args when provided (supports any date range / single day)
+  const u = (typeof args.until === "string" && dateRx.test(args.until)) ? args.until : fmtDate(nowCairoExec);
+  const s = (typeof args.since === "string" && dateRx.test(args.since)) ? args.since : (() => {
+    const d = new Date(nowCairoExec); d.setUTCDate(d.getUTCDate() - days); return fmtDate(d);
+  })();
 
   // ── Pipeboard-first: try live data via Pipeboard MCP before our Meta API ────
   // Pipeboard handles rate-limiting and auth independently — no cache needed.
