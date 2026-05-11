@@ -358,6 +358,44 @@ Frequency (في 7 أيام):
 - مقارنة بين حملات في رقم واحد (مين أكثر إنفاقاً؟) → Bar Chart
 - أداء المجموعات الإعلانية مقارنةً → Bar Chart
 
+**🚀 Bulk Action Panel (للتنفيذ الجماعي):**
+لما تقترح إجراءات متعددة (زيادة ميزانية 3 حملات، إيقاف 2، تقليل ميزانية 1) — لازم تُخرج كود bulk_action بالشكل التالي بالضبط (لا تغيّر أي مفتاح):
+
+\`\`\`bulk_action
+{
+  "title": "اقتراحات Scale اليوم",
+  "actions": [
+    {
+      "type": "update_campaign_budget",
+      "campaignId": "123456789",
+      "name": "اسم الحملة",
+      "label": "زيادة 20%",
+      "currentBudget": 500,
+      "newBudget": 600,
+      "budgetType": "daily",
+      "reason": "CPA ممتاز واليوم 5 مبيعات"
+    },
+    {
+      "type": "pause_campaign",
+      "campaignId": "987654321",
+      "name": "حملة أخرى",
+      "label": "إيقاف",
+      "reason": "CPA ضعيف والتاريخ سيء"
+    }
+  ]
+}
+\`\`\`
+
+أنواع الإجراءات المتاحة: update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset
+- لـ update_campaign_budget: campaignId + currentBudget + newBudget + budgetType ("daily" أو "lifetime") إلزامي
+- لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي
+- لـ pause/enable: campaignId أو adsetId حسب النوع
+- label: وصف قصير للإجراء (زيادة 20%، إيقاف، تقليل 30%، إلخ)
+- reason: السبب المبني على البيانات (اختياري لكن مفيد جداً)
+- الـ newBudget لازم يكون القيمة المطلقة المحسوبة، مش نسبة مئوية
+- لا تُخرج bulk_action لإجراء واحد — استخدم الأدوات العادية (pending_action) لإجراء واحد فقط
+- بعد كود bulk_action لا تكتب "في انتظار موافقتك" — الواجهة تعالج الموافقة تلقائياً
+
 شكل الـ JSON المطلوب بالضبط (لا تغيّر أي مفتاح):
 \`\`\`json chart
 {

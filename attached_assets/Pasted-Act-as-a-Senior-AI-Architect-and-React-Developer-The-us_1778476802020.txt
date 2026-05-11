@@ -1,0 +1,59 @@
+Act as a Senior AI Architect and React Developer. The user wants to upgrade the "Quick Action Prompts" in the Meta Ads Assistant to focus on "Intra-Day (Today's) Performance paired with Historical Context", and implement "Bulk Action" execution capabilities.
+
+Please implement the following updates:
+
+1. FRONTEND: UPDATE QUICK ACTION BUTTONS
+
+Update the Suggestion Chips above the chat to these 3 highly advanced, day-focused prompts:
+
+Button 1: ⚡ Scale اليوم (Bulk Scale)
+
+Visible Label: ⚡ فرص Scale اليوم (Bulk)
+
+Action Prompt: "قم بتحليل أداء حملات اليوم (Today) وقارنها بتاريخها في آخر 3 أيام. ابحث عن الحملات التي تحقق CPA أقل من المستهدف اليوم.
+القواعد الصارمة:
+
+إذا كانت مبيعات اليوم أقل من 3 (حتى لو الـ CPA ممتاز)، اقترح زيادة ميزانية طفيفة جداً (10-15% كحد أقصى) لتجنب التذبذب.
+
+إذا كانت مبيعات اليوم 3 أو أكثر والـ CPA ممتاز والتاريخ جيد، اقترح زيادة (20-30%).
+أخرج النتائج في جدول، وقم بتوليد كود json bulk_action لإنشاء واجهة تتيح لي تنفيذ كل هذه الزيادات بضغطة زر واحدة."
+
+Button 2: 🛡️ صيانة الخسائر (Scale Down/Pause)
+
+Visible Label: 🛡️ صيانة خسائر اليوم
+
+Action Prompt: "استخرج الحملات التي تتخطى الـ Target CPA اليوم.
+القواعد الصارمة:
+
+انظر إلى تاريخ الحملة وأرقام المسار (CTR, Hook Rate). إذا كان التاريخ جيداً والأرقام مستقرة ولكن اليوم سيء، اقترح 'تقليل الميزانية' (Scale Down) بنسبة 20-30% ولا تقترح الإيقاف.
+
+إذا كان أداء اليوم سيئاً والتاريخ سيء وأرقام النقر تتدهور، اقترح 'إيقاف' (Pause).
+أخرج النتائج في جدول يوضح (القرار | السبب التاريخي)، وقم بتوليد json bulk_action لتنفيذ هذه الإجراءات."
+
+Button 3: 🔍 فحص منتصف اليوم (Mid-Day Audit)
+
+Visible Label: 🔍 فحص منتصف اليوم
+
+Action Prompt: "نحن في منتصف اليوم. استخرج الحملات التي صرفت أكثر من 40% من ميزانيتها اليومية ولكنها لم تحقق أي مبيعات (0 Conversions) حتى الآن. هل أرقام النقرات (CTR) ومعدل التحويل (CVR) تشير إلى أنها ستتعافى أم يجب تقليل ميزانيتها فوراً؟"
+
+2. FRONTEND: "BULK ACTION" UI COMPONENT
+
+Currently, the AI suggests actions one by one. We need a "Bulk Execution" UI.
+
+Instruct the LLM: When suggesting multiple mutative actions (like scaling up 3 campaigns and scaling down 2), it MUST output a specific code block:
+
+{
+  "actions": [
+    { "campaignId": "123", "name": "Shoes", "type": "increase_budget", "value": "15%" },
+    { "campaignId": "456", "name": "Bags", "type": "decrease_budget", "value": "20%" }
+  ]
+}
+
+
+Frontend Interceptor: Create a React component that intercepts this bulk_action block. Instead of showing JSON, render a beautiful "Bulk Execution Panel".
+
+The panel should list the proposed changes with checkboxes (all checked by default).
+
+Include a large primary button: "[🚀 Execute Selected Actions on Meta]" which maps through the selected items and triggers the respective MCP mutative tools simultaneously.
+
+Please implement the updated strictly-ruled prompts and the Bulk Action UI component.

@@ -4,6 +4,7 @@ import {
   Brain, Paperclip, X, SquarePen, MessageSquare, Clock,
   BarChart2, Zap, AlertTriangle, Square,
 } from "lucide-react";
+import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, Cell,
@@ -22,11 +23,26 @@ interface PendingAction { tool: string; args: Record<string,unknown>; summary: s
 
 // ─── Quick actions ─────────────────────────────────────────────────────────────
 const QA = [
-  { label: "☕ التقرير الصباحي",  prompt: "اسحب داتا كل الحملات النشطة لليوم وقارنها بمتوسط بيانات آخر 7 أيام. أعطني ملخصاً سريعاً: ما هي الحملات الرابحة وما هي الحملات التي تتخطى الـ CPA المستهدف وتحتاج تدخل فوري؟ ارسم لي جدول مقارنة يعتمد على الـ CPA كأساس للتقييم." },
-  { label: "🚀 فرص الـ Scale",    prompt: "حلل الحملات النشطة بناءً على أداء آخر 7 أيام، وحدد الـ Adsets التي تحقق CPA أقل من المستهدف ومستقرة. جهّز مقترحات لزيادة ميزانيتها 20% مع أزرار التنفيذ المباشر عبر الـ MCP." },
-  { label: "🔬 تشخيص الـ Funnel", prompt: "افحص مسار المبيعات لكل الإعلانات النشطة. استخرج الإعلانات التي تمتلك Hook Rate ممتاز لكن CVR أو CTR ضعيفة. حدد أين الخلل بالضبط." },
-  { label: "📉 تقليل الميزانية",  prompt: "استخرج أي إعلان أو Adset تخطى CPA المستهدف بشكل ملحوظ في آخر 7 أيام. حلل أسباب التراجع واعرضهم في جدول مع أزرار لتقليل الميزانية 30%." },
-  { label: "🕵️ تقييم التعديلات", prompt: "ابحث عن الحملات التي أجرينا عليها تعديلات مؤخراً. قارن أداءها قبل وبعد التعديل. هل نجح الإجراء؟" },
+  {
+    label: "⚡ فرص Scale اليوم (Bulk)",
+    prompt: `قم بتحليل أداء حملات اليوم (Today) وقارنها بتاريخها في آخر 3 أيام. ابحث عن الحملات التي تحقق CPA أقل من المستهدف اليوم.
+القواعد الصارمة:
+- إذا كانت مبيعات اليوم أقل من 3 (حتى لو الـ CPA ممتاز)، اقترح زيادة ميزانية طفيفة جداً (10-15% كحد أقصى) لتجنب التذبذب.
+- إذا كانت مبيعات اليوم 3 أو أكثر والـ CPA ممتاز والتاريخ جيد، اقترح زيادة (20-30%).
+أخرج النتائج في جدول، وقم بتوليد كود bulk_action لإنشاء واجهة تتيح لي تنفيذ كل هذه الزيادات بضغطة زر واحدة.`,
+  },
+  {
+    label: "🛡️ صيانة خسائر اليوم",
+    prompt: `استخرج الحملات التي تتخطى الـ Target CPA اليوم.
+القواعد الصارمة:
+- انظر إلى تاريخ الحملة وأرقام المسار (CTR, Hook Rate). إذا كان التاريخ جيداً والأرقام مستقرة ولكن اليوم سيء، اقترح 'تقليل الميزانية' (Scale Down) بنسبة 20-30% ولا تقترح الإيقاف.
+- إذا كان أداء اليوم سيئاً والتاريخ سيء وأرقام النقر تتدهور، اقترح 'إيقاف' (Pause).
+أخرج النتائج في جدول يوضح (القرار | السبب التاريخي)، وقم بتوليد bulk_action لتنفيذ هذه الإجراءات.`,
+  },
+  {
+    label: "🔍 فحص منتصف اليوم",
+    prompt: `نحن في منتصف اليوم. استخرج الحملات التي صرفت أكثر من 40% من ميزانيتها اليومية ولكنها لم تحقق أي مبيعات (0 Conversions) حتى الآن. هل أرقام النقرات (CTR) ومعدل التحويل (CVR) تشير إلى أنها ستتعافى أم يجب تقليل ميزانيتها فوراً؟`,
+  },
 ];
 
 // ─── Chart block ──────────────────────────────────────────────────────────────
@@ -105,12 +121,16 @@ function RenderMarkdown({ text }: { text: string }) {
     if (line.trim().startsWith("```")) {
       const lang = line.trim().slice(3).trim().toLowerCase();
       const isChart = lang === "json chart" || lang === "chart" || lang === "json-chart";
+      const isBulk  = lang === "bulk_action" || lang === "json bulk_action" || lang === "bulk-action";
       const code: string[] = [];
       i++;
       while (i < lines.length && !lines[i]!.trim().startsWith("```")) { code.push(lines[i]!); i++; }
       i++;
       const raw = code.join("\n");
-      if (isChart) {
+      if (isBulk) {
+        try { elems.push(<BulkActionPanel key={`b${i}`} payload={JSON.parse(raw) as BulkActionPayload} />); }
+        catch { elems.push(<pre key={`p${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>); }
+      } else if (isChart) {
         try { elems.push(<ChartBlock key={`c${i}`} spec={JSON.parse(raw) as ChartSpec} />); }
         catch { elems.push(<pre key={`p${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>); }
       } else {

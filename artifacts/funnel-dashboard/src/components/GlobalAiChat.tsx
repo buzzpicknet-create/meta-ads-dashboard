@@ -4,6 +4,7 @@ import {
   History, Plus, ChevronRight, ChevronDown, ChevronUp, Clock, Zap, AlertTriangle, Search,
   Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2, Brain,
 } from "lucide-react";
+import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Cell,
@@ -203,9 +204,9 @@ const SUGGESTED_GENERAL = [
 ];
 
 const SUGGESTED_WITH_DATA = [
-  "ايه أعلى حملة في CPA؟",
-  "قارنلي الحملات النشطة",
-  "ايه أفضل حملة أداءً؟",
+  "⚡ فرص Scale اليوم",
+  "🛡️ صيانة خسائر اليوم",
+  "🔍 فحص منتصف اليوم",
   "الحملات اللي محتاجة تدخل؟",
 ];
 
@@ -426,10 +427,11 @@ function RenderMarkdown({ text }: { text: string }) {
     const line = lines[i]!;
     if (line.trim() === "") { i++; continue; }
 
-    // Fenced code block ``` — detect "json chart" for live chart rendering
+    // Fenced code block ``` — detect "json chart" / "bulk_action" for live rendering
     if (line.trim().startsWith("```")) {
       const lang = line.trim().slice(3).trim().toLowerCase();
       const isChart = lang === "json chart" || lang === "chart" || lang === "json-chart";
+      const isBulk  = lang === "bulk_action" || lang === "json bulk_action" || lang === "bulk-action";
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i]!.trim().startsWith("```")) {
@@ -438,7 +440,15 @@ function RenderMarkdown({ text }: { text: string }) {
       }
       i++;
       const raw = codeLines.join("\n");
-      if (isChart) {
+      if (isBulk) {
+        try {
+          elements.push(<BulkActionPanel key={`bulk-${i}`} payload={JSON.parse(raw) as BulkActionPayload} />);
+        } catch {
+          elements.push(
+            <pre key={`code-${i}`} className="my-2 rounded-lg bg-muted/40 p-3 text-xs overflow-x-auto" dir="ltr">{raw}</pre>
+          );
+        }
+      } else if (isChart) {
         try {
           const spec = JSON.parse(raw) as ChartSpec;
           elements.push(<ChartBlock key={`chart-${i}`} spec={spec} />);
