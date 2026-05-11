@@ -273,6 +273,7 @@ Frequency (في 7 أيام):
    - قبل pause_campaign أو enable_campaign: استخدم get_campaign_status أولاً
    - قبل update_campaign_budget: استخدم get_campaign_budget مرة واحدة فقط لكل حملة — لا تعيد استدعاءه. بعد الجلب يُخزَّن تلقائياً
    - قبل pause_adset أو enable_adset أو update_adset_budget: استخدم get_adset_status مرة واحدة فقط
+   - ⚠️ حملات ABO: لو get_campaign_budget أرجع "النوع: ABO" فالميزانية على المجموعات الإعلانية. الرد يتضمن adset_id وميزانية كل مجموعة تلقائياً — استخدم update_adset_budget مباشرةً بدون أي استدعاء إضافي
 ٢. اجلب بيانات الأداء للتشخيص (get_campaign_daily أو get_adsets)
 ممنوع تقترح إيقاف أو تعديل بدون تشخيص مبني على بيانات حقيقية وحالة حالية موثّقة.
 
@@ -1526,15 +1527,61 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       try {
         const details = await fetchCampaignDetailsCached(campaign_id);
         const rows = [`## ميزانية الحملة:\n- الاسم: ${details.name}`];
+        const hasCampaignBudget =
+          (details.daily_budget !== undefined && details.daily_budget > 0) ||
+          (details.lifetime_budget !== undefined && details.lifetime_budget > 0);
+
         if (details.daily_budget !== undefined && details.daily_budget > 0) {
-          rows.push(`- الميزانية اليومية: ${Math.round(details.daily_budget)} EGP`);
+          rows.push(`- النوع: CBO (ميزانية على مستوى الحملة)`);
+          rows.push(`- الميزانية اليومية الحالية: ${Math.round(details.daily_budget)} EGP`);
         }
         if (details.lifetime_budget !== undefined && details.lifetime_budget > 0) {
-          rows.push(`- الميزانية الإجمالية: ${Math.round(details.lifetime_budget)} EGP`);
+          rows.push(`- النوع: CBO (ميزانية على مستوى الحملة)`);
+          rows.push(`- الميزانية الإجمالية الحالية: ${Math.round(details.lifetime_budget)} EGP`);
         }
-        if ((details.daily_budget === undefined || details.daily_budget === 0) &&
-            (details.lifetime_budget === undefined || details.lifetime_budget === 0)) {
-          rows.push("- الميزانية: غير محددة على مستوى الحملة (محددة على مستوى المجموعات الإعلانية)");
+
+        // ABO campaign — budget is at adset level; fetch adsets and their budgets automatically
+        if (!hasCampaignBudget) {
+          rows.push(`- النوع: ABO (ميزانية على مستوى المجموعات الإعلانية)`);
+          rows.push(`- لتعديل الميزانية استخدم update_adset_budget لكل مجموعة`);
+
+          // Get adset IDs from the most recent insights cache for this campaign
+          type InsightsCacheRow = { data: { by_adset?: Array<{ id: string; label: string }> }; fetched_at: string };
+          const cached = await query<InsightsCacheRow>(
+            `SELECT data, fetched_at FROM meta_insights_cache
+             WHERE campaign_id=$1
+             ORDER BY fetched_at DESC LIMIT 1`,
+            [campaign_id]
+          ).catch(() => [] as InsightsCacheRow[]);
+
+          const adsets: Array<{ id: string; label: string }> =
+            (cached[0]?.data?.by_adset ?? []).slice(0, 8);
+
+          if (adsets.length > 0) {
+            rows.push(`\n### ميزانيات المجموعات الإعلانية (${adsets.length} مجموعة):`);
+            const adsetDetails = await Promise.allSettled(
+              adsets.map((a) => fetchAdsetDetailsCached(a.id))
+            );
+            for (let i = 0; i < adsets.length; i++) {
+              const a = adsets[i]!;
+              const result = adsetDetails[i];
+              if (result?.status === "fulfilled") {
+                const d = result.value;
+                const budgetStr =
+                  d.daily_budget && d.daily_budget > 0
+                    ? `${Math.round(d.daily_budget)} EGP يومياً`
+                    : d.lifetime_budget && d.lifetime_budget > 0
+                    ? `${Math.round(d.lifetime_budget)} EGP إجمالي`
+                    : "غير محددة";
+                const statusStr = d.effective_status === "ACTIVE" ? "✅ نشطة" : d.effective_status === "PAUSED" ? "⏸ موقوفة" : d.effective_status;
+                rows.push(`- **${a.label || d.name}** (adset_id: ${a.id}) — الميزانية: ${budgetStr} — الحالة: ${statusStr}`);
+              } else {
+                rows.push(`- ${a.label} (adset_id: ${a.id}) — تعذّر جلب التفاصيل`);
+              }
+            }
+          } else {
+            rows.push(`- لم يتم العثور على بيانات مجموعات في الكاش — استخدم get_adsets(${campaign_id}) أولاً`);
+          }
         }
         return rows.join("\n");
       } catch (err) {
@@ -1775,7 +1822,7 @@ async function fetchUserLtm(userId: number): Promise<string> {
     const { target_kpis, strategic_rules, historical_insights } = rows[0];
 
     const kpiEntries = Object.entries(target_kpis ?? {})
-      .filter(([, v]) => v !== null && v !== undefined && v !== "");
+      .filter(([, v]) => v !== null && v !== undefined && String(v) !== "");
     const rules   = (strategic_rules ?? []).filter(Boolean);
     const insights = (historical_insights ?? "").trim();
 
