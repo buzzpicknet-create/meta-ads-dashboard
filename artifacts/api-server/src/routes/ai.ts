@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Router, type Request, type Response } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import {
@@ -2684,6 +2685,234 @@ type OpenAiMessage =
   | { role: "assistant"; content: string | null; tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> }
   | { role: "tool"; content: string; tool_call_id: string };
 
+// ── Two-step SSE session store ────────────────────────────────────────────────
+// Production proxies (including Replit's) reliably pass through GET SSE but
+// may time-out POST connections that keep the socket open without responding.
+// Fix: client POSTs the body (quick JSON → sessionId), then opens a
+// GET /api/ai/chat-stream which the proxy treats as a standard SSE request.
+interface AiChatSession {
+  userId: number;
+  role: string;
+  username: string;
+  body: AiChatBody;
+  expiresAt: number;
+}
+const aiChatSessions = new Map<string, AiChatSession>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of aiChatSessions) if (v.expiresAt < now) aiChatSessions.delete(k);
+}, 60_000);
+
+// ── Shared SSE runner — called by both POST (legacy) and GET stream routes ────
+interface StreamParams {
+  campaignContext: string;
+  messages: Array<{ role: string; content: string }>;
+  imageBase64?: string;
+  imageMimeType?: string;
+  fileText?: string;
+  fileName?: string;
+  campaign_id?: string;
+  conversation_id?: number;
+  selectedAccountIds?: string[];
+  userId: number;
+  isAdmin: boolean;
+  canExecuteActions: boolean;
+}
+
+async function runAiStream(params: StreamParams, res: Response): Promise<void> {
+  const {
+    campaignContext, messages, imageBase64, imageMimeType, fileText, fileName,
+    campaign_id, conversation_id, selectedAccountIds, userId, isAdmin, canExecuteActions,
+  } = params;
+  const selectedAccFilter = Array.isArray(selectedAccountIds) && selectedAccountIds.length > 0
+    ? new Set(selectedAccountIds.map(id => id.replace(/^act_/, "")))
+    : null;
+
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(": ping\n\n");
+  }, 15000);
+  res.on("close", () => clearInterval(heartbeat));
+
+  try {
+    const memory = (userId && campaign_id)
+      ? await fetchCampaignMemory(userId, campaign_id, conversation_id ?? null)
+      : "";
+    const ltmBlock = userId ? await fetchUserLtm(userId) : "";
+
+    const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const todayCairo = nowCairo.toISOString().slice(0, 10);
+    const todayLabel = nowCairo.toLocaleDateString("ar-EG", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+      timeZone: "UTC",
+    });
+
+    const dateHeader = `══════════════════════════════════════
+📅 تاريخ اليوم الحقيقي: ${todayLabel} (${todayCairo})
+عندما يقول المستخدم "النهاردة" أو "اليوم" فهو يقصد ${todayCairo}.
+بيانات Meta للحملات عادةً متاحة حتى الأمس فقط — بيانات اليوم الجاري تظهر متأخرة بعد منتصف الليل.
+══════════════════════════════════════`;
+
+    const contextHeader = `══════════════════════════════════════
+⚠️ Snapshot من الداشبورد (بيانات مؤرشفة — مش حية)
+هذه البيانات أُخذت من كاش الداشبورد وقد تكون بها تأخير.
+آخر يوم في هذا الـ snapshot هو ${todayCairo} أو أقل حسب توفر Meta API.
+🚨 للبيانات الحقيقية اللحظية: استخدم الأدوات (get_campaigns, get_campaign_daily, get_account_daily).
+لا تعتمد على الجدول اليومي أدناه للإجابة عن "النهاردة" — استدعِ الأداة دائماً.
+══════════════════════════════════════`;
+
+    const systemWithContext = `${SYSTEM_PROMPT}${ltmBlock ? `\n\n${ltmBlock}` : ""}\n\n${dateHeader}\n\n${contextHeader}\n${campaignContext}${memory ? `\n\n${memory}` : ""}`;
+
+    const builtMessages: OpenAiMessage[] = [
+      { role: "system", content: systemWithContext },
+    ];
+
+    const JUNK_RE = /^[?؟!.\s]*$|^❌|^عذراً، لم أتمكن/;
+    const cleanedMessages = messages.filter((m) =>
+      m.role !== "assistant" || (m.content.trim().length > 5 && !JUNK_RE.test(m.content.trim()))
+    );
+
+    for (let i = 0; i < cleanedMessages.length; i++) {
+      const m = cleanedMessages[i]!;
+      const isLast = i === cleanedMessages.length - 1;
+      if (m.role === "user" && isLast && (imageBase64 || fileText)) {
+        const textContent = fileText
+          ? `${m.content}\n\n[محتوى الملف "${fileName ?? "file"}"]\n${fileText}`
+          : m.content;
+        if (imageBase64 && imageMimeType) {
+          builtMessages.push({
+            role: "user",
+            content: [
+              { type: "text", text: textContent },
+              { type: "image_url", image_url: { url: `data:${imageMimeType};base64,${imageBase64}`, detail: "auto" } },
+            ],
+          });
+        } else {
+          builtMessages.push({ role: "user", content: textContent });
+        }
+      } else {
+        builtMessages.push({ role: m.role, content: m.content });
+      }
+    }
+
+    const MAX_TOOL_ROUNDS = 4;
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const roundStream = await openai.chat.completions.create({
+        model: "gpt-5.4",
+        max_completion_tokens: 2048,
+        messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
+        tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
+        tool_choice: "auto",
+        stream: true,
+      });
+
+      let roundContent = "";
+      const tcDeltaMap: Record<number, { id: string; name: string; arguments: string }> = {};
+
+      for await (const chunk of roundStream) {
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+        const delta = choice.delta;
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!tcDeltaMap[idx]) tcDeltaMap[idx] = { id: "", name: "", arguments: "" };
+            if (tc.id) tcDeltaMap[idx]!.id = tc.id;
+            if (tc.function?.name) tcDeltaMap[idx]!.name += tc.function.name;
+            if (tc.function?.arguments) tcDeltaMap[idx]!.arguments += tc.function.arguments;
+          }
+        }
+        if (delta?.content && Object.keys(tcDeltaMap).length === 0) {
+          roundContent += delta.content;
+          res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
+        }
+      }
+
+      const toolCalls = Object.values(tcDeltaMap)
+        .filter((tc) => tc.name)
+        .map((tc) => ({ id: tc.id, type: "function" as const, function: { name: tc.name, arguments: tc.arguments } }));
+
+      if (toolCalls.length === 0) {
+        if (roundContent.trim().length < 10) {
+          logger.warn({ content: roundContent, round }, "AI returned short content — injecting tool-use nudge");
+          if (roundContent.length === 0 && round < MAX_TOOL_ROUNDS - 1) {
+            builtMessages.push({ role: "assistant", content: null });
+            builtMessages.push({
+              role: "user",
+              content: "استخدم الأدوات المتاحة (get_campaigns, get_campaign_daily, get_account_daily) لجلب البيانات الحقيقية وأجب على السؤال بالتفصيل باللغة العربية.",
+            });
+            continue;
+          }
+          if (roundContent.length === 0) {
+            res.write(`data: ${JSON.stringify({ content: "عذراً، لم أتمكن من الإجابة في الوقت الحالي. حاول مرة أخرى أو اطرح السؤال بطريقة مختلفة." })}\n\n`);
+          }
+        }
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        clearInterval(heartbeat);
+        res.end();
+        return;
+      }
+
+      res.write(`data: ${JSON.stringify({ searching: true })}\n\n`);
+      builtMessages.push({ role: "assistant", content: null, tool_calls: toolCalls });
+
+      for (const tc of toolCalls) {
+        if (!WRITE_TOOL_NAMES.has(tc.function.name)) {
+          const labelArgs = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+          res.write(`data: ${JSON.stringify({ tool_call_label: getToolLabel(tc.function.name, labelArgs) })}\n\n`);
+        }
+      }
+
+      for (const tc of toolCalls) {
+        if (!WRITE_TOOL_NAMES.has(tc.function.name)) continue;
+        const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+        const optimistic = buildOptimisticPendingAction(tc.function.name, args);
+        builtMessages.push({ role: "tool", content: `في انتظار موافقة المستخدم على: ${optimistic.summary}`, tool_call_id: tc.id });
+        res.write(`data: ${JSON.stringify({ pending_action: { ...optimistic, detailsLoading: true } })}\n\n`);
+      }
+
+      await Promise.all(
+        toolCalls.map(async (tc) => {
+          const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
+          if (WRITE_TOOL_NAMES.has(tc.function.name)) {
+            try {
+              const resolved = await resolveWriteToolDetails(tc.function.name, args);
+              res.write(`data: ${JSON.stringify({ pending_action_resolved: resolved })}\n\n`);
+            } catch {
+              res.write(`data: ${JSON.stringify({ pending_action_resolved: {} })}\n\n`);
+            }
+          } else {
+            const result = await executeTool(tc.function.name, args, selectedAccFilter);
+            builtMessages.push({ role: "tool", content: result, tool_call_id: tc.id });
+          }
+        })
+      );
+
+      res.write(`data: ${JSON.stringify({ searching: false })}\n\n`);
+    }
+
+    const fallbackStream = await openai.chat.completions.create({
+      model: "gpt-5.4",
+      max_completion_tokens: 2048,
+      messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
+      stream: true,
+    });
+    for await (const chunk of fallbackStream) {
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    }
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    clearInterval(heartbeat);
+    res.end();
+  } catch (err) {
+    clearInterval(heartbeat);
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+      res.end();
+    }
+  }
+}
+
 // ── Route ────────────────────────────────────────────────────────────────────
 router.post("/ai/chat", async (req: Request, res: Response) => {
   const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName, campaign_id, conversation_id, selectedAccountIds } = req.body as AiChatBody;
@@ -2946,6 +3175,81 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       res.end();
     }
   }
+});
+
+// POST /api/ai/chat-prepare — step 1 of the two-step SSE flow.
+// Accepts the full request body, stores it in memory, returns {sessionId}.
+// The client then opens GET /api/ai/chat-stream?sessionId=... for the stream.
+router.post("/ai/chat-prepare", async (req: Request, res: Response) => {
+  const body = req.body as AiChatBody;
+  const userId = req.session?.userId;
+  if (!userId) { res.status(401).json({ error: "غير مصرح" }); return; }
+  if (!body.campaignContext || !Array.isArray(body.messages) || body.messages.length === 0) {
+    res.status(400).json({ error: "campaignContext and messages are required" });
+    return;
+  }
+  const sessionId = randomUUID();
+  aiChatSessions.set(sessionId, {
+    userId,
+    role: req.session?.role ?? "viewer",
+    username: req.session?.username ?? "unknown",
+    body,
+    expiresAt: Date.now() + 90_000,
+  });
+  req.log.info({ userId, sessionId }, "ai/chat-prepare: session stored");
+  res.json({ sessionId });
+});
+
+// GET /api/ai/chat-stream?sessionId=xxx — step 2 of the two-step SSE flow.
+// GET is used so production proxies treat this as a standard SSE connection,
+// avoiding the proxy timeout that kills long-lived POST responses.
+router.get("/ai/chat-stream", async (req: Request, res: Response) => {
+  const { sessionId } = req.query as { sessionId?: string };
+  if (!sessionId) { res.status(400).json({ error: "sessionId required" }); return; }
+
+  const session = aiChatSessions.get(sessionId);
+  if (!session || session.expiresAt < Date.now()) {
+    aiChatSessions.delete(sessionId);
+    res.status(410).json({ error: "انتهت صلاحية الجلسة — أعد المحاولة" });
+    return;
+  }
+  if (session.userId !== req.session?.userId) {
+    res.status(403).json({ error: "غير مصرح" });
+    return;
+  }
+  aiChatSessions.delete(sessionId);
+
+  const { userId, role, username, body } = session;
+  const isAdmin = role === "admin";
+  const canExecuteActions = role === "admin" || role === "media_buyer";
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  req.log.info({ userId, role }, "ai/chat-stream GET handler reached");
+
+  if (userId) {
+    res.on("finish", () => {
+      void (async () => {
+        try {
+          const cnt = await query<{ cnt: string }>(
+            `SELECT COUNT(*) AS cnt
+             FROM chat_messages cm
+             JOIN chat_conversations cc ON cc.id = cm.conversation_id
+             WHERE cc.user_id = $1 AND cm.role = 'assistant'`,
+            [userId]
+          );
+          const n = Number(cnt[0]?.cnt ?? 0);
+          if (n > 0 && n % 8 === 0) await triggerMemoryExtraction(userId, username);
+        } catch { /* silent */ }
+      })();
+    });
+  }
+
+  await runAiStream({ ...body, userId, isAdmin, canExecuteActions }, res);
 });
 
 // ── LTM CRUD routes ──────────────────────────────────────────────────────────

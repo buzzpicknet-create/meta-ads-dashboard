@@ -567,7 +567,11 @@ export default function AiChatPage() {
       const body: Record<string,unknown> = {campaignContext:ctx, messages:clean, conversation_id:cid, selectedAccountIds:[...selectedAccIds]};
       if (att?.isImage) { body.imageBase64=att.base64; body.imageMimeType=att.mimeType; }
       if (att?.text)   { body.fileText=att.text; body.fileName=att.name; }
-      const resp = await fetch(`${API}/ai/chat`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:ctrl.signal, credentials:"include"});
+      const prepResp = await fetch(`${API}/ai/chat-prepare`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:ctrl.signal, credentials:"include"});
+      if (prepResp.status === 401) { logout(); return; }
+      if (!prepResp.ok) throw new Error(`prepare HTTP ${prepResp.status}`);
+      const { sessionId } = await prepResp.json() as { sessionId: string };
+      const resp = await fetch(`${API}/ai/chat-stream?sessionId=${encodeURIComponent(sessionId)}`, {method:"GET", signal:ctrl.signal, credentials:"include"});
       if (resp.status === 401) { logout(); return; }
       if (!resp.ok||!resp.body) throw new Error(`HTTP ${resp.status}`);
       const reader=resp.body.getReader(), dec=new TextDecoder();

@@ -988,10 +988,19 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       if (att?.isImage) { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)    { body.fileText = att.text; body.fileName = att.name; }
 
-      const resp = await fetch(`${API}/ai/chat`, {
+      const prepResp = await fetch(`${API}/ai/chat-prepare`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: ctrl.signal,
+        credentials: "include",
+      });
+      if (prepResp.status === 401) { logout(); return; }
+      if (!prepResp.ok) throw new Error(`prepare HTTP ${prepResp.status}`);
+      const { sessionId } = await prepResp.json() as { sessionId: string };
+
+      const resp = await fetch(`${API}/ai/chat-stream?sessionId=${encodeURIComponent(sessionId)}`, {
+        method: "GET",
         signal: ctrl.signal,
         credentials: "include",
       });
