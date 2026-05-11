@@ -344,7 +344,27 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       }
 
       // Step 4: Upload image from media_url → get image_hash
-      const mediaUrl = String(args?.media_url ?? "").trim();
+      // Normalise Google Drive sharing URLs → direct download URL
+      function normaliseMediaUrl(raw: string): string {
+        if (!raw) return raw;
+        // Pattern: /file/d/FILE_ID/view or /file/d/FILE_ID
+        const driveFileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+        if (driveFileMatch) {
+          return `https://drive.google.com/uc?export=download&id=${driveFileMatch[1]}`;
+        }
+        // Pattern: /open?id=FILE_ID or /uc?id=FILE_ID (already partial)
+        const driveOpenMatch = raw.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([^&]+)/);
+        if (driveOpenMatch) {
+          return `https://drive.google.com/uc?export=download&id=${driveOpenMatch[1]}`;
+        }
+        // Pattern: docs.google.com/... (shared doc/presentation — unsupported, leave as-is)
+        return raw;
+      }
+      const mediaUrl = normaliseMediaUrl(String(args?.media_url ?? "").trim());
+      const originalMediaUrl = String(args?.media_url ?? "").trim();
+      if (mediaUrl !== originalMediaUrl) {
+        logger.info({ originalMediaUrl, mediaUrl }, "launch_pipeboard_campaign: normalised Google Drive URL");
+      }
       let imageHash = "";
       let imageError = "";
       if (mediaUrl && pageId) {

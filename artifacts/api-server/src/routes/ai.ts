@@ -345,10 +345,11 @@ Frequency (في 7 أيام):
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
-- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, media_url, daily_budget?, primary_text, headline) — إنشاء حملة كاملة مع إعلان ومحتوى إبداعي دفعة واحدة عبر Pipeboard CMP
-  - استخدم هذه الأداة تحديداً عندما يُعطيك المستخدم رابط صفحة هبوطية ورابط ميديا (Google Drive أو فيديو)
+- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, media_url, daily_budget?, primary_text, headline, pixel_id?, page_id?, call_to_action?) — إنشاء حملة كاملة مع مجموعة إعلانية + كريتف + إعلان دفعة واحدة عبر Pipeboard CMP
+  - استخدم هذه الأداة عندما يُعطيك المستخدم رابط صفحة هبوطية ورابط ميديا
+  - media_url: رابط صورة/فيديو مباشر أو رابط Google Drive (أي شكل — يُحوَّل تلقائياً)
+    أشكال Google Drive المقبولة: /file/d/ID/view ، /open?id=ID ، drive.google.com/uc?id=ID
   - الميزانية الافتراضية: 20 EGP — دائماً PAUSED للمراجعة
-  - أنت المسؤول عن كتابة primary_text وheadline بالعربية — لا تطلب من المستخدم كتابتهم
 
 قواعد الإنشاء:
 ١. اجمع كل المعلومات من المستخدم قبل استدعاء أداة الإنشاء (الاسم، الهدف، الميزانية، الاستهداف)
