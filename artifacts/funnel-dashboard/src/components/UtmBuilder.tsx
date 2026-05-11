@@ -1,29 +1,30 @@
 import { useState } from "react";
 import { Link2, Copy, CheckCheck, ExternalLink, Sparkles } from "lucide-react";
 
-function extractHandle(input: string): string {
+function cleanUrl(input: string): string {
   const s = input.trim();
-  const m = s.match(/\/products\/([^?&#/\s]+)/);
-  if (m) return m[1];
-  if (/^[a-zA-Z0-9-]+$/.test(s)) return s.toLowerCase();
-  return s.replace(/\s+/g, "-").toLowerCase();
-}
-
-function extractBaseUrl(input: string): string {
-  const s = input.trim();
+  if (!s) return "";
   try {
     const url = new URL(s.startsWith("http") ? s : `https://${s}`);
-    return `${url.protocol}//${url.host}`;
+    const path = url.pathname.replace(/\/$/, "");
+    return `${url.origin}${path}`;
   } catch {
     return "";
   }
 }
 
-function extractCleanProductUrl(input: string): string {
+function extractCampaignId(input: string): string {
   const s = input.trim();
-  const m = s.match(/(https?:\/\/[^/]+\/products\/[^?&#\s]+)/);
-  if (m) return m[1];
-  return "";
+  if (!s) return "";
+  try {
+    const url = new URL(s.startsWith("http") ? s : `https://${s}`);
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments.length > 0) return segments[segments.length - 1]!.toLowerCase();
+    const host = url.hostname.replace(/^www\./, "");
+    return host.split(".")[0] ?? host;
+  } catch {
+    return s.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase().replace(/-+/g, "-");
+  }
 }
 
 function slugify(text: string): string {
@@ -36,24 +37,18 @@ export function UtmBuilder() {
   const [copiedFinal, setCopiedFinal] = useState(false);
   const [copiedDynamic, setCopiedDynamic] = useState(false);
 
-  const handle = productUrl.trim() ? extractHandle(productUrl) : "";
-  const baseUrl = productUrl.trim() ? extractBaseUrl(productUrl) : "";
-  const cleanProductUrl = productUrl.trim() ? extractCleanProductUrl(productUrl) : "";
+  const base = cleanUrl(productUrl);
+  const campaignId = base ? extractCampaignId(productUrl) : "";
   const angleSlug = angle.trim() ? slugify(angle) : "creative";
-  const hasInputs = !!handle && !!baseUrl;
+  const hasInputs = !!base;
 
-  // Use clean product URL (without existing query params) as the base
-  const productBase = cleanProductUrl || (baseUrl ? `${baseUrl}/products/${handle}` : "");
-
-  // Static URL (manual angle name)
   const finalUrl =
-    `${productBase}` +
+    `${base}` +
     `?utm_source=facebook&utm_medium=paid_social` +
-    `&utm_campaign=${handle}&utm_content=${angleSlug}`;
+    `&utm_campaign=${campaignId}&utm_content=${angleSlug}`;
 
-  // Dynamic URL using Meta's dynamic parameters
   const dynamicUrl =
-    `${productBase}` +
+    `${base}` +
     `?utm_source=facebook&utm_medium={{placement}}` +
     `&utm_campaign={{campaign.name}}&utm_content={{ad.name}}`;
 
@@ -78,27 +73,32 @@ export function UtmBuilder() {
         </div>
         <div>
           <h2 className="text-sm font-bold text-foreground">UTM Builder — Meta Ads</h2>
-          <p className="text-[11px] text-muted-foreground">أنشئ UTM links جاهزة لحملات Facebook &amp; Instagram</p>
+          <p className="text-[11px] text-muted-foreground">أنشئ UTM links جاهزة لأي رابط — Facebook &amp; Instagram</p>
         </div>
       </div>
 
       {/* Inputs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Product URL */}
+        {/* URL */}
         <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-foreground">رابط المنتج</label>
+          <label className="text-xs font-semibold text-foreground">رابط الصفحة</label>
           <input
             type="text"
             dir="ltr"
             value={productUrl}
             onChange={(e) => setProductUrl(e.target.value)}
-            placeholder="https://your-store.com/products/magic-roll"
+            placeholder="https://example.com/any-page"
             className="w-full text-sm rounded-xl border border-border bg-white dark:bg-card px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400 placeholder:text-muted-foreground/50 transition-all"
           />
-          {handle && (
+          {base && (
             <p className="text-[11px] text-blue-700 dark:text-blue-400">
-              <span className="font-mono bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">handle: {handle}</span>
+              <span className="font-mono bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
+                utm_campaign: {campaignId}
+              </span>
             </p>
+          )}
+          {productUrl.trim() && !base && (
+            <p className="text-[11px] text-red-600 dark:text-red-400">رابط غير صالح</p>
           )}
         </div>
 
@@ -131,7 +131,7 @@ export function UtmBuilder() {
             utm_medium=paid_social
           </span>
           <span className="inline-flex items-center text-[11px] font-mono font-semibold px-2.5 py-1 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
-            utm_campaign={handle}
+            utm_campaign={campaignId}
           </span>
           <span className="inline-flex items-center text-[11px] font-mono font-semibold px-2.5 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50">
             utm_content={angleSlug}
@@ -144,8 +144,8 @@ export function UtmBuilder() {
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-blue-200 dark:border-blue-800/40 py-8 text-center">
           <Link2 className="h-8 w-8 text-blue-300 dark:text-blue-700" />
           <div className="space-y-1">
-            <p className="text-sm font-medium text-muted-foreground">أدخل رابط المنتج لإنشاء UTM links</p>
-            <p className="text-xs text-muted-foreground/60">ادخل الرابط واسم الزاوية وهيتولد الـ UTM تلقائياً</p>
+            <p className="text-sm font-medium text-muted-foreground">أدخل أي رابط لإنشاء UTM links</p>
+            <p className="text-xs text-muted-foreground/60">يشتغل مع أي موقع — Shopify, WordPress, Landing Pages…</p>
           </div>
         </div>
       ) : (
@@ -182,7 +182,7 @@ export function UtmBuilder() {
             </div>
           </div>
 
-          {/* Dynamic URL using Meta parameters */}
+          {/* Dynamic URL */}
           <div className="rounded-xl border border-violet-200 dark:border-violet-800/40 bg-violet-50 dark:bg-violet-950/20 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-violet-100 dark:border-violet-800/30">
               <div className="flex items-center gap-2 min-w-0">
