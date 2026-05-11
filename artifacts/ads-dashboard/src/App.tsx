@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/app-layout";
 import { Toaster } from "@/components/ui/sonner";
 import { Loader2 } from "lucide-react";
 import Login from "@/pages/login";
+import ChatPage from "@/pages/chat";
 import Campaigns from "@/pages/campaigns";
 import Creative from "@/pages/creative";
 import VideoStudio from "@/pages/video-studio";
@@ -43,9 +44,16 @@ function AppRoutes() {
       <Switch>
         <Route path="/login" component={Login} />
 
+        {/* Home → AI Chat */}
         <Route path="/">
           <RequireAuth>
-            <Campaigns />
+            <ChatPage />
+          </RequireAuth>
+        </Route>
+
+        <Route path="/chat">
+          <RequireAuth>
+            <ChatPage />
           </RequireAuth>
         </Route>
 

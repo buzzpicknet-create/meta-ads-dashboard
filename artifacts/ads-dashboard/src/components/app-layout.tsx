@@ -24,6 +24,7 @@ import {
   X,
   User,
   ChevronLeft,
+  MessageSquare,
 } from "lucide-react";
 
 interface AdAccount {
@@ -303,6 +304,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {/* Nav Groups */}
         <nav className="flex-1 overflow-y-auto py-3 space-y-1">
 
+          {/* AI Chat — Home */}
+          <div className="px-2 mb-1">
+            <NavItem
+              path="/"
+              label="مساعد الإعلانات"
+              icon={MessageSquare}
+              active={isActive("/") || isActive("/chat")}
+              onClick={() => setSidebarOpen(false)}
+            />
+          </div>
+          <div className="border-t border-slate-800 mx-4 mb-2" />
+
           {/* META Group */}
           {visibleMeta.length > 0 && (
             <div>
@@ -398,7 +411,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* ── Main Content ── */}
-      <main className="min-h-[calc(100vh-56px)]">{children}</main>
+      <main>{children}</main>
     </div>
   );
 }
