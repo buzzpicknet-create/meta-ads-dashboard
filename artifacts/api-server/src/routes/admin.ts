@@ -172,10 +172,6 @@ router.put("/admin/page-visibility", requireAdmin, async (req, res) => {
   if (typeof visible !== "boolean") {
     return res.status(400).json({ error: "قيمة visible يجب أن تكون boolean" });
   }
-  // Prevent hiding admin's own pages (admin must always see everything)
-  if (role === "admin" && !visible) {
-    return res.status(400).json({ error: "لا يمكن إخفاء أي صفحة عن الأدمن" });
-  }
   try {
     await query(
       `INSERT INTO page_visibility (page_path, role, visible) VALUES ($1, $2, $3)
