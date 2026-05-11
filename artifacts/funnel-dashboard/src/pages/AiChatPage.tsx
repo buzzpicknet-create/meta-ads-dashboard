@@ -1002,7 +1002,7 @@ export default function AiChatPage() {
         </div>
 
         {/* ── Bottom input area ── */}
-        <div className="border-t border-border/60 bg-background/80 backdrop-blur px-3 sm:px-4 pt-2 sm:pt-3 pb-3 sm:pb-4">
+        <div className="shrink-0 border-t border-border/60 bg-background/80 backdrop-blur px-3 sm:px-4 pt-2 sm:pt-3 pb-3 sm:pb-4">
           {/* Attachment preview */}
           {attachment && (
             <div className="mb-2 max-w-3xl mx-auto">
@@ -1018,9 +1018,9 @@ export default function AiChatPage() {
             </div>
           )}
 
-          {/* Quick actions strip (when chat has messages) */}
+          {/* Quick actions strip (when chat has messages) — hidden on mobile to save space */}
           {!isEmpty && (
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">
+            <div className="hidden sm:flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">
               {QA_ALL.map((q,idx)=>(
                 <button key={q.label} onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }} disabled={streaming}
                   className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 whitespace-nowrap ${
