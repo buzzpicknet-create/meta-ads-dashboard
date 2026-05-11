@@ -86,6 +86,52 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   const executedBy = req.session?.username ?? "admin";
 
+  // ── Translate our internal tool names → actual Pipeboard MCP tool names ──
+  // Our AI uses friendly names; Pipeboard uses update_campaign / update_adset.
+  // Budgets from the AI are in EGP (already divided by 100 by getCampaignDetails).
+  // Pipeboard / Meta API expects cents → multiply by 100.
+  function translateToMcp(t: string, a: Record<string, unknown>): { mcpTool: string; mcpArgs: Record<string, unknown> } {
+    const egpToCents = (v: unknown) => Math.round(Number(v) * 100);
+    switch (t) {
+      case "pause_campaign":
+        return { mcpTool: "update_campaign", mcpArgs: { campaign_id: a.campaign_id, status: "PAUSED" } };
+      case "enable_campaign":
+        return { mcpTool: "update_campaign", mcpArgs: { campaign_id: a.campaign_id, status: "ACTIVE" } };
+      case "update_campaign_budget": {
+        const field = a.budget_type === "lifetime" ? "lifetime_budget" : "daily_budget";
+        return { mcpTool: "update_campaign", mcpArgs: { campaign_id: a.campaign_id, [field]: egpToCents(a.budget_amount) } };
+      }
+      case "pause_adset":
+        return { mcpTool: "update_adset", mcpArgs: { adset_id: a.adset_id, status: "PAUSED" } };
+      case "enable_adset":
+        return { mcpTool: "update_adset", mcpArgs: { adset_id: a.adset_id, status: "ACTIVE" } };
+      case "update_adset_budget":
+        return { mcpTool: "update_adset", mcpArgs: { adset_id: a.adset_id, daily_budget: egpToCents(a.budget_amount) } };
+      case "create_campaign":
+        return {
+          mcpTool: "create_campaign",
+          mcpArgs: {
+            account_id: a.account_id, name: a.name, objective: a.objective,
+            status: a.status ?? "PAUSED",
+            ...(a.daily_budget != null ? { daily_budget: egpToCents(a.daily_budget) } : {}),
+          },
+        };
+      case "create_adset":
+        return {
+          mcpTool: "create_adset",
+          mcpArgs: {
+            ...a,
+            ...(a.daily_budget != null ? { daily_budget: egpToCents(a.daily_budget) } : {}),
+          },
+        };
+      // duplicate_adset, duplicate_campaign — same name, no budget conversion needed
+      default:
+        return { mcpTool: t, mcpArgs: a };
+    }
+  }
+
+  const { mcpTool, mcpArgs } = translateToMcp(tool, args ?? {});
+
   const client = new Client({ name: "meta-ads-dashboard", version: "1.0.0" });
   const url = new URL("https://mcp.pipeboard.co/meta-ads-mcp");
   const transport = new StreamableHTTPClientTransport(url, {
@@ -97,7 +143,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   try {
     await client.connect(transport);
-    const result = await client.callTool({ name: tool, arguments: args ?? {} });
+    const result = await client.callTool({ name: mcpTool, arguments: mcpArgs });
 
     const textContent = (result.content as Array<{ type: string; text?: string }>)
       ?.filter((c) => c.type === "text")
