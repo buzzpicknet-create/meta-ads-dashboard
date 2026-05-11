@@ -15,11 +15,12 @@ import DecisionsPage from "@/pages/Decisions";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
 import { GlobalAiChatContext } from "@/contexts/GlobalAiChatContext";
+import AiChatPage from "@/pages/AiChatPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +33,7 @@ const queryClient = new QueryClient({
 });
 
 const ALL_NAV_ITEMS = [
+  { href: "/chat",      label: "المساعد",           Icon: Bot,             useRoute: "/chat",      roles: ["admin", "media_buyer"] },
   { href: "/overview",  label: "نظرة عامة",        Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin", "media_buyer"] },
   { href: "/",          label: "تحليل الحملة",     Icon: Activity,        useRoute: "/",          roles: ["admin", "media_buyer"] },
   { href: "/decisions", label: "تشخيص الحملات",   Icon: Target,          useRoute: "/decisions", roles: ["admin"] },
@@ -301,6 +303,7 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
     <GlobalAiChatContext.Provider value={ctxValue}>
       <NavBar />
       <Switch>
+        <Route path="/chat"       component={AiChatPage} />
         <Route path="/overview"   component={canAccess("/overview")   ? Overview          : NotFound} />
         <Route path="/creative"   component={canAccess("/creative")   ? CreativePage       : NotFound} />
         <Route path="/activity"   component={canAccess("/activity")   ? ActivityPage       : NotFound} />

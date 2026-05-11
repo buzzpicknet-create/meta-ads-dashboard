@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocation } from "wouter";
 import { Loader2, Lock } from "lucide-react";
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const [, navigate] = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -15,6 +17,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username, password);
+      navigate("/chat");
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل تسجيل الدخول");
     } finally {
