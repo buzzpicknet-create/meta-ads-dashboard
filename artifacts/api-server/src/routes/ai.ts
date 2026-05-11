@@ -1747,6 +1747,166 @@ interface ActionRow {
   is_no_op: boolean;
 }
 
+// ── Long-Term Memory (LTM) ────────────────────────────────────────────────────
+
+interface LtmRow {
+  target_kpis: Record<string, number | null>;
+  strategic_rules: string[];
+  historical_insights: string;
+}
+
+const LTM_KPI_LABELS: Record<string, string> = {
+  target_cpa:       "CPA المستهدف (جنيه)",
+  target_roas:      "ROAS المستهدف",
+  target_ctr:       "CTR المستهدف (%)",
+  target_hook_rate: "Hook Rate المستهدف (%)",
+  target_cpm:       "CPM المستهدف (جنيه)",
+};
+
+/** Fetch user's LTM and build a formatted block for system prompt injection. */
+async function fetchUserLtm(userId: number): Promise<string> {
+  try {
+    const rows = await query<LtmRow>(
+      `SELECT target_kpis, strategic_rules, historical_insights
+       FROM user_ai_memory WHERE user_id=$1`,
+      [userId]
+    );
+    if (!rows[0]) return "";
+    const { target_kpis, strategic_rules, historical_insights } = rows[0];
+
+    const kpiEntries = Object.entries(target_kpis ?? {})
+      .filter(([, v]) => v !== null && v !== undefined && v !== "");
+    const rules   = (strategic_rules ?? []).filter(Boolean);
+    const insights = (historical_insights ?? "").trim();
+
+    if (kpiEntries.length === 0 && rules.length === 0 && !insights) return "";
+
+    const lines: string[] = [
+      "══════════════════════════════════════",
+      "🧠 ملف المستخدم — تفضيلات تعلّمتها من المحادثات السابقة",
+      "══════════════════════════════════════",
+    ];
+
+    if (kpiEntries.length > 0) {
+      lines.push("📊 أهداف KPI المستهدفة:");
+      for (const [k, v] of kpiEntries) {
+        const label = LTM_KPI_LABELS[k] ?? k;
+        lines.push(`  - ${label}: ${v}`);
+      }
+    }
+    if (rules.length > 0) {
+      lines.push("📋 القواعد الاستراتيجية:");
+      for (const rule of rules) lines.push(`  • ${rule}`);
+    }
+    if (insights) {
+      lines.push(`💡 رؤى تاريخية:\n${insights}`);
+    }
+    lines.push("══════════════════════════════════════");
+    lines.push("⚠️ استخدم هذا الملف كمرجع في توصياتك — إذا حدد المستخدم CPA مستهدف، اعتمده معياراً في تقييم الحملات.");
+    lines.push("══════════════════════════════════════");
+
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
+
+/** Background LLM extraction — runs every N messages, updates user_ai_memory. */
+async function triggerMemoryExtraction(userId: number, username: string): Promise<void> {
+  try {
+    const rows = await query<{ role: string; content: string }>(
+      `SELECT cm.role, cm.content
+       FROM chat_messages cm
+       JOIN chat_conversations cc ON cc.id = cm.conversation_id
+       WHERE cc.user_id = $1
+         AND cm.content IS NOT NULL
+         AND length(cm.content) > 5
+       ORDER BY cm.created_at DESC
+       LIMIT 40`,
+      [userId]
+    );
+
+    if (rows.length < 6) return;
+
+    const recent = [...rows].reverse();
+    const historyText = recent
+      .map(m => `${m.role === "user" ? "👤 المستخدم" : "🤖 المساعد"}: ${m.content.slice(0, 350)}`)
+      .join("\n\n");
+
+    const existingRows = await query<{ target_kpis: Record<string, unknown>; strategic_rules: string[] }>(
+      `SELECT target_kpis, strategic_rules FROM user_ai_memory WHERE user_id=$1`,
+      [userId]
+    );
+    const existing      = existingRows[0];
+    const existingRules = ((existing?.strategic_rules ?? []) as string[]).filter(Boolean);
+
+    const extractionPrompt = `أنت محلل بيانات صامت. مهمتك فقط: استخرج تفضيلات الـ Media Buyer من هذه المحادثة وأجب بـ JSON فقط بدون أي نص إضافي.
+
+المحادثة:
+---
+${historyText}
+---
+
+القواعد المحفوظة مسبقاً (لا تُعِد ذكرها): ${existingRules.length > 0 ? existingRules.join(" | ") : "لا يوجد"}
+
+استخرج فقط ما ذُكر صراحةً:
+1. أهداف KPI رقمية: target_cpa بالجنيه، target_roas كنسبة، target_ctr كنسبة مئوية، target_hook_rate كنسبة مئوية، target_cpm بالجنيه
+2. قواعد استراتيجية جديدة فقط (لم تُذكر في القواعد المحفوظة)
+3. رؤية تاريخية واحدة مختصرة إذا وُجدت
+
+أجب بـ JSON فقط:
+{"target_kpis":{},"new_rules":[],"historical_insights":""}
+
+إذا لم تجد شيئاً قابلاً للاستخراج: {"no_update":true}`;
+
+    const extraction = await openai.chat.completions.create({
+      model: "gpt-5.4",
+      max_completion_tokens: 400,
+      messages: [{ role: "user", content: extractionPrompt }],
+    });
+
+    const raw = (extraction.choices[0]?.message?.content ?? "").trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return;
+
+    type ExtractionResult = {
+      no_update?: boolean;
+      target_kpis?: Record<string, unknown>;
+      new_rules?: string[];
+      historical_insights?: string;
+    };
+    let extracted: ExtractionResult;
+    try { extracted = JSON.parse(jsonMatch[0]) as ExtractionResult; } catch { return; }
+    if (extracted.no_update) return;
+
+    const filteredKpis: Record<string, number> = {};
+    for (const [k, v] of Object.entries(extracted.target_kpis ?? {})) {
+      if (typeof v === "number" && !isNaN(v) && v > 0) filteredKpis[k] = v;
+    }
+
+    const newRules   = (extracted.new_rules ?? []).filter((r): r is string => typeof r === "string" && r.trim().length > 5);
+    const mergedRules = [...new Set([...existingRules, ...newRules])].slice(0, 20);
+    const insights   = (extracted.historical_insights ?? "").trim();
+
+    if (Object.keys(filteredKpis).length === 0 && newRules.length === 0 && !insights) return;
+
+    await query(
+      `INSERT INTO user_ai_memory (user_id, target_kpis, strategic_rules, historical_insights, updated_at)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         target_kpis        = user_ai_memory.target_kpis || $2::jsonb,
+         strategic_rules    = $3::jsonb,
+         historical_insights = CASE WHEN $4 = '' THEN user_ai_memory.historical_insights ELSE $4 END,
+         updated_at         = NOW()`,
+      [userId, JSON.stringify(filteredKpis), JSON.stringify(mergedRules), insights]
+    );
+
+    logger.info({ userId, username, newRules: newRules.length, kpis: Object.keys(filteredKpis) }, "LTM extraction complete");
+  } catch (err) {
+    logger.warn({ err, userId }, "LTM extraction failed (non-critical)");
+  }
+}
+
 const ACTION_LABEL: Record<string, string> = {
   pause_campaign:              "تم إيقاف الحملة مؤقتاً",
   enable_campaign:             "تم تشغيل الحملة",
@@ -1877,10 +2037,33 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
+  // LTM extraction trigger — fires after every 8 assistant messages (non-blocking)
+  if (userId) {
+    const username = req.session?.username ?? "unknown";
+    res.on("finish", () => {
+      void (async () => {
+        try {
+          const cnt = await query<{ cnt: string }>(
+            `SELECT COUNT(*) AS cnt
+             FROM chat_messages cm
+             JOIN chat_conversations cc ON cc.id = cm.conversation_id
+             WHERE cc.user_id = $1 AND cm.role = 'assistant'`,
+            [userId]
+          );
+          const n = Number(cnt[0]?.cnt ?? 0);
+          if (n > 0 && n % 8 === 0) {
+            await triggerMemoryExtraction(userId, username);
+          }
+        } catch { /* silent */ }
+      })();
+    });
+  }
+
   try {
     const memory = (userId && campaign_id)
       ? await fetchCampaignMemory(userId, campaign_id, conversation_id ?? null)
       : "";
+    const ltmBlock = userId ? await fetchUserLtm(userId) : "";
 
     // Cairo time (GMT+2) — so "today" matches the dashboard's date logic
     const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
@@ -1904,7 +2087,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
 لا تعتمد على الجدول اليومي أدناه للإجابة عن "النهاردة" — استدعِ الأداة دائماً.
 ══════════════════════════════════════`;
 
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n${dateHeader}\n\n${contextHeader}\n${campaignContext}${memory ? `\n\n${memory}` : ""}`;
+    const systemWithContext = `${SYSTEM_PROMPT}${ltmBlock ? `\n\n${ltmBlock}` : ""}\n\n${dateHeader}\n\n${contextHeader}\n${campaignContext}${memory ? `\n\n${memory}` : ""}`;
 
     const builtMessages: OpenAiMessage[] = [
       { role: "system", content: systemWithContext },
@@ -2079,6 +2262,83 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : "Unknown error";
     res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
     res.end();
+  }
+});
+
+// ── LTM CRUD routes ──────────────────────────────────────────────────────────
+
+// GET /api/ai/memory — fetch current user's Long-Term Memory
+router.get("/ai/memory", async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  if (!userId) { res.status(401).json({ error: "غير مصرح" }); return; }
+  try {
+    const rows = await query<LtmRow & { updated_at: string | null }>(
+      `SELECT target_kpis, strategic_rules, historical_insights, updated_at
+       FROM user_ai_memory WHERE user_id=$1`,
+      [userId]
+    );
+    if (!rows[0]) {
+      res.json({ target_kpis: {}, strategic_rules: [], historical_insights: "", updated_at: null });
+      return;
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    req.log.error({ err }, "GET /ai/memory error");
+    res.status(500).json({ error: "خطأ في جلب الذاكرة" });
+  }
+});
+
+// PATCH /api/ai/memory — full replace of user's LTM (manual edit from UI)
+router.patch("/ai/memory", async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  if (!userId) { res.status(401).json({ error: "غير مصرح" }); return; }
+  const { target_kpis, strategic_rules, historical_insights } = req.body as {
+    target_kpis?: Record<string, unknown>;
+    strategic_rules?: string[];
+    historical_insights?: string;
+  };
+  try {
+    await query(
+      `INSERT INTO user_ai_memory (user_id, target_kpis, strategic_rules, historical_insights, updated_at)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         target_kpis         = $2::jsonb,
+         strategic_rules     = $3::jsonb,
+         historical_insights = $4,
+         updated_at          = NOW()`,
+      [
+        userId,
+        JSON.stringify(target_kpis ?? {}),
+        JSON.stringify((strategic_rules ?? []).filter(Boolean)),
+        (historical_insights ?? "").trim(),
+      ]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "PATCH /ai/memory error");
+    res.status(500).json({ error: "خطأ في تحديث الذاكرة" });
+  }
+});
+
+// DELETE /api/ai/memory — wipe all LTM for current user
+router.delete("/ai/memory", async (req: Request, res: Response) => {
+  const userId = req.session?.userId;
+  if (!userId) { res.status(401).json({ error: "غير مصرح" }); return; }
+  try {
+    await query(
+      `INSERT INTO user_ai_memory (user_id, target_kpis, strategic_rules, historical_insights, updated_at)
+       VALUES ($1, '{}', '[]', '', NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         target_kpis         = '{}',
+         strategic_rules     = '[]',
+         historical_insights = '',
+         updated_at          = NOW()`,
+      [userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "DELETE /ai/memory error");
+    res.status(500).json({ error: "خطأ في مسح الذاكرة" });
   }
 });
 

@@ -489,6 +489,17 @@ async function runMigrations() {
     await query(`INSERT INTO schema_migrations (id) VALUES ('backfill_conversation_campaign_names_2026') ON CONFLICT (id) DO NOTHING`);
   }
 
+  // Long-Term Memory table — stores learned KPIs, rules, and insights per user
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_ai_memory (
+      user_id INT PRIMARY KEY REFERENCES users(id),
+      target_kpis JSONB NOT NULL DEFAULT '{}',
+      strategic_rules JSONB NOT NULL DEFAULT '[]',
+      historical_insights TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   logger.info("Database migrations complete");
 }
 

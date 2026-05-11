@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip,
   History, Plus, ChevronRight, ChevronDown, ChevronUp, Clock, Zap, AlertTriangle, Search,
-  Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2,
+  Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2, Brain,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -10,6 +10,21 @@ import {
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
+
+interface UserLtmData {
+  target_kpis: Record<string, number | null>;
+  strategic_rules: string[];
+  historical_insights: string;
+  updated_at?: string | null;
+}
+
+const LTM_KPI_DEFS = [
+  { key: "target_cpa",       label: "CPA المستهدف",   unit: "ج.م", placeholder: "40" },
+  { key: "target_roas",      label: "ROAS المستهدف",  unit: "×",   placeholder: "3.5" },
+  { key: "target_ctr",       label: "CTR المستهدف",   unit: "%",   placeholder: "2.0" },
+  { key: "target_hook_rate", label: "Hook Rate",       unit: "%",   placeholder: "30" },
+  { key: "target_cpm",       label: "CPM المستهدف",   unit: "ج.م", placeholder: "150" },
+] as const;
 
 interface LastIntervention {
   toolName: string;
@@ -597,7 +612,7 @@ function readFileAsAttachment(file: File): Promise<Attachment> {
   });
 }
 
-type View = "chat" | "history";
+type View = "chat" | "history" | "memory";
 
 function highlightText(text: string, query: string): React.ReactNode {
   if (!query.trim()) return text;
@@ -635,6 +650,16 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [executingAction, setExecutingAction] = useState(false);
   const [expandedSources, setExpandedSources] = useState<Record<number, boolean>>({});
+
+  // Long-Term Memory
+  const [ltmData, setLtmData]           = useState<UserLtmData | null>(null);
+  const [ltmLoading, setLtmLoading]     = useState(false);
+  const [ltmSaving, setLtmSaving]       = useState(false);
+  const [ltmEditKpis, setLtmEditKpis]   = useState<Record<string, string>>({});
+  const [ltmEditRules, setLtmEditRules] = useState<string[]>([]);
+  const [ltmEditInsights, setLtmEditInsights] = useState("");
+  const [ltmNewRule, setLtmNewRule]     = useState("");
+  const [ltmDirty, setLtmDirty]         = useState(false);
 
   // Global history search
   const [historySearch, setHistorySearch] = useState("");
@@ -1062,6 +1087,64 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     try { setAttachment(await readFileAsAttachment(file)); } catch {}
   }, []);
 
+  // ── LTM callbacks ─────────────────────────────────────────────────────────
+  const loadLtm = useCallback(async () => {
+    setLtmLoading(true);
+    try {
+      const r = await fetch(`${API}/ai/memory`, { credentials: "include" });
+      if (!r.ok) return;
+      const data = await r.json() as UserLtmData;
+      setLtmData(data);
+      setLtmEditKpis(Object.fromEntries(
+        Object.entries(data.target_kpis ?? {}).map(([k, v]) => [k, v != null ? String(v) : ""])
+      ));
+      setLtmEditRules([...(data.strategic_rules ?? [])]);
+      setLtmEditInsights(data.historical_insights ?? "");
+      setLtmDirty(false);
+    } catch { /* silent */ }
+    finally { setLtmLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (view === "memory" && open && ltmData === null && !ltmLoading) void loadLtm();
+  }, [view, open, ltmData, ltmLoading, loadLtm]);
+
+  const saveLtm = useCallback(async () => {
+    setLtmSaving(true);
+    try {
+      const target_kpis: Record<string, number> = {};
+      for (const [k, v] of Object.entries(ltmEditKpis)) {
+        const n = parseFloat(v);
+        if (!isNaN(n) && n > 0) target_kpis[k] = n;
+      }
+      const body = { target_kpis, strategic_rules: ltmEditRules.filter(Boolean), historical_insights: ltmEditInsights };
+      const r = await fetch(`${API}/ai/memory`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (r.ok) {
+        setLtmData({ ...body, updated_at: new Date().toISOString() });
+        setLtmDirty(false);
+      }
+    } finally { setLtmSaving(false); }
+  }, [ltmEditKpis, ltmEditRules, ltmEditInsights]);
+
+  const resetLtm = useCallback(async () => {
+    if (!confirm("مسح كل الذاكرة المحفوظة؟")) return;
+    setLtmSaving(true);
+    try {
+      await fetch(`${API}/ai/memory`, { method: "DELETE", credentials: "include" });
+      const empty: UserLtmData = { target_kpis: {}, strategic_rules: [], historical_insights: "", updated_at: new Date().toISOString() };
+      setLtmData(empty);
+      setLtmEditKpis({});
+      setLtmEditRules([]);
+      setLtmEditInsights("");
+      setLtmDirty(false);
+    } finally { setLtmSaving(false); }
+  }, []);
+
   const startNewChat = useCallback(() => {
     abortRef.current?.abort();
     setMessages([]);
@@ -1178,11 +1261,13 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
               )}
               <div>
                 <p className="text-sm font-semibold leading-tight text-foreground">
-                  {view === "history" ? "المحادثات السابقة" : "مساعد الإعلانات"}
+                  {view === "history" ? "المحادثات السابقة" : view === "memory" ? "ذاكرة المساعد" : "مساعد الإعلانات"}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
                   {view === "history"
                     ? `${conversations.length} محادثة محفوظة`
+                    : view === "memory"
+                    ? "تفضيلاتك وقواعدك المحفوظة"
                     : "أسئلة عامة عن Meta Ads"}
                 </p>
               </div>
@@ -1211,6 +1296,20 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                   title="المحادثات السابقة"
                 >
                   <History className="h-4 w-4" />
+                </button>
+              )}
+              {/* Memory Manager */}
+              {!collapsed && (
+                <button
+                  onClick={() => { setView((v) => v === "memory" ? "chat" : "memory"); }}
+                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${
+                    view === "memory"
+                      ? "text-purple-600 bg-purple-500/10"
+                      : "text-muted-foreground hover:text-purple-600 hover:bg-purple-500/10"
+                  }`}
+                  title="ذاكرة المساعد"
+                >
+                  <Brain className="h-4 w-4" />
                 </button>
               )}
               {/* Clear current chat */}
@@ -1242,8 +1341,125 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
             </div>
           </div>
 
-          {/* ── History View ── */}
-          {view === "history" ? (
+          {/* ── Memory Manager View ── */}
+          {view === "memory" ? (
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {ltmLoading ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4 min-h-0" dir="rtl">
+
+                  {/* KPI Targets */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">📊 أهداف KPI المستهدفة</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {LTM_KPI_DEFS.map(({ key, label, unit, placeholder }) => (
+                        <div key={key} className="bg-muted/40 rounded-xl p-2.5 border border-border">
+                          <p className="text-[10px] text-muted-foreground mb-1 leading-tight">{label}</p>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              value={ltmEditKpis[key] ?? ""}
+                              onChange={(e) => { setLtmEditKpis(p => ({ ...p, [key]: e.target.value })); setLtmDirty(true); }}
+                              placeholder={placeholder}
+                              dir="ltr"
+                              className="w-full bg-transparent text-[13px] font-semibold focus:outline-none placeholder:text-muted-foreground/40 text-right"
+                            />
+                            <span className="text-[11px] text-muted-foreground shrink-0">{unit}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Strategic Rules */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">📋 القواعد الاستراتيجية</p>
+                    <div className="space-y-1.5">
+                      {ltmEditRules.map((rule, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5 bg-muted/40 rounded-xl px-3 py-2 border border-border group">
+                          <span className="text-[12.5px] flex-1 leading-snug">{rule}</span>
+                          <button
+                            onClick={() => { setLtmEditRules(r => r.filter((_, i) => i !== idx)); setLtmDirty(true); }}
+                            className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all mt-0.5"
+                            title="حذف القاعدة"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                      {ltmEditRules.length === 0 && (
+                        <p className="text-[12px] text-muted-foreground/60 text-center py-2">لا توجد قواعد محفوظة بعد</p>
+                      )}
+                      {/* Add new rule */}
+                      <div className="flex items-center gap-1.5 border border-dashed border-border rounded-xl px-3 py-2 focus-within:border-primary/50 transition-colors">
+                        <input
+                          type="text"
+                          value={ltmNewRule}
+                          onChange={(e) => setLtmNewRule(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && ltmNewRule.trim()) {
+                              setLtmEditRules(r => [...r, ltmNewRule.trim()]);
+                              setLtmNewRule("");
+                              setLtmDirty(true);
+                            }
+                          }}
+                          placeholder="أضف قاعدة… (Enter للإضافة)"
+                          dir="rtl"
+                          className="flex-1 bg-transparent text-[13px] focus:outline-none placeholder:text-muted-foreground/40"
+                        />
+                        <button
+                          onClick={() => { if (ltmNewRule.trim()) { setLtmEditRules(r => [...r, ltmNewRule.trim()]); setLtmNewRule(""); setLtmDirty(true); } }}
+                          className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Historical Insights */}
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">💡 رؤى تاريخية</p>
+                    <textarea
+                      value={ltmEditInsights}
+                      onChange={(e) => { setLtmEditInsights(e.target.value); setLtmDirty(true); }}
+                      placeholder="ملاحظات وأنماط مستخلصة من المحادثات…"
+                      dir="rtl"
+                      rows={3}
+                      className="w-full bg-muted/40 border border-border rounded-xl px-3 py-2 text-[13px] focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40 resize-none"
+                    />
+                  </div>
+
+                  <p className="text-[10px] text-muted-foreground/50 text-center pb-1">
+                    يتم تحديث الذاكرة تلقائياً كل 8 رسائل من محادثاتك
+                  </p>
+                </div>
+              )}
+              {!ltmLoading && (
+                <div className="shrink-0 px-3 py-2.5 border-t border-border flex items-center gap-2">
+                  <button
+                    onClick={() => void saveLtm()}
+                    disabled={!ltmDirty || ltmSaving}
+                    className="flex-1 py-2 rounded-xl bg-primary text-primary-foreground text-[12px] font-medium disabled:opacity-40 hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    {ltmSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    حفظ التغييرات
+                  </button>
+                  <button
+                    onClick={() => void resetLtm()}
+                    disabled={ltmSaving}
+                    className="px-3 py-2 rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors disabled:opacity-40"
+                    title="مسح كل الذاكرة"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : view === "history" ? (
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               {/* Search bar */}
               <div className="px-3 pt-3 pb-2 shrink-0">
@@ -1728,7 +1944,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                       }}
                     />
                     <button
-                      onClick={send}
+                      onClick={() => void send()}
                       disabled={(!input.trim() && !attachment) || streaming}
                       className="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed mb-0.5"
                     >
