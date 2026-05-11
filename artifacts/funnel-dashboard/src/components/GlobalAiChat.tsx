@@ -431,8 +431,8 @@ function RenderMarkdown({ text }: { text: string }) {
     if (line.trim().startsWith("```")) {
       const lang = line.trim().slice(3).trim().toLowerCase();
       const isChart = lang === "json chart" || lang === "chart" || lang === "json-chart";
-      const isBulk  = lang === "bulk_action" || lang === "json bulk_action" || lang === "bulk-action"
-                   || lang === "bulk action"  || lang === "json_bulk_action";
+      const isBulkLang = lang === "bulk_action" || lang === "json bulk_action" || lang === "bulk-action"
+                      || lang === "bulk action"  || lang === "json_bulk_action" || lang.includes("bulk");
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !lines[i]!.trim().startsWith("```")) {
@@ -441,18 +441,26 @@ function RenderMarkdown({ text }: { text: string }) {
       }
       i++;
       const raw = codeLines.join("\n");
-      if (isBulk) {
-        let bulkPayload: BulkActionPayload | null = null;
+
+      // ── Helper: try to parse raw as a BulkActionPayload regardless of lang ──
+      const tryParseBulkG = (): BulkActionPayload | null => {
         try {
           const parsed = JSON.parse(raw) as unknown;
           if (Array.isArray(parsed)) {
-            bulkPayload = { actions: parsed as BulkActionPayload["actions"] };
+            const arr = parsed as Record<string, unknown>[];
+            if (arr.length > 0 && typeof arr[0]?.type === "string")
+              return { actions: parsed as BulkActionPayload["actions"] };
           } else if (parsed && typeof parsed === "object") {
             const obj = parsed as Record<string, unknown>;
-            if (Array.isArray(obj.actions)) bulkPayload = parsed as BulkActionPayload;
-            else if (typeof obj.type === "string") bulkPayload = { actions: [parsed as BulkActionPayload["actions"][0]] };
+            if (Array.isArray(obj.actions)) return parsed as BulkActionPayload;
+            if (typeof obj.type === "string") return { actions: [parsed as BulkActionPayload["actions"][0]] };
           }
-        } catch {}
+        } catch { /* not JSON */ }
+        return null;
+      };
+
+      if (isBulkLang) {
+        const bulkPayload = tryParseBulkG();
         if (bulkPayload) {
           elements.push(<BulkActionPanel key={`bulk-${i}`} payload={bulkPayload} />);
         } else {
@@ -470,28 +478,12 @@ function RenderMarkdown({ text }: { text: string }) {
           );
         }
       } else {
-        // Structural fallback: if JSON has "actions" array or is an array of action items
-        // (model sometimes outputs ```json instead of ```bulk_action)
-        let renderedAsBulk = false;
-        if (lang === "json" || lang === "") {
-          try {
-            const parsed = JSON.parse(raw) as unknown;
-            if (Array.isArray(parsed)) {
-              const arr = parsed as Record<string, unknown>[];
-              if (arr.length > 0 && typeof arr[0]?.type === "string") {
-                elements.push(<BulkActionPanel key={`bulk-${i}`} payload={{ actions: parsed as BulkActionPayload["actions"] }} />);
-                renderedAsBulk = true;
-              }
-            } else if (parsed && typeof parsed === "object") {
-              const obj = parsed as Record<string, unknown>;
-              if (Array.isArray(obj.actions)) {
-                elements.push(<BulkActionPanel key={`bulk-${i}`} payload={parsed as unknown as BulkActionPayload} />);
-                renderedAsBulk = true;
-              }
-            }
-          } catch { /* fall through to generic */ }
-        }
-        if (!renderedAsBulk) {
+        // Structural fallback: try to detect bulk_action JSON in ANY code block
+        // (model sometimes uses ```json or other lang instead of ```bulk_action)
+        const bulkPayload = tryParseBulkG();
+        if (bulkPayload) {
+          elements.push(<BulkActionPanel key={`bulk-${i}`} payload={bulkPayload} />);
+        } else {
           elements.push(
             <div key={`code-${i}`} className="my-3 rounded-xl overflow-hidden border border-border/60 bg-muted/40">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/60 border-b border-border/40">
