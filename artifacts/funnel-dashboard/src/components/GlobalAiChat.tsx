@@ -852,6 +852,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     if ((!text && !attachment) || streaming) return;
     const userText = text || (attachment?.isImage ? "[صورة مرفقة]" : `📎 ${attachment?.name}`);
     setInput("");
+    // Reset textarea height immediately after clearing
+    if (inputRef.current) { inputRef.current.style.height = "auto"; }
     const att = attachment;
     setAttachment(null);
     const newMsg: ChatMessage = { role: "user", content: userText };
@@ -865,6 +867,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    // 45-second hard timeout — abort cleanly if LLM takes too long
+    const timeoutId = setTimeout(() => ctrl.abort(), 45000);
     let accumulated = "";
 
     try {
@@ -934,10 +938,19 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       }
 
     } catch (err: unknown) {
-      if (err instanceof Error && err.name !== "AbortError") {
-        setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ. حاول تاني." }]);
+      if (err instanceof Error) {
+        if (err.name === "AbortError") {
+          // Could be manual cancel OR our 45s timeout
+          const timedOut = !abortRef.current; // already cleared = we fired the timeout
+          if (timedOut || ctrl.signal.aborted) {
+            setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ انتهى وقت الانتظار (45 ثانية). حاول مرة أخرى." }]);
+          }
+        } else {
+          setMessages((prev) => [...prev, { role: "assistant", content: "❌ حصل خطأ في الاتصال. حاول تاني." }]);
+        }
       }
     } finally {
+      clearTimeout(timeoutId);
       setStreaming(false);
       setStreamingText("");
       setSearching(false);
@@ -1347,7 +1360,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
             <>
               {/* ── Chat View ── */}
               <div className="flex-1 min-h-0 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
-                <div className="flex flex-col gap-4 py-4 px-4">
+                <div className="flex flex-col gap-3 py-4 px-4">
 
                   {/* Empty state */}
                   {messages.length === 0 && !streaming && (
@@ -1387,18 +1400,28 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
                   {/* Message bubbles */}
                   {messages.map((msg, i) => (
-                    <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"} items-end`}>
-                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 ${
-                        msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border border-border/60"
+                    <div
+                      key={i}
+                      className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"} items-start`}
+                    >
+                      {/* Avatar */}
+                      <div className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5 ${
+                        msg.role === "user"
+                          ? "bg-primary/90 text-primary-foreground ring-2 ring-primary/20"
+                          : "bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20"
                       }`}>
-                        {msg.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary" />}
+                        {msg.role === "user"
+                          ? <User className="h-3.5 w-3.5" />
+                          : <Bot className="h-3.5 w-3.5 text-primary" />}
                       </div>
-                      <div className="min-w-0 flex flex-col gap-1" style={{ maxWidth: "85%" }}>
+
+                      <div className="min-w-0 flex flex-col gap-1.5" style={{ maxWidth: "84%" }}>
+                        {/* Bubble */}
                         <div
                           className={`min-w-0 rounded-2xl break-words overflow-hidden ${
                             msg.role === "user"
-                              ? "bg-primary text-primary-foreground rounded-br-sm px-4 py-2.5 text-[13px] leading-relaxed"
-                              : "bg-card border border-border/60 shadow-sm rounded-bl-sm px-4 py-3"
+                              ? "bg-primary/90 text-primary-foreground rounded-tr-sm px-4 py-2.5 text-[13.5px] leading-relaxed shadow-sm"
+                              : "bg-background border border-border/70 rounded-tl-sm px-4 py-3 shadow-sm"
                           }`}
                           style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
                           dir="rtl"
@@ -1413,14 +1436,16 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                             />
                           )}
                           {msg.role === "user"
-                            ? msg.content && <span>{msg.content}</span>
+                            ? msg.content && <span className="whitespace-pre-wrap">{msg.content}</span>
                             : <RenderMarkdown text={msg.content} />}
                         </div>
+
+                        {/* Sources toggle */}
                         {msg.role === "assistant" && msg.tool_calls && msg.tool_calls.length > 0 && (
                           <div dir="rtl">
                             <button
                               onClick={() => setExpandedSources((prev) => ({ ...prev, [i]: !prev[i] }))}
-                              className="flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                              className="flex items-center gap-1 text-[11px] text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
                             >
                               <Search className="h-2.5 w-2.5 shrink-0" />
                               <span>مصادر البيانات ({msg.tool_calls.length})</span>
@@ -1429,8 +1454,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                             {expandedSources[i] && (
                               <div className="mt-1 flex flex-col gap-0.5 ps-1">
                                 {msg.tool_calls.map((label, j) => (
-                                  <span key={j} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
-                                    <span className="w-1 h-1 rounded-full bg-muted-foreground/30 shrink-0" />
+                                  <span key={j} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/45">
+                                    <span className="w-1 h-1 rounded-full bg-primary/30 shrink-0" />
                                     {label}
                                   </span>
                                 ))}
@@ -1495,38 +1520,37 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                     );
                   })()}
 
-                  {/* Streaming */}
+                  {/* Streaming text bubble */}
                   {streaming && streamingText && (
-                    <div className="flex gap-2.5 flex-row items-end">
-                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
+                    <div className="flex gap-2.5 flex-row items-start">
+                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5 bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
                         <Bot className="h-3.5 w-3.5 text-primary" />
                       </div>
                       <div
-                        className="min-w-0 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm px-4 py-3 break-words overflow-hidden"
-                        style={{ maxWidth: "85%", wordBreak: "break-word", overflowWrap: "anywhere" }}
+                        className="min-w-0 rounded-2xl rounded-tl-sm bg-background border border-border/70 shadow-sm px-4 py-3 break-words overflow-hidden"
+                        style={{ maxWidth: "84%", wordBreak: "break-word", overflowWrap: "anywhere" }}
                         dir="rtl"
                       >
                         <RenderMarkdown text={streamingText} />
-                        <span className="inline-block w-[3px] h-[14px] bg-primary/70 animate-pulse rounded-full align-middle ms-0.5" />
+                        <span className="inline-block w-[2px] h-[14px] bg-primary/60 animate-pulse rounded-full align-middle ms-0.5 mb-0.5" />
                       </div>
                     </div>
                   )}
 
+                  {/* Thinking / searching indicator */}
                   {streaming && !streamingText && (
-                    <div className="flex gap-2.5 flex-row items-end">
-                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mb-0.5 bg-muted border border-border/60">
+                    <div className="flex gap-2.5 flex-row items-start">
+                      <div className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-0.5 bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20">
                         <Bot className="h-3.5 w-3.5 text-primary" />
                       </div>
                       {searching ? (
-                        <div className="flex flex-col gap-1.5 px-4 py-3 rounded-2xl rounded-bl-sm bg-primary/5 border border-primary/20 shadow-sm min-w-[220px]" dir="rtl">
-                          {/* Completed tool calls */}
-                          {toolCallLabels.slice(0, -1).map((label, i) => (
-                            <div key={i} className="flex items-center gap-2 text-[11px] text-emerald-700/80">
+                        <div className="flex flex-col gap-1.5 px-4 py-3 rounded-2xl rounded-tl-sm bg-primary/5 border border-primary/15 shadow-sm min-w-[220px]" dir="rtl">
+                          {toolCallLabels.slice(0, -1).map((label, idx) => (
+                            <div key={idx} className="flex items-center gap-2 text-[11px] text-emerald-700/80">
                               <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
-                              <span className="line-through decoration-emerald-400/60">{label}</span>
+                              <span className="line-through decoration-emerald-400/50">{label}</span>
                             </div>
                           ))}
-                          {/* Active tool call */}
                           <div className="flex items-center gap-2 text-[12px] text-primary/90 font-medium">
                             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
                             <span>
@@ -1536,31 +1560,27 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                             </span>
                           </div>
                         </div>
+                      ) : toolCallLabels.length > 0 ? (
+                        <div className="flex flex-col gap-1 px-4 py-3 rounded-2xl rounded-tl-sm bg-background border border-border/70 shadow-sm" dir="rtl">
+                          {toolCallLabels.map((label, idx) => (
+                            <div key={idx} className="flex items-center gap-2 text-[11px] text-emerald-700/70">
+                              <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+                              <span>{label}</span>
+                            </div>
+                          ))}
+                          <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40 mt-0.5">
+                            {[0, 1, 2].map((k) => (
+                              <span key={k} className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 150}ms` }} />
+                            ))}
+                            <span className="text-[11px] text-muted-foreground/60 mr-1">جاري التحليل…</span>
+                          </div>
+                        </div>
                       ) : (
-                        <div className="flex flex-col gap-1">
-                          {/* Completed tools before LLM starts typing */}
-                          {toolCallLabels.length > 0 ? (
-                            <div className="flex flex-col gap-1 px-4 py-3 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm" dir="rtl">
-                              {toolCallLabels.map((label, i) => (
-                                <div key={i} className="flex items-center gap-2 text-[11px] text-emerald-700/70">
-                                  <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
-                                  <span>{label}</span>
-                                </div>
-                              ))}
-                              <div className="flex items-center gap-1.5 pt-1 border-t border-border/40 mt-0.5">
-                                {[0, 1, 2].map((k) => (
-                                  <span key={k} className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
-                                ))}
-                                <span className="text-[11px] text-muted-foreground/60 mr-0.5">جاري التحليل…</span>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 px-4 py-3.5 rounded-2xl rounded-bl-sm bg-card border border-border/60 shadow-sm">
-                              {[0, 1, 2].map((k) => (
-                                <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
-                              ))}
-                            </div>
-                          )}
+                        <div className="flex items-center gap-2 px-4 py-3.5 rounded-2xl rounded-tl-sm bg-background border border-border/70 shadow-sm">
+                          <span className="text-[12px] text-muted-foreground/60">يفكر</span>
+                          {[0, 1, 2].map((k) => (
+                            <span key={k} className="w-2 h-2 rounded-full bg-primary/50 animate-bounce" style={{ animationDelay: `${k * 150}ms` }} />
+                          ))}
                         </div>
                       )}
                     </div>
