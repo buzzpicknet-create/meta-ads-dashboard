@@ -33,14 +33,14 @@ const queryClient = new QueryClient({
 });
 
 const ALL_NAV_ITEMS = [
-  { href: "/chat",      label: "المساعد",           Icon: Bot,             useRoute: "/chat",      roles: ["admin", "media_buyer"] },
-  { href: "/overview",  label: "نظرة عامة",        Icon: LayoutDashboard, useRoute: "/overview",  roles: ["admin", "media_buyer"] },
-  { href: "/",          label: "تحليل الحملة",     Icon: Activity,        useRoute: "/",          roles: ["admin", "media_buyer"] },
-  { href: "/decisions", label: "تشخيص الحملات",   Icon: Target,          useRoute: "/decisions", roles: ["admin"] },
-  { href: "/media",     label: "طلبات الميديا",    Icon: Clapperboard,    useRoute: "/media",     roles: ["admin", "media_buyer", "media_manager"] },
-  { href: "/activity",  label: "نشاط الفريق",      Icon: ClipboardList,   useRoute: "/activity",  roles: ["admin", "media_buyer"] },
-  { href: "/creative",  label: "مركز الكريتف",     Icon: Sparkles,        useRoute: "/creative",  roles: ["admin", "media_buyer"] },
-  { href: "/admin",     label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",      roles: ["admin"] },
+  { href: "/chat",       label: "المساعد",          Icon: Bot,             useRoute: "/chat",       roles: ["admin", "media_buyer"] },
+  { href: "/overview",   label: "نظرة عامة",        Icon: LayoutDashboard, useRoute: "/overview",   roles: ["admin", "media_buyer"] },
+  { href: "/dashboard",  label: "تحليل الحملة",     Icon: Activity,        useRoute: "/dashboard",  roles: ["admin", "media_buyer"] },
+  { href: "/decisions",  label: "تشخيص الحملات",   Icon: Target,          useRoute: "/decisions",  roles: ["admin"] },
+  { href: "/media",      label: "طلبات الميديا",    Icon: Clapperboard,    useRoute: "/media",      roles: ["admin", "media_buyer", "media_manager"] },
+  { href: "/activity",   label: "نشاط الفريق",      Icon: ClipboardList,   useRoute: "/activity",   roles: ["admin", "media_buyer"] },
+  { href: "/creative",   label: "مركز الكريتف",     Icon: Sparkles,        useRoute: "/creative",   roles: ["admin", "media_buyer"] },
+  { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
 ];
 
 function NotificationBell() {
@@ -250,6 +250,12 @@ function NavBar() {
   );
 }
 
+function ChatRedirect() {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate("/chat"); }, [navigate]);
+  return null;
+}
+
 function MediaManagerRouter() {
   const [, navigate] = useLocation();
   return (
@@ -285,9 +291,11 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
   // A page is accessible based on the visibility map (applies to all roles including admin).
   // Falls back to hardcoded roles if no DB setting exists yet.
   // /admin is always accessible to admin regardless of visibility settings.
+  // /dashboard maps to the old "/" key in the DB visibility map.
   function canAccess(path: string) {
-    if (visibilityMap && Object.prototype.hasOwnProperty.call(visibilityMap, path)) {
-      return visibilityMap[path] === true;
+    const dbKey = path === "/dashboard" ? "/" : path;
+    if (visibilityMap && Object.prototype.hasOwnProperty.call(visibilityMap, dbKey)) {
+      return visibilityMap[dbKey] === true;
     }
     // Fallback: allow if role was originally allowed in ALL_NAV_ITEMS
     const item = ALL_NAV_ITEMS.find((i) => i.href === path);
@@ -304,13 +312,14 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
       <NavBar />
       <Switch>
         <Route path="/chat"       component={AiChatPage} />
+        <Route path="/dashboard"  component={canAccess("/dashboard")  ? Dashboard          : NotFound} />
         <Route path="/overview"   component={canAccess("/overview")   ? Overview          : NotFound} />
         <Route path="/creative"   component={canAccess("/creative")   ? CreativePage       : NotFound} />
         <Route path="/activity"   component={canAccess("/activity")   ? ActivityPage       : NotFound} />
         <Route path="/media"      component={canAccess("/media")      ? MediaRequestsPage  : NotFound} />
         <Route path="/decisions"  component={canAccess("/decisions")  ? DecisionsPage      : NotFound} />
         <Route path="/admin"      component={isAdmin                  ? AdminPage          : NotFound} />
-        <Route path="/"           component={canAccess("/")           ? Dashboard          : NotFound} />
+        <Route path="/"           component={ChatRedirect} />
         <Route component={NotFound} />
       </Switch>
       <GlobalAiChat
