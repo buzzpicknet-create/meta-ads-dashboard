@@ -572,7 +572,7 @@ export default function AiChatPage() {
         const names = selAccList.map(a=>`${a.name} (${a.type==="meta"?"Meta Ads":"Google Ads"} — ID: ${a.id})`).join("، ");
         ctx = `⚠️ تعليمات المستخدم: ركّز حصرياً على الحسابات التالية في هذه المحادثة:\n${names}\n\nأي سؤال عن حسابات أخرى غير المذكورة → اعتذر بأدب وأخبر المستخدم أن صلاحياته مقصورة على الحسابات المحددة.\n\n` + ctx;
       }
-      const body: Record<string,unknown> = {campaignContext:ctx, messages:clean, conversation_id:cid};
+      const body: Record<string,unknown> = {campaignContext:ctx, messages:clean, conversation_id:cid, selectedAccountIds:[...selectedAccIds]};
       if (att?.isImage) { body.imageBase64=att.base64; body.imageMimeType=att.mimeType; }
       if (att?.text)   { body.fileText=att.text; body.fileName=att.name; }
       const resp = await fetch(`${API}/ai/chat`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:ctrl.signal, credentials:"include"});

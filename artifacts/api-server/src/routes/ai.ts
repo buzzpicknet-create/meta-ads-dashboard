@@ -1595,7 +1595,8 @@ async function tryExecuteViaPipeboard(
   name: string,
   args: Record<string, unknown>,
   since: string,
-  until: string
+  until: string,
+  selectedAccFilter?: Set<string> | null
 ): Promise<string | null> {
   if (!process.env.PIPEBOARD_API_TOKEN) return null;
 
@@ -1662,10 +1663,13 @@ async function tryExecuteViaPipeboard(
       const accRows = await query<{ account_id: string }>(
         `SELECT DISTINCT account_id FROM meta_campaigns_cache LIMIT 5`
       ).catch(() => [] as { account_id: string }[]);
-      if (accRows.length === 0) return null;
+      const filtered = selectedAccFilter
+        ? accRows.filter(r => selectedAccFilter.has(r.account_id))
+        : accRows;
+      if (filtered.length === 0) return null;
 
       const results = await Promise.all(
-        accRows.map((r) =>
+        filtered.map((r) =>
           callPipeboardRead("get_insights", {
             object_id: `act_${r.account_id}`,
             level: "campaign",
@@ -1673,7 +1677,6 @@ async function tryExecuteViaPipeboard(
           }).catch(() => null)
         )
       );
-      // If ALL accounts failed → return null so native API fallback kicks in
       const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
       if (successes.length === 0) return null;
       return successes.join("\n\n---\n\n");
@@ -1683,10 +1686,13 @@ async function tryExecuteViaPipeboard(
       const accRows = await query<{ account_id: string }>(
         `SELECT DISTINCT account_id FROM meta_overview_cache LIMIT 5`
       ).catch(() => [] as { account_id: string }[]);
-      if (accRows.length === 0) return null;
+      const filtered = selectedAccFilter
+        ? accRows.filter(r => selectedAccFilter.has(r.account_id))
+        : accRows;
+      if (filtered.length === 0) return null;
 
       const results = await Promise.all(
-        accRows.map((r) =>
+        filtered.map((r) =>
           callPipeboardRead("get_insights", {
             object_id: `act_${r.account_id}`,
             level: "account",
@@ -1695,7 +1701,6 @@ async function tryExecuteViaPipeboard(
           }).catch(() => null)
         )
       );
-      // If ALL accounts failed → return null so native API fallback kicks in
       const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
       if (successes.length === 0) return null;
       return successes.join("\n\n---\n\n");
@@ -1709,7 +1714,7 @@ async function tryExecuteViaPipeboard(
 }
 
 // ── Tool executor (Pipeboard-first → cache-first: DB → Meta API → stale fallback) ──
-async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+async function executeTool(name: string, args: Record<string, unknown>, selectedAccFilter?: Set<string> | null): Promise<string> {
   // Write tools are handled via the two-phase optimistic flow in the streaming
   // loop (buildOptimisticPendingAction → resolveWriteToolDetails).
   // This fallback should not be reached in normal operation.
@@ -1740,7 +1745,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   // Pipeboard handles rate-limiting and auth independently — no cache needed.
   // Falls back silently to our native Meta API + DB cache if it fails.
   {
-    const pbResult = await tryExecuteViaPipeboard(name, args, s, u);
+    const pbResult = await tryExecuteViaPipeboard(name, args, s, u, selectedAccFilter);
     if (pbResult !== null && pbResult.trim().length > 0) {
       logger.info({ tool: name }, "executeTool: served via Pipeboard MCP");
       return pbResult;
@@ -1857,8 +1862,13 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
 
   // ── Tool dispatch ───────────────────────────────────────────────────────────
   try {
-    const accounts = await listAdAccounts();
-    if (accounts.length === 0) return "لا توجد حسابات إعلانية مرتبطة.";
+    const allAccounts = await listAdAccounts();
+    if (allAccounts.length === 0) return "لا توجد حسابات إعلانية مرتبطة.";
+    // Apply account filter if provided (strip act_ prefix for comparison)
+    const accounts = selectedAccFilter
+      ? allAccounts.filter(a => selectedAccFilter.has(a.id.replace(/^act_/, "")))
+      : allAccounts;
+    if (accounts.length === 0) return "لا توجد بيانات للحسابات المحددة.";
 
     if (name === "get_campaigns") {
       const rows: string[] = [`## الحملات النشطة (آخر ${days} يوم):\n`];
@@ -2240,6 +2250,7 @@ interface AiChatBody {
   fileName?: string;
   campaign_id?: string;
   conversation_id?: number;
+  selectedAccountIds?: string[];
 }
 
 interface MemoryRow {
@@ -2537,7 +2548,10 @@ type OpenAiMessage =
 
 // ── Route ────────────────────────────────────────────────────────────────────
 router.post("/ai/chat", async (req: Request, res: Response) => {
-  const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName, campaign_id, conversation_id } = req.body as AiChatBody;
+  const { campaignContext, messages, imageBase64, imageMimeType, fileText, fileName, campaign_id, conversation_id, selectedAccountIds } = req.body as AiChatBody;
+  const selectedAccFilter = Array.isArray(selectedAccountIds) && selectedAccountIds.length > 0
+    ? new Set(selectedAccountIds.map(id => id.replace(/^act_/, "")))
+    : null;
   const isAdmin = req.session?.role === "admin";
   const userId = req.session?.userId;
 
@@ -2748,7 +2762,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
               res.write(`data: ${JSON.stringify({ pending_action_resolved: {} })}\n\n`);
             }
           } else {
-            const result = await executeTool(tc.function.name, args);
+            const result = await executeTool(tc.function.name, args, selectedAccFilter);
             builtMessages.push({ role: "tool", content: result, tool_call_id: tc.id });
           }
         })
