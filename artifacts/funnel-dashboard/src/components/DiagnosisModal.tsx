@@ -1919,7 +1919,13 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
     abortRef.current = ctrl;
 
     try {
-      const body: Record<string, unknown> = { campaignContext, messages: newMessages, campaign_id: campaignId, conversation_id: convId };
+      // Filter out junk assistant messages before sending as context
+      const JUNK_RE = /^[?؟!.\s]*$|^❌|^عذراً، لم أتمكن/;
+      const cleanMessages = newMessages.filter((m) =>
+        m.role !== "assistant" || (m.content.trim().length > 5 && !JUNK_RE.test(m.content.trim()))
+      );
+
+      const body: Record<string, unknown> = { campaignContext, messages: cleanMessages, campaign_id: campaignId, conversation_id: convId };
       if (att?.isImage)  { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)     { body.fileText = att.text; body.fileName = att.name; }
 
@@ -1937,42 +1943,50 @@ function AiChatTab({ insights, prevInsights, prevPeriod, messages, setMessages, 
       const decoder = new TextDecoder();
       let accumulated = "";
       const localLabels: string[] = [];
+      let doneReceived = false;
 
-      while (true) {
+      outer: while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done || doneReceived) break;
         const chunk = decoder.decode(value, { stream: true });
         for (const line of chunk.split("\n")) {
           if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.error) throw new Error(data.error);
-            if (data.done) break;
-            if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
-            if (data.pending_action_resolved) {
-              setPendingAction((prev) => prev ? { ...prev, ...(data.pending_action_resolved as Partial<PendingAction>), detailsLoading: false } : prev);
-            }
-            if (data.tool_call_label) {
-              localLabels.push(data.tool_call_label as string);
-              setToolCallLabels((prev) => [...prev, data.tool_call_label as string]);
-            }
-            if (data.content) { accumulated += data.content; setStreamingText(accumulated); }
-          } catch {}
+          let data: Record<string, unknown>;
+          try { data = JSON.parse(line.slice(6)) as Record<string, unknown>; } catch { continue; }
+          if (data.error) throw new Error(String(data.error));
+          if (data.done) { doneReceived = true; break outer; }
+          if (data.pending_action) { setPendingAction(data.pending_action as PendingAction); }
+          if (data.pending_action_resolved) {
+            setPendingAction((prev) => prev ? { ...prev, ...(data.pending_action_resolved as Partial<PendingAction>), detailsLoading: false } : prev);
+          }
+          if (data.tool_call_label) {
+            localLabels.push(data.tool_call_label as string);
+            setToolCallLabels((prev) => [...prev, data.tool_call_label as string]);
+          }
+          if (data.searching === true) setSearchLoading(true);
+          if (data.searching === false) setSearchLoading(false);
+          if (data.content) { setToolCallLabels([]); accumulated += String(data.content); setStreamingText(accumulated); }
         }
       }
 
       const capturedLabels = localLabels.slice();
-      const assistantMsg: ChatMessage = { role: "assistant", content: accumulated };
+      // Replace junk/empty accumulated with a friendly fallback
+      const finalAccumulated = accumulated.trim().length > 3
+        ? accumulated
+        : "عذراً، لم أتمكن من الإجابة. حاول مرة أخرى.";
+      const assistantMsg: ChatMessage = { role: "assistant", content: finalAccumulated };
       if (capturedLabels.length > 0) assistantMsg.tool_calls = capturedLabels;
       const finalMessages: ChatMessage[] = [...newMessages, assistantMsg];
       setMessages(finalMessages);
 
-      // Auto-save to DB
-      const cid = await ensureConversation(userText);
-      if (cid !== null) {
-        await saveToDB(cid, finalMessages);
-        // Refresh conversation list in background
-        loadConversations().catch(() => {});
+      // Auto-save to DB — only if meaningful response
+      if (accumulated.trim().length > 3) {
+        const cid = await ensureConversation(userText);
+        if (cid !== null) {
+          await saveToDB(cid, finalMessages);
+          // Refresh conversation list in background
+          loadConversations().catch(() => {});
+        }
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {

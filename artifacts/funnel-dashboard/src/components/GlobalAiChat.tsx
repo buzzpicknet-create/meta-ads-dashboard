@@ -870,7 +870,13 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     try {
       const activeCid = await ensureConversation(userText);
 
-      const body: Record<string, unknown> = { campaignContext: buildContext(), messages: newMessages, conversation_id: activeCid };
+      // Filter out junk assistant messages (empty, "?", error messages) before sending to API
+      // so they don't confuse the model
+      const JUNK_PATTERNS = /^[?؟!.\s]*$|^❌|^عذراً، لم أتمكن/;
+      const cleanMessages = newMessages.filter((m) =>
+        m.role !== "assistant" || (m.content.trim().length > 5 && !JUNK_PATTERNS.test(m.content.trim()))
+      );
+      const body: Record<string, unknown> = { campaignContext: buildContext(), messages: cleanMessages, conversation_id: activeCid };
       if (att?.isImage) { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)    { body.fileText = att.text; body.fileName = att.name; }
 
@@ -914,12 +920,18 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       }
 
       const capturedLabels = localLabels.slice();
-      const assistantMsg: ChatMessage = { role: "assistant", content: accumulated };
+      // If accumulated is empty or junk (e.g. "?"), show a friendly fallback
+      const finalContent = accumulated.trim().length > 3
+        ? accumulated
+        : "عذراً، لم أتمكن من الإجابة. حاول مرة أخرى.";
+      const assistantMsg: ChatMessage = { role: "assistant", content: finalContent };
       if (capturedLabels.length > 0) assistantMsg.tool_calls = capturedLabels;
       setMessages((prev) => [...prev, assistantMsg]);
 
-      // Save to DB in background
-      void saveToDB(activeCid, userText, accumulated, capturedLabels.length > 0 ? capturedLabels : undefined);
+      // Save to DB in background — only save meaningful responses
+      if (accumulated.trim().length > 3) {
+        void saveToDB(activeCid, userText, accumulated, capturedLabels.length > 0 ? capturedLabels : undefined);
+      }
 
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {

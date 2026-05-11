@@ -1809,9 +1809,16 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       { role: "system", content: systemWithContext },
     ];
 
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i]!;
-      const isLast = i === messages.length - 1;
+    // Filter junk assistant messages (empty, "?", error fallbacks) from history
+    // to prevent confusing the model with garbage context
+    const JUNK_RE = /^[?؟!.\s]*$|^❌|^عذراً، لم أتمكن/;
+    const cleanedMessages = messages.filter((m) =>
+      m.role !== "assistant" || (m.content.trim().length > 5 && !JUNK_RE.test(m.content.trim()))
+    );
+
+    for (let i = 0; i < cleanedMessages.length; i++) {
+      const m = cleanedMessages[i]!;
+      const isLast = i === cleanedMessages.length - 1;
 
       if (m.role === "user" && isLast && (imageBase64 || fileText)) {
         const textContent = fileText
@@ -1859,16 +1866,22 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
         const finalContent = choice.message.content ?? "";
 
         // Guard: if the model returned a suspiciously short response (<10 chars)
-        // on the first round, it likely didn't have enough context to answer.
-        // Nudge it to use its tools before giving up.
-        if (round === 0 && finalContent.trim().length < 10) {
+        // on any round, nudge it to fetch data and answer in detail.
+        if (finalContent.trim().length < 10) {
           logger.warn({ content: finalContent, round }, "AI returned suspiciously short content — injecting tool-use nudge");
-          builtMessages.push({ role: "assistant", content: finalContent || null });
-          builtMessages.push({
-            role: "user",
-            content: "استخدم الأدوات المتاحة (get_campaigns, get_account_daily) لجلب البيانات وأجب على السؤال بالتفصيل.",
-          });
-          continue; // go to round 1
+          if (round < MAX_TOOL_ROUNDS - 1) {
+            builtMessages.push({ role: "assistant", content: finalContent || null });
+            builtMessages.push({
+              role: "user",
+              content: "استخدم الأدوات المتاحة (get_campaigns, get_campaign_daily, get_account_daily) لجلب البيانات الحقيقية وأجب على السؤال بالتفصيل باللغة العربية.",
+            });
+            continue; // retry next round
+          }
+          // Last round — send a friendly fallback instead of "?"
+          res.write(`data: ${JSON.stringify({ content: "عذراً، لم أتمكن من الإجابة في الوقت الحالي. حاول مرة أخرى أو اطرح السؤال بطريقة مختلفة." })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          res.end();
+          return;
         }
 
         // Stream word-by-word for UX
