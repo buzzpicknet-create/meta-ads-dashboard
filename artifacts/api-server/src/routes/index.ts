@@ -12,6 +12,7 @@ import aiRouter, { warmUpPipeboard } from "./ai";
 import chatRouter from "./chat";
 import pipeboardRouter from "./pipeboard";
 import scheduledReportsRouter from "./scheduled-reports";
+import googleAdsAiRouter from "./google-ads-ai";
 
 const router = Router();
 
@@ -43,5 +44,6 @@ router.use(aiRouter);
 router.use(chatRouter);
 router.use(pipeboardRouter);
 router.use(scheduledReportsRouter);
+router.use(googleAdsAiRouter);
 
 export default router;
