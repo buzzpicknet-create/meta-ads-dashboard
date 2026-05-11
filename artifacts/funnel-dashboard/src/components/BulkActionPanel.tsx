@@ -11,9 +11,12 @@ export interface BulkActionItem {
     | "pause_campaign"
     | "enable_campaign"
     | "pause_adset"
-    | "enable_adset";
+    | "enable_adset"
+    | "pause_ad"
+    | "enable_ad";
   campaignId?: string;
   adsetId?: string;
+  adId?: string;
   name: string;
   label: string;
   currentBudget?: number;
@@ -35,8 +38,10 @@ const TYPE_META: Record<BulkActionItem["type"], { icon: React.ReactNode; color: 
   update_adset_budget:    { icon: <TrendingUp className="h-3.5 w-3.5" />, color: "text-emerald-600 dark:text-emerald-400", badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30" },
   pause_campaign:  { icon: <PauseCircle className="h-3.5 w-3.5" />, color: "text-amber-600 dark:text-amber-400",  badge: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30" },
   pause_adset:     { icon: <PauseCircle className="h-3.5 w-3.5" />, color: "text-amber-600 dark:text-amber-400",  badge: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30" },
+  pause_ad:        { icon: <PauseCircle className="h-3.5 w-3.5" />, color: "text-amber-600 dark:text-amber-400",  badge: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30" },
   enable_campaign: { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
   enable_adset:    { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
+  enable_ad:       { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
 };
 
 // Detect if budget is decreasing vs increasing
@@ -67,6 +72,10 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
       return { tool: "pause_adset", args: { adset_id: item.adsetId, name: item.name } };
     case "enable_adset":
       return { tool: "enable_adset", args: { adset_id: item.adsetId, name: item.name } };
+    case "pause_ad":
+      return { tool: "pause_ad", args: { ad_id: item.adId, name: item.name } };
+    case "enable_ad":
+      return { tool: "enable_ad", args: { ad_id: item.adId, name: item.name } };
   }
 }
 

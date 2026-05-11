@@ -53,6 +53,8 @@ const INTERVENTION_TOOL_LABELS: Record<string, string> = {
   update_adset_budget: "تعديل ميزانية المجموعة",
   duplicate_adset: "نسخ المجموعة",
   duplicate_campaign: "نسخ الحملة",
+  pause_ad: "إيقاف الإعلان",
+  enable_ad: "تشغيل الإعلان",
 };
 
 function formatInterventionAge(hoursAgo: number): string {

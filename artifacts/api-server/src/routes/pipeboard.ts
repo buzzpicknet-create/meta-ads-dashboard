@@ -135,6 +135,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "pause_adset",
     "enable_adset",
     "update_adset_budget",
+    "pause_ad",
+    "enable_ad",
     "duplicate_adset",
     "create_campaign",
     "create_adset",
@@ -182,6 +184,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         return { mcpTool: "update_adset", mcpArgs: { adset_id: a.adset_id, status: "ACTIVE" } };
       case "update_adset_budget":
         return { mcpTool: "update_adset", mcpArgs: { adset_id: a.adset_id, daily_budget: egpToCents(a.budget_amount) } };
+      case "pause_ad":
+        return { mcpTool: "update_ad", mcpArgs: { ad_id: a.ad_id, status: "PAUSED" } };
+      case "enable_ad":
+        return { mcpTool: "update_ad", mcpArgs: { ad_id: a.ad_id, status: "ACTIVE" } };
       case "create_campaign":
         return {
           mcpTool: "create_campaign",
@@ -285,6 +291,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         [args.adset_id]
       ).catch(() => null);
     }
+    // pause_ad / enable_ad: no local cache to invalidate (ad details are fetched live)
 
     res.json({ success: true, message: resultMessage });
   } catch (err) {

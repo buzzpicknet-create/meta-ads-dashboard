@@ -1633,3 +1633,25 @@ export async function getAdsetDetails(adset_id: string): Promise<AdsetDetails> {
     lifetime_budget: json.lifetime_budget ? Number(json.lifetime_budget) / 100 : undefined,
   };
 }
+
+export interface AdDetails {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+}
+
+export async function getAdDetails(ad_id: string): Promise<AdDetails> {
+  const json = await fbGetSingle<{
+    id?: string;
+    name?: string;
+    status?: string;
+    effective_status?: string;
+  }>(`/${ad_id}`, { fields: "id,name,status,effective_status" });
+  return {
+    id: json.id ?? ad_id,
+    name: json.name ?? "",
+    status: json.status ?? "UNKNOWN",
+    effective_status: json.effective_status ?? "UNKNOWN",
+  };
+}

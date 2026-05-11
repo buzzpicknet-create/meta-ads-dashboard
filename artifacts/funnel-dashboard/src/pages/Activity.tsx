@@ -481,6 +481,8 @@ const TOOL_LABELS: Record<string, { label: string; icon: React.ElementType; colo
   enable_adset:          { label: "تفعيل مجموعة",       icon: Play,       color: "text-emerald-400" },
   update_adset_budget:   { label: "تعديل ميزانية مجموعة", icon: DollarSign, color: "text-amber-400" },
   duplicate_adset:       { label: "نسخ مجموعة",         icon: Plus,       color: "text-blue-500" },
+  pause_ad:              { label: "إيقاف إعلان",        icon: Pause,      color: "text-rose-300" },
+  enable_ad:             { label: "تفعيل إعلان",        icon: Play,       color: "text-emerald-300" },
 };
 
 // ── No-Op Stats Strip ─────────────────────────────────────────

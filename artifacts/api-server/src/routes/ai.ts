@@ -7,9 +7,11 @@ import {
   getAccountOverview,
   getCampaignDetails,
   getAdsetDetails,
+  getAdDetails,
   isRateLimitActive,
   type CampaignDetails,
   type AdsetDetails,
+  type AdDetails,
 } from "../lib/meta-api.js";
 import { query } from "../lib/db.js";
 import { upsertCampaignNameCache } from "../lib/campaign-name-cache.js";
@@ -291,6 +293,7 @@ Frequency (في 7 أيام):
    - قبل pause_campaign أو enable_campaign: استخدم get_campaign_status أولاً
    - قبل update_campaign_budget: استخدم get_campaign_budget مرة واحدة فقط لكل حملة — لا تعيد استدعاءه. بعد الجلب يُخزَّن تلقائياً
    - قبل pause_adset أو enable_adset أو update_adset_budget: استخدم get_adset_status مرة واحدة فقط
+   - قبل pause_ad أو enable_ad: استخدم get_ad_status مرة واحدة فقط
    - ⚠️ حملات ABO: لو get_campaign_budget أرجع "النوع: ABO" فالميزانية على المجموعات الإعلانية. الرد يتضمن adset_id وميزانية كل مجموعة تلقائياً — استخدم update_adset_budget مباشرةً بدون أي استدعاء إضافي
 ٢. اجلب بيانات الأداء للتشخيص (get_campaign_daily أو get_adsets)
 ممنوع تقترح إيقاف أو تعديل بدون تشخيص مبني على بيانات حقيقية وحالة حالية موثّقة.
@@ -303,6 +306,8 @@ Frequency (في 7 أيام):
 - enable_adset(adset_id, name) — تشغيل مجموعة إعلانية
 - update_adset_budget(adset_id, name, budget_amount) — تعديل ميزانية مجموعة
 - duplicate_adset(adset_id, name) — نسخ مجموعة إعلانية
+- pause_ad(ad_id, name) — إيقاف إعلان فردي (Ad) داخل مجموعة إعلانية
+- enable_ad(ad_id, name) — تشغيل إعلان فردي موقوف
 
 الأدوات المتاحة — إنشاء:
 - create_campaign(account_id, name, objective, daily_budget, status?) — إنشاء حملة جديدة
@@ -405,10 +410,11 @@ Frequency (في 7 أيام):
 }
 \`\`\`
 
-أنواع الإجراءات المتاحة (Meta): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset
+أنواع الإجراءات المتاحة (Meta): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset | pause_ad | enable_ad
 - لـ update_campaign_budget: campaignId + currentBudget + newBudget + budgetType ("daily" أو "lifetime") إلزامي
 - لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي
-- لـ pause/enable: campaignId أو adsetId حسب النوع
+- لـ pause/enable campaign/adset: campaignId أو adsetId حسب النوع
+- لـ pause_ad / enable_ad: adId (رقم الإعلان الفردي)
 - label: وصف قصير للإجراء (زيادة 20%، إيقاف، تقليل 30%، إلخ)
 - reason: السبب المبني على البيانات (اختياري لكن مفيد جداً)
 - الـ newBudget لازم يكون القيمة المطلقة المحسوبة، مش نسبة مئوية
@@ -572,6 +578,20 @@ const TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "get_ad_status",
+      description: "جيب الحالة الحالية لإعلان فردي (Ad). استخدم قبل اقتراح إيقاف أو تشغيل إعلان.",
+      parameters: {
+        type: "object",
+        properties: {
+          ad_id: { type: "string", description: "رقم الإعلان (id)" },
+        },
+        required: ["ad_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "get_ad_performance",
       description: "جيب أداء إعلان بعينه — نسبة الجذب (Hook Rate)، نسبة النقر (CTR)، تكلفة التحويل (CPA)، الإنفاق، والظهورات. استخدم قبل أي توصية بتغيير المحتوى الإعلاني أو إيقاف إعلان معين للتحقق من أرقامه الفعلية.",
       parameters: {
@@ -689,6 +709,36 @@ const TOOLS = [
           name: { type: "string", description: "اسم المجموعة" },
         },
         required: ["adset_id", "name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "pause_ad",
+      description: "اقتراح إيقاف إعلان فردي (Ad). استخدم get_ad_status أولاً للتحقق من حالته. سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          ad_id: { type: "string", description: "رقم الإعلان (id)" },
+          name: { type: "string", description: "اسم الإعلان للعرض في التأكيد" },
+        },
+        required: ["ad_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "enable_ad",
+      description: "اقتراح تشغيل إعلان فردي موقوف. استخدم get_ad_status أولاً للتحقق من حالته. سيظهر طلب تأكيد للمستخدم.",
+      parameters: {
+        type: "object",
+        properties: {
+          ad_id: { type: "string", description: "رقم الإعلان (id)" },
+          name: { type: "string", description: "اسم الإعلان" },
+        },
+        required: ["ad_id", "name"],
       },
     },
   },
@@ -992,6 +1042,8 @@ const WRITE_TOOL_NAMES = new Set([
   "pause_adset",
   "enable_adset",
   "update_adset_budget",
+  "pause_ad",
+  "enable_ad",
   "duplicate_adset",
   "create_campaign",
   "create_adset",
@@ -1004,6 +1056,16 @@ const WRITE_TOOL_NAMES = new Set([
   "ga_pause_keyword",
   "ga_enable_keyword",
 ]);
+
+// ── Cache-aware getAdDetails ──────────────────────────────────────────────────
+async function fetchAdDetailsCached(ad_id: string): Promise<AdDetails> {
+  try {
+    return await getAdDetails(ad_id);
+  } catch (err) {
+    if (isRateLimitErr(err)) throw err;
+    throw err;
+  }
+}
 
 // ── Rate-limit error detection (mirrors meta.ts) ─────────────────────────────
 function isRateLimitErr(err: unknown): boolean {
@@ -1118,7 +1180,7 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
   summary: string;
   proposedValue?: string;
 } {
-  const label = String(args.name ?? args.campaign_id ?? args.adset_id ?? "");
+  const label = String(args.name ?? args.campaign_id ?? args.adset_id ?? args.ad_id ?? "");
   switch (name) {
     case "pause_campaign":
       return { tool: name, args, summary: `إيقاف مؤقت للحملة "${label}"`, proposedValue: "موقوفة ⏸" };
@@ -1137,6 +1199,10 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
       return { tool: name, args, summary: `إيقاف مؤقت للمجموعة الإعلانية "${label}"`, proposedValue: "موقوفة ⏸" };
     case "enable_adset":
       return { tool: name, args, summary: `تشغيل المجموعة الإعلانية "${label}"`, proposedValue: "نشطة ✅" };
+    case "pause_ad":
+      return { tool: name, args, summary: `إيقاف الإعلان "${label}"`, proposedValue: "موقوف ⏸" };
+    case "enable_ad":
+      return { tool: name, args, summary: `تشغيل الإعلان "${label}"`, proposedValue: "نشط ✅" };
     case "update_adset_budget": {
       const proposed = Math.round(Number(args.budget_amount));
       return {
@@ -1328,6 +1394,28 @@ async function resolveWriteToolDetails(name: string, args: Record<string, unknow
     const summary = details.name ? `تشغيل المجموعة الإعلانية "${details.name}"` : undefined;
     if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشطة ✅", summary, lastIntervention };
     return { currentValue, summary, lastIntervention };
+  }
+
+  if (name === "pause_ad") {
+    const adId = String(args.ad_id);
+    try {
+      const details = await fetchAdDetailsCached(adId);
+      const currentValue = statusLabel(details.effective_status);
+      const summary = details.name ? `إيقاف الإعلان "${details.name}"` : undefined;
+      if (currentValue === "موقوفة ⏸") return { currentValue, proposedValue: "موقوف ⏸", summary };
+      return { currentValue, summary };
+    } catch { return {}; }
+  }
+
+  if (name === "enable_ad") {
+    const adId = String(args.ad_id);
+    try {
+      const details = await fetchAdDetailsCached(adId);
+      const currentValue = statusLabel(details.effective_status);
+      const summary = details.name ? `تشغيل الإعلان "${details.name}"` : undefined;
+      if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشط ✅", summary };
+      return { currentValue, summary };
+    } catch { return {}; }
   }
 
   if (name === "update_adset_budget") {
@@ -1651,6 +1739,12 @@ async function tryExecuteViaPipeboard(
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return null;
       return await callPipeboardRead("get_adset_details", { adset_id });
+    }
+
+    if (name === "get_ad_status") {
+      const ad_id = String(args.ad_id ?? "");
+      if (!ad_id) return null;
+      return await callPipeboardRead("get_ad_details", { ad_id });
     }
 
     if (name === "get_ad_performance") {
@@ -2167,6 +2261,30 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       }
     }
 
+    if (name === "get_ad_status") {
+      const ad_id = String(args.ad_id ?? "");
+      if (!ad_id) return "ad_id مطلوب.";
+      try {
+        const details = await fetchAdDetailsCached(ad_id);
+        const statusMap: Record<string, string> = {
+          ACTIVE: "نشط ✅",
+          PAUSED: "موقوف ⏸",
+          CAMPAIGN_PAUSED: "موقوف (بسبب الحملة) ⏸",
+          ADSET_PAUSED: "موقوف (بسبب المجموعة) ⏸",
+          ARCHIVED: "مؤرشف",
+          DELETED: "محذوف",
+        };
+        const statusAr = statusMap[details.effective_status] ?? details.effective_status;
+        return [
+          `## حالة الإعلان:`,
+          `- الاسم: ${details.name}`,
+          `- الحالة: ${statusAr}`,
+        ].join("\n");
+      } catch (err) {
+        return `خطأ في جلب حالة الإعلان: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
     if (name === "get_ads_in_adset") {
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return "adset_id مطلوب.";
@@ -2457,6 +2575,8 @@ const ACTION_LABEL: Record<string, string> = {
   pause_adset:                 "تم إيقاف المجموعة الإعلانية",
   enable_adset:                "تم تشغيل المجموعة الإعلانية",
   update_adset_budget:         "تم تعديل ميزانية المجموعة الإعلانية",
+  pause_ad:                    "تم إيقاف الإعلان",
+  enable_ad:                   "تم تشغيل الإعلان",
   duplicate_adset:             "تم نسخ المجموعة الإعلانية",
   create_campaign:             "تم إنشاء الحملة الإعلانية",
   create_adset:                "تم إنشاء المجموعة الإعلانية",
