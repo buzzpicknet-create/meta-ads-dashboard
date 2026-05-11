@@ -1,0 +1,104 @@
+~/workspace$ cat artifacts/ads-dashboard/src/App.tsx
+
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider, useOptionalAuth } from "@/context/auth-context";
+
+import NotFound from "@/pages/not-found";
+import Dashboard from "@/pages/dashboard";
+import Campaigns from "@/pages/campaigns";
+import Creative from "@/pages/creative";
+import Audience from "@/pages/audience";
+import Settings from "@/pages/settings";
+import ShopifyPage from "@/pages/shopify";
+import LandingPageGen from "@/pages/landing-page";
+import AdCopyPage from "@/pages/ad-copy";
+import VideoSpyPage from "@/pages/video-spy";
+import VideoStudioPage from "@/pages/video-studio";
+import AdminPage from "@/pages/admin";
+import WinningProductsPage from "@/pages/winning-products";
+import LoginPage from "@/pages/login";
+
+import { AppLayout } from "@/components/app-layout";
+import { DashboardProvider, useDashboardContext } from "@/context/dashboard-context";
+import { AIChatWidget } from "@/components/AIChatWidget";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { refetchOnWindowFocus: false, staleTime: 5 * 60 * 1000 },
+  },
+});
+
+const basePath = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { isSignedIn, loading } = useOptionalAuth();
+  const [location] = useLocation();
+  if (loading) return null;
+  if (!isSignedIn) return <Redirect to={`/login?next=${encodeURIComponent(location)}`} />;
+  return <>{children}</>;
+}
+
+function AppRouter() {
+  const { dateRange } = useDashboardContext();
+  const { isSignedIn, role } = useOptionalAuth();
+
+  return (
+    <Switch>
+      <Route path="/login" component={LoginPage} />
+      <Route>
+        <RequireAuth>
+          <AppLayout>
+            <Switch>
+              <Route path="/"            component={Campaigns} />
+              <Route path="/campaigns"   component={Campaigns} />
+              <Route path="/dashboard"   component={Dashboard} />
+              <Route path="/creative"    component={Creative} />
+              <Route path="/audience"    component={Audience} />
+              <Route path="/shopify"     component={ShopifyPage} />
+              <Route path="/landing-page" component={LandingPageGen} />
+              <Route path="/ad-copy"     component={AdCopyPage} />
+              <Route path="/video-spy"    component={VideoSpyPage} />
+              <Route path="/video-studio" component={VideoStudioPage} />
+              <Route path="/settings">
+                {role === "admin"
+                  ? <Settings />
+                  : <Redirect to="/" />}
+              </Route>
+              <Route path="/admin">
+                {role === "admin" ? <AdminPage /> : <Redirect to="/" />}
+              </Route>
+              <Route path="/admin/winning-products">
+                {role === "admin" ? <WinningProductsPage /> : <Redirect to="/" />}
+              </Route>
+              <Route component={NotFound} />
+            </Switch>
+            {isSignedIn && <AIChatWidget dateRange={dateRange} />}
+          </AppLayout>
+        </RequireAuth>
+      </Route>
+    </Switch>
+  );
+}
+
+function App() {
+  return (
+    <TooltipProvider>
+      <WouterRouter base={basePath}>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <DashboardProvider>
+              <AppRouter />
+            </DashboardProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </WouterRouter>
+      <Toaster />
+    </TooltipProvider>
+  );
+}
+
+export default App;
+~/workspace$ 
