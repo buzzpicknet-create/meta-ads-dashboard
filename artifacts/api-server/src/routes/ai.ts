@@ -1840,104 +1840,105 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       }
     }
 
-    // ── Tool use loop (non-streaming until tools resolved) ──────────────────
+    // ── TRUE streaming tool-use loop ────────────────────────────────────────
+    // Uses stream:true for every round so tokens flow to the client immediately
+    // (eliminates the 3-5s "wait for full response" before any text appears).
     const MAX_TOOL_ROUNDS = 4;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const resp = await openai.chat.completions.create({
+      const roundStream = await openai.chat.completions.create({
         model: "gpt-5.4",
         max_completion_tokens: 8192,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (isAdmin ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
-        stream: false,
+        stream: true,
       });
 
-      const choice = resp.choices[0];
-      if (!choice) break;
+      let roundContent = "";
+      // Accumulate tool call deltas by index
+      const tcDeltaMap: Record<number, { id: string; name: string; arguments: string }> = {};
 
-      // Filter to function-type tool calls only
-      const toolCalls = (choice.message.tool_calls ?? []).filter(
-        (tc): tc is typeof tc & { type: "function"; function: { name: string; arguments: string } } =>
-          tc.type === "function" && "function" in tc
-      );
+      for await (const chunk of roundStream) {
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+        const delta = choice.delta;
 
-      // No tool calls → stream the final answer
+        // Collect tool call deltas — NOT forwarded to client
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!tcDeltaMap[idx]) tcDeltaMap[idx] = { id: "", name: "", arguments: "" };
+            if (tc.id) tcDeltaMap[idx]!.id = tc.id;
+            if (tc.function?.name) tcDeltaMap[idx]!.name += tc.function.name;
+            if (tc.function?.arguments) tcDeltaMap[idx]!.arguments += tc.function.arguments;
+          }
+        }
+
+        // Forward content tokens directly to client — but only if no tool calls detected yet.
+        // (Models send EITHER content OR tool_calls in a response, never both.)
+        if (delta?.content && Object.keys(tcDeltaMap).length === 0) {
+          roundContent += delta.content;
+          res.write(`data: ${JSON.stringify({ content: delta.content })}\n\n`);
+        }
+      }
+
+      const toolCalls = Object.values(tcDeltaMap)
+        .filter((tc) => tc.name)
+        .map((tc) => ({ id: tc.id, type: "function" as const, function: { name: tc.name, arguments: tc.arguments } }));
+
+      // ── No tool calls → final answer ──────────────────────────────────────
       if (toolCalls.length === 0) {
-        const finalContent = choice.message.content ?? "";
-
-        // Guard: if the model returned a suspiciously short response (<10 chars)
-        // on any round, nudge it to fetch data and answer in detail.
-        if (finalContent.trim().length < 10) {
-          logger.warn({ content: finalContent, round }, "AI returned suspiciously short content — injecting tool-use nudge");
-          if (round < MAX_TOOL_ROUNDS - 1) {
-            builtMessages.push({ role: "assistant", content: finalContent || null });
+        // Short-response guard: if empty (nothing sent), retry with a nudge
+        if (roundContent.trim().length < 10) {
+          logger.warn({ content: roundContent, round }, "AI returned short content — injecting tool-use nudge");
+          if (roundContent.length === 0 && round < MAX_TOOL_ROUNDS - 1) {
+            // Nothing was sent to client → safe to retry
+            builtMessages.push({ role: "assistant", content: null });
             builtMessages.push({
               role: "user",
               content: "استخدم الأدوات المتاحة (get_campaigns, get_campaign_daily, get_account_daily) لجلب البيانات الحقيقية وأجب على السؤال بالتفصيل باللغة العربية.",
             });
-            continue; // retry next round
+            continue;
           }
-          // Last round — send a friendly fallback instead of "?"
-          res.write(`data: ${JSON.stringify({ content: "عذراً، لم أتمكن من الإجابة في الوقت الحالي. حاول مرة أخرى أو اطرح السؤال بطريقة مختلفة." })}\n\n`);
-          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-          res.end();
-          return;
-        }
-
-        // Stream word-by-word for UX
-        const words = finalContent.split(/(?<=\s)/);
-        for (const word of words) {
-          res.write(`data: ${JSON.stringify({ content: word })}\n\n`);
+          // Content was already streamed ("?") or last round — send fallback if nothing was sent
+          if (roundContent.length === 0) {
+            res.write(`data: ${JSON.stringify({ content: "عذراً، لم أتمكن من الإجابة في الوقت الحالي. حاول مرة أخرى أو اطرح السؤال بطريقة مختلفة." })}\n\n`);
+          }
+          // If "?" was already streamed, client-side guard shows fallback automatically
         }
         res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
         res.end();
         return;
       }
 
-      // Has tool calls → notify client (separate field, not content)
+      // ── Has tool calls → execute them ─────────────────────────────────────
       res.write(`data: ${JSON.stringify({ searching: true })}\n\n`);
 
-      // Push assistant message with tool calls
+      // Push assistant message with the accumulated tool calls
       builtMessages.push({
         role: "assistant",
-        content: choice.message.content ?? null,
-        tool_calls: toolCalls.map((tc) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: { name: tc.function.name, arguments: tc.function.arguments },
-        })),
+        content: null,
+        tool_calls: toolCalls,
       });
 
-      // Emit tool_call_label for each read tool so the client can show transparency labels
+      // Emit transparency labels for read tools
       for (const tc of toolCalls) {
         if (!WRITE_TOOL_NAMES.has(tc.function.name)) {
           const labelArgs = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
-          const label = getToolLabel(tc.function.name, labelArgs);
-          res.write(`data: ${JSON.stringify({ tool_call_label: label })}\n\n`);
+          res.write(`data: ${JSON.stringify({ tool_call_label: getToolLabel(tc.function.name, labelArgs) })}\n\n`);
         }
       }
 
-      // ── Two-phase optimistic write-tool handling ──────────────────────────
-      // Phase 1: immediately emit an optimistic pending_action card (detailsLoading:true)
-      // so the user sees the confirmation card right away without waiting for the
-      // Meta API details fetch (which can take 5-8 s on a cold cache).
+      // Phase 1: emit optimistic pending_action card immediately for write tools
       for (const tc of toolCalls) {
         if (!WRITE_TOOL_NAMES.has(tc.function.name)) continue;
         const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
         const optimistic = buildOptimisticPendingAction(tc.function.name, args);
-        // Register the tool message so the AI loop has a reply for this tool call
-        builtMessages.push({
-          role: "tool",
-          content: `في انتظار موافقة المستخدم على: ${optimistic.summary}`,
-          tool_call_id: tc.id,
-        });
-        // Emit skeleton card immediately
+        builtMessages.push({ role: "tool", content: `في انتظار موافقة المستخدم على: ${optimistic.summary}`, tool_call_id: tc.id });
         res.write(`data: ${JSON.stringify({ pending_action: { ...optimistic, detailsLoading: true } })}\n\n`);
       }
 
-      // Phase 2: execute read tools + resolve write-tool details in parallel.
-      // When details arrive, emit pending_action_resolved so the frontend can
-      // fill in the currentValue badge (and detect no-ops).
+      // Phase 2: execute read tools + resolve write-tool details in parallel
       await Promise.all(
         toolCalls.map(async (tc) => {
           const args = JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>;
@@ -1946,8 +1947,6 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
               const resolved = await resolveWriteToolDetails(tc.function.name, args);
               res.write(`data: ${JSON.stringify({ pending_action_resolved: resolved })}\n\n`);
             } catch {
-              // Details fetch failed — emit an empty resolved so the frontend
-              // clears the loading skeleton and shows the card without currentValue
               res.write(`data: ${JSON.stringify({ pending_action_resolved: {} })}\n\n`);
             }
           } else {
@@ -1957,19 +1956,18 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
         })
       );
 
-      // Done fetching — client can hide the indicator
       res.write(`data: ${JSON.stringify({ searching: false })}\n\n`);
     }
 
-    // Fallback: if we ran out of rounds, do a final streaming call without tools
-    const stream = await openai.chat.completions.create({
+    // Fallback: ran out of rounds — final streaming answer without tools
+    const fallbackStream = await openai.chat.completions.create({
       model: "gpt-5.4",
       max_completion_tokens: 8192,
       messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
       stream: true,
     });
 
-    for await (const chunk of stream) {
+    for await (const chunk of fallbackStream) {
       const content = chunk.choices[0]?.delta?.content;
       if (content) res.write(`data: ${JSON.stringify({ content })}\n\n`);
     }
