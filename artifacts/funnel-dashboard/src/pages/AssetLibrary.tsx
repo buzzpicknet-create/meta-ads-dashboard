@@ -28,19 +28,26 @@ type AssetType    = "LANDING_PAGE" | "PRIMARY_TEXT" | "HEADLINE" | "DRIVE_LINK";
 type CampaignMode = "TEST" | "SCALE";
 
 interface PixelEntry { id: string; name: string; }
+interface PageEntry  { id: string; name: string; }
 
-const PIXELS_KEY   = "launchpad_pixels";
+const PIXELS_KEY    = "launchpad_pixels";
 const PIXEL_SEL_KEY = "launchpad_pixel_id";
+const PAGES_KEY     = "launchpad_pages";
+const PAGE_SEL_KEY  = "launchpad_page_id";
 
 function loadPixels(): PixelEntry[] {
-  try {
-    const raw = localStorage.getItem(PIXELS_KEY);
-    if (raw) return JSON.parse(raw) as PixelEntry[];
-  } catch { /* ignore */ }
+  try { const r = localStorage.getItem(PIXELS_KEY); if (r) return JSON.parse(r); } catch { /* ignore */ }
   return [];
 }
 function savePixels(list: PixelEntry[]) {
   try { localStorage.setItem(PIXELS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+}
+function loadPages(): PageEntry[] {
+  try { const r = localStorage.getItem(PAGES_KEY); if (r) return JSON.parse(r); } catch { /* ignore */ }
+  return [];
+}
+function savePages(list: PageEntry[]) {
+  try { localStorage.setItem(PAGES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
 }
 
 const MODE_CONFIG: Record<CampaignMode, {
@@ -87,6 +94,7 @@ function buildBlueprint(
   mode: CampaignMode,
   budget: number,
   pixelId: string,
+  pageId: string,
   product: string,
   angle: string,
   assets: Asset[],
@@ -109,6 +117,7 @@ function buildBlueprint(
     : "  — لم يُحدد عنوان";
 
   const pixelLine = pixelId.trim() ? `- Pixel ID: ${pixelId.trim()}` : `- Pixel ID: — (لم يُحدد — أضفه من لوحة التحكم)`;
+  const pageLine  = pageId.trim()  ? `- Page ID: ${pageId.trim()}`   : `- Page ID: — (لم يُحدد — أضفه من لوحة التحكم)`;
 
   if (mode === "TEST") {
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
@@ -130,6 +139,7 @@ ${pixelLine}
 # 3. Ad Settings (Multi-Asset Test)
 - Media URL: ${driveUrl}
 - Destination URL: ${lpUrl}
+${pageLine}
 - Primary Texts:
 ${textsStr}
 - Headlines:
@@ -158,6 +168,7 @@ ${pixelLine}
 # 3. Ad Settings (Aggressive Multi-Asset Scaling)
 - Media URL (Extract ALL from folder): ${driveUrl}
 - Destination URL: ${lpUrl}
+${pageLine}
 - Primary Texts (Use ALL):
 ${textsStr}
 - Headlines (Use ALL):
@@ -358,9 +369,9 @@ function AssetGroup({
 // ── Angle Card ─────────────────────────────────────────────────────────────────
 
 function AngleCard({
-  angle, productName, mode, budget, pixelId, selByType, onToggle, onDeleted, onAssetsChange, onGenerate,
+  angle, productName, mode, budget, pixelId, pageId, selByType, onToggle, onDeleted, onAssetsChange, onGenerate,
 }: {
-  angle: Angle; productName: string; mode: CampaignMode; budget: number; pixelId: string;
+  angle: Angle; productName: string; mode: CampaignMode; budget: number; pixelId: string; pageId: string;
   selByType: Record<AssetType, Set<number>>;
   onToggle: (type: AssetType, id: number) => void;
   onDeleted: () => void; onAssetsChange: () => void;
@@ -421,7 +432,7 @@ function AngleCard({
       toast({ title: "لم تختر أي أصول", description: "اختر على الأقل صفحة هبوط ونصاً قبل التوليد.", variant: "destructive" });
       return;
     }
-    const bp = buildBlueprint(mode, budget, pixelId, productName, angle.name, assets, selByType);
+    const bp = buildBlueprint(mode, budget, pixelId, pageId, productName, angle.name, assets, selByType);
     onGenerate(bp);
   }
 
@@ -644,6 +655,37 @@ export default function AssetLibrary() {
     setNewPixelId("");
     setNewPixelName("");
     setAddPixelOpen(false);
+  }
+
+  // ── Page State ───────────────────────────────────────────────────────────────
+  const [pages, setPages]                 = useState<PageEntry[]>(() => loadPages());
+  const [selectedPageId, setSelectedPageId] = useState<string>(() => {
+    try { return localStorage.getItem(PAGE_SEL_KEY) ?? ""; } catch { return ""; }
+  });
+  const [addPageOpen, setAddPageOpen]     = useState(false);
+  const [newPageId, setNewPageId]         = useState("");
+  const [newPageName, setNewPageName]     = useState("");
+
+  const pageId = selectedPageId;
+
+  function handleSelectPage(id: string) {
+    setSelectedPageId(id);
+    try { localStorage.setItem(PAGE_SEL_KEY, id); } catch { /* ignore */ }
+  }
+
+  function handleAddPage() {
+    const tid = newPageId.trim().replace(/\D/g, "");
+    const tname = newPageName.trim();
+    if (!tid || !tname) return;
+    const exists = pages.find(p => p.id === tid);
+    if (exists) { setAddPageOpen(false); handleSelectPage(tid); return; }
+    const updated = [...pages, { id: tid, name: tname }];
+    setPages(updated);
+    savePages(updated);
+    handleSelectPage(tid);
+    setNewPageId("");
+    setNewPageName("");
+    setAddPageOpen(false);
   }
 
   function switchMode(m: CampaignMode) {
@@ -900,6 +942,45 @@ export default function AssetLibrary() {
               {MODE_CONFIG[mode].budgetLabel}
             </span>
           </div>
+
+          {/* Page dropdown row */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <label className="text-sm font-medium shrink-0">الصفحة:</label>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={() => { setNewPageId(""); setNewPageName(""); setAddPageOpen(true); }}
+                title="إضافة صفحة جديدة"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Select
+                value={selectedPageId}
+                onValueChange={handleSelectPage}
+                dir="rtl"
+              >
+                <SelectTrigger className="h-9 text-sm flex-1 max-w-[220px]">
+                  <SelectValue placeholder={pages.length ? "اختر صفحة..." : "أضف صفحة أولاً"} />
+                </SelectTrigger>
+                <SelectContent dir="rtl">
+                  {pages.map(p => (
+                    <SelectItem key={p.id} value={p.id}>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-muted-foreground font-mono text-xs mr-2">({p.id})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {pageId ? (
+                <span className="text-xs text-emerald-600 font-medium shrink-0">✓</span>
+              ) : (
+                <span className="text-xs text-muted-foreground shrink-0">اختياري</span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Product selector */}
@@ -976,6 +1057,7 @@ export default function AssetLibrary() {
                   mode={mode}
                   budget={budget}
                   pixelId={pixelId}
+                  pageId={pageId}
                   selByType={getAngleSel(angle.id)}
                   onToggle={(type, id) => handleToggle(angle.id, type, id)}
                   onDeleted={() => { refetchAngles(); qc.invalidateQueries({ queryKey: ["lib-assets", angle.id] }); }}
@@ -1037,6 +1119,51 @@ export default function AssetLibrary() {
             <Button
               onClick={handleAddPixel}
               disabled={!newPixelId.trim() || !newPixelName.trim()}
+            >
+              حفظ وتحديد
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add Page Dialog ──────────────────────────────────────────────────── */}
+      <Dialog open={addPageOpen} onOpenChange={o => { if (!o) setAddPageOpen(false); }}>
+        <DialogContent className="max-w-sm" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              إضافة صفحة جديدة
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">اسم الصفحة</label>
+              <Input
+                placeholder="مثال: buzzpick facebook"
+                value={newPageName}
+                onChange={e => setNewPageName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAddPage()}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">رقم الصفحة (Page ID)</label>
+              <Input
+                placeholder="مثال: 123456789012345"
+                value={newPageId}
+                onChange={e => setNewPageId(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={e => e.key === "Enter" && handleAddPage()}
+                inputMode="numeric"
+                dir="ltr"
+                className="font-mono"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setAddPageOpen(false)}>إلغاء</Button>
+            <Button
+              onClick={handleAddPage}
+              disabled={!newPageId.trim() || !newPageName.trim()}
             >
               حفظ وتحديد
             </Button>
