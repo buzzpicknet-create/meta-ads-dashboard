@@ -1401,23 +1401,38 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           }
         }
 
-        // ── AUTO-TARGETING FALLBACK (all campaign types) ─────────────────────
-        // Meta REQUIRES at least one geo_location. Apply Egypt default for ANY
-        // campaign if targeting is missing or geo_locations is absent.
+        // ── AUTO-TARGETING FALLBACK + ADVANTAGE+ AUDIENCE (all campaign types) ──
+        // Meta REQUIRES at least one geo_location. Advantage+ Audience (AA) is
+        // injected universally for both ABO and CBO — Meta's AI optimises delivery.
         const DEFAULT_TARGETING = {
           geo_locations: { countries: ["EG"] },
+          advantage_plus_audience: 1,
+          targeting_automation: { advantage_plus_audience: 1 },
           publisher_platforms: ["facebook", "instagram", "messenger", "audience_network"],
         };
         const tgt = effectiveArgs.targeting as Record<string, unknown> | undefined;
         if (!tgt) {
           effectiveArgs.targeting = DEFAULT_TARGETING;
-          logger.info("create_adset: no targeting supplied — injected Egypt default with publisher_platforms");
-        } else if (!tgt.geo_locations) {
-          tgt.geo_locations = { countries: ["EG"] };
+          logger.info("create_adset: no targeting supplied — injected EG + Advantage+ Audience + publisher_platforms");
+        } else {
+          // Always ensure geo_locations
+          if (!tgt.geo_locations) {
+            tgt.geo_locations = { countries: ["EG"] };
+          }
+          // Always inject Advantage+ Audience unless already set
+          if (!tgt.advantage_plus_audience) {
+            tgt.advantage_plus_audience = 1;
+          }
+          if (!tgt.targeting_automation) {
+            tgt.targeting_automation = { advantage_plus_audience: 1 };
+          }
           if (!tgt.publisher_platforms) {
             tgt.publisher_platforms = ["facebook", "instagram", "messenger", "audience_network"];
           }
-          logger.info("create_adset: targeting existed but geo_locations was missing — injected EG + publisher_platforms");
+          logger.info(
+            { had_geo: !!tgt.geo_locations },
+            "create_adset: targeting merged — Advantage+ Audience + EG + publisher_platforms ensured"
+          );
         }
 
         const isSales = objective.includes("SALES") || objective === "OUTCOME_SALES";

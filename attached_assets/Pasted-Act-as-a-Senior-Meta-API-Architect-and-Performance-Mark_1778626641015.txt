@@ -1,0 +1,63 @@
+Act as a Senior Meta API Architect and Performance Marketer. We are implementing the "Master Logic V13" to ensure 100% success rate in campaign creation and peak performance using Advantage+ Audience across all budget types (ABO & CBO).
+
+Please implement this "Bulletproof" logic inside the create_adset and duplicate_ad tools:
+
+1. UNIVERSAL ADVANTAGE+ AUDIENCE (For ABO & CBO)
+
+Regardless of the budget type, every AdSet created must use Meta's AI-driven targeting.
+
+Mandatory Injection: In the targeting object of every create_adset call, you MUST inject:
+
+"targeting": { 
+  "geo_locations": { "countries": ["EG"] }, 
+  "advantage_plus_audience": 1,
+  "targeting_automation": { "advantage_plus_audience": 1 },
+  "publisher_platforms": ["facebook", "instagram", "messenger", "audience_network"]
+}
+
+
+Location Guard: If no location is provided, default to "Egypt" (EG) to prevent the "Location is missing" error.
+
+2. DYNAMIC BUDGET SANITIZER (ABO vs CBO)
+
+To prevent the "Budget Conflict" error we saw earlier:
+
+Logic: Before sending the create_adset request, check if the parent campaign has a daily_budget or lifetime_budget.
+
+Action: - If Campaign = CBO (Has budget): REMOVE all budget fields from the AdSet payload.
+
+If Campaign = ABO (No campaign budget): Ensure the AdSet payload INCLUDES the daily_budget.
+
+3. PIXEL & SALES INTEGRITY
+
+Automatically map the Pixel based on the domain for all SALES campaigns:
+
+buzzpick.net -> pixel_id: "1405391498274239"
+
+dealme-eg.com -> pixel_id: "1537301040808359"
+
+Required Payload: Always include promoted_object: { "pixel_id": "MAPPED_ID", "custom_event_type": "PURCHASE" } and set optimization_goal: "OFFSITE_CONVERSIONS".
+
+4. RIGID ID VALIDATION (Preventing Silent Failures)
+
+ID Check: The tool MUST verify that the returned adset_id is DIFFERENT from the campaign_id.
+
+Error Capture: If they are identical, or if Meta returns an error, catch the error_user_msg and display it in a clear red box.
+
+5. CREATIVE RECONSTRUCTION (The Duplication Bridge)
+
+If duplicate_ad fails (Error 100/Subcode 33):
+
+Call get_ad_creative from the source ad.
+
+Extract video_id, primary_text, and headline.
+
+Call create_ad in the new AdSet using these raw assets.
+
+Set instagram_actor_id = page_id to bypass Instagram connection issues.
+
+6. SYSTEM PROMPT UPDATE
+
+Update the AI's core persona: "You are an Expert Media Buyer. You understand that Advantage+ Audience is mandatory for both ABO and CBO to leverage Meta's AI. You handle budget stripping for CBOs and pixel mapping for Sales campaigns automatically. You never skip data and always verify IDs before proceeding."
+
+Please apply this comprehensive fix to the backend tools and system instructions immediately.
