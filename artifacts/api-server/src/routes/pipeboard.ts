@@ -1235,8 +1235,65 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   // ── Special: create_adset — verify with Meta after Pipeboard MCP ────────────
   if (tool === "create_adset") {
-    const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp("create_adset", args ?? {});
-    const rawAccId = String(args?.account_id ?? "");
+    // ── DEEP FIX: Auto-inject promoted_object for SALES campaigns ─────────────
+    // Meta REJECTS adsets for OUTCOME_SALES campaigns when promoted_object is
+    // missing — the MCP then returns the parent campaign id, triggering the
+    // "Logic Error". Fix: fetch campaign objective first; if SALES, inject pixel.
+    const pixelDomainMap: Record<string, string> = {
+      "buzzpick.net":  "1405391498274239",
+      "dealme-eg.com": "1537301040808359",
+    };
+
+    let effectiveArgs: Record<string, unknown> = { ...(args ?? {}) };
+    const metaTokenSales = process.env.META_ACCESS_TOKEN;
+    const salesCampaignId = String(effectiveArgs.campaign_id ?? "");
+
+    if (metaTokenSales && salesCampaignId) {
+      try {
+        const campObjUrl = new URL(`https://graph.facebook.com/v21.0/${salesCampaignId}`);
+        campObjUrl.searchParams.set("fields", "id,objective,name");
+        campObjUrl.searchParams.set("access_token", metaTokenSales);
+        const campObjResp = await fetch(campObjUrl.toString(), { signal: AbortSignal.timeout(8_000) });
+        const campObjJson = await campObjResp.json() as Record<string, unknown>;
+        const objective = String(campObjJson.objective ?? "").toUpperCase();
+
+        const isSales = objective.includes("SALES") || objective === "OUTCOME_SALES";
+        if (isSales) {
+          logger.info({ objective, salesCampaignId }, "create_adset: SALES campaign detected — enforcing promoted_object");
+
+          // Ensure optimization_goal + billing_event are set correctly for SALES
+          effectiveArgs.optimization_goal = "OFFSITE_CONVERSIONS";
+          effectiveArgs.billing_event     = "IMPRESSIONS";
+
+          const existingPO = effectiveArgs.promoted_object as Record<string, unknown> | undefined;
+          if (!existingPO?.pixel_id) {
+            // Detect domain from any string field in args (landing_page_url, etc.)
+            const argsStr = JSON.stringify(effectiveArgs);
+            let detectedPixelId: string | null = null;
+            for (const [domain, pixelId] of Object.entries(pixelDomainMap)) {
+              if (argsStr.includes(domain)) { detectedPixelId = pixelId; break; }
+            }
+
+            if (detectedPixelId) {
+              effectiveArgs.promoted_object = { pixel_id: detectedPixelId, custom_event_type: "PURCHASE" };
+              logger.info({ detectedPixelId, objective }, "create_adset: auto-injected promoted_object from domain map");
+            } else {
+              // No domain hint — this will likely fail at Meta. Log and let it fail with a clear error.
+              logger.warn({ objective, argsStr: argsStr.slice(0, 200) },
+                "create_adset: SALES campaign but no domain detected in args — promoted_object not injected; " +
+                "please pass promoted_object explicitly or include landing_page_url");
+            }
+          } else {
+            logger.info({ pixelId: existingPO.pixel_id }, "create_adset: promoted_object already present — using it");
+          }
+        }
+      } catch (objErr) {
+        logger.warn({ objErr }, "create_adset: campaign objective pre-fetch failed (non-fatal) — proceeding without injection");
+      }
+    }
+
+    const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp("create_adset", effectiveArgs);
+    const rawAccId = String(effectiveArgs.account_id ?? "");
 
     let asSuccess = false;
     let asMsg = "";
@@ -1279,11 +1336,20 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           fbtrace_id:       traceMatch?.[1]   ?? undefined,
         };
 
+        // Build the error message — put error_user_msg FIRST so the AI/user
+        // sees the human-readable Meta rejection reason immediately.
+        const userFacingMsg = asError.error_user_msg
+          ? String(asError.error_user_msg)
+          : asError.error_user_title
+          ? String(asError.error_user_title)
+          : null;
+
         const detail = [
-          asError.code        ? `code: ${asError.code}`                     : null,
-          asError.error_subcode ? `error_subcode: ${asError.error_subcode}` : null,
-          asError.fbtrace_id  ? `fbtrace_id: ${asError.fbtrace_id}`         : null,
-          `message: ${String(asError.message ?? "")}`,
+          userFacingMsg                  ? `META_REASON: ${userFacingMsg}`              : null,
+          asError.code                   ? `code: ${asError.code}`                      : null,
+          asError.error_subcode          ? `error_subcode: ${asError.error_subcode}`    : null,
+          asError.fbtrace_id             ? `fbtrace_id: ${asError.fbtrace_id}`          : null,
+          `message: ${String(asError.message ?? textContent.slice(0, 300))}`,
         ].filter(Boolean).join(" | ");
 
         throw new Error(`فشل إنشاء المجموعة الإعلانية — ${detail}`);

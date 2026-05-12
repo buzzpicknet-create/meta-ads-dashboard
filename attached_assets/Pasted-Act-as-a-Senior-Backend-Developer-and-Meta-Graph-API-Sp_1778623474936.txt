@@ -1,0 +1,39 @@
+Act as a Senior Backend Developer and Meta Graph API Specialist. The user is still getting a "Logic Error" where the adset_id returned is identical to the campaign_id. This proves the AdSet creation is FAILING at the Meta API level, and the system is defaulting to the parent ID.
+
+Please apply this "Deep Fix" to the create_adset tool and the Meta API service:
+
+1. FORCE THE "SALES" PAYLOAD (The Root Cause)
+
+Meta REJECTS adsets for Sales campaigns if the promoted_object is missing. Modify the create_adset function to automatically inject these if the campaign objective is "SALES":
+
+Mapping Logic: - If buzzpick.net is in the URL -> set pixel_id to 1405391498274239.
+
+If dealme-eg.com is in the URL -> set pixel_id to 1537301040808359.
+
+Mandatory Conversion: Always add promoted_object: { "pixel_id": "PIXEL_ID_HERE", "custom_event_type": "PURCHASE" }.
+
+Optimization: Set optimization_goal: "OFFSITE_CONVERSIONS" and billing_event: "IMPRESSIONS".
+
+2. RIGID ID VALIDATION (Prevent Silent Failure)
+
+In the code block where the Meta API response is parsed:
+
+Rule: If the response id is equal to the campaign_id, or if the response does not contain a new id, the tool MUST throw a MetaApiError.
+
+Error Capture: Return the EXACT error_user_msg or message from Meta's JSON response so the user can see exactly why Meta rejected the adset (e.g., "Invalid Pixel," "Missing Targeting").
+
+3. STRUCTURAL VERIFICATION (search_adsets)
+
+Create/Update a tool search_adsets(campaign_id):
+
+This tool must query /{campaign_id}/adsets?fields=id,name,status,effective_status.
+
+It must NOT use any filtering by spend or insights. It should return every adset structurally attached to that campaign.
+
+4. REFINED SYSTEM PROMPT (Strategic Intelligence)
+
+Update the AI's internal instructions:
+
+"When the user says 'Move the winner', first ensure the destination Campaign and AdSet are successfully created with UNIQUE IDs. If the AdSet creation fails with a Meta Error, display that error to the user in a clean, red 'Opus-style' box and ask them to fix the setting on their Facebook Page."
+
+Please apply this update to ensure the API communication is robust and failures are reported correctly instead of being masked.

@@ -662,6 +662,30 @@ STRATEGIC INTENT RECOGNITION — التعرف على النية الاسترات
 
 ⚠️ قاعدة حرجة: لا تنقل الـ ad object فقط — انقل الأصول (video/image + text + headline) من get_ad_creative. هذا ما يضمن "Asset-Perfect Duplication" في CBO.
 
+🚨 إذا فشل create_adset بخطأ من Meta:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+اعرض الخطأ للمستخدم بهذا الهيكل الواضح:
+
+[ERROR BOX]
+X فشل إنشاء المجموعة الإعلانية
+─────────────────────────────────
+سبب الرفض من Meta:
+{error_user_msg أو error_user_title من رسالة الخطأ}
+
+التفاصيل التقنية:
+- الكود: {code} / {error_subcode}
+- الرسالة: {message}
+
+الحل المقترح:
+- كود 100 (Invalid pixel) → تحقق من صلاحية الـ Pixel على Facebook Business Manager
+- كود 100 (Missing required field) → promoted_object غير مكتمل — تواصل مع المسؤول
+- كود 200 (Permission error) → الحساب لا يملك صلاحية هذه العملية
+- كود 190 (Token expired) → يجب تجديد Meta Access Token
+[/ERROR BOX]
+
+بعد عرض الخطأ: اسأل المستخدم إذا أراد المحاولة بإعدادات مختلفة أو الانتقال لخطوة أخرى.
+لا تُكرر محاولة create_adset بنفس الـ args إذا فشلت بخطأ Meta — الفشل دائماً مقصود.
+
 ---
 
 🧪 Intent: "تجربة جديد" / "Test New Creative" / "إطلاق إعلان جديد"
