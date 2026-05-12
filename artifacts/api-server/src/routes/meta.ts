@@ -445,7 +445,7 @@ router.get("/meta/insights", async (req, res) => {
   // ② Fetch from Meta — deduplicate concurrent identical requests
   const inflight_key = `${campaign_id}::${since}::${until}`;
   try {
-    let fetchPromise = INSIGHTS_IN_FLIGHT.get(inflight_key) as Promise<ReturnType<typeof getCampaignInsights>> | undefined;
+    let fetchPromise = INSIGHTS_IN_FLIGHT.get(inflight_key) as Promise<Awaited<ReturnType<typeof getCampaignInsights>>> | undefined;
     if (!fetchPromise) {
       fetchPromise = getCampaignInsights({ campaign_id, since, until });
       INSIGHTS_IN_FLIGHT.set(inflight_key, fetchPromise);
@@ -457,8 +457,8 @@ router.get("/meta/insights", async (req, res) => {
     const data = await fetchPromise;
     await dbSetInsightsCache(campaign_id, since, until, data).catch(() => null);
     // Write-through: persist campaign name from insights response
-    if (data.name) {
-      upsertCampaignNameCache([{ id: campaign_id, name: data.name }]).catch(() => null);
+    if (data.campaign.name) {
+      upsertCampaignNameCache([{ id: campaign_id, name: data.campaign.name }]).catch(() => null);
     }
     return res.json({ ...data, account_id: accountId || undefined });
   } catch (err) {

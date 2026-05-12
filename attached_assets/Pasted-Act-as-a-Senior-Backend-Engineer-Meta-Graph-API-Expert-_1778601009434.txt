@@ -1,0 +1,35 @@
+Act as a Senior Backend Engineer & Meta Graph API Expert. The user's AI Agent is frequently hitting Meta's "Rate Limit" (Error 429 / API limit reached) when trying to analyze campaigns, especially when searching by Campaign Name instead of ID.
+
+The current implementation is likely making too many sequential API calls (fetching campaigns -> then adsets -> then ads -> then insights) which burns through the Meta API token limits rapidly.
+
+Please refactor the Meta Data Fetching services (e.g., get_campaign_insights, analyze_funnel) using the following enterprise-grade optimizations:
+
+1. IMPLEMENT META BATCH API (CRITICAL)
+
+Instead of making sequential axios/fetch calls for AdSets, Ads, and Insights, group them using Meta's Batch Requests API.
+
+You can send up to 50 operations in a single HTTP POST request to https://graph.facebook.com/v19.0/.
+
+Meta counts a batch request as heavily optimized compared to sequential calls, drastically reducing the chances of hitting the rate limit.
+
+2. FIELD LIMITING (PAYLOAD REDUCTION)
+
+Ensure the API calls are ONLY requesting the exact fields needed for analysis.
+
+Do NOT use wildcards or request massive objects.
+
+Example Insights fields: spend,impressions,clicks,cpc,ctr,actions,cost_per_action_type.
+
+3. IMPLEMENT IN-MEMORY CACHING (node-cache)
+
+Implement a short-lived cache (e.g., 5 to 10 minutes) for heavy, non-frequently changing queries.
+
+For example, if the AI needs to map a "Campaign Name" to a "Campaign ID", fetch the list of campaigns once, cache it in memory, and search the cache instead of querying Meta every single time the user asks about a name.
+
+4. EXPONENTIAL BACKOFF & RETRY MECHANISM
+
+Intercept Meta API rate limit errors (usually Code 429 or Subcode 17).
+
+If this specific error is caught, the backend should NOT immediately fail. It should implement an automatic exponential backoff (e.g., wait 5 seconds, then 10 seconds) and retry up to 2 times before gracefully informing the LLM.
+
+Please apply these architectural optimizations to the backend so the AI can analyze full campaign funnels instantly without being throttled by Meta.
