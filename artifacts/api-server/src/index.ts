@@ -787,8 +787,9 @@ runMigrations()
       startCreativeCacheWarmer();
       startWatchdogCron();
     });
-    // 60s timeout — Meta API + AI streaming can take up to 45s
-    server.setTimeout(60_000);
+    // 180s timeout — AI streaming with multi-tool flows (get_adsets × 15 + get_ads_in_adset × 17+)
+    // can exceed 90s. Must be larger than the 120s runAiStream abort signal.
+    server.setTimeout(180_000);
   })
   .catch((err) => {
     logger.error({ err }, "Failed to run migrations");

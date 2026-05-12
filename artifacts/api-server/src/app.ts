@@ -39,7 +39,17 @@ app.use(
   }),
 );
 
-app.use(compression());
+// Skip compression for SSE routes — gzip buffering prevents heartbeats from
+// reaching the proxy, causing the connection to be killed after ~60 seconds.
+app.use(
+  compression({
+    filter: (req, res) => {
+      if (req.headers.accept?.includes("text/event-stream")) return false;
+      if (res.getHeader("Content-Type") === "text/event-stream") return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
