@@ -1064,6 +1064,152 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     return;
   }
 
+  // ── Special: create_adset — verify with Meta after Pipeboard MCP ────────────
+  if (tool === "create_adset") {
+    const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp("create_adset", args ?? {});
+    const rawAccId = String(args?.account_id ?? "");
+
+    let asSuccess = false;
+    let asMsg = "";
+    let asAdsetId = "";
+    let asData: Record<string, unknown> = {};
+    let asError: Record<string, unknown> | null = null;
+
+    try {
+      const client = await getPipeboardWriteClient();
+      const result = await client.callTool({ name: asMcpTool, arguments: asMcpArgs });
+      const textContent = ((result as { content?: Array<{ type: string; text?: string }> }).content ?? [])
+        .filter(c => c.type === "text")
+        .map(c => c.text ?? "")
+        .join("")
+        .trim();
+
+      logger.info({ textContent: textContent.slice(0, 400) }, "create_adset: MCP response");
+
+      // ── Extract adset_id — fail hard if missing ───────────────────────────
+      const idMatch = textContent.match(/"id"\s*:\s*"(\d+)"/) ?? textContent.match(/\b(\d{13,})\b/);
+      asAdsetId = idMatch?.[1] ?? "";
+
+      if (!asAdsetId) {
+        // Extract real Meta error details from Pipeboard text
+        const codeMatch    = textContent.match(/"code"\s*:\s*(\d+)/);
+        const subMatch     = textContent.match(/"error_subcode"\s*:\s*(\d+)/);
+        const msgMatch     = textContent.match(/"message"\s*:\s*"([^"]+)"/) ?? textContent.match(/"error"\s*:\s*"([^"]+)"/);
+        const titleMatch   = textContent.match(/"error_user_title"\s*:\s*"([^"]+)"/);
+        const userMsgMatch = textContent.match(/"error_user_msg"\s*:\s*"([^"]+)"/);
+        const traceMatch   = textContent.match(/"fbtrace_id"\s*:\s*"([^"]+)"/);
+
+        asError = {
+          code:             codeMatch?.[1]    ? Number(codeMatch[1])    : undefined,
+          message:          msgMatch?.[1]     ?? textContent.slice(0, 400),
+          error_subcode:    subMatch?.[1]     ? Number(subMatch[1])     : undefined,
+          error_user_title: titleMatch?.[1]   ?? undefined,
+          error_user_msg:   userMsgMatch?.[1] ?? undefined,
+          fbtrace_id:       traceMatch?.[1]   ?? undefined,
+        };
+
+        const detail = [
+          asError.code        ? `code: ${asError.code}`                     : null,
+          asError.error_subcode ? `error_subcode: ${asError.error_subcode}` : null,
+          asError.fbtrace_id  ? `fbtrace_id: ${asError.fbtrace_id}`         : null,
+          `message: ${String(asError.message ?? "")}`,
+        ].filter(Boolean).join(" | ");
+
+        throw new Error(`فشل إنشاء المجموعة الإعلانية — ${detail}`);
+      }
+
+      // ── Verify with Meta Graph API directly ──────────────────────────────
+      const token = process.env.META_ACCESS_TOKEN;
+      if (!token) {
+        // No token: trust Pipeboard id but flag clearly
+        asData = { adset_id: asAdsetId };
+        logger.warn("create_adset: META_ACCESS_TOKEN missing — cannot verify with Meta");
+      } else {
+        const verifyUrl = new URL(`https://graph.facebook.com/v21.0/${asAdsetId}`);
+        verifyUrl.searchParams.set(
+          "fields",
+          "id,name,status,effective_status,campaign_id,created_time,updated_time,daily_budget,optimization_goal,billing_event"
+        );
+        verifyUrl.searchParams.set("access_token", token);
+
+        let vJson: Record<string, unknown>;
+        try {
+          const vResp = await fetch(verifyUrl.toString(), { signal: AbortSignal.timeout(15_000) });
+          vJson = await vResp.json() as Record<string, unknown>;
+        } catch (fetchErr) {
+          logger.warn({ fetchErr }, "create_adset: Meta verify fetch threw");
+          // Non-fatal — trust Pipeboard id
+          asData = { adset_id: asAdsetId };
+          vJson = {};
+        }
+
+        if (vJson.error) {
+          // Verification returned an error — treat as failure
+          const ve = (typeof vJson.error === "object" && vJson.error !== null)
+            ? vJson.error as Record<string, unknown>
+            : {};
+          asError = {
+            code:          ve.code          ?? undefined,
+            message:       ve.message       ?? `Meta returned error for adset_id ${asAdsetId}`,
+            error_subcode: ve.error_subcode ?? undefined,
+            fbtrace_id:    ve.fbtrace_id    ?? undefined,
+          };
+          throw new Error(
+            `create_adset: Pipeboard أعطى id=${asAdsetId} لكن Meta فشل التحقق — ` +
+            `code: ${String(asError.code ?? "?")} | message: ${String(asError.message)}`
+          );
+        }
+
+        // ── Success: build full response from Meta data ───────────────────
+        const rawBudget = vJson.daily_budget != null ? Number(vJson.daily_budget) / 100 : null;
+        asData = {
+          adset_id:         vJson.id,
+          name:             vJson.name,
+          campaign_id:      vJson.campaign_id,
+          status:           vJson.status,
+          effective_status: vJson.effective_status,
+          daily_budget:     rawBudget != null ? rawBudget : undefined,
+          optimization_goal: vJson.optimization_goal,
+          billing_event:    vJson.billing_event,
+          created_time:     vJson.created_time,
+          updated_time:     vJson.updated_time,
+        };
+      }
+
+      asSuccess = true;
+      asMsg = [
+        `تم إنشاء المجموعة الإعلانية "${String(args?.name ?? "")}"`,
+        `adset_id: ${asAdsetId}`,
+        asData.campaign_id ? `campaign_id: ${String(asData.campaign_id)}` : null,
+        asData.effective_status ? `الحالة: ${String(asData.effective_status)}` : null,
+        asData.daily_budget    ? `الميزانية: ${String(asData.daily_budget)} EGP/يوم` : null,
+      ].filter(Boolean).join(" — ");
+
+    } catch (err) {
+      asMsg = err instanceof Error ? err.message : String(err);
+      _pbWriteClient = null;
+      _pbWriteConnecting = null;
+    }
+
+    await query(
+      `INSERT INTO pipeboard_actions
+         (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [executedBy, tool, JSON.stringify(args ?? {}), asSuccess, asMsg,
+        String(args?.campaign_id ?? ""), String(args?.name ?? ""), false]
+    ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (create_adset)"));
+
+    if (asSuccess) {
+      res.json({ success: true, message: asMsg, account_id: rawAccId, ...asData });
+    } else {
+      res.status(500).json({
+        error: asMsg,
+        ...(asError ? { meta_error: asError } : {}),
+      });
+    }
+    return;
+  }
+
   const isGaTool = GA_WRITE_TOOLS.has(tool);
   const { mcpTool, mcpArgs } = isGaTool
     ? translateToGoogleAdsMcp(tool, args ?? {})
