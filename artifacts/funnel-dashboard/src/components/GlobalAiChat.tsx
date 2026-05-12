@@ -407,7 +407,7 @@ function ChartBlock({ spec }: { spec: ChartSpec }) {
 }
 
 function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\([+-][0-9]+(?:\.[0-9]+)?%\))/g);
   return parts.map((part, i) => {
     if (part.startsWith("**") && part.endsWith("**"))
       return <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
@@ -415,6 +415,8 @@ function renderInline(text: string): React.ReactNode {
       return <em key={i} className="italic text-foreground/80">{part.slice(1, -1)}</em>;
     if (part.startsWith("`") && part.endsWith("`"))
       return <code key={i} className="font-mono text-[12px] bg-muted/70 text-primary px-1.5 py-0.5 rounded-md border border-border/50">{part.slice(1, -1)}</code>;
+    if (/^\(\+[0-9]/.test(part)) return <span key={i} className="ai-trend-up">{part}</span>;
+    if (/^\(-[0-9]/.test(part))  return <span key={i} className="ai-trend-down">{part}</span>;
     return part;
   });
 }
@@ -430,6 +432,24 @@ function RenderMarkdown({ text }: { text: string }) {
   while (i < lines.length) {
     const line = lines[i]!;
     if (line.trim() === "") { i++; continue; }
+
+    // Observation cards :::إنجاز / :::تراجع / :::ملاحظة
+    if (/^:::(إنجاز|تراجع|ملاحظة)\s*$/.test(line.trim())) {
+      const typeAr = line.trim().replace(/^:::/, "").trim();
+      const cssClass = typeAr === "إنجاز" ? "ai-obs-win" : typeAr === "تراجع" ? "ai-obs-loss" : "ai-obs-note";
+      const label    = typeAr === "إنجاز" ? "إنجاز 🏆"  : typeAr === "تراجع" ? "تراجع 🔴"  : "ملاحظة 💡";
+      const cardLines: string[] = [];
+      i++;
+      while (i < lines.length && lines[i]!.trim() !== ":::") { cardLines.push(lines[i]!); i++; }
+      i++;
+      elements.push(
+        <div key={`obs-${i}`} className={`ai-obs-card ${cssClass}`}>
+          <span className="ai-obs-label">{label}</span>
+          <div>{cardLines.map((cl, ci) => <div key={ci}>{renderInline(cl)}</div>)}</div>
+        </div>
+      );
+      continue;
+    }
 
     // Fenced code block ``` — detect "json chart" / "bulk_action" for live rendering
     if (line.trim().startsWith("```")) {

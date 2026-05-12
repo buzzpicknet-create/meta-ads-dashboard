@@ -124,11 +124,13 @@ function ChartBlock({ spec }: { spec: ChartSpec }) {
 
 // ─── Markdown renderer ─────────────────────────────────────────────────────────
 function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\([+-][0-9]+(?:\.[0-9]+)?%\))/g);
   return parts.map((p,i) => {
     if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold">{p.slice(2,-2)}</strong>;
     if (p.startsWith("*")  && p.endsWith("*"))  return <em key={i} className="italic">{p.slice(1,-1)}</em>;
     if (p.startsWith("`")  && p.endsWith("`"))  return <code key={i} className="font-mono text-[12px] bg-muted/70 text-primary px-1.5 py-0.5 rounded border border-border/50">{p.slice(1,-1)}</code>;
+    if (/^\(\+[0-9]/.test(p)) return <span key={i} className="ai-trend-up">{p}</span>;
+    if (/^\(-[0-9]/.test(p))  return <span key={i} className="ai-trend-down">{p}</span>;
     return p;
   });
 }
@@ -140,6 +142,24 @@ function RenderMarkdown({ text }: { text: string }) {
   while (i < lines.length) {
     const line = lines[i]!;
     if (line.trim() === "") { i++; continue; }
+
+    // Observation cards :::إنجاز / :::تراجع / :::ملاحظة
+    if (/^:::(إنجاز|تراجع|ملاحظة)\s*$/.test(line.trim())) {
+      const typeAr = line.trim().replace(/^:::/, "").trim();
+      const cssClass = typeAr === "إنجاز" ? "ai-obs-win" : typeAr === "تراجع" ? "ai-obs-loss" : "ai-obs-note";
+      const label    = typeAr === "إنجاز" ? "إنجاز 🏆"  : typeAr === "تراجع" ? "تراجع 🔴"  : "ملاحظة 💡";
+      const cardLines: string[] = [];
+      i++;
+      while (i < lines.length && lines[i]!.trim() !== ":::") { cardLines.push(lines[i]!); i++; }
+      i++;
+      elems.push(
+        <div key={`obs-${i}`} className={`ai-obs-card ${cssClass}`}>
+          <span className="ai-obs-label">{label}</span>
+          <div>{cardLines.map((cl,ci) => <div key={ci}>{renderInline(cl)}</div>)}</div>
+        </div>
+      );
+      continue;
+    }
 
     if (line.trim().startsWith("```")) {
       const lang = line.trim().slice(3).trim().toLowerCase();

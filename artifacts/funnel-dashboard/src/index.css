@@ -359,6 +359,85 @@
 .dark .ai-tbl-pill-green { background: hsl(142 71% 45% / 0.2); color: hsl(142 71% 65%); }
 .dark .ai-tbl-pill-amber { background: hsl(38 92% 50% / 0.2);  color: hsl(38 92% 65%); }
 
+/* ── Readex Pro — Arabic body text in AI chat ── */
+.ai-msg-body,
+.ai-msg-body p,
+.ai-msg-body li,
+.ai-msg-body td,
+.ai-obs-card {
+  font-family: 'Readex Pro', 'IBM Plex Sans Arabic', sans-serif;
+}
+
+/* ── Observation Cards (إنجاز / تراجع / ملاحظة) ── */
+.ai-obs-card {
+  margin: 0.75rem 0;
+  padding: 11px 14px 11px 12px;
+  border-radius: 10px;
+  border-width: 1px;
+  border-style: solid;
+  font-size: 13.5px;
+  line-height: 1.65;
+  font-family: 'Readex Pro', 'IBM Plex Sans Arabic', sans-serif;
+}
+.ai-obs-win {
+  background: hsl(142 71% 45% / 0.07);
+  border-color: hsl(142 71% 45% / 0.30);
+  border-right: 3px solid hsl(142 71% 40%);
+  color: hsl(142 71% 22%);
+}
+.dark .ai-obs-win {
+  background: hsl(142 71% 45% / 0.10);
+  border-color: hsl(142 71% 55% / 0.35);
+  border-right-color: hsl(142 71% 58%);
+  color: hsl(142 50% 82%);
+}
+.ai-obs-loss {
+  background: hsl(0 84% 60% / 0.06);
+  border-color: hsl(0 84% 60% / 0.28);
+  border-right: 3px solid hsl(0 72% 50%);
+  color: hsl(0 72% 28%);
+}
+.dark .ai-obs-loss {
+  background: hsl(0 84% 60% / 0.09);
+  border-color: hsl(0 84% 65% / 0.30);
+  border-right-color: hsl(0 84% 65%);
+  color: hsl(0 60% 80%);
+}
+.ai-obs-note {
+  background: hsl(38 92% 50% / 0.06);
+  border-color: hsl(38 92% 50% / 0.28);
+  border-right: 3px solid hsl(38 80% 48%);
+  color: hsl(38 60% 22%);
+}
+.dark .ai-obs-note {
+  background: hsl(210 40% 55% / 0.08);
+  border-color: hsl(210 40% 65% / 0.28);
+  border-right-color: hsl(210 60% 65%);
+  color: hsl(210 30% 80%);
+}
+.ai-obs-card .ai-obs-label {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-bottom: 5px;
+}
+.ai-obs-win  .ai-obs-label { background: hsl(142 71% 40% / 0.15); color: hsl(142 71% 28%); }
+.ai-obs-loss .ai-obs-label { background: hsl(0 84% 60% / 0.12);   color: hsl(0 72% 38%); }
+.ai-obs-note .ai-obs-label { background: hsl(38 92% 50% / 0.15);  color: hsl(38 60% 30%); }
+.dark .ai-obs-win  .ai-obs-label { background: hsl(142 71% 45% / 0.2); color: hsl(142 55% 72%); }
+.dark .ai-obs-loss .ai-obs-label { background: hsl(0 84% 60% / 0.18);  color: hsl(0 70% 75%); }
+.dark .ai-obs-note .ai-obs-label { background: hsl(210 40% 55% / 0.18); color: hsl(210 40% 78%); }
+
+/* ── Trend delta spans (inline +X% / -X%) ── */
+.ai-trend-up   { color: hsl(142 71% 32%); font-weight: 600; font-size: 0.88em; }
+.ai-trend-down { color: hsl(0 72% 45%);   font-weight: 600; font-size: 0.88em; }
+.dark .ai-trend-up   { color: hsl(142 65% 60%); }
+.dark .ai-trend-down { color: hsl(0 70% 68%); }
+
 /* ── Winning row glow (🟢 Scale decision) ── */
 .ai-tbl-winner-row td {
   background: hsl(142 71% 45% / 0.055) !important;
