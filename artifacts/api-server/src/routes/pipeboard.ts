@@ -1278,18 +1278,32 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           }
         }
 
+        // ── AUTO-TARGETING FALLBACK (all campaign types) ─────────────────────
+        // Meta REQUIRES at least one geo_location. Apply Egypt default for ANY
+        // campaign if targeting is missing or geo_locations is absent.
+        const DEFAULT_TARGETING = {
+          geo_locations: { countries: ["EG"] },
+          publisher_platforms: ["facebook", "instagram", "messenger", "audience_network"],
+        };
+        const tgt = effectiveArgs.targeting as Record<string, unknown> | undefined;
+        if (!tgt) {
+          effectiveArgs.targeting = DEFAULT_TARGETING;
+          logger.info("create_adset: no targeting supplied — injected Egypt default with publisher_platforms");
+        } else if (!tgt.geo_locations) {
+          tgt.geo_locations = { countries: ["EG"] };
+          if (!tgt.publisher_platforms) {
+            tgt.publisher_platforms = ["facebook", "instagram", "messenger", "audience_network"];
+          }
+          logger.info("create_adset: targeting existed but geo_locations was missing — injected EG + publisher_platforms");
+        }
+
         const isSales = objective.includes("SALES") || objective === "OUTCOME_SALES";
         if (isSales) {
           logger.info({ objective, salesCampaignId }, "create_adset: SALES campaign detected — enforcing promoted_object");
 
-          // Ensure optimization_goal + billing_event + targeting EG for SALES
+          // Ensure optimization_goal + billing_event for SALES
           effectiveArgs.optimization_goal = "OFFSITE_CONVERSIONS";
           effectiveArgs.billing_event     = "IMPRESSIONS";
-          // Default targeting to Egypt if not already set by AI
-          if (!effectiveArgs.targeting) {
-            effectiveArgs.targeting = { geo_locations: { countries: ["EG"] } };
-            logger.info("create_adset: defaulted targeting to EG for SALES campaign");
-          }
 
           const existingPO = effectiveArgs.promoted_object as Record<string, unknown> | undefined;
           if (!existingPO?.pixel_id) {
