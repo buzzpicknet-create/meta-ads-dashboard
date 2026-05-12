@@ -1,0 +1,59 @@
+Act as a Senior Backend Developer and Meta Graph API Specialist. We have identified a "Silent Failure" bug where create_adset returns the campaign_id instead of a unique adset_id. This happens because Meta rejects the AdSet creation, and the current code fails to catch the error, defaulting to the parent ID.
+
+Please apply this "Absolute Integrity" fix to the create_adset tool and Meta service:
+
+1. FORCE THE "SALES" PAYLOAD (The Proactive Fix)
+
+Meta API STRICTLY requires a promoted_object for SALES objectives. If this is missing, creation fails.
+
+Auto-Inject Based on Domain:
+
+If landing_page_url contains buzzpick.net -> Use pixel_id: "1405391498274239".
+
+If landing_page_url contains dealme-eg.com -> Use pixel_id: "1537301040808359".
+
+Mandatory Fields:
+
+promoted_object: { "pixel_id": "CALCULATED_ID", "custom_event_type": "PURCHASE" }
+
+optimization_goal: "OFFSITE_CONVERSIONS"
+
+billing_event: "IMPRESSIONS"
+
+targeting: { "geo_locations": { "countries": ["EG"] } }
+
+2. RIGID ID VALIDATION (The "Opus" Logic)
+
+After the POST /adsets call:
+
+ID Check: The code MUST verify that response.id is present and DIFFERENT from the campaign_id.
+
+Verification GET: Immediately call GET /{adset_id}?fields=id,name,campaign_id,status. If this call fails or returns data that doesn't match the request, the tool MUST throw an error.
+
+Silent Failure Prevention: If response.id is missing or matches the parent ID, the tool MUST NOT return success. It must parse the Meta JSON error.
+
+3. EXTRACT HUMAN-READABLE ERRORS
+
+Instead of a generic "Logic Error," the tool MUST return:
+
+error_user_title: (e.g., "Invalid Pixel")
+
+error_user_msg: (e.g., "The pixel code is not installed on this domain.")
+
+error_subcode: For technical debugging.
+
+fbtrace_id: To track the request in Meta events.
+
+4. STRUCTURAL SEARCH (Non-Insights Fetching)
+
+Update search_adsets(campaign_id) to query the structural edge:
+
+Use GET /{campaign_id}/adsets?fields=id,name,status,effective_status.
+
+This ensures that even a 0-spend/Paused adset is visible to the AI immediately after creation.
+
+5. SYSTEM PROMPT REFINEMENT
+
+Update the LLM instruction: "Before duplicating winner ads, you MUST confirm you have a valid, unique adset_id. If the ID matches the campaign ID, stop and explain the Meta Error (error_user_msg) to the user in a clear red box."
+
+Please implement this to ensure the "CBO Winners" workflow functions perfectly.

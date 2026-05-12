@@ -648,10 +648,13 @@ STRATEGIC INTENT RECOGNITION — التعرف على النية الاسترات
    - استخرج بدقة: video_id أو image_url، primary_text، headline، object_story_id، page_id
    - هذه الأصول هي "Best Creative" التي حققت أفضل CPA — لا تفترض أصولاً جديدة
 
-٣. **تأكيد/إنشاء الوجهة (Destination Verification)**
+٣. **تأكيد/إنشاء الوجهة (Destination Verification) — الخطوة الأكثر حساسية**
    - اسأل المستخدم عن: campaign_id الهدف (CBO) وadset_id الهدف — أو أنشئهما
    - إذا لزم إنشاء adset جديد: create_adset مع promoted_object (حسب خريطة الدومين)
-   - تحقق: adset_id يجب أن يكون مختلفاً عن campaign_id — الـ backend يتحقق تلقائياً
+   - ⛔ قبل نقل أي إعلان: تحقق أن لديك adset_id صالح وفريد (≠ campaign_id)
+   - إذا كان adset_id == campaign_id أو لم يُرجع create_adset adset_id → توقف فوراً
+   - الـ backend يتحقق تلقائياً بـ 3 مستويات: (1) ID ≠ campaign_id، (2) GET/{id} validation، (3) search by name
+   - إذا فشل create_adset: اعرض خطأ Meta كاملاً (META_REASON + code + message) ولا تنتقل للخطوة التالية
 
 ٤. **تنفيذ Creative Bridge (نقل الأصول بدقة)**
    - إذا يوجد object_story_id → create_ad_from_existing_post(account_id, adset_id, object_story_id, name) — يحافظ على Social Proof (اللايكات والتعليقات)

@@ -1261,9 +1261,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         if (isSales) {
           logger.info({ objective, salesCampaignId }, "create_adset: SALES campaign detected — enforcing promoted_object");
 
-          // Ensure optimization_goal + billing_event are set correctly for SALES
+          // Ensure optimization_goal + billing_event + targeting EG for SALES
           effectiveArgs.optimization_goal = "OFFSITE_CONVERSIONS";
           effectiveArgs.billing_event     = "IMPRESSIONS";
+          // Default targeting to Egypt if not already set by AI
+          if (!effectiveArgs.targeting) {
+            effectiveArgs.targeting = { geo_locations: { countries: ["EG"] } };
+            logger.info("create_adset: defaulted targeting to EG for SALES campaign");
+          }
 
           const existingPO = effectiveArgs.promoted_object as Record<string, unknown> | undefined;
           if (!existingPO?.pixel_id) {
@@ -1385,18 +1390,26 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const step1Json = await step1Resp.json() as Record<string, unknown>;
 
       if (step1Json.error) {
+        // Step1 GET returned a Meta error → the id from Pipeboard is wrong/nonexistent.
+        // Throw immediately — a bad id cannot proceed to step2.
         const ve = typeof step1Json.error === "object" && step1Json.error !== null
           ? step1Json.error as Record<string, unknown> : {};
-        logger.warn({ ve, asAdsetId }, "create_adset: step1 GET failed — candidate id may be wrong");
-        // Don't throw yet — step2 (by-name search) is the authoritative check
+        const veMsg = String(ve.message ?? JSON.stringify(step1Json.error));
+        const veCode = ve.code != null ? ` (code: ${ve.code})` : "";
+        throw new Error(
+          `التحقق المباشر من الـ id فشل — Meta رفضت GET /${asAdsetId}${veCode}: ${veMsg}. ` +
+          `الـ id المُعاد من Pipeboard غير صالح — AdSet لم يُنشأ فعلياً.`
+        );
       } else {
         const step1CampaignId = String(step1Json.campaign_id ?? "");
         if (step1CampaignId && step1CampaignId !== expectedCampaignId) {
-          logger.warn({ step1CampaignId, expectedCampaignId, asAdsetId },
-            "create_adset: step1 campaign_id mismatch — id from Pipeboard likely wrong");
-        } else {
-          logger.info({ asAdsetId, step1CampaignId }, "create_adset: step1 OK — id is an adset");
+          // The id Pipeboard returned belongs to a DIFFERENT campaign — hard failure.
+          throw new Error(
+            `Integrity Error: الـ id المُعاد (${asAdsetId}) ينتمي لحملة ${step1CampaignId} ` +
+            `وليس للحملة المطلوبة ${expectedCampaignId}. Pipeboard أعاد id خاطئ — AdSet لم يُنشأ في الحملة الصحيحة.`
+          );
         }
+        logger.info({ asAdsetId, step1CampaignId }, "create_adset: step1 OK — id is a valid adset in correct campaign");
       }
 
       // Step 2: GET /{campaign_id}/adsets?fields=id,name,... — authoritative check
