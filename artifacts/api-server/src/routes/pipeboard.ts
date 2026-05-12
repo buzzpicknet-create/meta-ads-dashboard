@@ -1251,11 +1251,32 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     if (metaTokenSales && salesCampaignId) {
       try {
         const campObjUrl = new URL(`https://graph.facebook.com/v21.0/${salesCampaignId}`);
-        campObjUrl.searchParams.set("fields", "id,objective,name");
+        campObjUrl.searchParams.set("fields", "id,objective,name,daily_budget,lifetime_budget");
         campObjUrl.searchParams.set("access_token", metaTokenSales);
         const campObjResp = await fetch(campObjUrl.toString(), { signal: AbortSignal.timeout(8_000) });
         const campObjJson = await campObjResp.json() as Record<string, unknown>;
         const objective = String(campObjJson.objective ?? "").toUpperCase();
+
+        // ── CBO Budget Fix: strip adset-level budget for CBO campaigns ────────
+        // Meta REJECTS adsets with daily_budget/lifetime_budget when the parent
+        // campaign is CBO (has its own daily_budget or lifetime_budget).
+        const campHasBudget =
+          (campObjJson.daily_budget    != null && String(campObjJson.daily_budget)    !== "0") ||
+          (campObjJson.lifetime_budget != null && String(campObjJson.lifetime_budget) !== "0");
+
+        if (campHasBudget) {
+          const strippedBudget = effectiveArgs.daily_budget ?? effectiveArgs.lifetime_budget;
+          if (effectiveArgs.daily_budget != null || effectiveArgs.lifetime_budget != null) {
+            delete effectiveArgs.daily_budget;
+            delete effectiveArgs.lifetime_budget;
+            logger.info(
+              { salesCampaignId, campaign_daily_budget: campObjJson.daily_budget, stripped_adset_budget: strippedBudget },
+              "create_adset: CBO campaign detected — stripped adset daily_budget/lifetime_budget to prevent Budget Conflict"
+            );
+          } else {
+            logger.info({ salesCampaignId }, "create_adset: CBO campaign detected — no adset budget to strip");
+          }
+        }
 
         const isSales = objective.includes("SALES") || objective === "OUTCOME_SALES";
         if (isSales) {

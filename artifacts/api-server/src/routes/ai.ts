@@ -487,11 +487,12 @@ Frequency (في 7 أيام):
   - بعد الإنشاء: استخدم search_campaigns(account_id, campaign_name) للتحقق الهيكلي
 - search_adsets(campaign_id, query?) — ابحث عن مجموعات داخل حملة، يعرض حتى 0-spend. استخدم بعد create_adset للتأكد.
 - search_ads(adset_id, query?) — ابحث عن إعلانات داخل مجموعة، يعرض حتى 0-spend. استخدم بعد duplicate_ad / create_ad_from_existing_post للتأكد.
-- create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?, promoted_object?) — إنشاء مجموعة إعلانية. يُعيد adset_id + effective_status + daily_budget مع verify فوري بخطوتين (GET /{id} + GET /{campaign_id}/adsets بالاسم). لا "success" بدون adset_id مؤكد مختلف عن campaign_id.
+- create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?, promoted_object?) — إنشاء مجموعة إعلانية. يُعيد adset_id + effective_status مع verify فوري بـ 3 مستويات. لا "success" بدون adset_id مؤكد مختلف عن campaign_id.
   - optimization_goal: OFFSITE_CONVERSIONS | LEAD_GENERATION | LINK_CLICKS | LANDING_PAGE_VIEWS | THRUPLAY | REACH
   - billing_event: IMPRESSIONS (الأشيع) | LINK_CLICKS
   - targeting مثال: {geo_locations: {countries: ["EG"]}, age_min: 25, age_max: 45}
   - promoted_object: {pixel_id: "XXXXXXX", custom_event_type: "PURCHASE"} — مطلوب لحملات OUTCOME_SALES
+  - ⚠️ قاعدة CBO: إذا كانت الحملة CBO (لها daily_budget على مستوى الحملة) → لا تُرسل daily_budget للـ AdSet أبداً — الـ backend يحذفه تلقائياً. أبلغ المستخدم: "هذه حملة CBO — الميزانية على مستوى الحملة، لن يُضاف budget للمجموعة"
   - بعد الإنشاء: استخدم search_adsets(campaign_id, adset_name) للتحقق الهيكلي
 
 ══════════════════════════════════════
@@ -511,6 +512,12 @@ PIXEL & DOMAIN MAPPING — خريطة البيكسل التلقائية
 - دائماً: targeting: {geo_locations: {countries: ["EG"]}} لكل حملات هذه الدومينات
 - دائماً: optimization_goal: OFFSITE_CONVERSIONS لحملات SALES
 - ⚠️ لا تسأل المستخدم عن الـ pixel_id إذا كان الدومين معروفاً — طبّق الخريطة تلقائياً
+
+🏦 قاعدة CBO (Campaign Budget Optimization):
+- إذا كانت الحملة الهدف CBO → الميزانية تُدار على مستوى الحملة فقط
+- عند create_adset لحملة CBO: لا تُرسل daily_budget → الـ backend يحذفه تلقائياً
+- أبلغ المستخدم صراحةً: "هذه حملة CBO — لا تُضاف ميزانية للمجموعة، الميزانية موزّعة تلقائياً من الحملة"
+- إذا سأل المستخدم عن الميزانية في CBO: "الميزانية (X EGP/يوم) موجودة على مستوى الحملة، Meta توزّعها تلقائياً على المجموعات الناجحة"
 
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
@@ -1284,7 +1291,7 @@ const TOOLS = [
             description: "هدف التحسين: OFFSITE_CONVERSIONS (تحويلات)، LEAD_GENERATION (ليدز)، LINK_CLICKS (نقرات)، LANDING_PAGE_VIEWS (زيارات الصفحة)",
           },
           billing_event: { type: "string", enum: ["IMPRESSIONS", "LINK_CLICKS"], description: "حدث الفوترة: IMPRESSIONS (دفع لكل 1000 ظهور — الأشيع) أو LINK_CLICKS" },
-          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP (للمجموعة إذا كانت الحملة بدون CBO)" },
+          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — للمجموعة إذا كانت الحملة ABO (بدون CBO). ⚠️ إذا كانت الحملة CBO (لها budget على مستوى الحملة) لا تُرسل هذا الحقل — الـ backend يحذفه تلقائياً لمنع Budget Conflict مع Meta." },
           targeting: {
             type: "object",
             description: "إعدادات الاستهداف — مثال: {geo_locations: {countries: [\"EG\"]}, age_min: 25, age_max: 45, genders: [1,2]}",
