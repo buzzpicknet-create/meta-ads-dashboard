@@ -403,14 +403,15 @@ const INSIGHT_FIELDS = [
   "video_p100_watched_actions",
 ].join(",");
 
-// Lean fields for campaign-list calls — no video metrics, no reach.
-// Used when we only need spend/purchases/CTR for a campaign summary row.
+// Lean fields for campaign-list calls — includes video_play_actions for hookRate.
 const LEAN_CAMPAIGN_FIELDS = [
   "campaign_id",
   "impressions",
   "spend",
   "inline_link_clicks",
   "actions",
+  "video_play_actions",
+  "video_p100_watched_actions",
 ].join(",");
 
 export interface CampaignSummary {
@@ -425,6 +426,8 @@ export interface CampaignSummary {
   impressions: number;
   link_clicks: number;
   ctr: number;
+  hookRate: number;
+  holdRate: number;
   updated_time?: string;
 }
 
@@ -504,6 +507,8 @@ export async function listCampaigns(opts: {
       reach: m.reach,
       link_clicks: m.link_clicks,
       ctr: d.ctr,
+      hookRate: d.hookRate,
+      holdRate: d.holdRate,
       updated_time: c.updated_time,
     };
   });
