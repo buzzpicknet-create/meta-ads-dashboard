@@ -509,7 +509,7 @@ function PerformanceAnalysis({ byAd, byAdset, onDiagnose }: { byAd: SegmentEntry
                 <div key={s.key} className="flex items-start gap-3 rounded-xl bg-emerald-500/8 ring-1 ring-emerald-500/20 p-3">
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">{s.label}</div>
+                    <div dir="ltr" className="text-sm font-semibold truncate text-right" title={s.label}>{s.label}</div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">CPA <Num>{fmt(s.cpa, 0)} EGP</Num> · <Num>{fmt(s.purchases)}</Num> طلب · Spend <Num>{fmt(s.spend, 0)} EGP</Num> · CTR <Num>{fmtPct(s.ctr)}</Num></span>
                     </div>
@@ -542,7 +542,7 @@ function PerformanceAnalysis({ byAd, byAdset, onDiagnose }: { byAd: SegmentEntry
                   <div className="flex items-start gap-3">
                     {isKill ? <XCircle className={iconCls} /> : <TrendingDown className={iconCls} />}
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold truncate">{s.label}</div>
+                      <div dir="ltr" className="text-sm font-semibold truncate text-right" title={s.label}>{s.label}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">
                         <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">Spend <Num>{fmt(s.spend, 0)} EGP</Num> · <Num>{fmt(s.purchases)}</Num> طلب · CTR <Num>{fmtPct(s.ctr)}</Num></span>
                       </div>
@@ -579,52 +579,65 @@ function SegmentBreakdownTable({ segments, label }: { segments: SegmentEntry[]; 
       </div>
     );
   }
+  const sorted = [...segments].sort((a, b) => {
+    if (a.purchases === 0 && b.purchases > 0) return 1;
+    if (b.purchases === 0 && a.purchases > 0) return -1;
+    return a.cpa - b.cpa;
+  });
   return (
-    <div className="overflow-x-auto -mx-1">
-      <table className="w-full text-sm" dir="rtl">
-        <thead>
-          <tr className="text-xs uppercase tracking-wide text-muted-foreground border-b border-border">
-            <th className="text-right font-medium px-3 py-2.5">{label}</th>
-            <th className="text-left font-medium px-2 py-2.5">CPA</th>
-            <th className="text-left font-medium px-2 py-2.5">طلبات</th>
-            <th className="text-left font-medium px-2 py-2.5">Spend</th>
-            <th className="text-left font-medium px-2 py-2.5">CTR</th>
-            <th className="text-left font-medium px-2 py-2.5">CR</th>
-            <th className="text-left font-medium px-2 py-2.5">CPC</th>
-            <th className="text-left font-medium px-2 py-2.5">الحكم</th>
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full min-w-[680px] text-sm" dir="rtl">
+        <thead className="sticky top-0 z-20 bg-background shadow-[0_1px_0_0_hsl(var(--border))]">
+          <tr className="text-xs font-bold uppercase tracking-wider text-muted-foreground bg-muted/40">
+            <th className="text-right px-4 py-3 w-[220px]">{label}</th>
+            <th className="text-center px-3 py-3 whitespace-nowrap">CPA</th>
+            <th className="text-center px-3 py-3 whitespace-nowrap">طلبات</th>
+            <th className="text-center px-3 py-3 whitespace-nowrap">Spend</th>
+            <th className="text-center px-3 py-3 whitespace-nowrap">CTR</th>
+            <th className="text-center px-3 py-3 whitespace-nowrap">CR</th>
+            <th className="text-center px-3 py-3 whitespace-nowrap">CPC</th>
+            <th className="text-center px-3 py-3 whitespace-nowrap">الحكم</th>
           </tr>
         </thead>
         <tbody>
-          {[...segments].sort((a, b) => {
-            if (a.purchases === 0 && b.purchases > 0) return 1;
-            if (b.purchases === 0 && a.purchases > 0) return -1;
-            return a.cpa - b.cpa;
-          }).map((s) => {
+          {sorted.map((s, idx) => {
             const v = verdictFor(s, segments);
             return (
-              <tr key={s.key} className="border-t border-border hover:bg-muted/30 transition-colors">
-                <td className="px-3 py-3 font-medium max-w-[220px]">
-                  <div className="truncate">{s.label}</div>
+              <tr
+                key={s.key}
+                className={`border-t border-border transition-colors hover:bg-blue-50/60 dark:hover:bg-blue-950/20 ${idx % 2 === 1 ? "bg-muted/20" : ""}`}
+              >
+                {/* Name — dir=ltr + text-right prevents Arabic bidi from flipping | separators */}
+                <td className="px-4 py-3.5 w-[220px] max-w-[220px]">
+                  <div
+                    dir="ltr"
+                    className="text-right text-sm font-semibold text-slate-900 dark:text-slate-100 truncate leading-snug"
+                    title={s.label}
+                  >
+                    {s.label}
+                  </div>
                 </td>
-                <td className="px-2 py-3 tabular-nums text-left font-semibold">
-                  <Num>{s.cpa > 0 ? `${fmt(s.cpa, 0)} EGP` : "—"}</Num>
+                <td className="px-3 py-3.5 text-center tabular-nums font-bold text-slate-900 dark:text-slate-100">
+                  {s.cpa > 0 ? <Num>{fmt(s.cpa, 0)} ج.م</Num> : <span className="text-muted-foreground">—</span>}
                 </td>
-                <td className="px-2 py-3 tabular-nums text-left font-bold">
-                  <Num>{fmt(s.purchases)}</Num>
+                <td className="px-3 py-3.5 text-center tabular-nums font-bold">
+                  <span className={s.purchases > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>
+                    <Num>{fmt(s.purchases)}</Num>
+                  </span>
                 </td>
-                <td className="px-2 py-3 tabular-nums text-left text-muted-foreground">
-                  <Num>{fmt(s.spend, 0)}</Num>
+                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
+                  <Num>{fmt(s.spend, 0)} ج.م</Num>
                 </td>
-                <td className="px-2 py-3 tabular-nums text-left text-muted-foreground">
+                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
                   <Num>{fmtPct(s.ctr)}</Num>
                 </td>
-                <td className="px-2 py-3 tabular-nums text-left text-muted-foreground">
+                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
                   <Num>{fmtPct(s.cr)}</Num>
                 </td>
-                <td className="px-2 py-3 tabular-nums text-left text-muted-foreground">
-                  <Num>{fmt(s.cpc, 0)}</Num>
+                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
+                  <Num>{fmt(s.cpc, 0)} ج.م</Num>
                 </td>
-                <td className="px-2 py-3 text-left">
+                <td className="px-3 py-3.5 text-center">
                   <VerdictBadge type={v} />
                 </td>
               </tr>
@@ -1716,7 +1729,7 @@ function DevBreakdownTable({ rows, label, segments }: { rows: BreakdownRow[]; la
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {isWorst && <TrendingDown className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
                   {isBest  && <TrendingUp   className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
-                  <span className="text-sm font-semibold leading-snug line-clamp-2">{r.label}</span>
+                  <span dir="ltr" className="text-sm font-semibold leading-snug line-clamp-2 text-right" title={r.label}>{r.label}</span>
                 </div>
                 <FreqBadge freq={freq} />
               </div>
@@ -1752,7 +1765,7 @@ function DevBreakdownTable({ rows, label, segments }: { rows: BreakdownRow[]; la
                 <div className="flex items-center gap-1.5">
                   {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
                   {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
-                  <span className="text-xs font-medium truncate">{r.label}</span>
+                  <span dir="ltr" className="text-xs font-medium truncate text-right" title={r.label}>{r.label}</span>
                 </div>
                 <span className="text-[10px] text-muted-foreground num">{fmt(r.spend, 0)} EGP</span>
               </div>

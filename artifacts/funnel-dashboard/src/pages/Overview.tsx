@@ -246,7 +246,7 @@ function CpaWinnerCard({ w }: { w: CpaWinner }) {
             </span>
             <span className="text-[10px] text-muted-foreground">{w.purchases} أوردر · {fmt(w.spend, 0)} EGP</span>
           </div>
-          <div className="text-sm font-semibold mt-1.5 truncate">{w.name}</div>
+          <div dir="ltr" className="text-sm font-semibold mt-1.5 truncate text-right" title={w.name}>{w.name}</div>
         </div>
         <button
           onClick={() => setOpen((v) => !v)}
@@ -277,7 +277,7 @@ function CpaWinnerCard({ w }: { w: CpaWinner }) {
               {w.best_adset && (
                 <div className="rounded-lg bg-emerald-500/10 px-3 py-2.5">
                   <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-1">أفضل Ad Set</div>
-                  <div className="text-xs font-semibold truncate">{w.best_adset.name}</div>
+                  <div dir="ltr" className="text-xs font-semibold truncate text-right" title={w.best_adset.name}>{w.best_adset.name}</div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">
                     CPA <span className="num font-bold text-emerald-600 dark:text-emerald-400">{fmt(w.best_adset.cpa, 0)}</span> EGP
                     {" · "}{w.best_adset.purchases} أوردر
@@ -287,7 +287,7 @@ function CpaWinnerCard({ w }: { w: CpaWinner }) {
               {w.best_ad && (
                 <div className="rounded-lg bg-emerald-500/10 px-3 py-2.5">
                   <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-1">أفضل إعلان (Ad)</div>
-                  <div className="text-xs font-semibold truncate">{w.best_ad.name}</div>
+                  <div dir="ltr" className="text-xs font-semibold truncate text-right" title={w.best_ad.name}>{w.best_ad.name}</div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">
                     CPA <span className="num font-bold text-emerald-600 dark:text-emerald-400">{fmt(w.best_ad.cpa, 0)}</span> EGP
                     {" · "}{w.best_ad.purchases} أوردر
@@ -367,7 +367,7 @@ function CpaWarningCard({ w, accountId, since, until }: { w: CpaWarning; account
               {w.worst_adset && (
                 <div className="rounded-lg bg-rose-500/8 px-3 py-2.5">
                   <div className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wide mb-1">أضعف Ad Set</div>
-                  <div className="text-xs font-semibold truncate">{w.worst_adset.name}</div>
+                  <div dir="ltr" className="text-xs font-semibold truncate text-right" title={w.worst_adset.name}>{w.worst_adset.name}</div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">
                     {w.worst_adset.purchases > 0
                       ? <>CPA <span className="num font-bold text-rose-600 dark:text-rose-400">{fmt(w.worst_adset.cpa, 0)}</span> EGP</>
@@ -379,7 +379,7 @@ function CpaWarningCard({ w, accountId, since, until }: { w: CpaWarning; account
               {w.worst_ad && (
                 <div className="rounded-lg bg-rose-500/8 px-3 py-2.5">
                   <div className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wide mb-1">أضعف إعلان (Ad)</div>
-                  <div className="text-xs font-semibold truncate">{w.worst_ad.name}</div>
+                  <div dir="ltr" className="text-xs font-semibold truncate text-right" title={w.worst_ad.name}>{w.worst_ad.name}</div>
                   <div className="text-[10px] text-muted-foreground mt-0.5">
                     {w.worst_ad.purchases > 0
                       ? <>CPA <span className="num font-bold text-rose-600 dark:text-rose-400">{fmt(w.worst_ad.cpa, 0)}</span> EGP</>
@@ -1114,7 +1114,7 @@ function AccountHealthPanel({ totals, campaigns }: { totals: DerivedMetrics; cam
                   <div className="mt-2 mr-5 space-y-1">
                     {r.badCampaigns.map((c, i) => (
                       <div key={i} className={`flex items-center justify-between gap-2 text-[11px] rounded-lg px-3 py-1.5 ${r.status === "danger" ? "bg-rose-500/8 text-rose-700 dark:text-rose-400" : "bg-amber-500/8 text-amber-700 dark:text-amber-400"}`}>
-                        <span className="truncate font-medium flex-1">{c.name}</span>
+                        <span dir="ltr" className="truncate font-medium flex-1 text-right" title={c.name}>{c.name}</span>
                         <span className="num font-bold shrink-0">{c.value}</span>
                       </div>
                     ))}
@@ -1306,7 +1306,7 @@ function CampaignBreakdown({
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
                       {isWorst && <TrendingDown className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
                       {isBest  && <TrendingUp   className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
-                      <span className="text-sm font-semibold leading-snug line-clamp-2">{r.name}</span>
+                      <span dir="ltr" className="text-sm font-semibold leading-snug line-clamp-2 text-right" title={r.name}>{r.name}</span>
                     </div>
                     <OvFreqBadge freq={r.frequency} />
                   </div>
@@ -1341,7 +1341,7 @@ function CampaignBreakdown({
                     <div className="flex items-center gap-1.5">
                       {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
                       {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
-                      <span className="text-xs font-medium truncate">{r.name}</span>
+                      <span dir="ltr" className="text-xs font-medium truncate text-right" title={r.name}>{r.name}</span>
                     </div>
                     <span className="text-[10px] text-muted-foreground">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP</span>
                   </div>
@@ -1512,7 +1512,7 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
             {winners.map((c) => (
               <div key={c.id} className="flex items-center gap-3 rounded-xl bg-emerald-500/8 ring-1 ring-emerald-500/15 px-4 py-3">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">{c.name}</div>
+                  <div dir="ltr" className="text-sm font-semibold truncate text-right" title={c.name}>{c.name}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">CPA <Num>{fmt(c.cpa, 0)} EGP</Num> · <Num>{c.purchases}</Num> طلب · <Num>{fmt(c.spend, 0)} EGP</Num> · CTR <Num>{fmtPct(c.ctr)}</Num></span>
                   </div>
@@ -1534,7 +1534,7 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
             {losers.map((c) => (
               <div key={c.id} className="flex items-center gap-3 rounded-xl bg-rose-500/8 ring-1 ring-rose-500/15 px-4 py-3">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold truncate">{c.name}</div>
+                  <div dir="ltr" className="text-sm font-semibold truncate text-right" title={c.name}>{c.name}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">إنفاق <Num>{fmt(c.spend, 0)} EGP</Num> · <Num>{c.purchases}</Num> طلب{c.purchases > 0 && <> · CPA <Num>{fmt(c.cpa, 0)} EGP</Num></>}</span>
                   </div>
@@ -1798,7 +1798,7 @@ function AdIssueCard({ ad, accountId, since, until }: { ad: AdWithIssues; accoun
           {statusCfg.label}
         </span>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold truncate">{ad.name}</div>
+          <div dir="ltr" className="text-sm font-semibold truncate text-right" title={ad.name}>{ad.name}</div>
           {ad.campaign_name && (
             <div className="text-xs text-muted-foreground truncate">
               حملة:&nbsp;

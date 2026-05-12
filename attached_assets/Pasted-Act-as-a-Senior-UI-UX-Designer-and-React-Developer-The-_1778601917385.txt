@@ -1,0 +1,43 @@
+Act as a Senior UI/UX Designer and React Developer. The user's campaign analysis tables are breaking visually, especially when campaign names contain separators like | or English strings. This is causing column misalignment and making the data unreadable.
+
+Please implement a robust, modern, and "Bulletproof" Table Component using the following technical requirements:
+
+1. FIX DATA PARSING & LAYOUT BREAKS
+
+Avoid Manual String Splitting: Ensure the code does not rely on splitting strings by | or - for display. Use the raw data objects.
+
+Text Truncation: For the "Campaign Name" column, implement smart truncation. Use Tailwind's truncate or line-clamp-1 with a max-w-[200px] (or similar) to prevent long names from pushing other columns out of view.
+
+Tooltips: Add a "Title" attribute or a simple tooltip so that when a user hovers over a truncated name, they can see the full name (including all separators like |).
+
+2. ARABIC (RTL) & ENGLISH (LTR) HARMONY
+
+Global RTL: The table must be dir="rtl".
+
+Local LTR for English Data: Columns containing IDs, Campaign Names, or English metrics must be wrapped in a container with dir="ltr" text-right (to keep the text readable while aligned with the Arabic header). This prevents the "flipped character" bug.
+
+3. PREMIUM UI DESIGN (Tailwind CSS)
+
+Typography: Increase font size to text-sm (14px) or text-base (16px). Use a high-contrast color for numbers (e.g., text-slate-900).
+
+Spacing: Apply generous padding: px-6 py-4 for each cell.
+
+Zebra & Hover: Use even:bg-slate-50/50 for zebra stripes and hover:bg-blue-50/80 for a smooth row-highlighting effect.
+
+Sticky Header: The <thead> must be sticky top-0 bg-white shadow-sm z-20 so it stays visible during long scrolls.
+
+4. DATA VISUALIZATION HINTS
+
+Status Badges: For the "Decision/Status" (القرار) column, use colored badges instead of plain text:
+
+Winner/Scale: Green background + Green text.
+
+Stop/Low Spend: Red/Gray background.
+
+Currency Formatting: Ensure the currency symbol (ج) is consistently placed (e.g., 396 ج.م).
+
+5. HORIZONTAL SCROLLING
+
+Wrap the entire table in a div with overflow-x-auto and scrollbar-thin. Ensure the table has a min-w-[800px] so it never squashes the data on smaller screens.
+
+Please rewrite the analytics table components to implement this clean, stable, and professional design.
