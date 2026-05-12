@@ -226,37 +226,39 @@ function RenderMarkdown({ text }: { text: string }) {
       const colTypes = hdrs.map(h=>{
         if (/جذب|hook\s*rate/i.test(h)) return "hook";
         if (/نقر|ctr/i.test(h) && !/outbound/i.test(h)) return "ctr";
-        if (/الإعلان|الحملة|المجموعة|اسم|name/i.test(h)) return "name";
         return "";
       });
+      const renderNameCell = (raw: string) => {
+        const m = raw.match(/^(.*?)\s*\(id:([^)]+)\)\s*$/);
+        if (m) return (
+          <span className="ai-tbl-name-wrap">
+            <span className="ai-tbl-name-text" title={m[1]!}>{m[1]}</span>
+            <span className="ai-tbl-name-id">{m[2]}</span>
+          </span>
+        );
+        return <span className="ai-tbl-name-plain" title={raw}>{renderInline(raw)}</span>;
+      };
       elems.push(
         <div key={`t${i}`} className="ai-tbl-wrap">
           <table className="ai-tbl">
             <thead>
-              <tr>
-                {hdrs.map((h,hi)=>(
-                  <th key={hi}>{renderInline(h)}</th>
-                ))}
-              </tr>
+              <tr>{hdrs.map((h,hi)=>(<th key={hi}>{renderInline(h)}</th>))}</tr>
             </thead>
             <tbody>
               {rows.map((row,ri)=>(
                 <tr key={ri}>
                   {row.map((cell,ci)=>{
+                    if (ci===0) return <td key={ci}>{renderNameCell(cell)}</td>;
                     const colType = colTypes[ci] ?? "";
                     const isActive = /نشطة|ACTIVE|✅/.test(cell);
                     const isPaused = /متوقفة|PAUSED|⏸/.test(cell);
                     const isStatus = isActive || isPaused || /^[🔴🟡🟢]/.test(cell);
-                    const numVal = parseFloat(cell.replace(/[^\d.]/g,""));
+                    const numVal = parseFloat(cell.replace(/[^\d.,]/g,"").replace(",",""));
                     let extraClass = "";
-                    if (colType==="hook" && !isNaN(numVal)) {
-                      extraClass = numVal>=30?"ai-tbl-hook-good":numVal<20?"ai-tbl-hook-bad":"";
-                    } else if (colType==="ctr" && !isNaN(numVal)) {
-                      extraClass = numVal>=1.5?"ai-tbl-ctr-good":numVal<0.8?"ai-tbl-ctr-bad":"";
-                    }
-                    const isNameCol = colType==="name" || ci===0;
+                    if (colType==="hook" && !isNaN(numVal)) extraClass=numVal>=30?"ai-tbl-hook-good":numVal<20?"ai-tbl-hook-bad":"";
+                    else if (colType==="ctr" && !isNaN(numVal)) extraClass=numVal>=1.5?"ai-tbl-ctr-good":numVal<0.8?"ai-tbl-ctr-bad":"";
                     return (
-                      <td key={ci} className={`${extraClass} ${isNameCol?"ai-tbl-name-cell":""}`.trim()}>
+                      <td key={ci} className={extraClass||undefined}>
                         {isStatus
                           ? <span className={isActive?"ai-tbl-pill-green":"ai-tbl-pill-amber"}>{renderInline(cell)}</span>
                           : renderInline(cell)}
