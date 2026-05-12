@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -25,6 +26,22 @@ interface HistoryRow { id: number; product_name: string; angle_name: string; gen
 
 type AssetType    = "LANDING_PAGE" | "PRIMARY_TEXT" | "HEADLINE" | "DRIVE_LINK";
 type CampaignMode = "TEST" | "SCALE";
+
+interface PixelEntry { id: string; name: string; }
+
+const PIXELS_KEY   = "launchpad_pixels";
+const PIXEL_SEL_KEY = "launchpad_pixel_id";
+
+function loadPixels(): PixelEntry[] {
+  try {
+    const raw = localStorage.getItem(PIXELS_KEY);
+    if (raw) return JSON.parse(raw) as PixelEntry[];
+  } catch { /* ignore */ }
+  return [];
+}
+function savePixels(list: PixelEntry[]) {
+  try { localStorage.setItem(PIXELS_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+}
 
 const MODE_CONFIG: Record<CampaignMode, {
   emoji: string; label: string; defaultBudget: number;
@@ -597,9 +614,37 @@ export default function AssetLibrary() {
   // ── Campaign Mode State ──────────────────────────────────────────────────────
   const [mode, setMode]     = useState<CampaignMode>("TEST");
   const [budget, setBudget] = useState<number>(MODE_CONFIG.TEST.defaultBudget);
-  const [pixelId, setPixelId] = useState<string>(() => {
-    try { return localStorage.getItem("launchpad_pixel_id") ?? ""; } catch { return ""; }
+
+  // ── Pixel State ──────────────────────────────────────────────────────────────
+  const [pixels, setPixels]               = useState<PixelEntry[]>(() => loadPixels());
+  const [selectedPixelId, setSelectedPixelId] = useState<string>(() => {
+    try { return localStorage.getItem(PIXEL_SEL_KEY) ?? ""; } catch { return ""; }
   });
+  const [addPixelOpen, setAddPixelOpen]   = useState(false);
+  const [newPixelId, setNewPixelId]       = useState("");
+  const [newPixelName, setNewPixelName]   = useState("");
+
+  const pixelId = selectedPixelId;
+
+  function handleSelectPixel(id: string) {
+    setSelectedPixelId(id);
+    try { localStorage.setItem(PIXEL_SEL_KEY, id); } catch { /* ignore */ }
+  }
+
+  function handleAddPixel() {
+    const tid = newPixelId.trim().replace(/\D/g, "");
+    const tname = newPixelName.trim();
+    if (!tid || !tname) return;
+    const exists = pixels.find(p => p.id === tid);
+    if (exists) { setAddPixelOpen(false); handleSelectPixel(tid); return; }
+    const updated = [...pixels, { id: tid, name: tname }];
+    setPixels(updated);
+    savePixels(updated);
+    handleSelectPixel(tid);
+    setNewPixelId("");
+    setNewPixelName("");
+    setAddPixelOpen(false);
+  }
 
   function switchMode(m: CampaignMode) {
     setMode(m);
@@ -810,28 +855,40 @@ export default function AssetLibrary() {
 
             <span className="text-muted-foreground/40 hidden sm:block">|</span>
 
-            {/* Pixel ID */}
+            {/* Pixel dropdown */}
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              <label className="text-sm font-medium shrink-0">معرّف البيكسل:</label>
-              <div className="relative flex-1 max-w-[220px]">
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="مثال: 1234567890"
-                  value={pixelId}
-                  onChange={e => {
-                    const v = e.target.value.replace(/\D/g, "");
-                    setPixelId(v);
-                    try { localStorage.setItem("launchpad_pixel_id", v); } catch { /* ignore */ }
-                  }}
-                  className="h-9 text-sm pr-2 font-mono"
-                  dir="ltr"
-                />
-              </div>
-              {pixelId.trim() ? (
-                <span className="text-xs text-emerald-600 font-medium shrink-0">✓ محفوظ</span>
+              <label className="text-sm font-medium shrink-0">البيكسل:</label>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={() => { setNewPixelId(""); setNewPixelName(""); setAddPixelOpen(true); }}
+                title="إضافة بيكسل جديد"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+              <Select
+                value={selectedPixelId}
+                onValueChange={handleSelectPixel}
+                dir="rtl"
+              >
+                <SelectTrigger className="h-9 text-sm flex-1 max-w-[220px]">
+                  <SelectValue placeholder={pixels.length ? "اختر بيكسل..." : "أضف بيكسلاً أولاً"} />
+                </SelectTrigger>
+                <SelectContent dir="rtl">
+                  {pixels.map(p => (
+                    <SelectItem key={p.id} value={p.id}>
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-muted-foreground font-mono text-xs mr-2">({p.id})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {pixelId ? (
+                <span className="text-xs text-emerald-600 font-medium shrink-0">✓</span>
               ) : (
-                <span className="text-xs text-amber-600 shrink-0">مطلوب للـ SALES</span>
+                <span className="text-xs text-amber-600 shrink-0">مطلوب</span>
               )}
             </div>
 
@@ -941,6 +998,51 @@ export default function AssetLibrary() {
           </div>
         )}
       </div>
+
+      {/* ── Add Pixel Dialog ─────────────────────────────────────────────────── */}
+      <Dialog open={addPixelOpen} onOpenChange={o => { if (!o) setAddPixelOpen(false); }}>
+        <DialogContent className="max-w-sm" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              إضافة بيكسل جديد
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">اسم البيكسل</label>
+              <Input
+                placeholder="مثال: buzzpick shopify"
+                value={newPixelName}
+                onChange={e => setNewPixelName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleAddPixel()}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">رقم البيكسل (Pixel ID)</label>
+              <Input
+                placeholder="مثال: 1405391498274239"
+                value={newPixelId}
+                onChange={e => setNewPixelId(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={e => e.key === "Enter" && handleAddPixel()}
+                inputMode="numeric"
+                dir="ltr"
+                className="font-mono"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setAddPixelOpen(false)}>إلغاء</Button>
+            <Button
+              onClick={handleAddPixel}
+              disabled={!newPixelId.trim() || !newPixelName.trim()}
+            >
+              حفظ وتحديد
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Blueprint Modal ──────────────────────────────────────────────────── */}
       <BlueprintModal
