@@ -1343,14 +1343,48 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
       } catch { /* not JSON — will fall back to regex */ }
 
-      // ── Extract adset_id — prefer parsed JSON id, fall back to regex ──────
-      const jsonId = parsedJson?.id != null ? String(parsedJson.id) : null;
+      // ── Dynamic ID mapping — handle all known Pipeboard response shapes ─────
+      // Shape A: { "id": "123" }                    (root-level id)
+      // Shape B: { "data": { "id": "123" } }        (nested under data)
+      // Shape C: { "adset_id": "123" }              (alternative key)
+      // Shape D: { "adset": { "id": "123" } }       (nested under adset)
+      // Shape E: plain text with a 13+ digit number (regex fallback)
+      const nestedData = parsedJson?.data != null && typeof parsedJson.data === "object"
+        ? parsedJson.data as Record<string, unknown> : null;
+      const nestedAdset = parsedJson?.adset != null && typeof parsedJson.adset === "object"
+        ? parsedJson.adset as Record<string, unknown> : null;
+
+      const jsonId =
+        parsedJson?.id       != null ? String(parsedJson.id)        :   // Shape A
+        nestedData?.id       != null ? String(nestedData.id)        :   // Shape B
+        parsedJson?.adset_id != null ? String(parsedJson.adset_id)  :   // Shape C
+        nestedAdset?.id      != null ? String(nestedAdset.id)       :   // Shape D
+        null;
+
       const idMatch = textContent.match(/"id"\s*:\s*"(\d+)"/) ?? textContent.match(/\b(\d{13,})\b/);
       asAdsetId = jsonId ?? idMatch?.[1] ?? "";
 
-      logger.info({ asAdsetId, jsonId, regexMatch: idMatch?.[1] }, "create_adset: extracted adset_id");
+      logger.info({
+        asAdsetId,
+        jsonId,
+        regexMatch: idMatch?.[1],
+        shape_detected:
+          parsedJson?.id        != null ? "A-root-id"    :
+          nestedData?.id        != null ? "B-data.id"    :
+          parsedJson?.adset_id  != null ? "C-adset_id"   :
+          nestedAdset?.id       != null ? "D-adset.id"   :
+          idMatch               != null ? "E-regex"       : "UNKNOWN",
+      }, "create_adset: extracted adset_id (dynamic mapping)");
 
       if (!asAdsetId) {
+        // No id found in any known shape — include the full raw response in the
+        // error so the AI can surface it directly to the user for manual diagnosis.
+        const rawDump = parsedJson
+          ? JSON.stringify(parsedJson, null, 2)
+          : textContent.slice(0, 800);
+
+        logger.error({ rawDump, textContent }, "create_adset: ID mapping failure — no id found in Pipeboard response");
+
         // Extract real Meta error details from Pipeboard text
         const codeMatch    = textContent.match(/"code"\s*:\s*(\d+)/);
         const subMatch     = textContent.match(/"error_subcode"\s*:\s*(\d+)/);
@@ -1366,6 +1400,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           error_user_title: titleMatch?.[1]   ?? undefined,
           error_user_msg:   userMsgMatch?.[1] ?? undefined,
           fbtrace_id:       traceMatch?.[1]   ?? undefined,
+          raw_pipeboard_response: rawDump,    // included so AI can surface it to user
         };
 
         // Build the error message — put error_user_msg FIRST so the AI/user
@@ -1382,6 +1417,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           asError.error_subcode          ? `error_subcode: ${asError.error_subcode}`    : null,
           asError.fbtrace_id             ? `fbtrace_id: ${asError.fbtrace_id}`          : null,
           `message: ${String(asError.message ?? textContent.slice(0, 300))}`,
+          rawDump                        ? `RAW_RESPONSE: ${rawDump}`                   : null,
         ].filter(Boolean).join(" | ");
 
         throw new Error(`فشل إنشاء المجموعة الإعلانية — ${detail}`);
@@ -1391,10 +1427,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       // If Pipeboard returns the same id as the campaign, it returned the parent
       // instead of the newly created adset — that is a structural failure.
       if (asAdsetId === String(args?.campaign_id ?? "")) {
+        const rawDumpForId = parsedJson
+          ? JSON.stringify(parsedJson, null, 2)
+          : textContent.slice(0, 600);
         throw new Error(
           `Logic Error: AdSet ID (${asAdsetId}) cannot be the same as Campaign ID — ` +
           `Pipeboard returned the parent campaign ID instead of a new adset ID. ` +
-          `الـ id المُعاد هو نفس الـ campaign_id — لم يُنشأ AdSet فعلياً.`
+          `الـ id المُعاد هو نفس الـ campaign_id — لم يُنشأ AdSet فعلياً. ` +
+          `RAW_RESPONSE: ${rawDumpForId}`
         );
       }
 

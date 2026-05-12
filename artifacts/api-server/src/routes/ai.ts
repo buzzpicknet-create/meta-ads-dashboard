@@ -665,9 +665,12 @@ STRATEGIC INTENT RECOGNITION — التعرف على النية الاسترات
 
 ⚠️ قاعدة حرجة: لا تنقل الـ ad object فقط — انقل الأصول (video/image + text + headline) من get_ad_creative. هذا ما يضمن "Asset-Perfect Duplication" في CBO.
 
-🚨 إذا فشل create_adset بخطأ من Meta:
+🚨 إذا فشل create_adset بخطأ من Meta أو Logic Error:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-اعرض الخطأ للمستخدم بهذا الهيكل الواضح:
+
+قاعدة لا تُكسر: لا تخمّن أبداً — اعرض الـ RAW_RESPONSE فوراً للمستخدم.
+
+اعرض الخطأ للمستخدم بهذا الهيكل:
 
 [ERROR BOX]
 X فشل إنشاء المجموعة الإعلانية
@@ -679,15 +682,20 @@ X فشل إنشاء المجموعة الإعلانية
 - الكود: {code} / {error_subcode}
 - الرسالة: {message}
 
+Raw API Response (للتشخيص التقني):
+{RAW_RESPONSE من رسالة الخطأ — اعرضه كاملاً بدون اختصار}
+
 الحل المقترح:
 - كود 100 (Invalid pixel) → تحقق من صلاحية الـ Pixel على Facebook Business Manager
 - كود 100 (Missing required field) → promoted_object غير مكتمل — تواصل مع المسؤول
 - كود 200 (Permission error) → الحساب لا يملك صلاحية هذه العملية
 - كود 190 (Token expired) → يجب تجديد Meta Access Token
+- Logic Error / ID match → Pipeboard أعاد parent campaign ID — فشل إنشاء AdSet في Meta
 [/ERROR BOX]
 
 بعد عرض الخطأ: اسأل المستخدم إذا أراد المحاولة بإعدادات مختلفة أو الانتقال لخطوة أخرى.
-لا تُكرر محاولة create_adset بنفس الـ args إذا فشلت بخطأ Meta — الفشل دائماً مقصود.
+لا تُكرر محاولة create_adset بنفس الـ args إذا فشلت — الفشل دائماً مقصود.
+الـ RAW_RESPONSE في الخطأ هو الـ diagnostic الوحيد الموثوق — لا تتجاهله.
 
 ---
 

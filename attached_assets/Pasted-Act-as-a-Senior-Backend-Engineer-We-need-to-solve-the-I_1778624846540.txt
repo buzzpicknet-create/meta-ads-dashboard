@@ -1,0 +1,50 @@
+Act as a Senior Backend Engineer. We need to solve the "ID Mapping" mystery between our system and Pipeboard once and for all. The adset_id is coming back wrong because we don't know the exact JSON structure Pipeboard returns.
+
+Please implement this "Diagnostic & Self-Healing" update:
+
+1. RAW RESPONSE LOGGING (The "Black Box")
+
+Modify the create_adset tool to log the EXACT raw response from the Pipeboard API before any parsing occurs.
+
+Requirement: Inside the create_adset function, add a console.log or return a debug field containing: JSON.stringify(raw_pipeboard_response, null, 2).
+
+Goal: We need to see if the ID is at the root level { "id": "..." } or nested { "data": { "id": "..." } }.
+
+2. DYNAMIC MAPPING LOGIC
+
+Update the ID extraction logic to be "Flexible":
+
+// Example of the logic to implement:
+const responseData = rawResponse.data || rawResponse; // Handle nesting
+const newId = responseData.id || responseData.adset_id;
+
+if (!newId || newId === campaignId) {
+    throw new Error(`Mapping Failure: Expected a unique AdSet ID but got ${newId}. Raw Response: ${JSON.stringify(rawResponse)}`);
+}
+
+
+3. MANDATORY PAYLOAD (Preventing Meta Rejection)
+
+Meta often returns the parent ID if the request is malformed. Ensure the POST body ALWAYS includes:
+
+campaign_id
+
+name
+
+optimization_goal: "OFFSITE_CONVERSIONS"
+
+billing_event: "IMPRESSIONS"
+
+promoted_object: { "pixel_id": "...", "custom_event_type": "PURCHASE" } (Use the mapping logic we defined earlier for Buzzpick/Dealme).
+
+4. VERIFICATION STEP
+
+Immediately after extraction, the tool MUST call GET /{newId}.
+
+If it returns a 404 or the ID still matches the Campaign ID, the tool MUST fail and show the user the Raw Response so we can manually fix the mapping.
+
+5. AI RESPONSE UPDATE
+
+Update the system prompt: "If create_adset fails, do not guess. Show the user the 'Raw API Response' log immediately. This log will tell us exactly how Pipeboard is responding so we can adjust the code."
+
+Please apply this diagnostic-first approach to fix the creation pipeline.
