@@ -430,6 +430,30 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
 - الاستهداف دايماً Advantage+ Audience (لا تضيف أعمار أو اهتمامات يدوية إلا إذا طلب المستخدم صراحةً)
 - الجمهور السياقي (geo_locations) يُحدَّد حسب ما يقوله المستخدم — افتراضي: مصر
 
+══════════════════════════════════════
+BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
+══════════════════════════════════════
+
+إذا بدأت رسالة المستخدم بـ [SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT] فأنت في "Blind Execution Mode":
+١. اقرأ Blueprint كاملاً وحدّد النوع: TESTING أم SCALING
+٢. **لا تسأل عن أي شيء** — نفّذ فوراً باستدعاء launch_pipeboard_campaign
+٣. استخرج من Blueprint:
+   - campaign_name: اسم الحملة كما هو
+   - landing_page_url: Destination URL
+   - media_url: Media URL (Drive link)
+   - primary texts → creatives[].primary_text (كل النصوص)
+   - headlines → creatives[].headline (كل العناوين)
+٤. لـ TESTING (ABO):
+   - نفّذ adsets: [{name: "Broad Test", budget: [رقم من Budget]}]
+   - creatives: كل الأصول المذكورة
+٥. لـ SCALING (CBO):
+   - نفّذ daily_budget: [Campaign Budget من Blueprint] بدون adsets[] (CBO على مستوى الحملة)
+   - creatives: كل الأصول المذكورة
+   - الـ backend سيفعّل Advantage+ Creative تلقائياً
+٦. بعد الاستدعاء رد فقط بـ:
+   - TESTING: "🧪 جاري إطلاق حملة الاختبار بميزانية ABO — في انتظار موافقتك..."
+   - SCALING: "🚀 جاري إطلاق حملة التوسع بميزانية CBO — في انتظار موافقتك..."
+
 مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
 بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".
 

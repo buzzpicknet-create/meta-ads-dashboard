@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Library, Plus, Trash2, ChevronDown, ChevronUp, Copy, Wand2,
   Link2, FileText, Heading1, FolderOpen, Clock, X, Sparkles, Loader2,
+  FlaskConical, Rocket, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,24 @@ interface Angle      { id: number; name: string; product_id: number; created_at:
 interface Asset      { id: number; angle_id: number; type: AssetType; content: string; title: string | null; created_at: string; }
 interface HistoryRow { id: number; product_name: string; angle_name: string; generated_prompt: string; created_at: string; }
 
-type AssetType = "LANDING_PAGE" | "PRIMARY_TEXT" | "HEADLINE" | "DRIVE_LINK";
+type AssetType    = "LANDING_PAGE" | "PRIMARY_TEXT" | "HEADLINE" | "DRIVE_LINK";
+type CampaignMode = "TEST" | "SCALE";
+
+const MODE_CONFIG: Record<CampaignMode, {
+  emoji: string; label: string; defaultBudget: number;
+  limits: Record<AssetType, number>; budgetLabel: string;
+}> = {
+  TEST: {
+    emoji: "🧪", label: "مرحلة الاختبار", defaultBudget: 180,
+    limits: { LANDING_PAGE: 1, PRIMARY_TEXT: 2, HEADLINE: 2, DRIVE_LINK: 1 },
+    budgetLabel: "ABO — الميزانية على مستوى المجموعة الإعلانية",
+  },
+  SCALE: {
+    emoji: "🚀", label: "مرحلة التوسع", defaultBudget: 300,
+    limits: { LANDING_PAGE: 99, PRIMARY_TEXT: 99, HEADLINE: 99, DRIVE_LINK: 1 },
+    budgetLabel: "CBO — الميزانية على مستوى الحملة",
+  },
+};
 
 const ASSET_TYPES: { type: AssetType; label: string; icon: React.ReactNode; placeholder: string; multi: boolean }[] = [
   { type: "LANDING_PAGE", label: "صفحة الهبوط",   icon: <Link2      className="h-4 w-4" />, placeholder: "https://example.com/landing",   multi: true },
@@ -46,48 +64,85 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-// ── Prompt builder (multi-variant) ────────────────────────────────────────────
+// ── Blueprint Builder ──────────────────────────────────────────────────────────
 
-function buildVariantPrompts(
+function buildBlueprint(
+  mode: CampaignMode,
+  budget: number,
   product: string,
   angle: string,
   assets: Asset[],
   sel: Record<AssetType, Set<number>>,
-): string[] {
+): string {
   const get = (type: AssetType) => assets.filter(a => a.type === type && sel[type].has(a.id));
-
   const lps    = get("LANDING_PAGE");
   const texts  = get("PRIMARY_TEXT");
   const heads  = get("HEADLINE");
   const drives = get("DRIVE_LINK");
 
-  const driveStr = drives[0]?.content ?? "—";
+  const today   = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+  const lpUrl   = lps[0]?.content ?? "—";
+  const driveUrl = drives[0]?.content ?? "—";
+  const textsStr = texts.length
+    ? texts.map((t, i) => `  ${i + 1}. ${t.content}`).join("\n")
+    : "  — لم يُحدد نص";
+  const headsStr = heads.length
+    ? heads.map((h, i) => `  ${i + 1}. ${h.content}`).join("\n")
+    : "  — لم يُحدد عنوان";
 
-  // Build combinations: LP × text × headline (cap at 9 to avoid spam)
-  const combos: { lp: Asset | null; text: Asset | null; head: Asset | null }[] = [];
-  const lpList   = lps.length   ? lps   : [null];
-  const textList = texts.length ? texts : [null];
-  const headList = heads.length ? heads : [null];
+  if (mode === "TEST") {
+    return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة (TESTING) عبر Pipeboard باستخدام الإعدادات التالية. نفذ فوراً:
 
-  outer:
-  for (const lp of lpList) {
-    for (const text of textList) {
-      for (const head of headList) {
-        combos.push({ lp, text, head });
-        if (combos.length >= 9) break outer;
-      }
-    }
+# 1. Campaign Settings
+- Objective: SALES (Conversions)
+- Event: PURCHASE
+- Campaign Name: ${product} - TEST - ${today}
+- Budget Optimization: ABO (Adset Level Budget)
+- الزاوية التسويقية: ${angle}
+
+# 2. AdSet Settings
+- Budget: ${budget} EGP daily
+- Targeting: Advantage+ Audience (Broad)
+- Placements: Advantage+ Placements
+
+# 3. Ad Settings (Multi-Asset Test)
+- Media URL: ${driveUrl}
+- Destination URL: ${lpUrl}
+- Primary Texts:
+${textsStr}
+- Headlines:
+${headsStr}
+
+[END_COMMAND]`;
   }
 
-  return combos.map((c) => {
-    return `قم بإنشاء حملة إعلانية جديدة عبر Pipeboard.
-- المنتج: ${product}
+  return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة (SCALING) عبر Pipeboard باستخدام الإعدادات التالية. نفذ فوراً:
+
+# 1. Campaign Settings
+- Objective: SALES (Conversions)
+- Event: PURCHASE
+- Campaign Name: ${product} - SCALE - ${today}
+- Budget Optimization: CBO (Campaign Budget Optimization)
+- Campaign Budget: ${budget} EGP daily
 - الزاوية التسويقية: ${angle}
-- رابط صفحة الهبوط: ${c.lp?.content ?? "—"}
-- النص الإعلاني: ${c.text?.content ?? "—"}
-- العنوان: ${c.head?.content ?? "—"}
-- رابط الميديا (درايف): ${driveStr}`;
-  });
+
+# 2. AdSet Settings
+- Adset Name: ASC+ / Broad Scale
+- Targeting: Advantage+ Audience (Broad)
+- Placements: Advantage+ Placements
+
+# 3. Ad Settings (Aggressive Multi-Asset Scaling)
+- Media URL (Extract ALL from folder): ${driveUrl}
+- Destination URL: ${lpUrl}
+- Primary Texts (Use ALL):
+${textsStr}
+- Headlines (Use ALL):
+${headsStr}
+- Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
+
+[END_COMMAND]`;
 }
 
 // ── Add Asset Form ─────────────────────────────────────────────────────────────
@@ -159,38 +214,32 @@ function AddAssetForm({ angleId, type, onSaved }: { angleId: number; type: Asset
   );
 }
 
-// ── Asset Item (checkbox or radio) ─────────────────────────────────────────────
+// ── Asset Item ─────────────────────────────────────────────────────────────────
 
 function AssetItem({
-  asset,
-  angleId,
-  type,
-  checked,
-  multi,
-  onToggle,
-  onDelete,
+  asset, angleId, type, checked, multi, atLimit, onToggle, onDelete,
 }: {
-  asset: Asset;
-  angleId: number;
-  type: AssetType;
-  checked: boolean;
-  multi: boolean;
-  onToggle: () => void;
-  onDelete: () => void;
+  asset: Asset; angleId: number; type: AssetType;
+  checked: boolean; multi: boolean; atLimit: boolean;
+  onToggle: () => void; onDelete: () => void;
 }) {
+  const disabled = atLimit && !checked;
   return (
     <label
-      className={`group flex items-start gap-2.5 rounded-lg border p-2.5 cursor-pointer transition-colors ${
+      className={`group flex items-start gap-2.5 rounded-lg border p-2.5 transition-colors ${
         checked
           ? "border-primary bg-primary/5"
-          : "border-border hover:border-primary/40 hover:bg-muted/50"
+          : disabled
+            ? "border-border bg-muted/30 opacity-40 cursor-not-allowed"
+            : "border-border hover:border-primary/40 hover:bg-muted/50 cursor-pointer"
       }`}
     >
       <input
         type={multi ? "checkbox" : "radio"}
         name={multi ? undefined : `angle-${angleId}-${type}`}
         checked={checked}
-        onChange={onToggle}
+        disabled={disabled}
+        onChange={disabled ? undefined : onToggle}
         className="mt-0.5 accent-primary shrink-0"
       />
       <div className="flex-1 min-w-0">
@@ -215,17 +264,15 @@ function AssetItem({
 // ── Asset Group ────────────────────────────────────────────────────────────────
 
 function AssetGroup({
-  angleId, type, assets, selectedIds, onToggle, onDeleted,
+  angleId, type, assets, selectedIds, limit, onToggle, onDeleted,
 }: {
-  angleId: number;
-  type: AssetType;
-  assets: Asset[];
-  selectedIds: Set<number>;
-  onToggle: (id: number) => void;
-  onDeleted: (deletedId: number) => void;
+  angleId: number; type: AssetType; assets: Asset[];
+  selectedIds: Set<number>; limit: number;
+  onToggle: (id: number) => void; onDeleted: (deletedId: number) => void;
 }) {
   const { toast } = useToast();
   const typeInfo = ASSET_TYPES.find(t => t.type === type)!;
+  const atLimit  = typeInfo.multi && selectedIds.size >= limit;
 
   async function deleteAsset(id: number) {
     try {
@@ -241,8 +288,13 @@ function AssetGroup({
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
         {typeInfo.icon}
         <span>{typeInfo.label}</span>
-        {typeInfo.multi && <span className="text-[10px] text-muted-foreground/60">(متعدد)</span>}
+        {typeInfo.multi && limit < 99 && (
+          <span className="text-[10px] text-muted-foreground/60">(حد أقصى {limit})</span>
+        )}
         <Badge variant="outline" className="ml-auto text-[10px] h-4 px-1">{assets.length}</Badge>
+        {atLimit && (
+          <Badge className="text-[10px] h-4 px-1.5 bg-amber-100 text-amber-700 border-amber-300">الحد الأقصى</Badge>
+        )}
       </div>
       {assets.map(asset => (
         <AssetItem
@@ -252,6 +304,7 @@ function AssetGroup({
           type={type}
           checked={selectedIds.has(asset.id)}
           multi={typeInfo.multi}
+          atLimit={atLimit}
           onToggle={() => onToggle(asset.id)}
           onDelete={() => deleteAsset(asset.id)}
         />
@@ -261,24 +314,16 @@ function AssetGroup({
   );
 }
 
-// ── Angle Card ────────────────────────────────────────────────────────────────
+// ── Angle Card ─────────────────────────────────────────────────────────────────
 
 function AngleCard({
-  angle,
-  productName,
-  selByType,
-  onToggle,
-  onDeleted,
-  onAssetsChange,
-  onGenerate,
+  angle, productName, mode, budget, selByType, onToggle, onDeleted, onAssetsChange, onGenerate,
 }: {
-  angle: Angle;
-  productName: string;
+  angle: Angle; productName: string; mode: CampaignMode; budget: number;
   selByType: Record<AssetType, Set<number>>;
   onToggle: (type: AssetType, id: number) => void;
-  onDeleted: () => void;
-  onAssetsChange: () => void;
-  onGenerate: (variants: string[]) => void;
+  onDeleted: () => void; onAssetsChange: () => void;
+  onGenerate: (blueprint: string) => void;
 }) {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(true);
@@ -288,6 +333,8 @@ function AngleCard({
     queryKey: ["lib-assets", angle.id],
     queryFn: () => apiFetch(`/library/angles/${angle.id}/assets`),
   });
+
+  const limits = MODE_CONFIG[mode].limits;
 
   async function deleteAngle() {
     if (!confirm(`حذف الزاوية "${angle.name}" وكل أصولها؟`)) return;
@@ -326,18 +373,25 @@ function AngleCard({
     } finally { setGenerating(false); }
   }
 
-  const assetsByType = (type: AssetType) => assets.filter(a => a.type === type);
+  function launchBlueprint() {
+    const totalSel = (["LANDING_PAGE", "PRIMARY_TEXT", "HEADLINE", "DRIVE_LINK"] as AssetType[])
+      .reduce((sum, t) => sum + selByType[t].size, 0);
+    if (totalSel === 0) {
+      toast({ title: "لم تختر أي أصول", description: "اختر على الأقل صفحة هبوط ونصاً قبل التوليد.", variant: "destructive" });
+      return;
+    }
+    const bp = buildBlueprint(mode, budget, productName, angle.name, assets, selByType);
+    onGenerate(bp);
+  }
 
+  const assetsByType = (type: AssetType) => assets.filter(a => a.type === type);
+  const hasLPs   = assets.some(a => a.type === "LANDING_PAGE");
   const totalSel = (["LANDING_PAGE", "PRIMARY_TEXT", "HEADLINE", "DRIVE_LINK"] as AssetType[])
     .reduce((sum, t) => sum + selByType[t].size, 0);
 
-  const variantCount = Math.max(
-    selByType.LANDING_PAGE.size || 1,
-    1
-  ) * Math.max(selByType.PRIMARY_TEXT.size || 1, 1) * Math.max(selByType.HEADLINE.size || 1, 1);
-
-  const hasLPs = assets.some(a => a.type === "LANDING_PAGE");
-  const hasSel = totalSel > 0;
+  const modeColors = mode === "TEST"
+    ? "text-blue-600 bg-blue-50 border-blue-200"
+    : "text-emerald-600 bg-emerald-50 border-emerald-200";
 
   return (
     <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
@@ -349,7 +403,7 @@ function AngleCard({
           <div className="font-semibold text-sm">{angle.name}</div>
           {totalSel > 0 && (
             <div className="text-xs text-primary mt-0.5">
-              {totalSel} محدد{variantCount > 1 ? ` — ${Math.min(variantCount, 9)} حملة اختبار منفصلة` : ""}
+              {totalSel} أصل محدد
             </div>
           )}
         </div>
@@ -369,7 +423,7 @@ function AngleCard({
           <div className="flex items-center gap-2 pt-1">
             <div className="text-xs text-muted-foreground flex-1">
               {hasLPs
-                ? "أضف اللاندينج ثم اضغط توليد بالـ AI لاستكمال النصوص والعناوين تلقائياً"
+                ? "اضغط توليد بالـ AI لاستخراج نصوص وعناوين من صفحة الهبوط"
                 : "أضف صفحة هبوط أولاً حتى يتمكن الـ AI من توليد النصوص"}
             </div>
             <Button
@@ -384,6 +438,7 @@ function AngleCard({
             </Button>
           </div>
 
+          {/* Asset groups */}
           {ASSET_TYPES.map(({ type }) => (
             <AssetGroup
               key={type}
@@ -391,151 +446,104 @@ function AngleCard({
               type={type}
               assets={assetsByType(type)}
               selectedIds={selByType[type]}
+              limit={limits[type]}
               onToggle={(id) => onToggle(type, id)}
               onDeleted={(deletedId) => {
-                if (deletedId >= 0) {
-                  // asset was deleted — remove from selection if present
-                  // handled by parent via toggling off
-                }
+                void deletedId;
                 refetch();
                 onAssetsChange();
               }}
             />
           ))}
 
-          {hasSel && (
-            <div className="flex items-center gap-2 pt-1 border-t border-border/40">
-              <div className="text-xs text-muted-foreground flex-1">
-                {variantCount > 1
-                  ? `${Math.min(variantCount, 9)} حملات منفصلة (${selByType.LANDING_PAGE.size || 1} LP × ${selByType.PRIMARY_TEXT.size || 1} نص × ${selByType.HEADLINE.size || 1} عنوان) — كل حملة تتبعت على حدة`
-                  : "حملة واحدة للإطلاق"}
+          {/* Launch blueprint button */}
+          <div className={`flex items-center gap-2 pt-2 border-t rounded-lg p-3 ${modeColors} border`}>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold">
+                {MODE_CONFIG[mode].emoji} {MODE_CONFIG[mode].label}
               </div>
-              <Button
-                size="sm"
-                className="gap-1.5 h-8 shrink-0"
-                onClick={() => {
-                  const variants = buildVariantPrompts(productName, angle.name, assets, selByType);
-                  onGenerate(variants);
-                }}
-              >
-                <Wand2 className="h-4 w-4" />
-                توليد أوامر الإطلاق
-              </Button>
+              <div className="text-xs opacity-75 mt-0.5">
+                ميزانية {budget} EGP · {MODE_CONFIG[mode].budgetLabel}
+              </div>
             </div>
-          )}
+            <Button
+              size="sm"
+              className={`gap-1.5 h-8 shrink-0 text-xs ${
+                mode === "SCALE"
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 shadow-md"
+                  : ""
+              }`}
+              onClick={e => { e.stopPropagation(); launchBlueprint(); }}
+              disabled={totalSel === 0}
+            >
+              <Wand2 className="h-3.5 w-3.5" />
+              🪄 توليد Blueprint الإطلاق
+            </Button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// ── Variant Prompt Modal ───────────────────────────────────────────────────────
+// ── Blueprint Modal ────────────────────────────────────────────────────────────
 
-function VariantModal({
-  open,
-  onClose,
-  variants,
-  onCopyOne,
+function BlueprintModal({
+  open, onClose, blueprint, onCopy,
 }: {
-  open: boolean;
-  onClose: () => void;
-  variants: string[];
-  onCopyOne: (text: string) => void;
+  open: boolean; onClose: () => void; blueprint: string; onCopy: (text: string) => void;
 }) {
-  const [current, setCurrent] = useState(0);
-  const total = variants.length;
-  const v = variants[current] ?? "";
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
-    onCopyOne(v);
+    onCopy(blueprint);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 2500);
   }
 
-  function next() { if (current < total - 1) { setCurrent(c => c + 1); setCopied(false); } }
-  function prev() { if (current > 0)         { setCurrent(c => c - 1); setCopied(false); } }
-
-  // reset to first when modal opens
-  useState(() => { if (open) { setCurrent(0); setCopied(false); } });
+  const isScale = blueprint.includes("SCALING");
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { setCurrent(0); setCopied(false); } onClose(); }}>
+    <Dialog open={open} onOpenChange={o => { if (!o) { setCopied(false); } onClose(); }}>
       <DialogContent className="max-w-xl" dir="rtl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Wand2 className="h-5 w-5 text-primary" />
-            {total > 1 ? `حملة ${current + 1} من ${total}` : "أمر إطلاق الحملة"}
+            {isScale
+              ? <Rocket className="h-5 w-5 text-emerald-600" />
+              : <FlaskConical className="h-5 w-5 text-blue-600" />}
+            {isScale ? "🚀 Blueprint التوسع" : "🧪 Blueprint الاختبار"}
           </DialogTitle>
         </DialogHeader>
 
-        {/* Warning banner — only when multiple variants */}
-        {total > 1 && (
-          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2.5 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-            <span className="font-bold">⚠️ مهم:</span> كل حملة = أمر <strong>منفصل</strong> يتبعت للمساعد على حدة.
-            لا ترسلهم مع بعض — كل أمر هيعمل <strong>حملة مستقلة</strong> للاختبار.
-          </div>
-        )}
+        <div className={`rounded-lg border px-3 py-2.5 text-xs leading-relaxed ${
+          isScale
+            ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300"
+            : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300"
+        }`}>
+          {isScale
+            ? "⚡ وضع التوسع: CBO مع Advantage+ Creative — الـ AI سيطلق الحملة فوراً بعد اللصق"
+            : "🧪 وضع الاختبار: ABO مع تعدد الأصول — الـ AI سيطلق الحملة فوراً بعد اللصق"}
+        </div>
 
-        {/* Stepper dots */}
-        {total > 1 && (
-          <div className="flex items-center justify-center gap-1.5">
-            {variants.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => { setCurrent(i); setCopied(false); }}
-                className={`h-2 rounded-full transition-all ${
-                  i === current ? "w-6 bg-primary" : "w-2 bg-muted-foreground/30 hover:bg-muted-foreground/50"
-                }`}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Prompt content */}
-        <pre className="text-sm leading-relaxed whitespace-pre-wrap font-sans bg-muted rounded-xl px-4 py-3 text-foreground max-h-64 overflow-y-auto">
-          {v}
+        <pre className="text-sm leading-relaxed whitespace-pre-wrap font-sans bg-muted rounded-xl px-4 py-3 text-foreground max-h-72 overflow-y-auto text-xs">
+          {blueprint}
         </pre>
 
-        {/* Primary action */}
         <Button
           size="lg"
-          className={`w-full gap-2 text-base transition-colors ${copied ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
+          className={`w-full gap-2 text-base transition-colors ${
+            copied
+              ? "bg-emerald-600 hover:bg-emerald-700"
+              : isScale
+                ? "bg-emerald-600 hover:bg-emerald-700"
+                : ""
+          }`}
           onClick={handleCopy}
         >
-          {copied ? (
-            <>✅ تم النسخ — الصقه الآن في المساعد</>
-          ) : (
-            <><Copy className="h-5 w-5" /> 📋 نسخ هذه الحملة</>
-          )}
+          {copied
+            ? <>✅ تم النسخ — الصقه في المساعد الآن</>
+            : <><Copy className="h-5 w-5" /> 📋 نسخ Blueprint</>}
         </Button>
-
-        {/* Prev / Next navigation */}
-        {total > 1 && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 gap-1"
-              onClick={prev}
-              disabled={current === 0}
-            >
-              → السابقة
-            </Button>
-            <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-              {current + 1} / {total}
-            </span>
-            <Button
-              variant={copied ? "default" : "outline"}
-              size="sm"
-              className="flex-1 gap-1"
-              onClick={next}
-              disabled={current === total - 1}
-            >
-              ← التالية
-            </Button>
-          </div>
-        )}
 
         <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground">
           إغلاق
@@ -562,12 +570,22 @@ export default function AssetLibrary() {
   const [newProductName, setNewProductName]       = useState("");
   const [newAngleName, setNewAngleName]           = useState("");
 
+  // ── Campaign Mode State ──────────────────────────────────────────────────────
+  const [mode, setMode]     = useState<CampaignMode>("TEST");
+  const [budget, setBudget] = useState<number>(MODE_CONFIG.TEST.defaultBudget);
+
+  function switchMode(m: CampaignMode) {
+    setMode(m);
+    setBudget(MODE_CONFIG[m].defaultBudget);
+    setSelections({});  // clear selections when mode changes
+  }
+
   // selections: angleId → type → Set<assetId>
   const [selections, setSelections] = useState<MultiSel>({});
-  const [promptModal, setPromptModal]  = useState(false);
-  const [promptVariants, setPromptVariants] = useState<string[]>([]);
-  const [activeAngle, setActiveAngle] = useState<Angle | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [blueprintModal, setBlueprintModal] = useState(false);
+  const [blueprintText, setBlueprintText]   = useState("");
+  const [activeAngle, setActiveAngle]       = useState<Angle | null>(null);
+  const [historyOpen, setHistoryOpen]       = useState(false);
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
@@ -610,7 +628,7 @@ export default function AssetLibrary() {
     onError: (err) => toast({ title: "خطأ", description: String(err), variant: "destructive" }),
   });
 
-  // ── Selection helpers ──────────────────────────────────────────────────────
+  // ── Selection helpers (with mode limit enforcement) ────────────────────────
 
   const getAngleSel = useCallback((angleId: number): Record<AssetType, Set<number>> =>
     selections[angleId] ?? EMPTY_SEL(), [selections]);
@@ -619,27 +637,33 @@ export default function AssetLibrary() {
     setSelections(prev => {
       const cur = prev[angleId] ?? EMPTY_SEL();
       const typeInfo = ASSET_TYPES.find(t => t.type === type)!;
+      const limit = MODE_CONFIG[mode].limits[type];
       let nextSet: Set<number>;
+
       if (typeInfo.multi) {
         nextSet = new Set(cur[type]);
-        if (nextSet.has(id)) nextSet.delete(id); else nextSet.add(id);
+        if (nextSet.has(id)) {
+          nextSet.delete(id);
+        } else if (nextSet.size < limit) {
+          nextSet.add(id);
+        }
+        // else: at limit, silently ignore
       } else {
-        // radio-style: only one allowed
         nextSet = cur[type].has(id) && cur[type].size === 1 ? new Set() : new Set([id]);
       }
       return { ...prev, [angleId]: { ...cur, [type]: nextSet } };
     });
-  }, []);
+  }, [mode]);
 
-  // ── Prompt actions ─────────────────────────────────────────────────────────
+  // ── Blueprint actions ──────────────────────────────────────────────────────
 
-  function openPromptModal(angle: Angle, variants: string[]) {
-    setPromptVariants(variants);
+  function openBlueprint(angle: Angle, bp: string) {
+    setBlueprintText(bp);
     setActiveAngle(angle);
-    setPromptModal(true);
+    setBlueprintModal(true);
   }
 
-  async function handleCopy(text: string, label = "الأوامر") {
+  async function handleCopy(text: string) {
     try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
     if (selectedProduct && activeAngle) {
       try {
@@ -655,7 +679,7 @@ export default function AssetLibrary() {
         refetchHistory();
       } catch { /* ignore */ }
     }
-    toast({ title: `✅ تم نسخ ${label}!`, description: "الأمر جاهز للصق في المساعد." });
+    toast({ title: "✅ تم النسخ!", description: "الـ Blueprint جاهز للصق في المساعد." });
   }
 
   function formatDate(iso: string) {
@@ -674,9 +698,9 @@ export default function AssetLibrary() {
             <Library className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-bold">مكتبة الأصول التسويقية</h1>
+            <h1 className="text-xl font-bold">مكتبة الأصول — Campaign Launchpad</h1>
             <p className="text-sm text-muted-foreground">
-              أضف اللاندينج ← الـ AI يولّد النصوص والعناوين ← اختر للمقارنة ← أطلق
+              أضف اللاندينج ← AI يولّد النصوص ← اختر الوضع ← أطلق Blueprint
             </p>
           </div>
           <Button
@@ -688,6 +712,81 @@ export default function AssetLibrary() {
             <Clock className="h-4 w-4" />
             سجل الإطلاقات
           </Button>
+        </div>
+
+        {/* ── Strategy Control Panel ─────────────────────────────────────────── */}
+        <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+          <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+            <Wand2 className="h-4 w-4" />
+            لوحة التحكم الاستراتيجي
+          </div>
+
+          {/* Mode toggle */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => switchMode("TEST")}
+              className={`rounded-xl border-2 p-4 text-right transition-all ${
+                mode === "TEST"
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                  : "border-border hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-950/10"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <FlaskConical className={`h-5 w-5 ${mode === "TEST" ? "text-blue-600" : "text-muted-foreground"}`} />
+                <span className={`font-bold text-sm ${mode === "TEST" ? "text-blue-700 dark:text-blue-400" : "text-foreground"}`}>
+                  🧪 مرحلة الاختبار
+                </span>
+                {mode === "TEST" && <Badge className="mr-auto text-[10px] bg-blue-500 text-white border-0">نشط</Badge>}
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                ABO · حد أقصى 2 نص + 2 عنوان · اختبار متعدد الأصول
+              </p>
+            </button>
+
+            <button
+              onClick={() => switchMode("SCALE")}
+              className={`rounded-xl border-2 p-4 text-right transition-all ${
+                mode === "SCALE"
+                  ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 shadow-emerald-100 shadow-md"
+                  : "border-border hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <Rocket className={`h-5 w-5 ${mode === "SCALE" ? "text-emerald-600" : "text-muted-foreground"}`} />
+                <span className={`font-bold text-sm ${mode === "SCALE" ? "text-emerald-700 dark:text-emerald-400" : "text-foreground"}`}>
+                  🚀 مرحلة التوسع
+                </span>
+                {mode === "SCALE" && <Badge className="mr-auto text-[10px] bg-emerald-500 text-white border-0">نشط</Badge>}
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                CBO · نصوص وعناوين غير محدودة · Advantage+ Creative
+              </p>
+            </button>
+          </div>
+
+          {/* Budget input */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium shrink-0">
+              الميزانية اليومية (EGP):
+            </label>
+            <div className="relative flex-1 max-w-[180px]">
+              <Input
+                type="number"
+                min={1}
+                value={budget}
+                onChange={e => setBudget(Number(e.target.value) || 0)}
+                className="h-9 text-sm pl-12"
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">EGP</span>
+            </div>
+            <span className={`text-xs px-3 py-1.5 rounded-full border font-medium ${
+              mode === "TEST"
+                ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800"
+                : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
+            }`}>
+              {MODE_CONFIG[mode].budgetLabel}
+            </span>
+          </div>
         </div>
 
         {/* Product selector */}
@@ -761,11 +860,13 @@ export default function AssetLibrary() {
                   key={angle.id}
                   angle={angle}
                   productName={selectedProduct?.name ?? ""}
+                  mode={mode}
+                  budget={budget}
                   selByType={getAngleSel(angle.id)}
                   onToggle={(type, id) => handleToggle(angle.id, type, id)}
                   onDeleted={() => { refetchAngles(); qc.invalidateQueries({ queryKey: ["lib-assets", angle.id] }); }}
                   onAssetsChange={() => qc.invalidateQueries({ queryKey: ["lib-assets", angle.id] })}
-                  onGenerate={(variants) => openPromptModal(angle, variants)}
+                  onGenerate={(bp) => openBlueprint(angle, bp)}
                 />
               ))
             )}
@@ -784,12 +885,12 @@ export default function AssetLibrary() {
         )}
       </div>
 
-      {/* ── Variant Prompt Modal ────────────────────────────────────────────── */}
-      <VariantModal
-        open={promptModal}
-        onClose={() => setPromptModal(false)}
-        variants={promptVariants}
-        onCopyOne={(text) => handleCopy(text, "الحملة")}
+      {/* ── Blueprint Modal ──────────────────────────────────────────────────── */}
+      <BlueprintModal
+        open={blueprintModal}
+        onClose={() => setBlueprintModal(false)}
+        blueprint={blueprintText}
+        onCopy={handleCopy}
       />
 
       {/* ── History Dialog ───────────────────────────────────────────────────── */}
@@ -804,7 +905,7 @@ export default function AssetLibrary() {
           <ScrollArea className="flex-1 -mx-6 px-6">
             {history.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground text-sm">
-                لا يوجد سجل بعد — ولّد أمراً وانسخه ليظهر هنا
+                لا يوجد سجل بعد — ولّد Blueprint وانسخه ليظهر هنا
               </div>
             ) : (
               <div className="space-y-3 pb-4">

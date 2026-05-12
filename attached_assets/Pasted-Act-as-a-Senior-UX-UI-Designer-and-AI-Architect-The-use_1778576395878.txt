@@ -1,0 +1,100 @@
+Act as a Senior UX/UI Designer and AI Architect. The user wants to upgrade the "Product Asset Vault" into a "Campaign Launchpad" with two distinct Media Buying modes: "Testing Phase" and "Scaling Phase".
+
+Please implement the following architecture:
+
+1. UI UPGRADE: THE DYNAMIC LAUNCHPAD
+
+Redesign the Asset Vault's launch section. Add a new "Strategy Control Panel" with a toggle switch or two large Mode buttons:
+
+Mode 1: 🧪 Testing Phase (مرحلة الاختبار)
+
+Default Budget: 180 EGP (Editable).
+
+Selection Limits: Max 1 Drive Link (up to 3 creatives), 2 Primary Texts, 2 Headlines.
+
+UI visual: Subtle Blue/Gray styling.
+
+Mode 2: 🚀 Scaling Phase (مرحلة التوسع)
+
+Default Budget: 300 EGP (Editable, usually higher).
+
+Selection Limits: Unlimited (Allows selecting a Drive folder with up to 10 winning creatives, 3+ texts, 3+ headlines).
+
+UI visual: Glowing Emerald/Green styling.
+
+Asset Multi-Select: Render the available Landing Pages, Texts, Headlines, and Drive links with checkboxes so the user can easily multi-select based on the active mode limits.
+
+2. THE BLUEPRINT GENERATOR LOGIC
+
+When the user clicks "🪄 توليد أمر الإطلاق", the frontend MUST compile the selected data into a highly structured YAML/Markdown block. The output strictly depends on the selected Mode.
+
+IF TESTING MODE IS SELECTED, generate this:
+
+[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة (TESTING) عبر Pipeboard باستخدام الإعدادات التالية. نفذ فوراً:
+
+# 1. Campaign Settings
+- Objective: SALES (Conversions)
+- Event: PURCHASE
+- Campaign Name: [Product Name] - TEST - [Date]
+- Budget Optimization: ABO (Adset Level Budget)
+
+# 2. AdSet Settings
+- Budget: [180] EGP daily
+- Targeting: Advantage+ Audience (Broad)
+- Placements: Advantage+ Placements
+
+# 3. Ad Settings (Multi-Asset Test)
+- Media URL: [Selected Google Drive Link]
+- Destination URL: [Selected Landing Page URL]
+- Primary Texts: [List selected texts]
+- Headlines: [List selected headlines]
+
+[END_COMMAND]
+
+
+IF SCALING MODE IS SELECTED, generate this:
+
+[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة (SCALING) عبر Pipeboard باستخدام الإعدادات التالية. نفذ فوراً:
+
+# 1. Campaign Settings
+- Objective: SALES (Conversions)
+- Event: PURCHASE
+- Campaign Name: [Product Name] - SCALE - [Date]
+- Budget Optimization: CBO (Campaign Budget Optimization)
+- Campaign Budget: [300+] EGP daily
+
+# 2. AdSet Settings
+- Adset Name: ASC+ / Broad Scale
+- Targeting: Advantage+ Audience (Broad)
+- Placements: Advantage+ Placements
+
+# 3. Ad Settings (Aggressive Multi-Asset Scaling)
+- Media URL (Extract ALL from folder): [Selected Google Drive Link]
+- Destination URL: [Selected Landing Page URL]
+- Primary Texts (Use ALL in one Ad): [List selected texts]
+- Headlines (Use ALL in one Ad): [List selected headlines]
+- Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
+
+[END_COMMAND]
+
+
+3. AI AGENT SYSTEM PROMPT UPGRADE
+
+Inject this into the LLM System Prompt so it understands how to execute both blueprints:
+
+"""
+BLUEPRINT EXECUTION PROTOCOL:
+If the user pastes a prompt starting with [SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT], you are in "Blind Execution Mode".
+
+Identify if it is a TEST or SCALE campaign.
+
+For TEST (ABO): Apply the budget to the AdSet level.
+
+For SCALE (CBO): Apply the budget to the Campaign level. The backend must extract all media from the provided Drive folder and inject them alongside all texts/headlines into a single, massive Advantage+ Creative Ad payload. Ensure degrees_of_freedom_spec or Advantage+ flags are explicitly enabled so Meta optimizes the scale creatives.
+
+Call launch_pipeboard_campaign IMMEDIATELY. Do NOT ask for confirmation. Respond only with a success message tailored to the phase (e.g., "🚀 جاري إطلاق حملة الـ Scaling بميزانية CBO...").
+"""
+
+Please implement this dynamic UI and Blueprint generation logic.
