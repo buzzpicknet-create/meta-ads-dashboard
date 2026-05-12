@@ -489,7 +489,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             continue;
           }
 
-          // Create ad creative — inject page_id, pixel_id, destination_url explicitly
+          // Create ad creative — inject page_id, pixel_id, destination_url + Advantage+ enhancements
           let creativeId = "";
           try {
             const creativeArgs: Record<string, unknown> = {
@@ -501,6 +501,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               message: creative.primary_text,
               headline: creative.headline,
               call_to_action_type: callToAction,
+              // Advantage+ Creative Enhancements — opt-in explicitly so Meta doesn't
+              // silently strip standard enhancements (default OFF for API-created ads)
+              advantage_plus_creative: true,
+              enable_standard_enhancements: true,
+              degrees_of_freedom_spec: {
+                creative_features_spec: {
+                  standard_enhancements: { enroll_status: "OPT_IN" },
+                },
+              },
             };
             if (pixelId) creativeArgs.pixel_id = pixelId;
             if (isVid) creativeArgs.video_id = media.videoId;

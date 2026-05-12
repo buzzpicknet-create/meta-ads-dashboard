@@ -1,0 +1,68 @@
+Act as a Senior API Integration Expert. The user wants to UPGRADE the existing launch_pipeboard_campaign MCP tool.
+Currently, the tool is hardcoded to handle only ONE AdSet and ONE Ad (single strings for media, text, etc.). The user wants the AI to be able to launch MULTIPLE AdSets and MULTIPLE Ads (Creatives) in a single API call to Pipeboard, exactly like how ChatGPT handles the Pipeboard API natively.
+
+Furthermore, we are experiencing a "Silent Failure" bug where Campaigns and AdSets are created successfully, but the actual Ads (Creatives) fail to create without the AI noticing.
+
+Please implement the following surgical upgrades:
+
+1. UPGRADE THE MCP TOOL PARAMETER SCHEMA (Allow Arrays & Required Fields)
+
+Change the schema of launch_pipeboard_campaign to accept arrays for bulk creation and enforce strict Meta Ad requirements.
+
+adsets (Array of Objects): e.g., [{ "name": "Adset 1", "budget": 20, "targeting": "Broad" }, { "name": "Adset 2", "budget": 20, "targeting": "Retargeting" }]
+
+creatives (Array of Objects): e.g., [{ "media_url": "link1", "primary_text": "text1", "headline": "head1" }, { "media_url": "link2", ... }]
+
+campaign_name (String)
+
+landing_page_url (String)
+
+pixel_id (String)
+
+page_id (String) - CRITICAL ADDITION: Meta requires a Facebook Page ID to create an Ad.
+
+2. REWRITE THE BACKEND PAYLOAD CONSTRUCTOR (Fixing Ad-Level Omissions & Enhancements)
+
+When the tool is called, map over the adsets and creatives arrays to construct the exact nested JSON payload that Pipeboard expects for "Multi-Asset / Bulk Creation".
+
+The payload should instruct Pipeboard to create ONE Campaign.
+
+Inside that Campaign, create the requested number of AdSets.
+
+Inside EACH AdSet, attach ALL the creatives provided in the creatives array.
+
+CRITICAL AD LEVEL FIX: Ensure that the page_id, pixel_id, and destination_url are explicitly mapped and injected into EVERY single creative object in the payload. Missing these is causing the Ads to silently fail.
+
+ADVANTAGE+ CREATIVE ENHANCEMENTS: To prevent ads from being created with standard/essential enhancements turned off (as is the default behavior for API creations), you MUST explicitly inject the flags to enable Advantage+ creative optimizations in each creative object. Depending on Pipeboard's exact schema, this usually means passing advantage_plus_creative: true, enable_standard_enhancements: true, or the raw Meta Graph API equivalent (degrees_of_freedom_spec: { creative_features_spec: { standard_enhancements: { enrollment_status: 'OPT_IN' } } }).
+
+3. GOOGLE DRIVE LINK CONVERTER (Preventing Media Processing Failures)
+
+If the user provides a standard Google Drive viewer link (e.g., drive.google.com/file/d/[ID]/view), the Pipeboard media fetcher might fail silently in the background.
+
+Fix: Add a regex/parser in the backend tool execution that automatically converts any Google Drive URL into a direct download URL (https://drive.google.com/uc?export=download&id=[ID]) BEFORE sending the payload to Pipeboard.
+
+4. FIX TIMEOUT & HANGING ISSUES (Video Uploading Phase)
+
+The user reported the AI hangs/gets stuck during the ad creation/video upload phase.
+
+This happens because Pipeboard takes longer to process multiple external media links.
+
+Fix: Increase the axios or fetch timeout limit in the backend for this specific Pipeboard request to at least 120000 ms (2 minutes).
+
+Return a clear "Processing..." status to the frontend so the connection doesn't drop while waiting for Pipeboard to ingest the videos.
+
+5. STRICT ERROR PARSING (Solving the "Silent Success" Bug)
+
+Do NOT assume a 200 OK from Pipeboard means 100% success if they use a Partial Success architecture.
+
+Parse the response object deeply. If Pipeboard returns an array of created Ad IDs, verify that the length matches the requested creatives.
+
+If the API returns a nested error about the creative (e.g., Facebook Page not authorized, Video format invalid), the MCP tool MUST throw this exact error back to the LLM.
+
+Add this instruction to the LLM System Prompt: "Check the tool response carefully. If it says the campaign was created but there are 0 Ads created, you MUST inform the user that the Ad creation failed and state the reason."
+
+6. UPDATE SYSTEM PROMPT
+
+Add this instruction: "When the user provides multiple media links or asks for multiple ad sets (e.g., ABO testing), use the launch_pipeboard_campaign tool but pass the data as ARRAYS. Distribute the creatives across the adsets as requested. Always ensure you ask for or retrieve the page_id before executing."
+
+Please apply these updates to solve the missing Ad bugs and support complex Campaign structures.
