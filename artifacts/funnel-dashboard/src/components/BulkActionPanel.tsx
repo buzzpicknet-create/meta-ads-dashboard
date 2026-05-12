@@ -20,7 +20,8 @@ export interface BulkActionItem {
     | "duplicate_adset"
     | "duplicate_campaign"
     | "duplicate_ad"
-    | "create_ad_from_post";
+    | "create_ad_from_post"
+    | "create_ad_from_existing_post";
   campaignId?: string;
   adsetId?: string;
   adId?: string;
@@ -60,8 +61,9 @@ const TYPE_META: Record<BulkActionItem["type"], { icon: React.ReactNode; color: 
   rename_ad:          { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
   duplicate_adset:    { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-sky-600 dark:text-sky-400",      badge: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30" },
   duplicate_campaign: { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-sky-600 dark:text-sky-400",      badge: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30" },
-  duplicate_ad:       { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-orange-600 dark:text-orange-400", badge: "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30" },
-  create_ad_from_post:{ icon: <Rocket className="h-3.5 w-3.5" />, color: "text-emerald-600 dark:text-emerald-400", badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30" },
+  duplicate_ad:              { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-orange-600 dark:text-orange-400",  badge: "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30" },
+  create_ad_from_post:       { icon: <Rocket className="h-3.5 w-3.5" />, color: "text-emerald-600 dark:text-emerald-400", badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30" },
+  create_ad_from_existing_post: { icon: <Rocket className="h-3.5 w-3.5" />, color: "text-teal-600 dark:text-teal-400",    badge: "bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30" },
 };
 
 const FALLBACK_META = { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" };
@@ -112,6 +114,8 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
       return { tool: "duplicate_ad", args: { ad_id: item.adId, destination_adset_id: item.destinationAdsetId, name: item.name } };
     case "create_ad_from_post":
       return { tool: "create_ad_from_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, post_id: item.postId, name: item.name } };
+    case "create_ad_from_existing_post":
+      return { tool: "create_ad_from_existing_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, object_story_id: item.postId, name: item.name } };
   }
 }
 

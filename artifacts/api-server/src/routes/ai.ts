@@ -10,6 +10,7 @@ import {
   getAdsetDetails,
   getAdDetails,
   getAdCreativeInfo,
+  getAdCreativeContent,
   fetchAccountMetadata,
   isRateLimitActive,
   type CampaignDetails,
@@ -459,17 +460,20 @@ Frequency (في 7 أيام):
 - rename_ad(ad_id, current_name, new_name) — تغيير اسم الإعلان الفردي
 - duplicate_ad(ad_id, destination_adset_id, name) — نسخ إعلان Winner إلى مجموعة أخرى (CBO/ABO) مع الحفاظ على Social Proof (نفس المنشور ونفس اللايكات)
   ⚠️ هذه الأداة ممكنة — تستخدم Meta Graph API مباشرةً. الإعلان المنسوخ PAUSED للمراجعة.
-- get_ad_post_id(ad_id) — اجلب Post ID للإعلان قبل استخدام create_ad_from_post
-- create_ad_from_post(account_id, adset_id, post_id, name, page_id?) — أنشئ إعلاناً من منشور Facebook موجود بـ Post ID مع الحفاظ على Social Proof. الخطوات: (١) get_ad_post_id للحصول على post_id → (٢) create_ad_from_post في المجموعة الهدف
+- get_ad_creative(ad_id) — اجلب محتوى الإعلان الكامل: primary_text، headline، video_id/image_hash، link_url، call_to_action، object_story_id، page_id، instagram_actor_id. أفضل من get_ad_post_id لأنه يُعيد أكثر بيانات.
+- get_ad_post_id(ad_id) — اجلب Post ID فقط (بديل أخف من get_ad_creative إذا كنت تحتاج object_story_id فقط)
+- create_ad_from_post(account_id, adset_id, post_id, name, page_id?) — أنشئ إعلاناً من منشور بـ post_id مع الحفاظ على Social Proof
+- create_ad_from_existing_post(account_id, adset_id, name, object_story_id?, post_id?, page_id?) — أنشئ إعلاناً من منشور موجود. يقبل object_story_id مباشرةً (من get_ad_creative) أو post_id. هذه النسخة الأشمل من create_ad_from_post.
 
 ⚠️ Ad Scale — قاعدة حرجة:
 - لا يوجد "move ad" في Meta API — الإعلان لا يُنقل، يُنسَخ فقط.
-- الأسلوب الصحيح للـ Scale:
-  ١. duplicate_ad: الأسرع — ينسخ الإعلان مع creative إلى مجموعة أخرى مع الحفاظ على Social Proof
-  ٢. create_ad_from_post: إذا كنت تريد تحديد منشور معين يدوياً — استخدم get_ad_post_id أولاً
-  ٣. duplicate_adset: إذا أردت نسخ المجموعة كاملةً (مع جميع إعلاناتها)
-  ٤. duplicate_campaign: إذا أردت نسخ الحملة كاملةً
-- لا تذكر للمستخدم أن "Meta لا يدعم duplicate_ad" — الأداة موجودة الآن.
+- الأسلوب الصحيح للـ Scale (من الأسرع للأكثر تخصيصاً):
+  ١. duplicate_ad(ad_id, destination_adset_id) — الأسرع. نسخ مباشر مع الحفاظ على Social Proof.
+  ٢. create_ad_from_existing_post(account_id, adset_id, object_story_id, name) — بعد get_ad_creative للحصول على object_story_id. يسمح بتخصيص الاسم ومجموعة مختلفة.
+  ٣. create_ad_from_post(account_id, adset_id, post_id, name) — إذا كان لديك post_id فقط.
+  ٤. duplicate_adset — نسخ المجموعة كاملةً مع جميع إعلاناتها.
+  ٥. duplicate_campaign — نسخ الحملة كاملةً.
+- لا تذكر للمستخدم أن "Meta لا يدعم duplicate_ad" — الأداة موجودة ومُنفَّذة.
 
 الأدوات المتاحة — إنشاء:
 - create_campaign(account_id, name, objective, daily_budget, status?) — إنشاء حملة جديدة
@@ -1164,6 +1168,20 @@ const TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "get_ad_creative",
+      description: "اجلب محتوى إعلان كامل — primary_text (النص الرئيسي)، headline (العنوان)، video_id أو image_hash، link_url، call_to_action، object_story_id، page_id، instagram_actor_id. استخدم للتحليل أو لاستخراج object_story_id قبل create_ad_from_existing_post.",
+      parameters: {
+        type: "object",
+        properties: {
+          ad_id: { type: "string", description: "رقم الإعلان (id)" },
+        },
+        required: ["ad_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "get_ad_post_id",
       description: "اجلب Post ID (رقم المنشور) لإعلان معين — مطلوب قبل استخدام create_ad_from_post. يُعيد: object_story_id بصيغة {page_id}_{post_id} وcreative_id ومعرّفات الحملة والمجموعة. استخدمه عندما تريد نسخ إعلان Winner إلى CBO جديدة مع الحفاظ على Social Proof (نفس المنشور الأصلي).",
       parameters: {
@@ -1206,6 +1224,25 @@ const TOOLS = [
           page_id: { type: "string", description: "رقم صفحة Facebook — اختياري، يُجلب تلقائياً من الحساب إذا لم يُرسَل" },
         },
         required: ["account_id", "adset_id", "post_id", "name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "create_ad_from_existing_post",
+      description: "اقتراح إنشاء إعلان جديد من منشور موجود مع الحفاظ على Social Proof — يقبل object_story_id مباشرةً (من get_ad_creative) أو post_id+page_id. مثالي بعد get_ad_creative لنقل Winner مباشرةً إلى CBO جديدة بدون خطوة get_ad_post_id منفصلة. الإعلان PAUSED للمراجعة. سيظهر طلب تأكيد.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id:       { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXX)" },
+          adset_id:         { type: "string", description: "رقم المجموعة الإعلانية الهدف" },
+          object_story_id:  { type: "string", description: "الـ object_story_id الكامل بصيغة {page_id}_{post_id} — يُستخرج من get_ad_creative. إذا أُرسل يُتجاهل post_id وpage_id" },
+          post_id:          { type: "string", description: "رقم المنشور — بديل عن object_story_id إذا لم يكن متاحاً مباشرةً" },
+          name:             { type: "string", description: "اسم الإعلان الجديد" },
+          page_id:          { type: "string", description: "رقم صفحة Facebook — اختياري إذا أُرسل object_story_id (يُستخرج منه تلقائياً)" },
+        },
+        required: ["account_id", "adset_id", "name"],
       },
     },
   },
@@ -1498,6 +1535,7 @@ const WRITE_TOOL_NAMES = new Set([
   "launch_pipeboard_campaign",
   "duplicate_ad",
   "create_ad_from_post",
+  "create_ad_from_existing_post",
   // Google Ads write tools
   "ga_pause_campaign",
   "ga_enable_campaign",
@@ -1693,6 +1731,14 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
         tool: name, args,
         summary: `إنشاء إعلان "${label}" من المنشور ${pid} — موقوف للمراجعة`,
         proposedValue: `إعلان جديد من منشور`,
+      };
+    }
+    case "create_ad_from_existing_post": {
+      const sid = String(args.object_story_id ?? args.post_id ?? "");
+      return {
+        tool: name, args,
+        summary: `إنشاء إعلان "${label}" من المنشور الموجود (${sid}) مع الحفاظ على Social Proof — موقوف للمراجعة`,
+        proposedValue: `إعلان جديد من منشور موجود`,
       };
     }
     case "create_campaign": {
@@ -1994,6 +2040,15 @@ async function resolveWriteToolDetails(name: string, args: Record<string, unknow
     const adsetId = String(args.adset_id ?? "");
     return {
       summary: `إنشاء إعلان "${adName}" من المنشور ${postId} في المجموعة ${adsetId} — موقوف للمراجعة`,
+    };
+  }
+
+  if (name === "create_ad_from_existing_post") {
+    const sid = String(args.object_story_id ?? args.post_id ?? "");
+    const adName = String(args.name ?? "إعلان جديد");
+    const adsetId = String(args.adset_id ?? "");
+    return {
+      summary: `إنشاء إعلان "${adName}" من المنشور الموجود (${sid}) في المجموعة ${adsetId} مع الحفاظ على Social Proof — موقوف للمراجعة`,
     };
   }
 
@@ -3012,6 +3067,46 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
 
+    if (name === "get_ad_creative") {
+      const ad_id = String(args.ad_id ?? "");
+      if (!ad_id) return "ad_id مطلوب.";
+      try {
+        const c = await getAdCreativeContent(ad_id);
+        const storyId = c.effective_object_story_id || c.object_story_id;
+        const postId = storyId ? storyId.split("_").slice(1).join("_") : "";
+        const mediaLine = c.video_id
+          ? `- video_id: \`${c.video_id}\``
+          : c.image_hash
+          ? `- image_hash: \`${c.image_hash}\``
+          : "- نوع الوسيط: منشور موجود (post)";
+        return [
+          `## Creative للإعلان "${c.ad_name || ad_id}":`,
+          `- creative_id: \`${c.creative_id}\``,
+          `- نوع الوسيط: ${c.media_type}`,
+          mediaLine,
+          `- primary_text: ${c.primary_text || "(غير محدد)"}`,
+          `- headline: ${c.headline || "(غير محدد)"}`,
+          `- link_url: ${c.link_url || "(غير محدد)"}`,
+          `- call_to_action: ${c.call_to_action || "(غير محدد)"}`,
+          `- object_story_id: \`${storyId || "(غير موجود)"}\``,
+          `- page_id: \`${c.page_id || "(غير موجود)"}\``,
+          `- instagram_actor_id: \`${c.instagram_actor_id || "(غير موجود)"}\``,
+          `- adset_id: \`${c.adset_id}\``,
+          `- campaign_id: \`${c.campaign_id}\``,
+          ``,
+          storyId
+            ? [
+                `لنقل هذا الإعلان Winner مع الحفاظ على Social Proof:`,
+                `- duplicate_ad(ad_id="${ad_id}", destination_adset_id="<CBO adset id>") ← الأسرع`,
+                `- أو create_ad_from_existing_post(account_id, adset_id, object_story_id="${storyId}", name)`,
+              ].join("\n")
+            : `⚠️ لا يوجد object_story_id — الإعلان قد يكون dark post ولا يمكن نقل Social Proof. استخدم duplicate_ad فقط.`,
+        ].join("\n");
+      } catch (err) {
+        return `خطأ في جلب creative للإعلان ${ad_id}: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
     if (name === "get_ad_post_id") {
       const ad_id = String(args.ad_id ?? "");
       if (!ad_id) return "ad_id مطلوب.";
@@ -3033,7 +3128,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
           ``,
           `لنقل هذا الإعلان Winner إلى مجموعة CBO جديدة مع الحفاظ على Social Proof، استخدم:`,
           `- duplicate_ad(ad_id="${ad_id}", destination_adset_id="<id المجموعة الهدف>") ← الأسرع`,
-          `- أو create_ad_from_post(account_id, adset_id, post_id="${postId}", name) ← إذا أردت تخصيص الإعلان`,
+          `- أو create_ad_from_existing_post(account_id, adset_id, object_story_id="${storyId}", name)`,
         ].join("\n");
       } catch (err) {
         return `خطأ في جلب معلومات إعلان ${ad_id}: ${err instanceof Error ? err.message : String(err)}`;
@@ -3260,8 +3355,9 @@ const ACTION_LABEL: Record<string, string> = {
   create_adset:                "تم إنشاء المجموعة الإعلانية",
   duplicate_campaign:          "تم نسخ الحملة الإعلانية",
   launch_pipeboard_campaign:   "تم إطلاق الحملة عبر Pipeboard CMP",
-  duplicate_ad:                "تم نسخ الإعلان إلى المجموعة الجديدة",
-  create_ad_from_post:         "تم إنشاء الإعلان من المنشور",
+  duplicate_ad:                     "تم نسخ الإعلان إلى المجموعة الجديدة",
+  create_ad_from_post:              "تم إنشاء الإعلان من المنشور",
+  create_ad_from_existing_post:     "تم إنشاء الإعلان من المنشور الموجود",
 };
 
 function relativeTime(dateStr: string): string {

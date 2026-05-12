@@ -1774,6 +1774,76 @@ export async function getAdCreativeInfo(ad_id: string): Promise<AdCreativeInfo> 
   };
 }
 
+export interface AdCreativeContent {
+  ad_id: string;
+  ad_name: string;
+  adset_id: string;
+  campaign_id: string;
+  creative_id: string;
+  primary_text: string;
+  headline: string;
+  video_id: string;
+  image_hash: string;
+  link_url: string;
+  call_to_action: string;
+  object_story_id: string;
+  effective_object_story_id: string;
+  page_id: string;
+  instagram_actor_id: string;
+  media_type: "video" | "image" | "post" | "unknown";
+}
+
+export async function getAdCreativeContent(ad_id: string): Promise<AdCreativeContent> {
+  const json = await fbGetSingle<{
+    id?: string;
+    name?: string;
+    adset_id?: string;
+    campaign_id?: string;
+    creative?: {
+      id?: string;
+      body?: string;
+      title?: string;
+      video_id?: string;
+      image_hash?: string;
+      link_url?: string;
+      call_to_action?: { type?: string; value?: { link?: string } };
+      object_story_id?: string;
+      effective_object_story_id?: string;
+      instagram_actor_id?: string;
+    };
+  }>(`/${ad_id}`, {
+    fields: "id,name,adset_id,campaign_id,creative{id,body,title,video_id,image_hash,link_url,call_to_action,object_story_id,effective_object_story_id,instagram_actor_id}",
+  });
+
+  const c = json.creative ?? {};
+  const storyId = c.effective_object_story_id ?? c.object_story_id ?? "";
+  const pageId = storyId ? storyId.split("_")[0] : "";
+
+  let mediaType: AdCreativeContent["media_type"] = "unknown";
+  if (c.video_id) mediaType = "video";
+  else if (c.image_hash) mediaType = "image";
+  else if (storyId) mediaType = "post";
+
+  return {
+    ad_id:                    json.id ?? ad_id,
+    ad_name:                  json.name ?? "",
+    adset_id:                 json.adset_id ?? "",
+    campaign_id:              json.campaign_id ?? "",
+    creative_id:              c.id ?? "",
+    primary_text:             c.body ?? "",
+    headline:                 c.title ?? "",
+    video_id:                 c.video_id ?? "",
+    image_hash:               c.image_hash ?? "",
+    link_url:                 c.link_url ?? c.call_to_action?.value?.link ?? "",
+    call_to_action:           c.call_to_action?.type ?? "",
+    object_story_id:          c.object_story_id ?? "",
+    effective_object_story_id: c.effective_object_story_id ?? "",
+    page_id:                  pageId,
+    instagram_actor_id:       c.instagram_actor_id ?? "",
+    media_type:               mediaType,
+  };
+}
+
 // ── Account Metadata (pixels + pages) ────────────────────────────────────────
 export interface AccountMetadata {
   pixels: { id: string; name: string }[];

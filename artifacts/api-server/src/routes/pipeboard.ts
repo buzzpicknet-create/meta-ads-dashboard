@@ -164,6 +164,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "launch_pipeboard_campaign",
     "duplicate_ad",
     "create_ad_from_post",
+    "create_ad_from_existing_post",
     // Google Ads
     "ga_pause_campaign",
     "ga_enable_campaign",
@@ -443,6 +444,125 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       res.json({ success: true, message: cafpMsg });
     } else {
       res.status(500).json({ error: cafpMsg });
+    }
+    return;
+  }
+
+  // ── create_ad_from_existing_post — accepts object_story_id directly OR post_id+page_id ──
+  if (tool === "create_ad_from_existing_post") {
+    const rawAccountId = String(args?.account_id ?? "");
+    const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
+    const accountIdWithAct = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
+    const adsetId = String(args?.adset_id ?? "");
+    const adName = String(args?.ad_name ?? args?.name ?? "إعلان من منشور");
+
+    // Accept object_story_id directly OR construct from page_id + post_id
+    let objectStoryId = String(args?.object_story_id ?? "").trim();
+    let pageId = String(args?.page_id ?? "").trim();
+    let postId = String(args?.post_id ?? "").trim();
+
+    if (!adsetId) {
+      res.status(400).json({ error: "adset_id مطلوب" });
+      return;
+    }
+    if (!objectStoryId && !postId) {
+      res.status(400).json({ error: "object_story_id أو post_id مطلوب" });
+      return;
+    }
+
+    function mcpTextEfp(result: unknown): string {
+      return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+        .filter((c: { type: string }) => c.type === "text")
+        .map((c: { text?: string }) => c.text ?? "")
+        .join("")
+        .trim();
+    }
+
+    let efpSuccess = false;
+    let efpMsg = "";
+    try {
+      const client = await getPipeboardWriteClient();
+
+      // If object_story_id given, extract page_id + post_id from it
+      if (objectStoryId && !pageId) {
+        const parts = objectStoryId.split("_");
+        pageId = parts[0] ?? "";
+        if (!postId) postId = parts.slice(1).join("_");
+      }
+
+      // If only post_id given, auto-fetch page_id
+      if (!pageId && accountId) {
+        try {
+          const pagesResult = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
+          const pagesText = mcpTextEfp(pagesResult);
+          const pageMatch = pagesText.match(/"id"\s*:\s*"(\d+)"/) ?? pagesText.match(/\b(\d{10,})\b/);
+          pageId = pageMatch?.[1] ?? "";
+          if (!pageId) logger.warn("create_ad_from_existing_post: get_account_pages — no page_id found");
+        } catch (e) {
+          logger.warn({ e }, "create_ad_from_existing_post: get_account_pages threw");
+        }
+      }
+      if (!pageId) throw new Error("تعذّر جلب page_id للحساب — أرسل page_id أو object_story_id يدوياً");
+
+      if (!objectStoryId) objectStoryId = `${pageId}_${postId}`;
+
+      // create_ad_creative using object_story_id
+      const creativeArgs: Record<string, unknown> = {
+        account_id: accountId,
+        name: `${adName} — creative`,
+        page_id: pageId,
+        object_story_id: objectStoryId,
+      };
+      const creativeResult = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+      const creativeText = mcpTextEfp(creativeResult);
+      logger.info({ creativeText }, "create_ad_from_existing_post: create_ad_creative");
+      const hasRealIdEfp = /"id"\s*:\s*"(\d{10,})"/.test(creativeText);
+      if (/"error"/.test(creativeText) && !hasRealIdEfp) {
+        throw new Error(`فشل إنشاء creative — ${extractMetaError(creativeText)}`);
+      }
+      const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
+      const creativeId = creativeMatch?.[1] ?? "";
+      if (!creativeId) throw new Error(`لم يُعاد creative_id — ${extractMetaError(creativeText)}`);
+
+      // create_ad
+      const adResult = await client.callTool({
+        name: "create_ad",
+        arguments: {
+          account_id: accountIdWithAct,
+          name: adName,
+          adset_id: adsetId,
+          creative_id: creativeId,
+          status: "PAUSED",
+        },
+      });
+      const adText = mcpTextEfp(adResult);
+      logger.info({ adText }, "create_ad_from_existing_post: create_ad");
+      if (/"error"/.test(adText) && !/"id"/.test(adText)) {
+        throw new Error(`فشل create_ad — ${extractMetaError(adText)}`);
+      }
+      const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
+      const newAdId = adMatch?.[1] ?? "";
+      efpSuccess = true;
+      efpMsg = newAdId
+        ? `تم إنشاء الإعلان من المنشور (object_story_id: ${objectStoryId}) — Ad ID: ${newAdId} — موقوف للمراجعة`
+        : `تم إنشاء الإعلان من المنشور — موقوف للمراجعة`;
+    } catch (err) {
+      efpMsg = err instanceof Error ? err.message : String(err);
+      _pbWriteClient = null;
+      _pbWriteConnecting = null;
+    }
+
+    await query(
+      `INSERT INTO pipeboard_actions
+         (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [executedBy, tool, JSON.stringify(args ?? {}), efpSuccess, efpMsg, null, null, false]
+    ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
+
+    if (efpSuccess) {
+      res.json({ success: true, message: efpMsg });
+    } else {
+      res.status(500).json({ error: efpMsg });
     }
     return;
   }
