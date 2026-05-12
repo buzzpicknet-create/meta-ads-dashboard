@@ -7,6 +7,7 @@ import { getAdAccountIds } from "./lib/meta-token";
 import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
 import { runScheduledReportsCron } from "./routes/scheduled-reports";
+import { startWatchdogCron } from "./routes/watchdog";
 import bcrypt from "bcryptjs";
 
 async function runMigrations() {
@@ -277,6 +278,28 @@ async function runMigrations() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_notif_log_notif_id ON notification_log (notification_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_notif_log_sent ON notification_log (sent_at DESC)`);
+
+  // AI Watchdog notifications — proactive anomaly alerts from the background scan
+  await query(`
+    CREATE TABLE IF NOT EXISTS ai_notifications (
+      id SERIAL PRIMARY KEY,
+      campaign_id VARCHAR(100),
+      campaign_name VARCHAR(500),
+      severity VARCHAR(20) NOT NULL DEFAULT 'high',
+      message TEXT NOT NULL,
+      recommended_action JSONB,
+      is_read BOOLEAN NOT NULL DEFAULT FALSE,
+      is_executed BOOLEAN NOT NULL DEFAULT FALSE,
+      executed_at TIMESTAMPTZ,
+      executed_by VARCHAR(200),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_ai_notifications_active
+    ON ai_notifications (created_at DESC)
+    WHERE is_executed = FALSE
+  `);
 
   // CPA alert log — tracks sent push notifications to avoid duplicates
   await query(`
@@ -762,6 +785,7 @@ runMigrations()
       startScheduledReportsCron();
       // Pre-warm creative cache in background (don't block server startup)
       startCreativeCacheWarmer();
+      startWatchdogCron();
     });
   })
   .catch((err) => {

@@ -15,7 +15,7 @@ import DecisionsPage from "@/pages/Decisions";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library, Package } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library, Package, ShieldAlert, AlertTriangle, Pause, X } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
@@ -46,6 +46,210 @@ const ALL_NAV_ITEMS = [
   { href: "/inventory",  label: "المخزون",           Icon: Package,         useRoute: "/inventory",  roles: ["admin", "media_buyer"] },
   { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
 ];
+
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface AiNotification {
+  id: number;
+  campaign_id: string | null;
+  campaign_name: string | null;
+  severity: string;
+  message: string;
+  recommended_action: { type: string; campaign_id?: string } | null;
+  is_read: boolean;
+  is_executed: boolean;
+  created_at: string;
+}
+
+function AiWatchdogBell() {
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState<AiNotification[]>([]);
+  const [open, setOpen] = useState(false);
+  const [executing, setExecuting] = useState<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const isAllowed = !!user && user.role !== "media_manager";
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/ai/notifications`, { credentials: "include" });
+      if (r.ok) {
+        const d = await r.json() as { notifications: AiNotification[] };
+        setNotifications(d.notifications ?? []);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => {
+    if (!isAllowed) return;
+    load();
+    const iv = setInterval(load, 60_000);
+    return () => clearInterval(iv);
+  }, [load, isAllowed]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const unread = notifications.filter((n) => !n.is_read).length;
+
+  const markAllRead = useCallback(() => {
+    notifications
+      .filter((n) => !n.is_read)
+      .forEach((n) => {
+        fetch(`${API_BASE}/api/ai/notifications/${n.id}/read`, { method: "POST", credentials: "include" }).catch(() => {});
+      });
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+  }, [notifications]);
+
+  const execute = useCallback(async (id: number) => {
+    setExecuting(id);
+    try {
+      const r = await fetch(`${API_BASE}/api/ai/notifications/${id}/execute`, {
+        method: "POST", credentials: "include",
+      });
+      const d = await r.json() as { ok?: boolean; message?: string; error?: string };
+      if (d.ok) {
+        setNotifications((prev) => prev.filter((n) => n.id !== id));
+        setToast(d.message ?? "تم تنفيذ الإجراء بنجاح ✓");
+        setOpen(false);
+      } else {
+        setToast(d.error ?? "فشل تنفيذ الإجراء");
+      }
+    } catch {
+      setToast("تعذّر الاتصال بالسيرفر");
+    }
+    setExecuting(null);
+  }, []);
+
+  const dismiss = useCallback(async (id: number) => {
+    try {
+      await fetch(`${API_BASE}/api/ai/notifications/${id}/dismiss`, {
+        method: "POST", credentials: "include",
+      });
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    } catch { /* silent */ }
+  }, []);
+
+  // All hooks defined above — safe to return early now
+  if (!isAllowed || (notifications.length === 0 && !open)) return null;
+
+  return (
+    <div className="relative">
+      {/* Toast feedback */}
+      {toast && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-4 py-2.5 rounded-xl bg-foreground text-background text-sm font-medium shadow-lg border border-border/20 whitespace-nowrap"
+          dir="rtl"
+        >
+          {toast}
+        </div>
+      )}
+
+      {/* Bell button */}
+      <button
+        onClick={() => {
+          setOpen((o) => !o);
+          if (!open) markAllRead();
+        }}
+        title="تنبيهات المراقب الذكي"
+        className="relative inline-flex items-center justify-center h-8 w-8 rounded-lg transition-colors text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+      >
+        <ShieldAlert className="h-4 w-4" />
+        {unread > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none animate-pulse">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="absolute left-0 top-full mt-2 z-50 w-80 rounded-2xl border border-border bg-background shadow-2xl overflow-hidden"
+            dir="rtl"
+            style={{ minWidth: "320px" }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-red-50 dark:bg-red-950/20">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 text-red-500" />
+                <span className="text-sm font-semibold text-red-600 dark:text-red-400">
+                  المراقب الذكي
+                </span>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Notifications list */}
+            <div className="max-h-[420px] overflow-y-auto divide-y divide-border">
+              {notifications.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  لا توجد تنبيهات حالياً
+                </div>
+              ) : (
+                notifications.map((n) => (
+                  <div key={n.id} className="px-4 py-3.5 flex flex-col gap-2.5">
+                    {/* Alert message */}
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-sm leading-relaxed text-foreground">{n.message}</p>
+                    </div>
+
+                    {/* Campaign name badge */}
+                    {n.campaign_name && (
+                      <span className="self-start text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                        {n.campaign_name}
+                      </span>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2">
+                      {n.recommended_action?.type === "pause" && (
+                        <button
+                          onClick={() => execute(n.id)}
+                          disabled={executing === n.id}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50"
+                        >
+                          {executing === n.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Pause className="h-3 w-3 fill-white" />
+                          )}
+                          إيقاف الحملة الآن
+                        </button>
+                      )}
+                      <button
+                        onClick={() => dismiss(n.id)}
+                        className="inline-flex items-center justify-center h-8 px-3 rounded-lg text-xs text-muted-foreground hover:bg-muted transition-colors border border-border"
+                      >
+                        تجاهل
+                      </button>
+                    </div>
+
+                    {/* Timestamp */}
+                    <span className="text-[10px] text-muted-foreground/50">
+                      {new Date(n.created_at).toLocaleString("ar-EG")}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function NotificationBell() {
   const { state, subscribe, unsubscribe } = usePushNotifications();
@@ -160,6 +364,7 @@ function NavBar() {
                   <Search className="h-4 w-4" />
                 </button>
               )}
+              <AiWatchdogBell />
               <NotificationBell />
             </div>
 
@@ -190,6 +395,7 @@ function NavBar() {
               <span className="text-xs text-muted-foreground hidden md:block">
                 {user?.username}
               </span>
+              <AiWatchdogBell />
               <NotificationBell />
               <button
                 onClick={logout}
