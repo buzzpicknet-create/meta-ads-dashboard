@@ -117,6 +117,23 @@ async function checkAndNotifyNoOpSpike(): Promise<void> {
   }
 }
 
+// ── Meta error extractor ──────────────────────────────────────────────────────
+// Pulls the human-readable error fields (error_user_msg, error_user_title,
+// message) from a Meta Graph API error JSON string. Falls back to raw text.
+function extractMetaError(raw: string): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const obj = parsed as Record<string, unknown>;
+    const err = (obj?.error ?? obj) as Record<string, unknown>;
+    const userMsg  = (err?.error_user_msg  ?? err?.error_user_title ?? err?.message) as string | undefined;
+    const code     = err?.code       ? `code: ${err.code}`        : "";
+    const subcode  = err?.error_subcode ? `, subcode: ${err.error_subcode}` : "";
+    const suffix   = code ? ` (${code}${subcode})` : "";
+    if (userMsg) return `${userMsg}${suffix}`;
+  } catch { /* not JSON — fall through */ }
+  return raw.slice(0, 350);
+}
+
 // ── POST /api/pipeboard/action ─────────────────────────────────
 router.post("/pipeboard/action", async (req: Request, res: Response) => {
   const role = req.session?.role;
@@ -535,6 +552,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               account_id: accountId,
               name: `${adset.name} — creative ${ci + 1}`,
               page_id: pageId,
+              // ── Instagram Actor ID fix ────────────────────────────────────
+              // Meta rejects creatives on Advantage+ Placements (which include IG)
+              // if instagram_actor_id is missing — error OAuthException 100/1487006.
+              // Setting it to the same FB Page ID tells Meta to "Mock" the page
+              // as an Instagram profile, which bypasses the linked-IG-account
+              // requirement entirely. This is the official Meta workaround.
+              instagram_actor_id: pageId,
+              // ─────────────────────────────────────────────────────────────
               link_url: landingPageUrl,
               destination_url: landingPageUrl,
               message: creative.primary_text,
@@ -560,13 +585,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
             // ── Strict error parsing: check for nested errors even on 200 ──
             if (/"error"/.test(creativeText) && !/"id"/.test(creativeText)) {
-              adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, error: `فشل creative — ${creativeText.slice(0, 300)}` });
+              adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, error: `فشل creative — ${extractMetaError(creativeText)}` });
               continue;
             }
             const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d+)"/) ?? creativeText.match(/\b(\d{10,})\b/);
             creativeId = creativeMatch?.[1] ?? "";
             if (!creativeId) {
-              adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, error: `لم يُعاد creative_id — ${creativeText.slice(0, 300)}` });
+              adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, error: `لم يُعاد creative_id — ${extractMetaError(creativeText)}` });
               continue;
             }
           } catch (e) {
@@ -591,12 +616,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
             // ── Strict error parsing for ads ─────────────────────────────
             if (/"error"/.test(adText) && !/"id"/.test(adText)) {
-              adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, creative_id: creativeId, error: `فشل create_ad — ${adText.slice(0, 300)}` });
+              adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, creative_id: creativeId, error: `فشل create_ad — ${extractMetaError(adText)}` });
               continue;
             }
             const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
             const adId = adMatch?.[1] ?? "";
-            adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, creative_id: creativeId, ad_id: adId || undefined, error: adId ? undefined : `لم يُعاد ad_id — ${adText.slice(0, 200)}` });
+            adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, creative_id: creativeId, ad_id: adId || undefined, error: adId ? undefined : `لم يُعاد ad_id — ${extractMetaError(adText)}` });
           } catch (e) {
             adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, creative_id: creativeId, error: `create_ad: ${e instanceof Error ? e.message : String(e)}` });
           }
