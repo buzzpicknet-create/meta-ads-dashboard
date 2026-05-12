@@ -1,0 +1,42 @@
+Act as a Senior Meta API Architect. We are fixing the final structural blockers in the create_adset tool. The last attempt failed because of "Location is missing" and "Budget conflicts."
+
+Please implement this "Bulletproof" logic inside the create_adset tool:
+
+1. THE "AUTO-TARGETING" FALLBACK (Fixes: Location is missing)
+
+Meta REQUIRES at least one location.
+
+Mandatory Logic: If the targeting parameter is missing, empty, or doesn't contain geo_locations, the tool MUST automatically inject:
+targeting: { "geo_locations": { "countries": ["EG"] }, "publisher_platforms": ["facebook", "instagram", "messenger", "audience_network"] }
+
+Broad by Default: Unless the user specifies otherwise, always default to "Egypt" to ensure the request is never rejected for missing location.
+
+2. THE "CBO BUDGET" SANITIZER (Fixes: Budget Conflict)
+
+Rule: The tool must check if the parent campaign is in CBO mode (has a budget set).
+
+Action: If the campaign is CBO, the tool MUST strip/remove daily_budget and lifetime_budget from the AdSet request payload. Meta does not allow budgets at both levels.
+
+3. THE "PIXEL & PURCHASE" INJECTION (Fixes: Missing Conversion)
+
+Automatically map the Pixel based on the domain (Essential for Sales campaigns):
+
+buzzpick.net -> 1405391498274239
+
+dealme-eg.com -> 1537301040808359
+
+Payload: Always include promoted_object: { "pixel_id": "PIXEL_ID", "custom_event_type": "PURCHASE" } and set optimization_goal: "OFFSITE_CONVERSIONS".
+
+4. RIGID ID VALIDATION & MAPPING (Fixes: Silent Failure)
+
+After the POST request, capture response.id.
+
+Validation: If response.id is missing or matches campaign_id, THROW AN ERROR.
+
+Raw Logging: Keep the RAW_RESPONSE logging active so we can see the exact JSON if it fails again.
+
+5. SYSTEM PROMPT REFRESH
+
+Update the AI's persona: "You are a Media Buying Expert. When the user asks to 'Move Winners' or 'Create Campaign', you automatically handle the technical details (Egypt targeting, Pixel mapping, and CBO budget stripping) so the user doesn't have to repeat them."
+
+Please apply this master fix to ensure 100% success rate in campaign creation.
