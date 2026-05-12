@@ -390,10 +390,12 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
 ٥. استخدم get_campaigns للحصول على account_id (مرة واحدة فقط)
 
 ٦. استدعِ launch_pipeboard_campaign بكل المعلومات:
-   - adsets: مصفوفة [{name, budget}] — حتى لو مجموعة واحدة
+   - **daily_budget**: الميزانية اليومية بـ EGP — مطلوب دائماً، اجلبه من المستخدم صراحةً (مثال: 50)
+   - adsets: مصفوفة [{name, budget}] — للمجموعات المتعددة فقط (ABO). للمجموعة الواحدة استخدم daily_budget بدلاً منه
    - creatives: مصفوفة [{media_url, media_type, primary_text, headline}] — حتى لو creative واحد
    - page_id: أرسله دائماً من نتيجة fetch_account_metadata
    - pixel_id: أرسله إذا وافق المستخدم
+   - ⚠️ لا تفترض ميزانية افتراضية — اسأل المستخدم عن الميزانية إذا لم يذكرها
 
 ٧. **بعد الاستدعاء — افحص النتيجة بدقة:**
    - إذا كان ads_created = 0 → أخبر المستخدم صراحةً أن الإعلانات فشلت وأذكر السبب من ad_results
@@ -960,11 +962,11 @@ const TOOLS = [
               required: ["media_url", "media_type", "primary_text", "headline"],
             },
           },
-          media_url: { type: "string", description: "(للتوافق القديم) رابط ميديا واحد" },
-          media_type: { type: "string", enum: ["image", "video"], description: "(للتوافق القديم) نوع الميديا" },
-          primary_text: { type: "string", description: "(للتوافق القديم) نص إعلاني" },
-          headline: { type: "string", description: "(للتوافق القديم) عنوان" },
-          daily_budget: { type: "number", description: "(للتوافق القديم) ميزانية — استخدم adsets[].budget بدلاً منه" },
+          daily_budget: { type: "number", description: "الميزانية اليومية الإجمالية للحملة بـ EGP (مثال: 50). استخدم هذا للحملات بمجموعة واحدة. للمجموعات المتعددة ضع الميزانية في adsets[].budget لكل مجموعة." },
+          media_url: { type: "string", description: "(للتوافق) رابط ميديا واحد — استخدم creatives[] بدلاً منه" },
+          media_type: { type: "string", enum: ["image", "video"], description: "(للتوافق) نوع الميديا" },
+          primary_text: { type: "string", description: "(للتوافق) نص إعلاني" },
+          headline: { type: "string", description: "(للتوافق) عنوان" },
         },
         required: ["account_id", "campaign_name", "landing_page_url"],
       },
@@ -1399,10 +1401,17 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
     }
     case "launch_pipeboard_campaign": {
       const cName = String(args.campaign_name ?? "");
-      const budget = Math.round(Number(args.daily_budget ?? 20));
+      // Compute budget from adsets[] if present, else fall back to daily_budget
+      const adsetArr = Array.isArray(args.adsets) ? (args.adsets as Array<{ budget?: unknown }>) : [];
+      const budget = adsetArr.length > 0
+        ? Math.round(adsetArr.reduce((s, a) => s + (Number(a.budget) || 20), 0))
+        : Math.round(Number(args.daily_budget ?? 20));
+      const adsetsNote = adsetArr.length > 1 ? ` | ${adsetArr.length} مجموعات` : "";
+      const creativesArr = Array.isArray(args.creatives) ? (args.creatives as unknown[]) : [];
+      const creativesNote = creativesArr.length > 1 ? ` | ${creativesArr.length} إعلانات` : "";
       return {
         tool: name, args,
-        summary: `🚀 إطلاق حملة "${cName}" — ميزانية: ${budget} EGP/يوم — موقوفة للمراجعة`,
+        summary: `🚀 إطلاق حملة "${cName}"${adsetsNote}${creativesNote} — ميزانية: ${budget} EGP/يوم — موقوفة للمراجعة`,
         proposedValue: `حملة جديدة مع إعلان`,
       };
     }
