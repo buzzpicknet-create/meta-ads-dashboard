@@ -1,0 +1,42 @@
+Act as a Senior Backend Engineer. The user is trying to pass Google Drive Folder links (e.g., drive.google.com/drive/folders/[ID]) to the launch_pipeboard_campaign tool, but the current regex only handles direct File links (/file/d/[ID]).
+The Pipeboard API requires direct media files (MP4/JPG), not folder HTML pages.
+
+Please implement a "Google Drive Folder Extractor" middleware inside the tool execution logic:
+
+1. URL DETECTION LOGIC
+
+Update the media URL processing logic to detect if the incoming link is a folder:
+
+Regex for Folder: /\/folders\/([a-zA-Z0-9-_]+)/
+
+Regex for File: /\/file\/d\/([a-zA-Z0-9-_]+)/
+
+2. INTEGRATE GOOGLE DRIVE API (Folder Parsing)
+
+If a Folder ID is detected:
+
+The backend MUST use the Google Drive REST API to list the files inside that public folder.
+
+Endpoint: GET https://www.googleapis.com/drive/v3/files?q='{FOLDER_ID}'+in+parents&fields=files(id,mimeType,name)&key={process.env.GOOGLE_API_KEY}
+
+Filter the returned files: ONLY keep files where mimeType includes video/ or image/.
+
+3. DIRECT LINK GENERATION & ARRAY MAPPING
+
+For each valid media file found inside the folder, extract its id and generate a direct download link: https://drive.google.com/uc?export=download&id=[ID].
+
+Map these newly generated direct links into the creatives array for the Pipeboard payload.
+
+Example logic: If the user provides 1 folder link containing 3 videos, the backend should automatically expand this into 3 separate creative objects in the Pipeboard payload.
+
+4. ERROR HANDLING & ENVIRONMENT VARIABLES
+
+If process.env.GOOGLE_API_KEY is missing, throw a clear error back to the LLM: "Error: GOOGLE_API_KEY is missing in the environment variables. Cannot parse Drive folders without it."
+
+If the folder is empty or contains no valid media, throw an error: "Error: No valid images or videos found inside the provided Google Drive folder."
+
+5. SYSTEM PROMPT UPDATE
+
+Add this to the LLM's system prompt: "If the user provides a Google Drive FOLDER link, the backend will automatically extract all videos/images inside it. You only need to pass the folder URL to the media_url field of the launch_pipeboard_campaign tool, and the backend will handle the expansion into multiple creatives."
+
+Please implement this parser so the user can seamlessly drop folder links to launch multi-ad campaigns.

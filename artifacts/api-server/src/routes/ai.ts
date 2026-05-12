@@ -393,6 +393,8 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
    - **daily_budget**: الميزانية اليومية بـ EGP — مطلوب دائماً، اجلبه من المستخدم صراحةً (مثال: 50)
    - adsets: مصفوفة [{name, budget}] — للمجموعات المتعددة فقط (ABO). للمجموعة الواحدة استخدم daily_budget بدلاً منه
    - creatives: مصفوفة [{media_url, media_type, primary_text, headline}] — حتى لو creative واحد
+     * إذا أرسل المستخدم رابط مجلد Google Drive (drive.google.com/drive/folders/...) → ضعه في media_url مباشرةً وسيستخرج الـ backend جميع الصور/الفيديوهات منه تلقائياً ويوسّعها إلى creatives متعددة
+     * إذا أرسل روابط ملفات مباشرة → ضعها في creatives كمصفوفة كالمعتاد
    - page_id: أرسله دائماً من نتيجة fetch_account_metadata
    - pixel_id: أرسله إذا وافق المستخدم
    - ⚠️ لا تفترض ميزانية افتراضية — اسأل المستخدم عن الميزانية إذا لم يذكرها

@@ -290,7 +290,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       ? (args.adsets as AdsetInput[])
       : [{ name: `${String(args?.campaign_name ?? "حملة")} — مجموعة رئيسية`, budget: Number(args?.daily_budget ?? 20) }];
 
-    const rawCreatives: CreativeInput[] = Array.isArray(args?.creatives) && (args.creatives as CreativeInput[]).length > 0
+    let rawCreatives: CreativeInput[] = Array.isArray(args?.creatives) && (args.creatives as CreativeInput[]).length > 0
       ? (args.creatives as CreativeInput[])
       : [{
           media_url: String(args?.media_url ?? "").trim(),
