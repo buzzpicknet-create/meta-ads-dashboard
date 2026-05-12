@@ -149,11 +149,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "pause_campaign",
     "enable_campaign",
     "update_campaign_budget",
+    "rename_campaign",
     "pause_adset",
     "enable_adset",
     "update_adset_budget",
+    "rename_adset",
     "pause_ad",
     "enable_ad",
+    "rename_ad",
     "duplicate_adset",
     "create_campaign",
     "create_adset",
@@ -206,6 +209,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         return { mcpTool: "update_ad", mcpArgs: { ad_id: a.ad_id, status: "PAUSED" } };
       case "enable_ad":
         return { mcpTool: "update_ad", mcpArgs: { ad_id: a.ad_id, status: "ACTIVE" } };
+      case "rename_campaign":
+        return { mcpTool: "update_campaign", mcpArgs: { campaign_id: a.campaign_id, name: a.new_name } };
+      case "rename_adset":
+        return { mcpTool: "update_adset", mcpArgs: { adset_id: a.adset_id, name: a.new_name } };
+      case "rename_ad":
+        return { mcpTool: "update_ad", mcpArgs: { ad_id: a.ad_id, name: a.new_name } };
       case "create_campaign": {
         // Normalise account_id: Pipeboard expects the bare numeric ID (no act_ prefix)
         const rawAccId = String(a.account_id ?? "");

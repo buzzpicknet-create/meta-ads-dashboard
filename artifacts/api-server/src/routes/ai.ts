@@ -447,12 +447,15 @@ Frequency (في 7 أيام):
 - pause_campaign(campaign_id, name) — إيقاف حملة مؤقتاً
 - enable_campaign(campaign_id, name) — تشغيل حملة موقوفة
 - update_campaign_budget(campaign_id, name, budget_amount, budget_type) — تعديل الميزانية (budget_type: "daily" أو "lifetime")
+- rename_campaign(campaign_id, current_name, new_name) — تغيير اسم الحملة
 - pause_adset(adset_id, name) — إيقاف مجموعة إعلانية
 - enable_adset(adset_id, name) — تشغيل مجموعة إعلانية
 - update_adset_budget(adset_id, name, budget_amount) — تعديل ميزانية مجموعة
+- rename_adset(adset_id, current_name, new_name) — تغيير اسم المجموعة الإعلانية
 - duplicate_adset(adset_id, name) — نسخ مجموعة إعلانية
 - pause_ad(ad_id, name) — إيقاف إعلان فردي (Ad) داخل مجموعة إعلانية
 - enable_ad(ad_id, name) — تشغيل إعلان فردي موقوف
+- rename_ad(ad_id, current_name, new_name) — تغيير اسم الإعلان الفردي
 
 الأدوات المتاحة — إنشاء:
 - create_campaign(account_id, name, objective, daily_budget, status?) — إنشاء حملة جديدة
@@ -1008,6 +1011,54 @@ const TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "rename_campaign",
+      description: "اقتراح تغيير اسم حملة إعلانية. سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة (id)" },
+          current_name: { type: "string", description: "الاسم الحالي للحملة" },
+          new_name: { type: "string", description: "الاسم الجديد المطلوب" },
+        },
+        required: ["campaign_id", "new_name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "rename_adset",
+      description: "اقتراح تغيير اسم مجموعة إعلانية (Ad Set). سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
+          current_name: { type: "string", description: "الاسم الحالي للمجموعة" },
+          new_name: { type: "string", description: "الاسم الجديد المطلوب" },
+        },
+        required: ["adset_id", "new_name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "rename_ad",
+      description: "اقتراح تغيير اسم إعلان فردي (Ad). سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      parameters: {
+        type: "object",
+        properties: {
+          ad_id: { type: "string", description: "رقم الإعلان (id)" },
+          current_name: { type: "string", description: "الاسم الحالي للإعلان" },
+          new_name: { type: "string", description: "الاسم الجديد المطلوب" },
+        },
+        required: ["ad_id", "new_name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "duplicate_adset",
       description: "اقتراح نسخ مجموعة إعلانية (إنشاء نسخة جديدة بنفس الإعدادات). سيظهر طلب تأكيد للمستخدم.",
       parameters: {
@@ -1368,11 +1419,14 @@ const WRITE_TOOL_NAMES = new Set([
   "pause_campaign",
   "enable_campaign",
   "update_campaign_budget",
+  "rename_campaign",
   "pause_adset",
   "enable_adset",
   "update_adset_budget",
+  "rename_adset",
   "pause_ad",
   "enable_ad",
+  "rename_ad",
   "duplicate_adset",
   "create_campaign",
   "create_adset",
@@ -1533,6 +1587,24 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
       return { tool: name, args, summary: `إيقاف الإعلان "${label}"`, proposedValue: "موقوف ⏸" };
     case "enable_ad":
       return { tool: name, args, summary: `تشغيل الإعلان "${label}"`, proposedValue: "نشط ✅" };
+    case "rename_campaign":
+      return {
+        tool: name, args,
+        summary: `تغيير اسم الحملة من "${String(args.current_name ?? label)}" إلى "${String(args.new_name ?? "")}"`,
+        proposedValue: String(args.new_name ?? ""),
+      };
+    case "rename_adset":
+      return {
+        tool: name, args,
+        summary: `تغيير اسم المجموعة الإعلانية من "${String(args.current_name ?? label)}" إلى "${String(args.new_name ?? "")}"`,
+        proposedValue: String(args.new_name ?? ""),
+      };
+    case "rename_ad":
+      return {
+        tool: name, args,
+        summary: `تغيير اسم الإعلان من "${String(args.current_name ?? label)}" إلى "${String(args.new_name ?? "")}"`,
+        proposedValue: String(args.new_name ?? ""),
+      };
     case "update_adset_budget": {
       const proposed = Math.round(Number(args.budget_amount));
       return {
@@ -1762,6 +1834,33 @@ async function resolveWriteToolDetails(name: string, args: Record<string, unknow
       if (currentValue === "نشطة ✅") return { currentValue, proposedValue: "نشط ✅", summary };
       return { currentValue, summary };
     } catch { return {}; }
+  }
+
+  if (name === "rename_campaign") {
+    const currentValue = String(args.current_name ?? "");
+    const proposedValue = String(args.new_name ?? "");
+    const summary = currentValue
+      ? `تغيير اسم الحملة من "${currentValue}" إلى "${proposedValue}"`
+      : `تغيير اسم الحملة إلى "${proposedValue}"`;
+    return { currentValue, proposedValue, summary };
+  }
+
+  if (name === "rename_adset") {
+    const currentValue = String(args.current_name ?? "");
+    const proposedValue = String(args.new_name ?? "");
+    const summary = currentValue
+      ? `تغيير اسم المجموعة الإعلانية من "${currentValue}" إلى "${proposedValue}"`
+      : `تغيير اسم المجموعة الإعلانية إلى "${proposedValue}"`;
+    return { currentValue, proposedValue, summary };
+  }
+
+  if (name === "rename_ad") {
+    const currentValue = String(args.current_name ?? "");
+    const proposedValue = String(args.new_name ?? "");
+    const summary = currentValue
+      ? `تغيير اسم الإعلان من "${currentValue}" إلى "${proposedValue}"`
+      : `تغيير اسم الإعلان إلى "${proposedValue}"`;
+    return { currentValue, proposedValue, summary };
   }
 
   if (name === "update_adset_budget") {
@@ -3019,11 +3118,14 @@ const ACTION_LABEL: Record<string, string> = {
   pause_campaign:              "تم إيقاف الحملة مؤقتاً",
   enable_campaign:             "تم تشغيل الحملة",
   update_campaign_budget:      "تم تعديل ميزانية الحملة",
+  rename_campaign:             "تم تغيير اسم الحملة",
   pause_adset:                 "تم إيقاف المجموعة الإعلانية",
   enable_adset:                "تم تشغيل المجموعة الإعلانية",
   update_adset_budget:         "تم تعديل ميزانية المجموعة الإعلانية",
+  rename_adset:                "تم تغيير اسم المجموعة الإعلانية",
   pause_ad:                    "تم إيقاف الإعلان",
   enable_ad:                   "تم تشغيل الإعلان",
+  rename_ad:                   "تم تغيير اسم الإعلان",
   duplicate_adset:             "تم نسخ المجموعة الإعلانية",
   create_campaign:             "تم إنشاء الحملة الإعلانية",
   create_adset:                "تم إنشاء المجموعة الإعلانية",

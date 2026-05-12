@@ -50,13 +50,16 @@ const INTERVENTION_TOOL_LABELS: Record<string, string> = {
   pause_campaign: "إيقاف الحملة",
   enable_campaign: "تشغيل الحملة",
   update_campaign_budget: "تعديل الميزانية",
+  rename_campaign: "تغيير اسم الحملة",
   pause_adset: "إيقاف المجموعة",
   enable_adset: "تشغيل المجموعة",
   update_adset_budget: "تعديل ميزانية المجموعة",
+  rename_adset: "تغيير اسم المجموعة",
   duplicate_adset: "نسخ المجموعة",
   duplicate_campaign: "نسخ الحملة",
   pause_ad: "إيقاف الإعلان",
   enable_ad: "تشغيل الإعلان",
+  rename_ad: "تغيير اسم الإعلان",
 };
 
 function formatInterventionAge(hoursAgo: number): string {
