@@ -487,11 +487,31 @@ Frequency (في 7 أيام):
   - بعد الإنشاء: استخدم search_campaigns(account_id, campaign_name) للتحقق الهيكلي
 - search_adsets(campaign_id, query?) — ابحث عن مجموعات داخل حملة، يعرض حتى 0-spend. استخدم بعد create_adset للتأكد.
 - search_ads(adset_id, query?) — ابحث عن إعلانات داخل مجموعة، يعرض حتى 0-spend. استخدم بعد duplicate_ad / create_ad_from_existing_post للتأكد.
-- create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?) — إنشاء مجموعة إعلانية. يُعيد adset_id + effective_status + daily_budget مع verify فوري. لا "success" بدون adset_id حقيقي.
+- create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?, promoted_object?) — إنشاء مجموعة إعلانية. يُعيد adset_id + effective_status + daily_budget مع verify فوري بخطوتين (GET /{id} + GET /{campaign_id}/adsets بالاسم). لا "success" بدون adset_id مؤكد مختلف عن campaign_id.
   - optimization_goal: OFFSITE_CONVERSIONS | LEAD_GENERATION | LINK_CLICKS | LANDING_PAGE_VIEWS | THRUPLAY | REACH
   - billing_event: IMPRESSIONS (الأشيع) | LINK_CLICKS
   - targeting مثال: {geo_locations: {countries: ["EG"]}, age_min: 25, age_max: 45}
+  - promoted_object: {pixel_id: "XXXXXXX", custom_event_type: "PURCHASE"} — مطلوب لحملات OUTCOME_SALES
   - بعد الإنشاء: استخدم search_adsets(campaign_id, adset_name) للتحقق الهيكلي
+
+══════════════════════════════════════
+PIXEL & DOMAIN MAPPING — خريطة البيكسل التلقائية
+══════════════════════════════════════
+
+🎯 عند إنشاء مجموعة إعلانية (create_adset) لحملة OUTCOME_SALES، يجب دائماً تمرير promoted_object تلقائياً بناءً على الدومين:
+
+| الدومين | pixel_id |
+|---------|----------|
+| buzzpick.net | 1405391498274239 |
+| dealme-eg.com | 1537301040808359 |
+
+قواعد التطبيق:
+- إذا كان landing_page_url أو السياق يشير لـ buzzpick.net → promoted_object: {pixel_id: "1405391498274239", custom_event_type: "PURCHASE"}
+- إذا كان السياق يشير لـ dealme-eg.com → promoted_object: {pixel_id: "1537301040808359", custom_event_type: "PURCHASE"}
+- دائماً: targeting: {geo_locations: {countries: ["EG"]}} لكل حملات هذه الدومينات
+- دائماً: optimization_goal: OFFSITE_CONVERSIONS لحملات SALES
+- ⚠️ لا تسأل المستخدم عن الـ pixel_id إذا كان الدومين معروفاً — طبّق الخريطة تلقائياً
+
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
@@ -609,6 +629,53 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
 
 مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
 بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".
+
+══════════════════════════════════════
+STRATEGIC INTENT RECOGNITION — التعرف على النية الاستراتيجية
+══════════════════════════════════════
+
+🏆 Intent: "نقل الناجح" / "Move/Scale Winner" / "نسخ الإعلان الرابح"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+الخطوات الإلزامية بالترتيب:
+
+١. **اكتشف الناجح (Winner Discovery)**
+   - استدعِ get_ads_in_adset(adset_id) لتحديد الإعلان ذو أفضل CPA + Hook Rate
+   - حدد: ad_id للناجح، adset_id المصدر، campaign_id
+
+٢. **استخرج أفضل الأصول (Best Assets Extraction) — Creative Bridge**
+   - استدعِ get_ad_creative(ad_id) للناجح
+   - استخرج بدقة: video_id أو image_url، primary_text، headline، object_story_id، page_id
+   - هذه الأصول هي "Best Creative" التي حققت أفضل CPA — لا تفترض أصولاً جديدة
+
+٣. **تأكيد/إنشاء الوجهة (Destination Verification)**
+   - اسأل المستخدم عن: campaign_id الهدف (CBO) وadset_id الهدف — أو أنشئهما
+   - إذا لزم إنشاء adset جديد: create_adset مع promoted_object (حسب خريطة الدومين)
+   - تحقق: adset_id يجب أن يكون مختلفاً عن campaign_id — الـ backend يتحقق تلقائياً
+
+٤. **تنفيذ Creative Bridge (نقل الأصول بدقة)**
+   - إذا يوجد object_story_id → create_ad_from_existing_post(account_id, adset_id, object_story_id, name) — يحافظ على Social Proof (اللايكات والتعليقات)
+   - إذا لا → duplicate_ad(ad_id, destination_adset_id, name) — أسرع، نفس Creative
+
+٥. **تحقق هيكلي**
+   - استدعِ search_ads(destination_adset_id, ad_name) للتأكد من وجود الإعلان
+
+⚠️ قاعدة حرجة: لا تنقل الـ ad object فقط — انقل الأصول (video/image + text + headline) من get_ad_creative. هذا ما يضمن "Asset-Perfect Duplication" في CBO.
+
+---
+
+🧪 Intent: "تجربة جديد" / "Test New Creative" / "إطلاق إعلان جديد"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+معايير التسمية الإلزامية (Test Nomenclature):
+- اسم الحملة: يحتوي كلمة "Test" أو "اختبار" أو "تجربة"
+- اسم المجموعة: يحتوي "Broad Test" أو "Broad — [تاريخ]"
+- اسم الإعلان: يحتوي وصف الـ Creative (مثال: "فيديو خطاف جديد — هوك 1")
+
+الخطوة:
+- استخدم launch_pipeboard_campaign مع ABO (adsets[] بميزانية صغيرة) إذا كان إطلاق كامل
+- أو استخدم create_adset ثم create_ad_from_existing_post/post إذا ضمن حملة موجودة
+- ابدأ دائماً بـ status: PAUSED للمراجعة قبل التشغيل
 
 ⚠️ حالة خاصة — NO_OP (لا يوجد تغيير مطلوب):
 لو الأداة رجعت رداً يبدأ بـ NO_OP: ، معناه إن الحالة الحالية هي نفس القيمة المقترحة.
@@ -1194,6 +1261,14 @@ const TOOLS = [
             },
           },
           status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة المجموعة عند الإنشاء" },
+          promoted_object: {
+            type: "object",
+            description: "كائن التتبع — مطلوب لحملات OUTCOME_SALES. استخدم خريطة الدومين التلقائية: buzzpick.net → pixel_id: '1405391498274239'، dealme-eg.com → pixel_id: '1537301040808359'",
+            properties: {
+              pixel_id:          { type: "string", description: "رقم بيكسل Meta" },
+              custom_event_type: { type: "string", description: "نوع الحدث: PURCHASE | LEAD | COMPLETE_REGISTRATION" },
+            },
+          },
         },
         required: ["account_id", "campaign_id", "name", "optimization_goal", "billing_event"],
       },

@@ -1,0 +1,63 @@
+Act as a Senior Principal Meta API Engineer. We need to fix the "Silent Failure" issue in the Campaign Creation Pipeline and empower the AI with "Strategic Intent Recognition."
+
+CRITICAL BUG REPORT:
+
+The user noticed that create_adset is returning an adset_id that is IDENTICAL to the campaign_id. This is a structural failure. It means the AdSet is NOT being created, and the system is erroneously passing the parent ID to the next stage.
+
+Please implement these 5 Critical Pillars of the "Winner CBO" Workflow:
+
+1. RE-ENGINEER create_adset (Strict ID Validation)
+
+Modify the create_adset tool logic to strictly return ONLY one of these outcomes:
+
+SUCCESS: Return the actual adset_id.
+
+STRICT CHECK: The tool MUST verify that the returned adset_id is DIFFERENT from the campaign_id. If they are the same, throw an error: "Logic Error: AdSet ID cannot be the same as Campaign ID."
+
+Verification GET: Immediately perform a GET /adset_id?fields=name,status to confirm existence.
+
+PENDING/ERROR: Capture and return the full Meta JSON error (error_user_msg, error_subcode). Do NOT return a success message if the ID is missing or invalid.
+
+2. STRUCTURAL SEARCH TOOLS (Zero-Spend Awareness)
+
+search_adsets(campaign_id, query): Perform a structural query directly on /campaign_id/adsets to find ALL adsets.
+
+search_ads(adset_id, query): Query /adset_id/ads to find newly created ads, ignoring spend filters.
+
+3. AUTOMATED PIXEL & CONVERSION MAPPING
+
+Automatically inject parameters for "SALES" campaigns based on the domain:
+
+promoted_object: - buzzpick.net -> pixel_id: "1405391498274239".
+
+dealme-eg.com -> pixel_id: "1537301040808359".
+
+custom_event_type: "PURCHASE".
+
+targeting: Force geo_locations: {countries: ["EG"]}.
+
+optimization_goal: OFFSITE_CONVERSIONS.
+
+4. THE "CREATIVE BRIDGE" LOGIC (Moving Winners)
+
+Update the duplicate_ad and create_ad_from_existing_post tools:
+
+When "Moving Winners," the AI must not just copy the ad object. It must:
+
+Call get_ad_creative for the winner.
+
+Extract the Best Assets: Identify the specific video_id/image_url, primary_text, and headline that yielded the best CPA.
+
+Reconstruct: Create the new Ad in the destination AdSet using these "Best" components to ensure maximum performance in the CBO.
+
+5. STRATEGIC INTENT RECOGNITION (System Prompt Upgrade)
+
+Update the System Prompt to recognize these intents:
+
+Intent: "Move/Scale Winner" (نقل الناجح): 1. Find the Winner Ad via get_ads_in_adset.
+2. Create/Verify the destination CBO and AdSet (Ensure ID uniqueness).
+3. Execute the Creative Bridge to move the best video/text combo.
+
+Intent: "Test New Creative" (تجربة جديد): Launch a new Ad inside the testing environment with specific "Test" nomenclature.
+
+Please apply this structural and behavioral fix globally to ensure IDs are unique and winner duplication is asset-perfect.

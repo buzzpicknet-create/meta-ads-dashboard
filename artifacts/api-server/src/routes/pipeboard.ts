@@ -1289,6 +1289,17 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         throw new Error(`فشل إنشاء المجموعة الإعلانية — ${detail}`);
       }
 
+      // ── Strict ID check: adset_id MUST differ from campaign_id ──────────────
+      // If Pipeboard returns the same id as the campaign, it returned the parent
+      // instead of the newly created adset — that is a structural failure.
+      if (asAdsetId === String(args?.campaign_id ?? "")) {
+        throw new Error(
+          `Logic Error: AdSet ID (${asAdsetId}) cannot be the same as Campaign ID — ` +
+          `Pipeboard returned the parent campaign ID instead of a new adset ID. ` +
+          `الـ id المُعاد هو نفس الـ campaign_id — لم يُنشأ AdSet فعلياً.`
+        );
+      }
+
       // ── Hard verify: adset MUST appear in /{campaign_id}/adsets ─────────────
       // Success = adset found by name in campaign's adset list.
       // Failure = not found → throw (caught below → 500).
