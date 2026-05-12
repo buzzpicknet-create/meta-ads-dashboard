@@ -1297,7 +1297,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const verifyUrl = new URL(`https://graph.facebook.com/v21.0/${asAdsetId}`);
         verifyUrl.searchParams.set(
           "fields",
-          "id,name,status,effective_status,campaign_id,created_time,updated_time,daily_budget,optimization_goal,billing_event"
+          "id,name,status,effective_status,created_time,updated_time,daily_budget,optimization_goal,billing_event"
         );
         verifyUrl.searchParams.set("access_token", token);
 
