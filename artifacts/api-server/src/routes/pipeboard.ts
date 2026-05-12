@@ -431,6 +431,128 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     } catch (err) {
       dupMsg = err instanceof Error ? err.message : String(err);
+
+      // ── CREATIVE RECONSTRUCTION FALLBACK (Subcode 33 / Code 100) ─────────────
+      // Meta error 100 / subcode 33 = "Unsupported post request / Object does not
+      // exist" — happens when copying a legacy ad into a new CBO/Broad structure.
+      // Raw duplication carries incompatible metadata → we reconstruct instead.
+      const isLegacyBlocker =
+        dupMetaError?.code === 100 ||
+        dupMetaError?.error_subcode === 33 ||
+        (dupMetaError?.code != null && [100, 2446079].includes(dupMetaError.code));
+
+      if (isLegacyBlocker) {
+        logger.info(
+          { code: dupMetaError?.code, subcode: dupMetaError?.error_subcode, adId, destAdsetId },
+          "duplicate_ad: Legacy blocker detected — attempting Creative Reconstruction"
+        );
+        try {
+          // Step 1: Fetch source ad to get account_id + object_story_id
+          const srcUrl = new URL(`https://graph.facebook.com/v21.0/${adId}`);
+          srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,name}");
+          srcUrl.searchParams.set("access_token", metaToken);
+          const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(10_000) });
+          const srcJson = await srcResp.json() as Record<string, unknown>;
+          logger.info({ srcJson: JSON.stringify(srcJson).slice(0, 500) }, "duplicate_ad: reconstruction source ad fetch");
+
+          const rawAccountId = String(srcJson.account_id ?? "").replace(/^act_/, "");
+          const accountIdWithAct = rawAccountId ? `act_${rawAccountId}` : "";
+          const creative = srcJson.creative as Record<string, unknown> | undefined;
+          const objectStoryId = String(creative?.object_story_id ?? "").trim();
+
+          if (!objectStoryId || !rawAccountId) {
+            throw new Error(
+              `Creative Reconstruction: بيانات ناقصة — account_id=${rawAccountId}, object_story_id=${objectStoryId}`
+            );
+          }
+
+          // Extract page_id from object_story_id (format: "page_id_post_id")
+          const pageId = objectStoryId.split("_")[0] ?? "";
+
+          logger.info({ objectStoryId, pageId, rawAccountId }, "duplicate_ad: reconstruction assets extracted");
+
+          // Step 2: create_ad_creative using object_story_id
+          const rcClient = await getPipeboardWriteClient();
+          const creativeArgs: Record<string, unknown> = {
+            account_id: rawAccountId,
+            name: `${adLabel} — reconstructed creative`,
+            page_id: pageId,
+            object_story_id: objectStoryId,
+          };
+          // instagram_actor_id = page_id fixes IG review errors during reconstruction
+          if (pageId) creativeArgs.instagram_actor_id = pageId;
+
+          const creativeResult = await rcClient.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+          const creativeText = ((creativeResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+            .filter((c: { type: string }) => c.type === "text")
+            .map((c: { text?: string }) => c.text ?? "")
+            .join("").trim();
+          logger.info({ creativeText: creativeText.slice(0, 400) }, "duplicate_ad: reconstruction create_ad_creative");
+
+          const creativeIdMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
+          const rcCreativeId = creativeIdMatch?.[1] ?? "";
+          if (!rcCreativeId) {
+            throw new Error(`Reconstruction: فشل إنشاء creative — ${creativeText.slice(0, 200)}`);
+          }
+
+          // Step 3: create_ad with the reconstructed creative
+          const rcAdResult = await rcClient.callTool({
+            name: "create_ad",
+            arguments: {
+              account_id: accountIdWithAct,
+              name: adLabel,
+              adset_id: destAdsetId,
+              creative_id: rcCreativeId,
+              status: "PAUSED",
+            },
+          });
+          const rcAdText = ((rcAdResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+            .filter((c: { type: string }) => c.type === "text")
+            .map((c: { text?: string }) => c.text ?? "")
+            .join("").trim();
+          logger.info({ rcAdText: rcAdText.slice(0, 400) }, "duplicate_ad: reconstruction create_ad");
+
+          const rcAdMatch = rcAdText.match(/"id"\s*:\s*"(\d+)"/) ?? rcAdText.match(/\b(\d{10,})\b/);
+          const rcNewAdId = rcAdMatch?.[1] ?? "";
+          if (!rcNewAdId) {
+            throw new Error(`Reconstruction: فشل create_ad — ${rcAdText.slice(0, 200)}`);
+          }
+
+          // Step 4: Verify
+          const rcVerify = await verifyMetaEntityDirect(
+            rcNewAdId,
+            "id,name,status,effective_status,adset_id,campaign_id",
+            metaToken
+          );
+          if (!rcVerify.verified) {
+            throw new Error(`Reconstruction: verify فشل للإعلان ${rcNewAdId}`);
+          }
+
+          dupSuccess = true;
+          dupNewAdId = rcNewAdId;
+          dupVerify  = rcVerify;
+          dupMsg = [
+            `✅ Creative Reconstruction نجح — تم إعادة بناء الإعلان "${adLabel}" بدلاً من النسخ المباشر (الذي فشل بـ subcode 33)`,
+            `new_ad_id: ${rcNewAdId}`,
+            `source_ad_id: ${adId}`,
+            `object_story_id: ${objectStoryId}`,
+            `creative_id: ${rcCreativeId}`,
+            `destination_adset_id: ${destAdsetId}`,
+            `الحالة: ${String(rcVerify.verified_fields?.effective_status ?? "PAUSED")}`,
+            `ملاحظة: تم إنشاء creative جديد — Social Proof (اللايكات) محفوظة عبر object_story_id`,
+          ].join(" — ");
+
+          logger.info({ rcNewAdId, objectStoryId, rcCreativeId }, "duplicate_ad: Creative Reconstruction succeeded");
+        } catch (rcErr) {
+          const rcErrMsg = rcErr instanceof Error ? rcErr.message : String(rcErr);
+          logger.warn({ rcErrMsg, adId, destAdsetId }, "duplicate_ad: Creative Reconstruction fallback also failed");
+          dupMsg = [
+            dupMsg,
+            `[Creative Reconstruction أيضاً فشل: ${rcErrMsg}]`,
+            `[تلميح: استخدم get_ad_creative(${adId}) ثم create_ad_from_existing_post يدوياً]`,
+          ].join(" | ");
+        }
+      }
     }
 
     await query(
@@ -448,6 +570,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         destination_adset_id: destAdsetId,
         verified: true,
         verified_fields: dupVerify.verified_fields,
+        reconstruction_used: dupMsg.includes("Creative Reconstruction"),
       });
     } else {
       res.status(500).json({ error: dupMsg, ...(dupMetaError ? { meta_error: dupMetaError } : {}) });

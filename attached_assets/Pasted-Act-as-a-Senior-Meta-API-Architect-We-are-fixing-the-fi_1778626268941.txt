@@ -1,0 +1,52 @@
+Act as a Senior Meta API Architect. We are fixing the final structural blockers in the create_adset tool and the duplicate_ad workflow. The last attempt failed with Meta Error Subcode 33 ("Unsupported post request / Object does not exist"), which occurs when a legacy ad object is incompatible with a new CBO/Broad structure during a raw duplication.
+
+Please implement this "Bulletproof" logic inside the Meta Ads tools:
+
+1. THE "AUTO-TARGETING" FALLBACK (Fixes: Location is missing)
+
+Meta REQUIRES at least one location.
+
+Mandatory Logic: If the targeting parameter is missing or empty, the tool MUST automatically inject:
+targeting: { "geo_locations": { "countries": ["EG"] }, "publisher_platforms": ["facebook", "instagram", "messenger", "audience_network"] }
+
+Broad by Default: Always default to "Egypt" to ensure the request is never rejected.
+
+2. THE "CBO BUDGET" SANITIZER (Fixes: Budget Conflict)
+
+Rule: If the parent campaign is in CBO mode, the create_adset tool MUST remove daily_budget and lifetime_budget from the payload. Meta forbids budgets at both levels.
+
+3. THE "PIXEL & PURCHASE" INJECTION (Fixes: Missing Conversion)
+
+Automatically map the Pixel based on the domain:
+
+buzzpick.net -> 1405391498274239
+
+dealme-eg.com -> 1537301040808359
+
+Payload: Always include promoted_object: { "pixel_id": "PIXEL_ID", "custom_event_type": "PURCHASE" } and set optimization_goal: "OFFSITE_CONVERSIONS".
+
+4. RIGID ID VALIDATION (Fixes: Silent Failure & ID Mismatch)
+
+Validation: If response.id is missing or matches campaign_id, THROW AN ERROR.
+
+Verification: Immediately perform a GET /{adset_id} to confirm the object is live before attempting to add ads to it.
+
+5. THE "CREATIVE RECONSTRUCTION" PROTOCOL (Fixes: Subcode 33 / Duplication Failure)
+
+Instead of a raw "Duplicate" command (which carries legacy metadata that breaks the API), implement a "Reconstruction" fallback:
+
+Trigger: If duplicate_ad fails with error code 100 or subcode 33, the AI MUST:
+
+Call get_ad_creative for the source ad.
+
+Extract the video_id (or image_url), primary_text, and headline.
+
+Call create_ad in the NEW adset_id using these raw assets.
+
+IG Actor Fix: Always ensure instagram_actor_id is set to the same as page_id to bypass Instagram review errors during reconstruction.
+
+6. SYSTEM PROMPT REFRESH
+
+Update the AI's persona: "You are a Media Buying Expert. When the user asks to 'Move Winners', do not just 'duplicate' the object. Instead, fetch the best creative's assets (Video + Copy) and RECONSTRUCT them as a fresh ad in the new CBO/Broad Adset. This ensures 100% compatibility and success."
+
+Please apply this master fix to ensure 100% success rate in campaign creation and ad migration.
