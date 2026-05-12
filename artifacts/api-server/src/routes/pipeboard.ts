@@ -1310,18 +1310,45 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     try {
       const client = await getPipeboardWriteClient();
+
+      // ── Log exact Pipeboard request ───────────────────────────────────────
+      logger.info({
+        pipeboard_tool:    asMcpTool,
+        pipeboard_args:    asMcpArgs,   // full body sent to Pipeboard MCP
+      }, "create_adset: → Pipeboard request");
+
       const result = await client.callTool({ name: asMcpTool, arguments: asMcpArgs });
-      const textContent = ((result as { content?: Array<{ type: string; text?: string }> }).content ?? [])
+
+      // ── Log full raw Pipeboard response ───────────────────────────────────
+      const rawResult = result as { content?: Array<{ type: string; text?: string }> };
+      logger.info({
+        pipeboard_raw_content: rawResult.content,   // full array, not truncated
+      }, "create_adset: ← Pipeboard raw response");
+
+      const textContent = (rawResult.content ?? [])
         .filter(c => c.type === "text")
         .map(c => c.text ?? "")
         .join("")
         .trim();
 
-      logger.info({ textContent: textContent.slice(0, 400) }, "create_adset: MCP response");
+      logger.info({ textContent }, "create_adset: MCP textContent (full)");
 
-      // ── Extract adset_id — fail hard if missing ───────────────────────────
+      // ── Try JSON parse first — Pipeboard may return structured JSON ───────
+      let parsedJson: Record<string, unknown> | null = null;
+      try {
+        const maybeJson = JSON.parse(textContent) as unknown;
+        if (maybeJson && typeof maybeJson === "object" && !Array.isArray(maybeJson)) {
+          parsedJson = maybeJson as Record<string, unknown>;
+          logger.info({ parsedJson }, "create_adset: textContent parsed as JSON");
+        }
+      } catch { /* not JSON — will fall back to regex */ }
+
+      // ── Extract adset_id — prefer parsed JSON id, fall back to regex ──────
+      const jsonId = parsedJson?.id != null ? String(parsedJson.id) : null;
       const idMatch = textContent.match(/"id"\s*:\s*"(\d+)"/) ?? textContent.match(/\b(\d{13,})\b/);
-      asAdsetId = idMatch?.[1] ?? "";
+      asAdsetId = jsonId ?? idMatch?.[1] ?? "";
+
+      logger.info({ asAdsetId, jsonId, regexMatch: idMatch?.[1] }, "create_adset: extracted adset_id");
 
       if (!asAdsetId) {
         // Extract real Meta error details from Pipeboard text
