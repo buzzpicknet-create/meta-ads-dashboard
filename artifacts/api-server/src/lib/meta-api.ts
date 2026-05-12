@@ -1664,3 +1664,29 @@ export async function getAdDetails(ad_id: string): Promise<AdDetails> {
     updated_time: json.updated_time,
   };
 }
+
+// ── Account Metadata (pixels + pages) ────────────────────────────────────────
+export interface AccountMetadata {
+  pixels: { id: string; name: string }[];
+  pages: { id: string; name: string }[];
+}
+
+export async function fetchAccountMetadata(adAccountId: string): Promise<AccountMetadata> {
+  const cleanId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
+  const token = getAccessToken();
+
+  const [pixelRes, pageRes] = await Promise.allSettled([
+    fetch(`${BASE_URL}/act_${cleanId}/adspixels?fields=id,name&limit=10&access_token=${token}`)
+      .then(r => r.json() as Promise<{ data?: { id: string; name: string }[]; error?: { message: string } }>),
+    fetch(`${BASE_URL}/act_${cleanId}/promote_pages?fields=id,name&limit=10&access_token=${token}`)
+      .then(r => r.json() as Promise<{ data?: { id: string; name: string }[]; error?: { message: string } }>),
+  ]);
+
+  const pixels = pixelRes.status === "fulfilled" && Array.isArray(pixelRes.value.data)
+    ? pixelRes.value.data : [];
+
+  const pages = pageRes.status === "fulfilled" && Array.isArray(pageRes.value.data)
+    ? pageRes.value.data : [];
+
+  return { pixels, pages };
+}

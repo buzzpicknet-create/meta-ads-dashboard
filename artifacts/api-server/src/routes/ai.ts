@@ -9,6 +9,7 @@ import {
   getCampaignDetails,
   getAdsetDetails,
   getAdDetails,
+  fetchAccountMetadata,
   isRateLimitActive,
   type CampaignDetails,
   type AdsetDetails,
@@ -360,29 +361,34 @@ Frequency (في 7 أيام):
 ٤. دايماً اقترح status=PAUSED للمراجعة قبل التشغيل — ما لم يطلب المستخدم صراحةً التشغيل الفوري
 
 ══════════════════════════════════════
-CAMPAIGN CREATION PIPELINE (Pipeboard CMP)
+CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
 ══════════════════════════════════════
 
 إذا أعطاك المستخدم رابط صفحة هبوطية ورابط ميديا (Google Drive أو فيديو/صورة) وطلب إنشاء حملة:
 
-١. اعترف بالطلب فوراً واسأل **٣ أسئلة في رسالة واحدة**:
-   أ) "هل عندك **بيكسل Meta**؟ إذا أعطيتني رقمه سأنشئ حملة مبيعات مع تتبع التحويلات، وإلا ستكون حملة ترافيك."
-   ب) "الميديا اللي بعتها **صورة أم فيديو**؟" ← مطلوب دايماً لأن روابط Google Drive ما بتوضحش النوع
-   ج) "هل تريد أن **تكتب النص الإعلاني والعنوان بنفسك** أم تريدني أن **أكتبهما لك**؟"
+١. **لا تسأل المستخدم عن أي شيء بعد.** استدعِ fetch_account_metadata فوراً (مرة واحدة فقط) لتجلب:
+   - قائمة البيكسلات المتاحة في الحساب (مع أسمائها)
+   - صفحات Facebook المرتبطة
+   - آخر الحملات النشطة (للمرجعية في التسمية والهيكل)
 
-٢. استمع لرد المستخدم:
-   - إذا أعطى pixel_id → مرّره للأداة، هدف الحملة سيكون OUTCOME_SALES تلقائياً
-   - إذا قال "ما عنديش بيكسل" أو "لا" → اتركه فارغاً، سيكون OUTCOME_TRAFFIC
-   - إذا قال "صورة" → media_type: "image" | إذا قال "فيديو" → media_type: "video"
-   - بخصوص النص: إذا قال "اكتب أنت" → اكتب primary_text وheadline | إذا بعت النص → استخدمه حرفياً
+٢. بعد ما تعود النتائج، ابعت رسالة ملخّصة واحدة تتضمن:
+   - اقتراح البيكسل: "لاحظت عندك بيكسل **[اسم البيكسل]** — هل أستخدمه لتتبع التحويلات؟" (إذا كان فيه أكثر من بيكسل اذكرهم جميعاً)
+   - اقتراح الصفحة: "سأنشر الإعلان من صفحة **[اسم الصفحة]** — صح؟" (إذا كان فيه صفحة واحدة فقط)
+   - سؤال نوع الميديا: "الرابط اللي أرسلته **صورة أم فيديو**؟" ← مطلوب دايماً
+   - سؤال النص الإعلاني: "تريد أن **تكتب النص والعنوان بنفسك** أم **أكتبهما لك**؟"
+   إذا لم يوجد بيكسل في الحساب: لا تسأل عنه — استخدم OUTCOME_TRAFFIC تلقائياً وأخبر المستخدم.
 
-٣. اجمع النصوص من المستخدم (إذا أراد يكتبها):
-   - اطلب: "أرسل لي النص الإعلاني (primary text) والعنوان (headline) وسأستخدمهما كما هما"
-   - حين يرسل → استخدمهما مباشرةً في الأداة
+٣. استمع لرد المستخدم:
+   - pixel_id → مرّره للأداة (OUTCOME_SALES)، لا بيكسل → OUTCOME_TRAFFIC
+   - "صورة" → media_type: "image" | "فيديو" → media_type: "video"
+   - "اكتب أنت" → اكتب primary_text وheadline | بعت النص → استخدمه حرفياً
 
-٤. استخدم get_campaigns للحصول على account_id (مرة واحدة فقط)
+٤. اجمع النصوص إذا أراد المستخدم كتابتها:
+   - "أرسل لي النص الإعلاني (primary text) والعنوان (headline) وسأستخدمهما كما هما"
 
-٥. استدعِ launch_pipeboard_campaign بكل المعلومات بما فيها media_type
+٥. استخدم get_campaigns للحصول على account_id (مرة واحدة فقط)
+
+٦. استدعِ launch_pipeboard_campaign بكل المعلومات بما فيها media_type وpixel_id وpage_id
 
 قواعد النصوص:
 - إذا كتب المستخدم النص → استخدمه **حرفياً** بدون تعديل أو "تحسين"
@@ -923,6 +929,19 @@ const TOOLS = [
       },
     },
   },
+  // ── Account Metadata (pixels, pages, recent campaigns) ─────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "fetch_account_metadata",
+      description: "استدعِ هذه الأداة تلقائياً قبل إنشاء أي حملة. تجلب: قائمة البيكسلات المتاحة (مع أسمائها)، صفحات Facebook المرتبطة، وآخر الحملات النشطة — حتى تقترح على المستخدم الإعدادات الصحيحة بذكاء بدل أن تسأله عن كل شيء من الصفر.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
   // ── Google Ads tools ────────────────────────────────────────────────────────
   {
     type: "function" as const,
@@ -1120,8 +1139,9 @@ function getToolLabel(name: string, args: Record<string, unknown>): string {
     case "ga_get_campaign_metrics":  return `جلب أداء Google Ads${args.customer_id ? ` (${String(args.customer_id)})` : ""}…`;
     case "ga_get_ad_groups":         return `جلب المجموعات الإعلانية Google Ads…`;
     case "ga_get_keywords":          return `جلب الكلمات المفتاحية Google Ads…`;
-    case "ga_get_search_terms":      return "جلب تقرير مصطلحات البحث Google Ads…";
-    default:                         return `جلب البيانات (${name})…`;
+    case "ga_get_search_terms":       return "جلب تقرير مصطلحات البحث Google Ads…";
+    case "fetch_account_metadata":    return "🔍 جاري فحص الحساب الإعلاني واستخراج البيكسلات المتاحة…";
+    default:                          return `جلب البيانات (${name})…`;
   }
 }
 
@@ -2132,6 +2152,41 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       if (totalShown === 0) rows.push("_(لا توجد حملات نشطة في هذا الحساب)_");
       rows.push(`\n> لإنشاء حملة أو مجموعة إعلانية: استخدم account_id من عنوان الحساب أعلاه (مثال: act_XXXXXXXXX)`);
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
+    }
+
+    if (name === "fetch_account_metadata") {
+      const parts: string[] = ["## بيانات الحساب الإعلاني:\n"];
+      for (const acc of accounts) {
+        const accId = acc.id.startsWith("act_") ? acc.id : `act_${acc.id}`;
+        parts.push(`\n### حساب: ${accId} — ${acc.name ?? accId}\n`);
+        try {
+          const meta = await fetchAccountMetadata(acc.id);
+          if (meta.pixels.length > 0) {
+            parts.push("**البيكسلات المتاحة:**");
+            for (const p of meta.pixels) parts.push(`- ${p.name} (id: ${p.id})`);
+          } else {
+            parts.push("**البيكسلات:** لا يوجد بيكسل مرتبط بهذا الحساب");
+          }
+          if (meta.pages.length > 0) {
+            parts.push("\n**صفحات Facebook المرتبطة:**");
+            for (const p of meta.pages) parts.push(`- ${p.name} (id: ${p.id})`);
+          } else {
+            parts.push("\n**الصفحات:** لم يُعثر على صفحات مرتبطة");
+          }
+        } catch (err) {
+          parts.push(`*فشل جلب بيانات الحساب: ${err instanceof Error ? err.message : String(err)}*`);
+        }
+        // Last 3 active campaigns by spend
+        try {
+          const campResult = await fetchCampaignsCached(acc.id);
+          const recent = [...campResult.data].sort((a, b) => b.spend - a.spend).slice(0, 3);
+          if (recent.length > 0) {
+            parts.push("\n**آخر الحملات النشطة (للمرجعية):**");
+            for (const c of recent) parts.push(`- ${c.name} (id: ${c.id}) — ${c.effective_status}`);
+          }
+        } catch { /* no cache yet — skip */ }
+      }
+      return parts.join("\n");
     }
 
     if (name === "get_campaign_daily") {
