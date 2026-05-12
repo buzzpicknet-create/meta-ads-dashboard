@@ -1675,18 +1675,26 @@ export async function fetchAccountMetadata(adAccountId: string): Promise<Account
   const cleanId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
   const token = getAccessToken();
 
-  const [pixelRes, pageRes] = await Promise.allSettled([
+  const [pixelRes, pageRes, personalPageRes] = await Promise.allSettled([
     fetch(`${BASE_URL}/act_${cleanId}/adspixels?fields=id,name&limit=10&access_token=${token}`)
       .then(r => r.json() as Promise<{ data?: { id: string; name: string }[]; error?: { message: string } }>),
     fetch(`${BASE_URL}/act_${cleanId}/promote_pages?fields=id,name&limit=10&access_token=${token}`)
+      .then(r => r.json() as Promise<{ data?: { id: string; name: string }[]; error?: { message: string } }>),
+    // Fallback: fetch pages the token owner admins personally (Personal Admin access)
+    fetch(`${BASE_URL}/me/accounts?fields=id,name&limit=25&access_token=${token}`)
       .then(r => r.json() as Promise<{ data?: { id: string; name: string }[]; error?: { message: string } }>),
   ]);
 
   const pixels = pixelRes.status === "fulfilled" && Array.isArray(pixelRes.value.data)
     ? pixelRes.value.data : [];
 
-  const pages = pageRes.status === "fulfilled" && Array.isArray(pageRes.value.data)
-    ? pageRes.value.data : [];
+  // Prefer promote_pages (Business Manager linked); fall back to /me/accounts (Personal Admin pages)
+  let pages: { id: string; name: string }[] = [];
+  if (pageRes.status === "fulfilled" && Array.isArray(pageRes.value.data) && pageRes.value.data.length > 0) {
+    pages = pageRes.value.data;
+  } else if (personalPageRes.status === "fulfilled" && Array.isArray(personalPageRes.value.data) && personalPageRes.value.data.length > 0) {
+    pages = personalPageRes.value.data;
+  }
 
   return { pixels, pages };
 }
