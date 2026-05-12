@@ -437,13 +437,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         let adsetErr = "";
 
         try {
+          // NOTE: Budget lives on the CAMPAIGN (CBO mode). Do NOT set daily_budget on
+          // adsets — it conflicts with CBO and causes Meta to ignore the campaign budget.
           const adsetArgs: Record<string, unknown> = {
             account_id: accountId,
             campaign_id: campaignId,
             name: adset.name,
             optimization_goal: optimizationGoal,
             billing_event: "IMPRESSIONS",
-            daily_budget: egpToCents(adset.budget ?? 20),
             status: "PAUSED",
             targeting: { geo_locations: { countries: ["EG"] } },
             targeting_automation: { advantage_audience: 1 },
