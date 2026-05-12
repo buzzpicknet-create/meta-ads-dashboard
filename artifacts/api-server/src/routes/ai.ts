@@ -3293,9 +3293,28 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       const winner = sorted.find((a) => a.cpa > 0 && a.cpa <= avgCpa * 0.85 && a.hookRate >= avgHook);
       const drain  = sorted.find((a) => a.cpa > avgCpa * 1.3 && a.spend > totalSpend * 0.15);
       const hookGoodCvrBad = sorted.find((a) => a.hookRate >= avgHook * 1.1 && a.lpv > 5 && a.cr < 1.5 && a.purchases < 2);
-      if (winner) rows.push(`\n🏆 Winning Angle: ${winner.label} — CPA: ${fmt(winner.cpa)} EGP، Hook: ${fmt(winner.hookRate, 1)}%، CVR: ${winner.lpv > 0 ? fmt(winner.cr, 1) : "—"}%`);
+      if (winner) rows.push(`\n🏆 Winning Angle: ${winner.label} (ad_id: \`${winner.id}\`) — CPA: ${fmt(winner.cpa)} EGP، Hook: ${fmt(winner.hookRate, 1)}%، CVR: ${winner.lpv > 0 ? fmt(winner.cr, 1) : "—"}%`);
       if (drain)  rows.push(`🔴 Bleeder: ${drain.label} — CPA: ${fmt(drain.cpa)} EGP، إنفاق: ${fmt(drain.spend)} EGP`);
       if (hookGoodCvrBad) rows.push(`🔻 Funnel Leak (Hook جيد → CVR ضعيف): ${hookGoodCvrBad.label} — Hook: ${fmt(hookGoodCvrBad.hookRate, 1)}%، CVR: ${fmt(hookGoodCvrBad.cr, 1)}% — المشكلة في الصفحة أو العرض وليس في الإعلان`);
+
+      // Inject bulk_action template for Winners so the AI can directly copy real IDs
+      const winners = sorted.filter((a) => a.cpa > 0 && a.cpa <= avgCpa * 0.85 && a.hookRate >= avgHook);
+      if (winners.length > 0) {
+        rows.push(`\n---`);
+        rows.push(`⬆️ لنقل الرابحين أعلاه إلى CBO — انسخ هذا bulk_action مباشرةً (الـ adId مأخوذ من البيانات أعلاه):`);
+        rows.push("```bulk_action");
+        const bulkActions = winners.slice(0, 5).map((w) => ({
+          type: "create_ad_from_existing_post",
+          adId: w.id,
+          destinationAdsetId: "<adset_id الهدف — اسأل المستخدم أو استخدم search_adsets>",
+          name: `${w.label} — Scale`,
+          label: `نشر Winner: ${w.label} (CPA: ${fmt(w.cpa)} EGP)`,
+          reason: `CPA ${fmt(w.cpa)} EGP، Hook ${fmt(w.hookRate, 1)}% — أفضل إعلان في المجموعة`,
+        }));
+        rows.push(JSON.stringify({ title: "نشر الرابحين في CBO", actions: bulkActions }, null, 2));
+        rows.push("```");
+        rows.push(`🔴 الـ adId أعلاه هو الرقم الفعلي — لا تغيّره. غيّر destinationAdsetId فقط بعد معرفة المجموعة الهدف.`);
+      }
 
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
