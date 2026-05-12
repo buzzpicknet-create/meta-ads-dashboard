@@ -680,6 +680,7 @@ STRATEGIC INTENT RECOGNITION — التعرف على النية الاسترات
 
    **الطريقة المُفضَّلة (للـ CBO/Broad — Social Proof محفوظ):**
    - إذا يوجد object_story_id (من get_ad_creative) → create_ad_from_existing_post(account_id, adset_id, object_story_id, name)
+   - إذا لم تعرف object_story_id بعد → مرّر ad_id فقط: create_ad_from_existing_post(account_id, adset_id, name, ad_id=SOURCE_AD_ID) — الـ backend يجلب object_story_id تلقائياً بدون حاجة لـ get_ad_creative
    - هذا يحافظ على Social Proof (اللايكات والتعليقات) ويُنشئ fresh creative متوافق 100% مع CBO
 
    **الطريقة السريعة (إذا كانت الهيكل غير CBO):**

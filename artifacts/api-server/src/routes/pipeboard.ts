@@ -721,16 +721,49 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     const adName = String(args?.ad_name ?? args?.name ?? "إعلان من منشور");
 
     // Accept object_story_id directly OR construct from page_id + post_id
+    // OR auto-fetch from source ad_id when both are missing
     let objectStoryId = String(args?.object_story_id ?? "").trim();
     let pageId = String(args?.page_id ?? "").trim();
     let postId = String(args?.post_id ?? "").trim();
+    const sourceAdId = String(args?.ad_id ?? args?.source_ad_id ?? "").trim();
 
     if (!adsetId) {
       res.status(400).json({ error: "adset_id مطلوب" });
       return;
     }
+
+    // ── Auto-fetch object_story_id from source ad_id if missing ──────────────
+    // Allows the AI/Bulk Panel to pass only ad_id without calling get_ad_creative first.
+    if (!objectStoryId && !postId && sourceAdId) {
+      try {
+        const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+        const srcUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
+        srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id}");
+        srcUrl.searchParams.set("access_token", metaTkn);
+        const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(10_000) });
+        const srcJson = await srcResp.json() as Record<string, unknown>;
+        const srcCreative = srcJson.creative as Record<string, unknown> | undefined;
+        objectStoryId = String(srcCreative?.object_story_id ?? "").trim();
+        // Also grab account_id from source ad if not provided in args
+        if (!rawAccountId && srcJson.account_id) {
+          const fetchedAccId = String(srcJson.account_id).replace(/^act_/, "");
+          (args as Record<string, unknown>).account_id = fetchedAccId;
+        }
+        logger.info(
+          { sourceAdId, objectStoryId: objectStoryId || "(none)" },
+          "create_ad_from_existing_post: auto-fetched object_story_id from source ad"
+        );
+      } catch (fetchErr) {
+        logger.warn({ fetchErr, sourceAdId }, "create_ad_from_existing_post: failed to auto-fetch object_story_id");
+      }
+    }
+
     if (!objectStoryId && !postId) {
-      res.status(400).json({ error: "object_story_id أو post_id مطلوب" });
+      res.status(400).json({
+        error: sourceAdId
+          ? `فشل جلب object_story_id من الإعلان ${sourceAdId} — تأكد أن الإعلان يحتوي على منشور (object_story_id)`
+          : "object_story_id أو post_id أو ad_id مطلوب",
+      });
       return;
     }
 

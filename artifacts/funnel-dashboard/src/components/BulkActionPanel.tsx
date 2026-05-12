@@ -115,7 +115,7 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
     case "create_ad_from_post":
       return { tool: "create_ad_from_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, post_id: item.postId, name: item.name } };
     case "create_ad_from_existing_post":
-      return { tool: "create_ad_from_existing_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, object_story_id: item.postId, name: item.name } };
+      return { tool: "create_ad_from_existing_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, object_story_id: item.postId, ad_id: item.adId, name: item.name } };
   }
 }
 
