@@ -142,9 +142,13 @@ ZERO-TRUNCATION ANALYST — THE MEDIA BUYER MANIFESTO
 - get_campaigns: قائمة الحملات مع أداءها لأي فترة
 - get_campaign_daily: الأداء اليومي لحملة معينة
 - get_account_daily: الأداء اليومي للحساب كله
-- get_adsets: المجموعات الإعلانية لحملة معينة
-- get_ad_performance: أداء إعلان بعينه (نسبة الجذب، نسبة النقر، تكلفة التحويل، الظهورات، الإنفاق) — استخدم قبل التوصية بتغيير أو إيقاف إعلان محدد
-- get_ads_in_adset: قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية محددة مرتّبة بالكفاءة — استخدم قبل التوصية بزيادة إعلان أو إيقاف آخر لتحديد الـ Winner والـ Drain
+- get_adsets: المجموعات الإعلانية لحملة معينة (يحتوي: الإنفاق، الطلبات، CPA، Hook Rate%، Hold Rate%، LPR%، CTR%، CPM، التكرار)
+- get_ads_in_adset: كل الإعلانات داخل مجموعة إعلانية مرتّبة بالكفاءة (يحتوي: الإنفاق، الطلبات، CPA، Hook Rate%، Hold Rate%، LPR%، CVR%، LP Views، CTR%، CPM، الظهورات، التقييم) — هذه الأداة تحتوي على كل بيانات الفانل لكل إعلان بدون استثناء — استخدمها مباشرةً لأي تحليل على مستوى الإعلان الفردي
+
+⚠️ تنبيه أدوات مهم جداً:
+- لا توجد أداة اسمها get_ad_performance — هذه الأداة غير موجودة ولا تستخدمها أبداً
+- للحصول على بيانات إعلان فردي: استخدم get_ads_in_adset بادئاً بالـ adset_id
+- الـ adset_id موجود في نتائج get_adsets أو في الـ context المُرسَل معك
 
 **Google Ads (جوجل):**
 - ga_get_campaigns: قائمة حملات Google Ads مع حالتها وميزانياتها عبر كل الحسابات المرتبطة — استخدم أولاً للحصول على customer_id وcampaign_id
@@ -267,7 +271,7 @@ Frequency (في 7 أيام):
 - الإعلان بـ Hook عالي + CTR منخفض: الـ Creative كويس بس الـ CTA ضعيف
 - الإعلان بأعلى إنفاق + أعلى CPA: Drain — وقفه وحوّل Budget للـ Winner
 
-⚠️ مهم: قبل توصية بتغيير محتوى إعلان أو إيقافه، استخدم get_ad_performance للتحقق من نسبة الجذب والنقر والتكلفة الفعلية لهذا الإعلان. لا تبني توصية على بيانات الـ context وحده لو عندك ad_id محدد.
+⚠️ مهم: قبل توصية بتغيير محتوى إعلان أو إيقافه، استخدم get_ads_in_adset (مش get_ad_performance — هذه غير موجودة) للحصول على Hook Rate وCVR والـ funnel الكامل لكل الإعلانات داخل المجموعة دفعةً واحدة. الأداة بترجع للإعلان المطلوب وكل إعلانات المجموعة معاً — وفّر استدعاء لكل إعلان على حدة.
 
 ⚠️ مهم جداً: لو عندك adset_id وتريد تقارن الإعلانات داخله لتحديد الأفضل أو اقتراح نقل الميزانية، استخدم get_ads_in_adset أولاً. الأداة بترتّب الإعلانات حسب الكفاءة وتحدد الـ Winner والـ Drain بشكل واضح — لا تبني توصية بنقل الميزانية بدون هذه البيانات.
 
@@ -2706,8 +2710,8 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       const rows: string[] = [
         `## الإعلانات داخل المجموعة ${adsetLabel} (آخر ${days} يوم):`,
         `الحملة: ${foundCampaignName} | إجمالي ${sorted.length} إعلان\n`,
-        "| الإعلان | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة الجذب% | Hold Rate% | LPR% | نسبة النقر% | CPM (EGP) | الظهورات | التقييم |",
-        "|---------|--------------|---------|-----------|-------------|-----------|------|-------------|-----------|----------|---------|",
+        "| الإعلان | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة الجذب% | Hold Rate% | LPR% | CVR% | LP Views | نسبة النقر% | CPM (EGP) | الظهورات | التقييم |",
+        "|---------|--------------|---------|-----------|-------------|-----------|------|------|----------|-------------|-----------|----------|---------|",
       ];
 
       const AD_LIMIT = 30;
@@ -2717,6 +2721,8 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       for (const ad of displayAds) {
         const holdR = ad.holdRate > 0 ? fmt(ad.holdRate, 1) : "—";
         const lpvR  = ad.lpvRate  > 0 ? fmt(ad.lpvRate,  1) : "—";
+        const cvrR  = ad.lpv > 0      ? fmt(ad.cr,       1) : "—";
+        const lpvCount = ad.lpv > 0   ? ad.lpv.toLocaleString()        : "—";
         let verdict = "—";
         if (ad.cpa > 0 && ad.cpa <= avgCpa * 0.85 && ad.hookRate >= avgHook) {
           verdict = "🏆 Winner";
@@ -2726,9 +2732,11 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
           verdict = "✅ كويس";
         } else if (ad.hookRate < avgHook * 0.7) {
           verdict = "⚠️ Hook ضعيف";
+        } else if (ad.lpv > 0 && ad.cr < 1 && ad.hookRate >= avgHook) {
+          verdict = "🔻 CVR ضعيف";
         }
         rows.push(
-          `| ${ad.label} (id:${ad.id}) | ${fmt(ad.spend)} | ${ad.purchases} | ${ad.cpa > 0 ? fmt(ad.cpa) : "—"} | ${fmt(ad.hookRate, 1)} | ${holdR} | ${lpvR} | ${fmt(ad.ctr, 2)} | ${fmt(ad.cpm, 1)} | ${ad.impressions.toLocaleString()} | ${verdict} |`
+          `| ${ad.label} (id:${ad.id}) | ${fmt(ad.spend)} | ${ad.purchases} | ${ad.cpa > 0 ? fmt(ad.cpa) : "—"} | ${fmt(ad.hookRate, 1)} | ${holdR} | ${lpvR} | ${cvrR} | ${lpvCount} | ${fmt(ad.ctr, 2)} | ${fmt(ad.cpm, 1)} | ${ad.impressions.toLocaleString()} | ${verdict} |`
         );
       }
 
@@ -2736,8 +2744,10 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
 
       const winner = sorted.find((a) => a.cpa > 0 && a.cpa <= avgCpa * 0.85 && a.hookRate >= avgHook);
       const drain  = sorted.find((a) => a.cpa > avgCpa * 1.3 && a.spend > totalSpend * 0.15);
-      if (winner) rows.push(`\n🏆 Winning Angle: ${winner.label} — CPA: ${fmt(winner.cpa)} EGP، Hook: ${fmt(winner.hookRate, 1)}%`);
+      const hookGoodCvrBad = sorted.find((a) => a.hookRate >= avgHook * 1.1 && a.lpv > 5 && a.cr < 1.5 && a.purchases < 2);
+      if (winner) rows.push(`\n🏆 Winning Angle: ${winner.label} — CPA: ${fmt(winner.cpa)} EGP، Hook: ${fmt(winner.hookRate, 1)}%، CVR: ${winner.lpv > 0 ? fmt(winner.cr, 1) : "—"}%`);
       if (drain)  rows.push(`🔴 Bleeder: ${drain.label} — CPA: ${fmt(drain.cpa)} EGP، إنفاق: ${fmt(drain.spend)} EGP`);
+      if (hookGoodCvrBad) rows.push(`🔻 Funnel Leak (Hook جيد → CVR ضعيف): ${hookGoodCvrBad.label} — Hook: ${fmt(hookGoodCvrBad.hookRate, 1)}%، CVR: ${fmt(hookGoodCvrBad.cr, 1)}% — المشكلة في الصفحة أو العرض وليس في الإعلان`);
 
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
