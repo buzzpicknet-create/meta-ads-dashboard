@@ -345,10 +345,12 @@ Frequency (في 7 أيام):
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
-- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, media_url, daily_budget?, primary_text, headline, pixel_id?, page_id?, call_to_action?) — إنشاء حملة كاملة مع مجموعة إعلانية + كريتف + إعلان دفعة واحدة عبر Pipeboard CMP
+- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, media_url, media_type, primary_text, headline, daily_budget?, pixel_id?, page_id?, call_to_action?) — إنشاء حملة كاملة مع مجموعة إعلانية + كريتف + إعلان دفعة واحدة عبر Pipeboard CMP
   - استخدم هذه الأداة عندما يُعطيك المستخدم رابط صفحة هبوطية ورابط ميديا
+  - media_type: "image" أو "video" — مطلوب دايماً، اسأل المستخدم لأن روابط Google Drive لا تحتوي على امتداد
+  - pixel_id: اسأل المستخدم — إذا أعطى الرقم تكون حملة OUTCOME_SALES، بدونه OUTCOME_TRAFFIC
   - media_url: رابط صورة/فيديو مباشر أو رابط Google Drive (أي شكل — يُحوَّل تلقائياً)
-    أشكال Google Drive المقبولة: /file/d/ID/view ، /open?id=ID ، drive.google.com/uc?id=ID
+  - الاستهداف: Advantage+ Audience تلقائياً — لا تحتاج تحديد أعمار أو اهتمامات
   - الميزانية الافتراضية: 20 EGP — دائماً PAUSED للمراجعة
 
 قواعد الإنشاء:
@@ -363,13 +365,16 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP)
 
 إذا أعطاك المستخدم رابط صفحة هبوطية ورابط ميديا (Google Drive أو فيديو/صورة) وطلب إنشاء حملة:
 
-١. اعترف بالطلب فوراً واسأل سؤالاً واحداً فقط:
-   "هل تريد أن **تكتب النص الإعلاني والعنوان بنفسك** أم تريدني أن **أكتبهما لك**؟"
+١. اعترف بالطلب فوراً واسأل **٣ أسئلة في رسالة واحدة**:
+   أ) "هل عندك **بيكسل Meta**؟ إذا أعطيتني رقمه سأنشئ حملة مبيعات مع تتبع التحويلات، وإلا ستكون حملة ترافيك."
+   ب) "الميديا اللي بعتها **صورة أم فيديو**؟" ← مطلوب دايماً لأن روابط Google Drive ما بتوضحش النوع
+   ج) "هل تريد أن **تكتب النص الإعلاني والعنوان بنفسك** أم تريدني أن **أكتبهما لك**؟"
 
 ٢. استمع لرد المستخدم:
-   - إذا قال "اكتب أنت" أو ما شابهه → **اكتب أنت** primary_text وheadline بالعربية ثم انتقل للخطوة ٤
-   - إذا أرسل النص مباشرةً في الشات → **استخدم نصه كما هو** بدون تعديل
-   - إذا قال "أنا سأكتب" أو "هبعت النص" → **انتظر** حتى يرسل النص ثم استخدمه
+   - إذا أعطى pixel_id → مرّره للأداة، هدف الحملة سيكون OUTCOME_SALES تلقائياً
+   - إذا قال "ما عنديش بيكسل" أو "لا" → اتركه فارغاً، سيكون OUTCOME_TRAFFIC
+   - إذا قال "صورة" → media_type: "image" | إذا قال "فيديو" → media_type: "video"
+   - بخصوص النص: إذا قال "اكتب أنت" → اكتب primary_text وheadline | إذا بعت النص → استخدمه حرفياً
 
 ٣. اجمع النصوص من المستخدم (إذا أراد يكتبها):
    - اطلب: "أرسل لي النص الإعلاني (primary text) والعنوان (headline) وسأستخدمهما كما هما"
@@ -377,12 +382,16 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP)
 
 ٤. استخدم get_campaigns للحصول على account_id (مرة واحدة فقط)
 
-٥. استدعِ launch_pipeboard_campaign بكل المعلومات
+٥. استدعِ launch_pipeboard_campaign بكل المعلومات بما فيها media_type
 
 قواعد النصوص:
 - إذا كتب المستخدم النص → استخدمه **حرفياً** بدون تعديل أو "تحسين"
 - إذا طلب منك الكتابة → اكتب primary_text: 2-3 أسطر مقنعة بالعربية تتضمن إيموجي وتنتهي بـ call-to-action، وheadline: عنوان مختصر 15-25 حرف
 - لا تولّد نصوصاً تلقائياً إذا وضّح المستخدم أنه يريد كتابتها بنفسه
+
+قواعد Advantage+:
+- الاستهداف دايماً Advantage+ Audience (لا تضيف أعمار أو اهتمامات يدوية إلا إذا طلب المستخدم صراحةً)
+- الجمهور السياقي (geo_locations) يُحدَّد حسب ما يقوله المستخدم — افتراضي: مصر
 
 مهم: هذه الأدوات لا تنفذ فوراً — ستظهر للمستخدم طلب تأكيد قبل التنفيذ.
 بعد استدعاء الأداة قل "في انتظار موافقتك" — لا تقل "تم التنفيذ".
@@ -902,14 +911,15 @@ const TOOLS = [
           campaign_name: { type: "string", description: "اسم جذّاب ومعبّر للحملة (مولّد تلقائياً من الـ AI)" },
           landing_page_url: { type: "string", description: "رابط الصفحة الهبوطية — الـ URL التي سيُحوَّل إليها المستخدم بعد النقر" },
           media_url: { type: "string", description: "رابط الميديا (Google Drive أو رابط فيديو/صورة مباشر)" },
+          media_type: { type: "string", enum: ["image", "video"], description: "نوع الميديا — image (صورة) أو video (فيديو). مطلوب لأن روابط Google Drive لا تحتوي على امتداد. اسأل المستخدم دائماً." },
           daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — افتراضي 20 إذا لم يُحدَّد" },
           primary_text: { type: "string", description: "النص الإعلاني الرئيسي — مقنع، يتضمن إيموجي، مكتوب بالعربية" },
           headline: { type: "string", description: "عنوان الإعلان المختصر بالعربية (15-25 حرف)" },
-          pixel_id: { type: "string", description: "معرّف بيكسل Meta (اختياري) — يُمكّن تتبع التحويلات ويُنشئ حملة OUTCOME_SALES. بدونه تُنشأ حملة OUTCOME_TRAFFIC." },
+          pixel_id: { type: "string", description: "معرّف بيكسل Meta (اختياري) — يُمكّن تتبع التحويلات ويُنشئ حملة OUTCOME_SALES. بدونه تُنشأ حملة OUTCOME_TRAFFIC. اسأل المستخدم دائماً." },
           page_id: { type: "string", description: "معرّف صفحة Facebook (اختياري) — يُستخرج تلقائياً من الحساب إذا لم يُزوَّد. مطلوب لإنشاء الإعلان." },
           call_to_action: { type: "string", description: "نص زر الدعوة للعمل (اختياري) — مثل: LEARN_MORE، SHOP_NOW، SIGN_UP. افتراضي: LEARN_MORE" },
         },
-        required: ["account_id", "campaign_name", "landing_page_url", "media_url", "primary_text", "headline"],
+        required: ["account_id", "campaign_name", "landing_page_url", "media_url", "media_type", "primary_text", "headline"],
       },
     },
   },

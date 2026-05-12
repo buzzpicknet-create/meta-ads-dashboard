@@ -281,17 +281,21 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     // Helpers ---------------------------------------------------------------
     const egpToCents = (v: unknown) => Math.round(Number(v) * 100);
 
-    /** Normalise Google Drive sharing URLs → direct download URL */
+    /** Normalise Google Drive sharing URLs → direct download URL via usercontent (more reliable) */
     function normaliseMediaUrl(raw: string): string {
       if (!raw) return raw;
+      // Pattern: /file/d/FILE_ID/view or /file/d/FILE_ID
       const driveFileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
       if (driveFileMatch) {
-        return `https://drive.google.com/uc?export=download&id=${driveFileMatch[1]}`;
+        return `https://drive.usercontent.google.com/download?id=${driveFileMatch[1]}&export=download&authuser=0`;
       }
-      const driveOpenMatch = raw.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([^&]+)/);
-      if (driveOpenMatch) {
-        return `https://drive.google.com/uc?export=download&id=${driveOpenMatch[1]}`;
+      // Pattern: /open?id=FILE_ID  or  /uc?id=FILE_ID  or  uc?export=download&id=FILE_ID
+      const driveIdMatch = raw.match(/drive\.google\.com\/(?:open|uc)[^?]*\?(?:[^#]*&)?id=([^&#]+)/);
+      if (driveIdMatch) {
+        return `https://drive.usercontent.google.com/download?id=${driveIdMatch[1]}&export=download&authuser=0`;
       }
+      // Already in usercontent format — leave as-is
+      if (raw.includes("drive.usercontent.google.com")) return raw;
       return raw;
     }
 
@@ -324,7 +328,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       if (mediaUrl !== originalMediaUrl) {
         logger.info({ originalMediaUrl, mediaUrl }, "launch_pipeboard_campaign: normalised Google Drive URL");
       }
-      const isVideo = isVideoUrl(mediaUrl);
+      // Prefer explicit media_type arg from AI (AI asks user). Fall back to extension sniff.
+      const mediaTypeArg = String(args?.media_type ?? "").toLowerCase().trim();
+      const isVideo = mediaTypeArg === "video" || (mediaTypeArg !== "image" && isVideoUrl(mediaUrl));
 
       // Step 1: create campaign
       const campResult = await client.callTool({
@@ -353,11 +359,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             optimization_goal: optimizationGoal,
             billing_event: "IMPRESSIONS",
             status: "PAUSED",
+            // Advantage+ Audience — let Meta optimise targeting automatically.
+            // Only geo hint is kept as a suggestion (countries can still be set).
             targeting: {
               geo_locations: { countries: ["EG"] },
-              age_min: 18,
-              age_max: 65,
             },
+            targeting_automation: { advantage_audience: 1 },
           };
           if (hasPixel) {
             adsetArgs.promoted_object = {
