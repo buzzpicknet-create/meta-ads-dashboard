@@ -230,7 +230,9 @@
 
 .ai-tbl {
   width: 100%;
+  min-width: 1000px;
   border-collapse: collapse;
+  table-layout: auto;
   font-size: 12.5px;
 }
 
@@ -305,6 +307,19 @@
   background: hsl(38 92% 50% / 0.2);
   color: hsl(38 92% 65%);
 }
+
+/* Metric heatmap: Hook Rate backgrounds */
+.ai-tbl-hook-good { background-color: hsl(142 71% 45% / 0.13) !important; }
+.ai-tbl-hook-bad  { background-color: hsl(0 84% 60% / 0.12)   !important; }
+
+/* Metric heatmap: CTR text colors */
+.ai-tbl-ctr-good { color: hsl(142 71% 32%) !important; font-weight: 600; }
+.ai-tbl-ctr-bad  { color: hsl(0 84% 50%)   !important; font-weight: 600; }
+.dark .ai-tbl-ctr-good { color: hsl(142 71% 60%) !important; }
+.dark .ai-tbl-ctr-bad  { color: hsl(0 84% 65%)   !important; }
+
+/* dir=ltr for cells with campaign/ad names (mixed Arabic+Latin) */
+.ai-tbl-name-cell { direction: ltr; text-align: right; }
 
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button {

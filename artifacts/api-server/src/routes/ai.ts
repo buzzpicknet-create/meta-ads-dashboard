@@ -36,6 +36,37 @@ const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Fac
 مهمتك: تشخيص الحملات بمنهجية علمية تربط المقاييس ببعضها — مش مجرد قراءة أرقام منفصلة.
 
 ══════════════════════════════════════
+ZERO-TRUNCATION ANALYST — THE MEDIA BUYER MANIFESTO
+══════════════════════════════════════
+
+⚡ البيانات هي مصدر الحقيقة الوحيد. تلخيص البيانات = فشل.
+
+📊 بروتوكول الـ Deep Funnel Intelligence (إلزامي لكل إعلان):
+لكل إعلان، احسب واذكر:
+  1. Hook Rate (3s ÷ Impressions): تشخيص قوة الـ scroll-stopper
+  2. Hold Rate (100% ÷ 3s): تشخيص تفاعل الجمهور مع المحتوى
+  3. CTR وLP Drop-off: تشخيص ارتباط الرابط وسرعة الصفحة
+  4. CVR (Purchases ÷ LP Views): تشخيص قوة العرض والسعر
+
+🔤 قاموس الخبراء الإلزامي — استخدم هذه المصطلحات دائماً:
+  - Winning Angle: الإعلان الرابح الذي يستحق زيادة الميزانية
+  - Ad Fatigue: إجهاد الجمهور من تكرار الإعلان
+  - Bleeders: إعلانات تستنزف الميزانية بصمت بدون نتائج
+  - Funnel Leak: خسارة في مرحلة معينة من الـ funnel
+  - Scaling Opportunity: فرصة للتوسع بأمان
+
+🚫 قاعدة Zero Truncation — غير قابلة للمساومة أبداً:
+  - إذا رجع النظام 50 إعلان → قيّم الـ 50 كاملاً
+  - إذا رجع النظام 30 مجموعة → حلّل الـ 30 كاملاً
+  - ممنوع أبداً: "يوجد إعلانات أخرى..." أو "تم اختصار..."
+  - إذا كانت البيانات كبيرة → قسّمها لمراحل واكمل في نفس الرد
+
+📋 قواعد تنسيق الجداول في الـ Chat (إلزامية):
+  - دايماً استخدم Markdown table format
+  - لأسماء الحملات التي تحتوي على | أو - : ضعها بين backticks
+  - ترتيب الأعمدة القياسي: الحملة | الإنفاق | CPA | نسبة الجذب% | Hold Rate% | LPR% | نسبة النقر% | القرار
+
+══════════════════════════════════════
 الجزء 1 — فهم الـ Funnel بالكامل
 ══════════════════════════════════════
 
@@ -2408,14 +2439,16 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       if (!insights.by_adset || insights.by_adset.length === 0) return "لا توجد بيانات مجموعات إعلانية لهذه الحملة." + buildCacheNote(result.fromCache, result.cacheAgeMs);
 
       const rows: string[] = [`## المجموعات الإعلانية للحملة (آخر ${days} يوم):\n`];
-      rows.push("| المجموعة | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة النقر% | التكرار |");
-      rows.push("|----------|--------------|---------|-----------|-------------|---------|");
+      rows.push("| المجموعة | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة الجذب% | Hold Rate% | LPR% | نسبة النقر% | CPM (EGP) | التكرار |");
+      rows.push("|----------|--------------|---------|-----------|-------------|-----------|------|-------------|-----------|---------|");
       const sorted = [...insights.by_adset].sort((a, b) => b.spend - a.spend);
-      const ADSET_LIMIT = 20;
+      const ADSET_LIMIT = 25;
       const limited = sorted.slice(0, ADSET_LIMIT);
       const hasMore = sorted.length > ADSET_LIMIT;
       for (const as of limited) {
-        rows.push(`| ${as.label} | ${fmt(as.spend)} | ${as.purchases} | ${as.cpa > 0 ? fmt(as.cpa) : "—"} | ${fmt(as.ctr, 2)} | ${fmt(as.frequency, 2)} |`);
+        const holdR = as.holdRate > 0 ? fmt(as.holdRate, 1) : "—";
+        const lpvR  = as.lpvRate  > 0 ? fmt(as.lpvRate,  1) : "—";
+        rows.push(`| ${as.label} (id:${as.id}) | ${fmt(as.spend)} | ${as.purchases} | ${as.cpa > 0 ? fmt(as.cpa) : "—"} | ${fmt(as.hookRate, 1)} | ${holdR} | ${lpvR} | ${fmt(as.ctr, 2)} | ${fmt(as.cpm, 1)} | ${fmt(as.frequency, 2)} |`);
       }
       if (hasMore) rows.push(`\n> has_more: true — تم عرض أعلى ${ADSET_LIMIT} مجموعة من ${sorted.length} إجمالاً.`);
       return rows.join("\n") + buildCacheNote(result.fromCache, result.cacheAgeMs);
@@ -2666,25 +2699,28 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       });
 
       const adsetLabel = foundAdsetName ? `"${foundAdsetName}"` : adset_id;
+      const totalSpend = sorted.reduce((s, a) => s + a.spend, 0);
+      const avgCpa  = sorted.filter((a) => a.cpa > 0).reduce((s, a) => s + a.cpa, 0) / (sorted.filter((a) => a.cpa > 0).length || 1);
+      const avgHook = sorted.reduce((s, a) => s + a.hookRate, 0) / (sorted.length || 1);
+
       const rows: string[] = [
         `## الإعلانات داخل المجموعة ${adsetLabel} (آخر ${days} يوم):`,
-        `الحملة: ${foundCampaignName}\n`,
-        "| الإعلان | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة الجذب% | نسبة النقر% | الظهورات | التقييم |",
-        "|---------|--------------|---------|-----------|-------------|-------------|----------|---------|",
+        `الحملة: ${foundCampaignName} | إجمالي ${sorted.length} إعلان\n`,
+        "| الإعلان | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة الجذب% | Hold Rate% | LPR% | نسبة النقر% | CPM (EGP) | الظهورات | التقييم |",
+        "|---------|--------------|---------|-----------|-------------|-----------|------|-------------|-----------|----------|---------|",
       ];
 
-      const AD_LIMIT = 20;
+      const AD_LIMIT = 30;
       const hasMoreAds = sorted.length > AD_LIMIT;
       const displayAds = sorted.slice(0, AD_LIMIT);
 
-      const avgCpa = sorted.filter((a) => a.cpa > 0).reduce((s, a) => s + a.cpa, 0) / (sorted.filter((a) => a.cpa > 0).length || 1);
-      const avgHook = sorted.reduce((s, a) => s + a.hookRate, 0) / (sorted.length || 1);
-
       for (const ad of displayAds) {
+        const holdR = ad.holdRate > 0 ? fmt(ad.holdRate, 1) : "—";
+        const lpvR  = ad.lpvRate  > 0 ? fmt(ad.lpvRate,  1) : "—";
         let verdict = "—";
         if (ad.cpa > 0 && ad.cpa <= avgCpa * 0.85 && ad.hookRate >= avgHook) {
           verdict = "🏆 Winner";
-        } else if (ad.cpa > avgCpa * 1.3 && ad.spend > sorted.reduce((s, a) => s + a.spend, 0) * 0.15) {
+        } else if (ad.cpa > avgCpa * 1.3 && ad.spend > totalSpend * 0.15) {
           verdict = "🔴 Drain";
         } else if (ad.hookRate >= avgHook && ad.cpa > 0 && ad.cpa <= avgCpa * 1.1) {
           verdict = "✅ كويس";
@@ -2692,17 +2728,16 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
           verdict = "⚠️ Hook ضعيف";
         }
         rows.push(
-          `| ${ad.label} (id:${ad.id}) | ${fmt(ad.spend)} | ${ad.purchases} | ${ad.cpa > 0 ? fmt(ad.cpa) : "—"} | ${fmt(ad.hookRate, 2)} | ${fmt(ad.ctr, 2)} | ${ad.impressions.toLocaleString()} | ${verdict} |`
+          `| ${ad.label} (id:${ad.id}) | ${fmt(ad.spend)} | ${ad.purchases} | ${ad.cpa > 0 ? fmt(ad.cpa) : "—"} | ${fmt(ad.hookRate, 1)} | ${holdR} | ${lpvR} | ${fmt(ad.ctr, 2)} | ${fmt(ad.cpm, 1)} | ${ad.impressions.toLocaleString()} | ${verdict} |`
         );
       }
 
-      if (hasMoreAds) rows.push(`\n> has_more: true — تم عرض أعلى ${AD_LIMIT} إعلان من ${sorted.length} إجمالاً.`);
+      if (hasMoreAds) rows.push(`\n> has_more: true — عُرض أول ${AD_LIMIT} إعلان من ${sorted.length} إجمالاً. استخدم فترة أضيق لرؤية المزيد.`);
 
-      // Summary note
       const winner = sorted.find((a) => a.cpa > 0 && a.cpa <= avgCpa * 0.85 && a.hookRate >= avgHook);
-      const drain = sorted.find((a) => a.cpa > avgCpa * 1.3 && a.spend > sorted.reduce((s, a) => s + a.spend, 0) * 0.15);
-      if (winner) rows.push(`\n✅ الأفضل كفاءة: ${winner.label} — CPA: ${fmt(winner.cpa)} EGP، نسبة جذب: ${fmt(winner.hookRate, 2)}%`);
-      if (drain) rows.push(`🔴 الأعلى هدراً: ${drain.label} — CPA: ${fmt(drain.cpa)} EGP، إنفاق: ${fmt(drain.spend)} EGP`);
+      const drain  = sorted.find((a) => a.cpa > avgCpa * 1.3 && a.spend > totalSpend * 0.15);
+      if (winner) rows.push(`\n🏆 Winning Angle: ${winner.label} — CPA: ${fmt(winner.cpa)} EGP، Hook: ${fmt(winner.hookRate, 1)}%`);
+      if (drain)  rows.push(`🔴 Bleeder: ${drain.label} — CPA: ${fmt(drain.cpa)} EGP، إنفاق: ${fmt(drain.spend)} EGP`);
 
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
@@ -3075,6 +3110,16 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
   }, 8000);
   res.on("close", () => clearInterval(heartbeat));
 
+  const streamTimeout = setTimeout(() => {
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ content: "\n\n⏱️ انتهى الوقت المخصص (120 ثانية). الرجاء تضييق نطاق السؤال أو تحديد حملة أو فترة زمنية أقصر." })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      clearInterval(heartbeat);
+      res.end();
+    }
+  }, 120_000);
+  res.on("close", () => clearTimeout(streamTimeout));
+
   try {
     const memory = (userId && campaign_id)
       ? await fetchCampaignMemory(userId, campaign_id, conversation_id ?? null)
@@ -3140,7 +3185,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
-        max_completion_tokens: 4096,
+        max_completion_tokens: 8192,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
@@ -3381,7 +3426,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
-        max_completion_tokens: 4096,
+        max_completion_tokens: 8192,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",

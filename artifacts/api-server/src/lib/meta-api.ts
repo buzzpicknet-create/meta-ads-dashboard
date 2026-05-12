@@ -356,6 +356,7 @@ export interface DerivedMetrics extends AggregatedMetrics {
   crLpv: number;
   crClick: number;
   hookRate: number;
+  holdRate: number;
   frequency: number;
 }
 
@@ -370,6 +371,7 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
     crLpv: m.lpv ? (m.purchases / m.lpv) * 100 : 0,
     crClick: m.link_clicks ? (m.purchases / m.link_clicks) * 100 : 0,
     hookRate: m.impressions ? (m.video_plays / m.impressions) * 100 : 0,
+    holdRate: m.video_plays > 0 ? (m.v100 / m.video_plays) * 100 : 0,
     frequency: m.reach > 0 ? m.impressions / m.reach : 0,
   };
 }
@@ -379,8 +381,7 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
 const ATTRIBUTION_WINDOW = '["1d_click","7d_click","1d_view"]';
 
 // Full insight fields — used for getCampaignInsights (DiagnosisModal, ad-level detail).
-// Removed: ctr, cpc, cpm, frequency (pre-computed by Meta — we derive ourselves from raw counts),
-//          action_values (never read), video_p25/50/75_watched_actions (stored but never used in derive()).
+// Includes all funnel video checkpoints so we can compute Hold Rate (v100/video_plays).
 const INSIGHT_FIELDS = [
   "campaign_id",
   "campaign_name",
@@ -395,6 +396,9 @@ const INSIGHT_FIELDS = [
   "inline_link_clicks",
   "actions",
   "video_play_actions",
+  "video_p25_watched_actions",
+  "video_p50_watched_actions",
+  "video_p75_watched_actions",
   "video_p95_watched_actions",
   "video_p100_watched_actions",
 ].join(",");
@@ -542,6 +546,8 @@ export interface SegmentEntry {
   ctr: number;
   cr: number;
   hookRate: number;
+  holdRate: number;
+  lpvRate: number;
   effective_status?: string;
   issues?: AdIssue[];
   adset_id?: string;
@@ -703,6 +709,8 @@ export async function getCampaignInsights(opts: {
         ctr: d.ctr,
         cr: d.crLpv,
         hookRate: d.hookRate,
+        holdRate: d.holdRate,
+        lpvRate: d.lpvRate,
       };
     })
     .sort((a, b) => b.spend - a.spend);
@@ -740,6 +748,8 @@ export async function getCampaignInsights(opts: {
         ctr: d.ctr,
         cr: d.crLpv,
         hookRate: d.hookRate,
+        holdRate: d.holdRate,
+        lpvRate: d.lpvRate,
         effective_status: delivery?.effective_status,
         issues: delivery?.issues ?? [],
         adset_id: v.adset_id,

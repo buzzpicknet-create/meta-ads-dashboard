@@ -1,0 +1,60 @@
+Act as a Senior AI Architect and Master Media Buyer (7-Figure Performance Marketer). The user is strictly rejecting "Data Summarization" and "Simple Programming Responses." They need a hyper-intelligent Media Buying Assistant that provides 100% full data granularity paired with expert-level strategic analysis.
+
+Please implement this "Expert Media Buyer Intelligence" architecture:
+
+1. BACKEND: DATA PURIFICATION (STRICT - NO SUMMARIZATION)
+
+Modify all data fetching tools (get_campaign_insights, get_adsets, get_ads):
+
+PURIFY, DON'T SUMMARIZE: Remove non-marketing fields (API technical flags, long ID strings, raw JSON metadata) to save tokens for ACTUAL metrics.
+
+MANDATORY MARKETING METRICS: You MUST fetch every single funnel metric: spend, impressions, reach, outbound_clicks, ctr, cpc, actions:purchase, actions:landing_page_view, video_p3s_actions, video_p25_watched_actions, video_p50_watched_actions, video_p75_watched_actions, and video_p100_watched_actions.
+
+NO ROW SKIPPING: If an API call returns 100 ads, the tool MUST return 100 rows. If the LLM context window is limited, implement a "Next Page" token strategy so the AI can process the data in batches rather than skipping rows.
+
+2. LLM SYSTEM PROMPT: THE "ZERO-TRUNCATION" ANALYST
+
+Update the AI's core system prompt to enforce this data-driven persona:
+
+"""
+THE MEDIA BUYER MANIFESTO:
+You are a Senior Media Buyer. Data is your only source of truth. Summarizing data is a failure.
+
+STRICT DATA PROTOCOL:
+
+Zero Truncation: NEVER hide or skip an ad's performance. If you have 50 ads, you must evaluate all 50.
+
+Deep Funnel Intelligence (MANDATORY): For every single ad, calculate and report:
+
+Hook Rate (3s/Impressions): Diagnosis for the scroll-stopper.
+
+Hold Rate (ThruPlay/3s): Diagnosis for the creative's engagement.
+
+CTR & LP Drop-off: Diagnosis for the link relevance and page speed.
+
+CVR (Purchases/LP Views): Diagnosis for the offer/price.
+
+Sequential Analysis Rule: If the dataset is too large to fit in one response, tell the user: "الداتا كاملة وموجودة عندي، سأقوم بتحليل أول [X] إعلانات الآن ثم البقية في الرد القادم لضمان عدم ضياع أي معلومة."
+
+Professional Vocabulary: Use "Winning Angle," "Ad Fatigue," "Bleeders," "Funnel Leaks," and "Scaling Opportunity."
+"""
+
+3. FRONTEND: ELITE TABLE STABILITY
+
+Ensure the React Table renders ALL metrics fetched.
+
+Implement color-coding (Heatmap style) for metrics:
+
+Hook Rate > 30% (Green), < 20% (Red).
+
+CTR > 1.5% (Green), < 0.8% (Red).
+
+Add horizontal scroll for the table so data is never squashed.
+
+4. BATCHING & PERFORMANCE
+
+Set a 120-second timeout to allow the AI to process the massive raw dataset.
+
+Use Meta Batch API to pull all ad-level metrics in one call to ensure data completeness while avoiding Rate Limits.
+
+Please implement this to ensure the Media Buyer has the FULL picture with zero data loss.

@@ -538,6 +538,14 @@ function RenderMarkdown({ text }: { text: string }) {
         rows.push(parseTableRow(lines[i]!));
         i++;
       }
+      // Detect column type for heatmap & dir fix
+      const colTypes = headers.map(h => {
+        const hl = h.toLowerCase();
+        if (/جذب|hook\s*rate/i.test(h)) return "hook";
+        if (/نقر|ctr/i.test(h) && !/نقر.*لص|outbound/i.test(h)) return "ctr";
+        if (/الإعلان|الحملة|المجموعة|اسم|name/i.test(h)) return "name";
+        return hl;
+      });
       elements.push(
         <div key={`tbl-${i}`} className="ai-tbl-wrap">
           <table className="ai-tbl">
@@ -552,11 +560,20 @@ function RenderMarkdown({ text }: { text: string }) {
               {rows.map((row, ri) => (
                 <tr key={ri}>
                   {row.map((cell, ci) => {
+                    const colType = colTypes[ci] ?? "";
                     const isActive = /نشطة|ACTIVE|✅/.test(cell);
                     const isPaused = /متوقفة|PAUSED|⏸/.test(cell);
                     const isStatus = isActive || isPaused || /^[🔴🟡🟢]/.test(cell);
+                    const numVal = parseFloat(cell.replace(/[^\d.]/g, ""));
+                    let extraClass = "";
+                    if (colType === "hook" && !isNaN(numVal)) {
+                      extraClass = numVal >= 30 ? "ai-tbl-hook-good" : numVal < 20 ? "ai-tbl-hook-bad" : "";
+                    } else if (colType === "ctr" && !isNaN(numVal)) {
+                      extraClass = numVal >= 1.5 ? "ai-tbl-ctr-good" : numVal < 0.8 ? "ai-tbl-ctr-bad" : "";
+                    }
+                    const isNameCol = colType === "name" || ci === 0;
                     return (
-                      <td key={ci}>
+                      <td key={ci} className={`${extraClass} ${isNameCol ? "ai-tbl-name-cell" : ""}`.trim()}>
                         {isStatus
                           ? <span className={isActive ? "ai-tbl-pill-green" : "ai-tbl-pill-amber"}>{renderInline(cell)}</span>
                           : renderInline(cell)}
