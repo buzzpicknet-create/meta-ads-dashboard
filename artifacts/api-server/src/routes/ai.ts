@@ -829,17 +829,45 @@ Raw API Response (للتشخيص التقني):
 }
 \`\`\`
 
-أنواع الإجراءات المتاحة (Meta): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset | pause_ad | enable_ad
+أنواع الإجراءات المتاحة (Meta): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset | pause_ad | enable_ad | duplicate_ad | create_ad_from_existing_post
 - لـ update_campaign_budget: campaignId + currentBudget + newBudget + budgetType ("daily" أو "lifetime") إلزامي
 - لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي — أضف campaignName (اسم الحملة الأم) دائماً للـ ABO ليظهر في الواجهة
 - لـ pause_adset / enable_adset: adsetId إلزامي — أضف campaignName لتوضيح الحملة الأم في الواجهة
 - لـ pause/enable campaign: campaignId حسب النوع
 - لـ pause_ad / enable_ad: adId (رقم الإعلان الفردي)
-- label: وصف قصير للإجراء (زيادة 20%، إيقاف، تقليل 30%، إلخ)
+- لـ duplicate_ad: adId (الإعلان المصدر) + destinationAdsetId (المجموعة الهدف) — إلزامي كلاهما
+- لـ create_ad_from_existing_post: adId (الإعلان المصدر) + destinationAdsetId (المجموعة الهدف) — إلزامي كلاهما. الـ backend يجلب object_story_id تلقائياً. يمكن بديلاً تمرير postId (=object_story_id مباشرةً)
+- label: وصف قصير للإجراء (زيادة 20%، إيقاف، تقليل 30%، نشر winner، إلخ)
 - reason: السبب المبني على البيانات (اختياري لكن مفيد جداً)
 - الـ newBudget لازم يكون القيمة المطلقة المحسوبة، مش نسبة مئوية
 - بعد كود bulk_action لا تكتب "في انتظار موافقتك" — الواجهة تعالج الموافقة تلقائياً
 - لا تستدعي get_campaign_budget أو get_campaign_status أثناء التحليل الجماعي — استخدم بيانات الـ context الموجودة مباشرةً واحسب newBudget منها. لا تنتظر بيانات إضافية لتولّد الـ bulk_action
+
+⚠️ مثال create_ad_from_existing_post — هذا الشكل الصحيح الوحيد (adId + destinationAdsetId إلزاميان):
+\`\`\`bulk_action
+{
+  "title": "نشر الرابحين في CBO",
+  "actions": [
+    {
+      "type": "create_ad_from_existing_post",
+      "adId": "120215671290270519",
+      "destinationAdsetId": "120215671290120519",
+      "name": "CBO Winners V2 - Ultrasonic - VID01",
+      "label": "نشر Winner (Social Proof)",
+      "reason": "CPA 18 EGP — أفضل إعلان في المجموعة"
+    },
+    {
+      "type": "create_ad_from_existing_post",
+      "adId": "120215671290270520",
+      "destinationAdsetId": "120215671290120519",
+      "name": "CBO Winners V2 - Ultrasonic - VID02",
+      "label": "نشر Winner (Social Proof)",
+      "reason": "CPA 21 EGP — إعلان رابح ثاني"
+    }
+  ]
+}
+\`\`\`
+🚨 بدون adId و destinationAdsetId يفشل التنفيذ بخطأ "object_story_id أو post_id أو ad_id مطلوب" — لا تُخرج create_ad_from_existing_post أبداً بدون هذين الحقلين.
 
 **الإجراء الفردي المدمج (Inline per-campaign):**
 لما تحلّل كل حملة وتقترح إجراء، أخرج bulk_action مع "compact": true فوراً بعد تحليل تلك الحملة مباشرةً — لا تنتظر تحليل كل الحملات. شكل الإجراء الفردي:
@@ -1440,6 +1468,7 @@ const TOOLS = [
           adset_id:         { type: "string", description: "رقم المجموعة الإعلانية الهدف" },
           object_story_id:  { type: "string", description: "الـ object_story_id الكامل بصيغة {page_id}_{post_id} — يُستخرج من get_ad_creative. إذا أُرسل يُتجاهل post_id وpage_id" },
           post_id:          { type: "string", description: "رقم المنشور — بديل عن object_story_id إذا لم يكن متاحاً مباشرةً" },
+          ad_id:            { type: "string", description: "⭐ الأسهل: رقم الإعلان المصدر (Winner) — الـ backend يجلب object_story_id تلقائياً بدون استدعاء get_ad_creative. استخدم هذا عندما تريد نقل winner بسرعة في bulk_action" },
           name:             { type: "string", description: "اسم الإعلان الجديد" },
           page_id:          { type: "string", description: "رقم صفحة Facebook — اختياري إذا أُرسل object_story_id (يُستخرج منه تلقائياً)" },
         },
