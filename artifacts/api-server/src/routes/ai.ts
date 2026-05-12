@@ -346,13 +346,14 @@ Frequency (في 7 أيام):
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
-- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, media_url, media_type, primary_text, headline, daily_budget?, pixel_id?, page_id?, call_to_action?) — إنشاء حملة كاملة مع مجموعة إعلانية + كريتف + إعلان دفعة واحدة عبر Pipeboard CMP
-  - استخدم هذه الأداة عندما يُعطيك المستخدم رابط صفحة هبوطية ورابط ميديا
-  - media_type: "image" أو "video" — مطلوب دايماً، اسأل المستخدم لأن روابط Google Drive لا تحتوي على امتداد
-  - pixel_id: اسأل المستخدم — إذا أعطى الرقم تكون حملة OUTCOME_SALES، بدونه OUTCOME_TRAFFIC
-  - media_url: رابط صورة/فيديو مباشر أو رابط Google Drive (أي شكل — يُحوَّل تلقائياً)
-  - الاستهداف: Advantage+ Audience تلقائياً — لا تحتاج تحديد أعمار أو اهتمامات
-  - الميزانية الافتراضية: 20 EGP — دائماً PAUSED للمراجعة
+- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, adsets[], creatives[], pixel_id?, page_id?, call_to_action?) — إنشاء حملة كاملة مع عدة AdSets وعدة Creatives دفعة واحدة عبر Pipeboard CMP
+  - adsets[]: مصفوفة [{name, budget}] — كل AdSet له ميزانية مستقلة
+  - creatives[]: مصفوفة [{media_url, media_type, primary_text, headline}] — يُنشأ كل creative داخل كل AdSet
+  - page_id: مطلوب لإنشاء الإعلانات — اجلبه دائماً من fetch_account_metadata قبل الاستدعاء
+  - pixel_id: OUTCOME_SALES بوجوده، OUTCOME_TRAFFIC بدونه
+  - media_url: Google Drive (أي شكل — يُحوَّل تلقائياً) أو رابط مباشر
+  - الاستهداف: Advantage+ Audience تلقائياً — لا تضف أعمار أو اهتمامات
+  - الناتج: campaign_id + تفاصيل كل ad (نجاح/فشل). راجع النتيجة بدقة: إذا كان ads_created=0 أخبر المستخدم بسبب الفشل بوضوح
 
 قواعد الإنشاء:
 ١. اجمع كل المعلومات من المستخدم قبل استدعاء أداة الإنشاء (الاسم، الهدف، الميزانية، الاستهداف)
@@ -368,7 +369,7 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
 
 ١. **لا تسأل المستخدم عن أي شيء بعد.** استدعِ fetch_account_metadata فوراً (مرة واحدة فقط) لتجلب:
    - قائمة البيكسلات المتاحة في الحساب (مع أسمائها)
-   - صفحات Facebook المرتبطة
+   - صفحات Facebook المرتبطة — **احفظ page_id من هنا، مطلوب لإنشاء الإعلانات**
    - آخر الحملات النشطة (للمرجعية في التسمية والهيكل)
 
 ٢. بعد ما تعود النتائج، ابعت رسالة ملخّصة واحدة تتضمن:
@@ -388,7 +389,20 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
 
 ٥. استخدم get_campaigns للحصول على account_id (مرة واحدة فقط)
 
-٦. استدعِ launch_pipeboard_campaign بكل المعلومات بما فيها media_type وpixel_id وpage_id
+٦. استدعِ launch_pipeboard_campaign بكل المعلومات:
+   - adsets: مصفوفة [{name, budget}] — حتى لو مجموعة واحدة
+   - creatives: مصفوفة [{media_url, media_type, primary_text, headline}] — حتى لو creative واحد
+   - page_id: أرسله دائماً من نتيجة fetch_account_metadata
+   - pixel_id: أرسله إذا وافق المستخدم
+
+٧. **بعد الاستدعاء — افحص النتيجة بدقة:**
+   - إذا كان ads_created = 0 → أخبر المستخدم صراحةً أن الإعلانات فشلت وأذكر السبب من ad_results
+   - إذا كان ads_created < العدد المطلوب → اعرض قائمة بالإعلانات الفاشلة وأسبابها
+   - لا تفترض النجاح بمجرد إنشاء الحملة — الحملة بدون إعلانات = فشل جزئي
+
+لاختبار ABO (AdSet Budget Optimization):
+- إذا طلب المستخدم اختبار عدة مجموعات: adsets: [{name:"Broad", budget:50}, {name:"Retargeting", budget:30}]
+- إذا طلب اختبار عدة إعلانات: creatives: [{media_url:"link1",...}, {media_url:"link2",...}]
 
 قواعد النصوص:
 - إذا كتب المستخدم النص → استخدمه **حرفياً** بدون تعديل أو "تحسين"
@@ -909,23 +923,50 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "launch_pipeboard_campaign",
-      description: "استخدم هذه الأداة لإنشاء حملة Meta Ads كاملة عبر Pipeboard CMP عندما يزوّد المستخدم رابط الصفحة الهبوطية ورابط الميديا (Google Drive أو فيديو). تُنشئ الحملة والمجموعة الإعلانية في طلب واحد — دائماً بحالة PAUSED للمراجعة.",
+      description: "أنشئ حملة Meta Ads كاملة عبر Pipeboard CMP. تدعم إنشاء عدة AdSets وعدة Creatives (Ads) دفعة واحدة — لاختبار ABO أو تعدد الإعلانات. الحملة تُنشأ دائماً PAUSED للمراجعة. استخدم adsets[] وcreatives[] للإنشاء الجماعي. مطلوب page_id لإنشاء الإعلانات — اجلبه من fetch_account_metadata قبل الاستدعاء.",
       parameters: {
         type: "object",
         properties: {
-          account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX) — اجلبه من get_campaigns" },
-          campaign_name: { type: "string", description: "اسم جذّاب ومعبّر للحملة (مولّد تلقائياً من الـ AI)" },
-          landing_page_url: { type: "string", description: "رابط الصفحة الهبوطية — الـ URL التي سيُحوَّل إليها المستخدم بعد النقر" },
-          media_url: { type: "string", description: "رابط الميديا (Google Drive أو رابط فيديو/صورة مباشر)" },
-          media_type: { type: "string", enum: ["image", "video"], description: "نوع الميديا — image (صورة) أو video (فيديو). مطلوب لأن روابط Google Drive لا تحتوي على امتداد. اسأل المستخدم دائماً." },
-          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — افتراضي 20 إذا لم يُحدَّد" },
-          primary_text: { type: "string", description: "النص الإعلاني الرئيسي — مقنع، يتضمن إيموجي، مكتوب بالعربية" },
-          headline: { type: "string", description: "عنوان الإعلان المختصر بالعربية (15-25 حرف)" },
-          pixel_id: { type: "string", description: "معرّف بيكسل Meta (اختياري) — يُمكّن تتبع التحويلات ويُنشئ حملة OUTCOME_SALES. بدونه تُنشأ حملة OUTCOME_TRAFFIC. اسأل المستخدم دائماً." },
-          page_id: { type: "string", description: "معرّف صفحة Facebook (اختياري) — يُستخرج تلقائياً من الحساب إذا لم يُزوَّد. مطلوب لإنشاء الإعلان." },
-          call_to_action: { type: "string", description: "نص زر الدعوة للعمل (اختياري) — مثل: LEARN_MORE، SHOP_NOW، SIGN_UP. افتراضي: LEARN_MORE" },
+          account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX)" },
+          campaign_name: { type: "string", description: "اسم الحملة" },
+          landing_page_url: { type: "string", description: "رابط الصفحة الهبوطية لجميع الإعلانات" },
+          pixel_id: { type: "string", description: "معرّف بيكسل Meta — يُنشئ OUTCOME_SALES. بدونه OUTCOME_TRAFFIC." },
+          page_id: { type: "string", description: "معرّف صفحة Facebook — مطلوب لإنشاء الإعلانات. اجلبه من fetch_account_metadata." },
+          call_to_action: { type: "string", description: "زر CTA — LEARN_MORE | SHOP_NOW | SIGN_UP | SUBSCRIBE. افتراضي: LEARN_MORE" },
+          adsets: {
+            type: "array",
+            description: "مصفوفة AdSets للإنشاء. كل AdSet له اسم وميزانية يومية خاصة (EGP). للإنشاء الفردي: مصفوفة بعنصر واحد.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", description: "اسم المجموعة الإعلانية" },
+                budget: { type: "number", description: "الميزانية اليومية بـ EGP (مثال: 50)" },
+                targeting: { type: "string", description: "وصف اختياري للاستهداف (Broad / Retargeting / LAL) — للتوثيق فقط، الاستهداف يبقى Advantage+" },
+              },
+              required: ["name", "budget"],
+            },
+          },
+          creatives: {
+            type: "array",
+            description: "مصفوفة Creatives (إعلانات). كل creative يُنشأ داخل كل AdSet. لاختبار إعلانين: مصفوفة بعنصرين.",
+            items: {
+              type: "object",
+              properties: {
+                media_url: { type: "string", description: "رابط الميديا — Google Drive أو رابط مباشر. يُحوَّل تلقائياً." },
+                media_type: { type: "string", enum: ["image", "video"], description: "نوع الميديا — مطلوب دائماً" },
+                primary_text: { type: "string", description: "النص الإعلاني الرئيسي" },
+                headline: { type: "string", description: "عنوان الإعلان (15-25 حرف)" },
+              },
+              required: ["media_url", "media_type", "primary_text", "headline"],
+            },
+          },
+          media_url: { type: "string", description: "(للتوافق القديم) رابط ميديا واحد" },
+          media_type: { type: "string", enum: ["image", "video"], description: "(للتوافق القديم) نوع الميديا" },
+          primary_text: { type: "string", description: "(للتوافق القديم) نص إعلاني" },
+          headline: { type: "string", description: "(للتوافق القديم) عنوان" },
+          daily_budget: { type: "number", description: "(للتوافق القديم) ميزانية — استخدم adsets[].budget بدلاً منه" },
         },
-        required: ["account_id", "campaign_name", "landing_page_url", "media_url", "media_type", "primary_text", "headline"],
+        required: ["account_id", "campaign_name", "landing_page_url"],
       },
     },
   },
