@@ -1302,7 +1302,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "search_ads",
-      description: "ابحث عن إعلانات داخل مجموعة إعلانية بالاسم — يعرض النتائج حتى لو إنفاق 0. استخدم بعد duplicate_ad أو create_ad_from_existing_post للتحقق من وجود الإعلان.",
+      description: "ابحث عن إعلانات داخل مجموعة إعلانية بالاسم — يعرض النتائج حتى لو إنفاق 0. استخدم قبل create_ad_from_existing_post للحصول على id الإعلان المصدر (Winner)، ثم ضع هذا id في حقل adId في bulk_action. استخدم أيضاً بعد duplicate_ad للتحقق من وجود الإعلان.",
       parameters: {
         type: "object",
         properties: {
@@ -3381,6 +3381,23 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         for (const ad of results) {
           rows.push(`| ${ad.name} | ${ad.id} | ${statusAr(ad.status)} | ${statusAr(ad.effective_status)} | ${ad.created_time?.slice(0, 10) ?? "—"} | ${ad.updated_time?.slice(0, 10) ?? "—"} |`);
         }
+        rows.push(`\n---`);
+        rows.push(`⬆️ لنقل winner من القائمة أعلاه عبر bulk_action — استخدم العمود \`id\` كـ \`adId\` بالضبط:`);
+        rows.push("```bulk_action");
+        rows.push(`{
+  "title": "نشر الرابحين",
+  "actions": [
+    {
+      "type": "create_ad_from_existing_post",
+      "adId": "<ID من عمود id أعلاه>",
+      "destinationAdsetId": "<adset_id الهدف>",
+      "name": "<اسم الإعلان الجديد>",
+      "label": "نشر Winner (Social Proof)"
+    }
+  ]
+}`);
+        rows.push("```");
+        rows.push(`🔴 adId يجب أن يكون الرقم الفعلي من عمود id — لا تخمّن ولا تكتب placeholder.`);
         return rows.join("\n");
       } catch (err) {
         return `خطأ في البحث عن الإعلانات: ${err instanceof Error ? err.message : String(err)}`;
