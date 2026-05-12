@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, CheckCircle2, XCircle, Rocket, ChevronDown, ChevronUp, TrendingUp, TrendingDown, PauseCircle, PlayCircle } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Rocket, ChevronDown, ChevronUp, TrendingUp, TrendingDown, PauseCircle, PlayCircle, Pencil } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API  = `${BASE}/api`;
@@ -13,11 +13,15 @@ export interface BulkActionItem {
     | "pause_adset"
     | "enable_adset"
     | "pause_ad"
-    | "enable_ad";
+    | "enable_ad"
+    | "rename_campaign"
+    | "rename_adset"
+    | "rename_ad";
   campaignId?: string;
   adsetId?: string;
   adId?: string;
   name: string;
+  newName?: string;
   campaignName?: string;
   label: string;
   currentBudget?: number;
@@ -43,9 +47,14 @@ const TYPE_META: Record<BulkActionItem["type"], { icon: React.ReactNode; color: 
   enable_campaign: { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
   enable_adset:    { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
   enable_ad:       { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
+  rename_campaign: { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
+  rename_adset:    { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
+  rename_ad:       { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
 };
 
-// Detect if budget is decreasing vs increasing
+const FALLBACK_META = { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" };
+
+// Detect if budget is decreasing vs increasing; fallback for unknown types prevents crash
 function getBudgetMeta(item: BulkActionItem): { icon: React.ReactNode; badge: string; color: string } {
   if ((item.type === "update_campaign_budget" || item.type === "update_adset_budget") &&
       item.currentBudget !== undefined && item.newBudget !== undefined) {
@@ -56,7 +65,7 @@ function getBudgetMeta(item: BulkActionItem): { icon: React.ReactNode; badge: st
       color: "text-red-600 dark:text-red-400",
     };
   }
-  return TYPE_META[item.type];
+  return TYPE_META[item.type] ?? FALLBACK_META;
 }
 
 function buildToolCall(item: BulkActionItem): { tool: string; args: Record<string, unknown> } {
@@ -77,6 +86,12 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
       return { tool: "pause_ad", args: { ad_id: item.adId, name: item.name } };
     case "enable_ad":
       return { tool: "enable_ad", args: { ad_id: item.adId, name: item.name } };
+    case "rename_campaign":
+      return { tool: "rename_campaign", args: { campaign_id: item.campaignId, current_name: item.name, new_name: item.newName ?? item.name } };
+    case "rename_adset":
+      return { tool: "rename_adset", args: { adset_id: item.adsetId, current_name: item.name, new_name: item.newName ?? item.name } };
+    case "rename_ad":
+      return { tool: "rename_ad", args: { ad_id: item.adId, current_name: item.name, new_name: item.newName ?? item.name } };
   }
 }
 
