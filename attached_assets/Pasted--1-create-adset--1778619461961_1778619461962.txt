@@ -1,0 +1,66 @@
+انسخ للمبرمج “قائمة المراجعة” دي كلها مرة واحدة:
+
+1) create_adset — (أنت طلبته) + إضافات لازم
+
+لازم يرجّع: adset_id
+verify: GET /{adset_id}?fields=id,name,status,effective_status,campaign_id,created_time,updated_time,daily_budget,optimization_goal,billing_event
+لو فشل: رجّع error.code, message, error_subcode, error_user_title, error_user_msg, fbtrace_id
+ممنوع success بدون adset_id
+2) duplicate_ad(ad_id, destination_adset_id) — لازم يبقى “Copy Ad Contract”
+
+أكثر نقطة عرضة لفشل صامت.
+
+لازم يرجّع: new_ad_id (أو copied_ad_id)
+verify: GET /{new_ad_id}?fields=id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,object_story_id}
+لو فشل: رجّع error الحقيقي + fbtrace_id
+كمان يرجّع: source_ad_id, destination_adset_id
+أخطاء شائعة لازم تظهر:
+
+invalid destination adset
+creative permissions / page permissions
+ad account disabled
+rate limit
+3) create_ad_from_existing_post(account_id, adset_id, object_story_id/post_id)
+
+لازم يرجّع: new_ad_id
+verify: GET على الـ ad_id
+لو object_story_id غلط/مش مسموح: يظهر error_subcode
+ممنوع success بدون new_ad_id
+4) get_ad_creative(ad_id) — لضمان الـ rebuild/النسخ
+
+لازم يرجّع حقول ثابتة دائماً (حتى لو null):
+- primary_text, headline, media_type
+
+- video_id أو image_hash
+
+- link_url, call_to_action
+
+- object_story_id, page_id, instagram_actor_id
+
+لو rate limit: يرجّع retry_after_seconds بشكل صريح
+5) enable_campaign / enable_adset / enable_ad (لو هتشغّل الساعة 12)
+
+لازم يرجّع effective_status بعد التغيير
+verify: GET status بعد enable
+لازم يطبق Cooldown check من ناحيتكم أو على الأقل يرجّع updated_time
+6) search_campaigns / search_adsets / search_ads (Tools للـ verify)
+
+علشان نتأكد بدون Insights:
+
+search_adsets(campaign_id, query?):
+- GET /{campaign_id}/adsets?fields=id,name,status,effective_status,created_time,updated_time,daily_budget&limit=200
+
+search_ads(adset_id, query?):
+- GET /{adset_id}/ads?fields=id,name,status,effective_status,created_time,updated_time&limit=200
+
+7) Contract موحّد لكل Write (الأهم)
+
+أي tool write لازم يرجّع:
+
+success (boolean)
+id created/changed (campaign_id/adset_id/ad_id…)
+verified (boolean) + verified_fields (الـ GET result)
+meta_error (لو فشل): {code,message,error_subcode,fbtrace_id}
+No success without id
+No success without verify (أو على الأقل verify_attempted + سبب فشل verify)
+قرار الأوبوس: خلي المبرمج يطبّق Standard Write Contract على create_adset + duplicate_ad + create_ad_from_existing_post أولاً — السبب: دول الـ 3 نقاط اللي لو فيها “نجاح وهمي” هتضيّع وقتنا تاني 🔴

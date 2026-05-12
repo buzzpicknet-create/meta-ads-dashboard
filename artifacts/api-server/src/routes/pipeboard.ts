@@ -134,6 +134,66 @@ function extractMetaError(raw: string): string {
   return raw.slice(0, 350);
 }
 
+// ── Standard Write Contract — shared helpers ───────────────────────────────────
+interface MetaErrorDetails {
+  code?: number;
+  message?: string;
+  error_subcode?: number;
+  error_user_title?: string;
+  error_user_msg?: string;
+  fbtrace_id?: string;
+}
+
+function parseMetaErrorDetails(raw: string): MetaErrorDetails {
+  const codeMatch    = raw.match(/"code"\s*:\s*(\d+)/);
+  const subMatch     = raw.match(/"error_subcode"\s*:\s*(\d+)/);
+  const msgMatch     = raw.match(/"message"\s*:\s*"([^"]+)"/) ?? raw.match(/"error"\s*:\s*"([^"]+)"/);
+  const titleMatch   = raw.match(/"error_user_title"\s*:\s*"([^"]+)"/);
+  const userMsgMatch = raw.match(/"error_user_msg"\s*:\s*"([^"]+)"/);
+  const traceMatch   = raw.match(/"fbtrace_id"\s*:\s*"([^"]+)"/);
+  return {
+    code:             codeMatch?.[1]    ? Number(codeMatch[1])    : undefined,
+    message:          msgMatch?.[1]     ?? raw.slice(0, 400),
+    error_subcode:    subMatch?.[1]     ? Number(subMatch[1])     : undefined,
+    error_user_title: titleMatch?.[1]   ?? undefined,
+    error_user_msg:   userMsgMatch?.[1] ?? undefined,
+    fbtrace_id:       traceMatch?.[1]   ?? undefined,
+  };
+}
+
+interface VerifyResult {
+  verified: boolean;
+  verified_fields?: Record<string, unknown>;
+  meta_error?: MetaErrorDetails;
+}
+
+async function verifyMetaEntityDirect(id: string, fields: string, token: string): Promise<VerifyResult> {
+  if (!token) return { verified: false, meta_error: { message: "META_ACCESS_TOKEN missing" } };
+  try {
+    const url = new URL(`https://graph.facebook.com/v21.0/${id}`);
+    url.searchParams.set("fields", fields);
+    url.searchParams.set("access_token", token);
+    const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(15_000) });
+    const json = await resp.json() as Record<string, unknown>;
+    if (json.error) {
+      const ve = typeof json.error === "object" && json.error !== null
+        ? json.error as Record<string, unknown> : {};
+      return {
+        verified: false,
+        meta_error: {
+          code:          ve.code          != null ? Number(ve.code)          : undefined,
+          message:       String(ve.message ?? `Meta returned error for ${id}`),
+          error_subcode: ve.error_subcode != null ? Number(ve.error_subcode) : undefined,
+          fbtrace_id:    ve.fbtrace_id    != null ? String(ve.fbtrace_id)    : undefined,
+        },
+      };
+    }
+    return { verified: true, verified_fields: json };
+  } catch (err) {
+    return { verified: false, meta_error: { message: err instanceof Error ? err.message : String(err) } };
+  }
+}
+
 // ── POST /api/pipeboard/action ─────────────────────────────────
 router.post("/pipeboard/action", async (req: Request, res: Response) => {
   const role = req.session?.role;
@@ -303,6 +363,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     let dupSuccess = false;
     let dupMsg = "";
+    let dupNewAdId = "";
+    let dupVerify: VerifyResult = { verified: false };
+    let dupMetaError: MetaErrorDetails | null = null;
+
     try {
       const body = new URLSearchParams({
         access_token: metaToken,
@@ -315,16 +379,56 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         signal: AbortSignal.timeout(30_000),
       });
       const json = await resp.json() as Record<string, unknown>;
+      logger.info({ json: JSON.stringify(json).slice(0, 400) }, "duplicate_ad: Meta response");
+
       if (json.error) {
-        const err = json.error as Record<string, unknown>;
-        const msg = String(err.error_user_msg ?? err.message ?? "خطأ Meta غير معروف");
-        dupMsg = `${msg} (code: ${err.code ?? "?"})`;
-      } else {
-        dupSuccess = true;
-        const newIds = (json.copies as Array<Record<string, unknown>> | undefined)?.[0];
-        const newAdId = String(newIds?.id ?? json.id ?? "");
-        dupMsg = newAdId ? `تم نسخ الإعلان — الرقم الجديد: ${newAdId}` : "تم نسخ الإعلان";
+        const e = json.error as Record<string, unknown>;
+        dupMetaError = {
+          code:             e.code            != null ? Number(e.code)           : undefined,
+          message:          String(e.error_user_msg ?? e.message ?? "خطأ Meta غير معروف"),
+          error_subcode:    e.error_subcode    != null ? Number(e.error_subcode)  : undefined,
+          error_user_title: e.error_user_title != null ? String(e.error_user_title) : undefined,
+          error_user_msg:   e.error_user_msg   != null ? String(e.error_user_msg)   : undefined,
+          fbtrace_id:       e.fbtrace_id       != null ? String(e.fbtrace_id)     : undefined,
+        };
+        throw new Error(
+          `فشل نسخ الإعلان — ${String(dupMetaError.message)}` +
+          (dupMetaError.code         ? ` (code: ${dupMetaError.code})`                : "") +
+          (dupMetaError.error_subcode ? `, subcode: ${dupMetaError.error_subcode}`    : "") +
+          (dupMetaError.fbtrace_id   ? ` | fbtrace_id: ${dupMetaError.fbtrace_id}`   : "")
+        );
       }
+
+      // Extract new_ad_id — fail hard if missing
+      const copiesArr = Array.isArray(json.copies) ? json.copies as Array<Record<string, unknown>> : [];
+      dupNewAdId = String(copiesArr[0]?.id ?? json.id ?? json.copied_ad_id ?? "");
+      if (!dupNewAdId) {
+        dupMetaError = { message: "Meta لم يُعد ad_id للإعلان المنسوخ", ...parseMetaErrorDetails(JSON.stringify(json)) };
+        throw new Error("duplicate_ad: لم يُعد Meta أي id للإعلان المنسوخ");
+      }
+
+      // Verify immediately
+      dupVerify = await verifyMetaEntityDirect(
+        dupNewAdId,
+        "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,object_story_id}",
+        metaToken
+      );
+      if (!dupVerify.verified) {
+        dupMetaError = dupVerify.meta_error ?? { message: `verify failed for new_ad_id ${dupNewAdId}` };
+        throw new Error(
+          `duplicate_ad: Pipeboard أعطى id=${dupNewAdId} لكن Meta فشل التحقق — ${String(dupMetaError.message)}`
+        );
+      }
+
+      dupSuccess = true;
+      dupMsg = [
+        `تم نسخ الإعلان "${adLabel}"`,
+        `new_ad_id: ${dupNewAdId}`,
+        `source_ad_id: ${adId}`,
+        `destination_adset_id: ${destAdsetId}`,
+        `الحالة: ${String(dupVerify.verified_fields?.effective_status ?? "PAUSED")}`,
+      ].join(" — ");
+
     } catch (err) {
       dupMsg = err instanceof Error ? err.message : String(err);
     }
@@ -337,9 +441,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
 
     if (dupSuccess) {
-      res.json({ success: true, message: dupMsg });
+      res.json({
+        success: true, message: dupMsg,
+        new_ad_id: dupNewAdId,
+        source_ad_id: adId,
+        destination_adset_id: destAdsetId,
+        verified: true,
+        verified_fields: dupVerify.verified_fields,
+      });
     } else {
-      res.status(500).json({ error: dupMsg });
+      res.status(500).json({ error: dupMsg, ...(dupMetaError ? { meta_error: dupMetaError } : {}) });
     }
     return;
   }
@@ -423,10 +534,31 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       }
       const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
       const newAdId = adMatch?.[1] ?? "";
+      if (!newAdId) throw new Error(`لم يُعد ad_id — ${extractMetaError(adText)}`);
+
+      // Verify immediately (Standard Write Contract)
+      const cafpVerify = await verifyMetaEntityDirect(
+        newAdId,
+        "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
+        process.env.META_ACCESS_TOKEN ?? ""
+      );
+      if (!cafpVerify.verified) {
+        const ve = cafpVerify.meta_error ?? {};
+        throw new Error(`create_ad_from_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${String(ve.message ?? "")}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`);
+      }
+
       cafpSuccess = true;
-      cafpMsg = newAdId
-        ? `تم إنشاء الإعلان من المنشور ${postId} — Ad ID: ${newAdId} — موقوف للمراجعة`
-        : `تم إنشاء الإعلان من المنشور — موقوف للمراجعة`;
+      cafpMsg = [
+        `تم إنشاء الإعلان من المنشور ${postId}`,
+        `new_ad_id: ${newAdId}`,
+        `adset_id: ${adsetId}`,
+        `object_story_id: ${objectStoryId}`,
+        `الحالة: ${String(cafpVerify.verified_fields?.effective_status ?? "PAUSED")}`,
+      ].join(" — ");
+
+      // Store new_ad_id for response
+      (args as Record<string, unknown>).__new_ad_id = newAdId;
+      (args as Record<string, unknown>).__cafpVerify = cafpVerify;
     } catch (err) {
       cafpMsg = err instanceof Error ? err.message : String(err);
       _pbWriteClient = null;
@@ -437,11 +569,20 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       `INSERT INTO pipeboard_actions
          (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [executedBy, tool, JSON.stringify(args ?? {}), cafpSuccess, cafpMsg, null, null, false]
+      [executedBy, tool, JSON.stringify(args ?? {}), cafpSuccess, cafpMsg, null, String(args?.adset_id ?? ""), false]
     ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
 
     if (cafpSuccess) {
-      res.json({ success: true, message: cafpMsg });
+      const newAdIdOut = String((args as Record<string, unknown>).__new_ad_id ?? "");
+      const cafpV = (args as Record<string, unknown>).__cafpVerify as VerifyResult | undefined;
+      res.json({
+        success: true, message: cafpMsg,
+        new_ad_id: newAdIdOut,
+        adset_id: String(args?.adset_id ?? ""),
+        object_story_id: String(args?.object_story_id ?? `${args?.page_id ?? ""}_${args?.post_id ?? ""}`),
+        verified: true,
+        verified_fields: cafpV?.verified_fields,
+      });
     } else {
       res.status(500).json({ error: cafpMsg });
     }
@@ -542,10 +683,29 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       }
       const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
       const newAdId = adMatch?.[1] ?? "";
+      if (!newAdId) throw new Error(`لم يُعد ad_id — ${extractMetaError(adText)}`);
+
+      // Verify immediately (Standard Write Contract)
+      const efpVerify = await verifyMetaEntityDirect(
+        newAdId,
+        "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
+        process.env.META_ACCESS_TOKEN ?? ""
+      );
+      if (!efpVerify.verified) {
+        const ve = efpVerify.meta_error ?? {};
+        throw new Error(`create_ad_from_existing_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${String(ve.message ?? "")}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`);
+      }
+
       efpSuccess = true;
-      efpMsg = newAdId
-        ? `تم إنشاء الإعلان من المنشور (object_story_id: ${objectStoryId}) — Ad ID: ${newAdId} — موقوف للمراجعة`
-        : `تم إنشاء الإعلان من المنشور — موقوف للمراجعة`;
+      efpMsg = [
+        `تم إنشاء الإعلان من المنشور (object_story_id: ${objectStoryId})`,
+        `new_ad_id: ${newAdId}`,
+        `adset_id: ${adsetId}`,
+        `الحالة: ${String(efpVerify.verified_fields?.effective_status ?? "PAUSED")}`,
+      ].join(" — ");
+
+      (args as Record<string, unknown>).__new_ad_id = newAdId;
+      (args as Record<string, unknown>).__efpVerify = efpVerify;
     } catch (err) {
       efpMsg = err instanceof Error ? err.message : String(err);
       _pbWriteClient = null;
@@ -556,11 +716,20 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       `INSERT INTO pipeboard_actions
          (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [executedBy, tool, JSON.stringify(args ?? {}), efpSuccess, efpMsg, null, null, false]
+      [executedBy, tool, JSON.stringify(args ?? {}), efpSuccess, efpMsg, null, String(args?.adset_id ?? ""), false]
     ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
 
     if (efpSuccess) {
-      res.json({ success: true, message: efpMsg });
+      const newAdIdOut = String((args as Record<string, unknown>).__new_ad_id ?? "");
+      const efpV = (args as Record<string, unknown>).__efpVerify as VerifyResult | undefined;
+      res.json({
+        success: true, message: efpMsg,
+        new_ad_id: newAdIdOut,
+        adset_id: String(args?.adset_id ?? ""),
+        object_story_id: String(args?.object_story_id ?? `${args?.page_id ?? ""}_${args?.post_id ?? ""}`),
+        verified: true,
+        verified_fields: efpV?.verified_fields,
+      });
     } else {
       res.status(500).json({ error: efpMsg });
     }

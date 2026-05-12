@@ -1868,6 +1868,53 @@ export async function searchCampaignsByName(
   return rows.filter(r => r.name?.toLowerCase().includes(q));
 }
 
+// ── Search adsets by campaign (no Insights — shows 0-spend adsets) ───────────
+export interface AdsetSearchResult {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  daily_budget?: string;
+  created_time: string;
+  updated_time: string;
+}
+
+export async function searchAdsetsByCampaign(
+  campaignId: string,
+  query: string,
+): Promise<AdsetSearchResult[]> {
+  const rows = await fbGet<AdsetSearchResult>(
+    `/${campaignId}/adsets`,
+    { fields: "id,name,status,effective_status,daily_budget,created_time,updated_time", limit: "200" },
+  );
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(r => r.name?.toLowerCase().includes(q));
+}
+
+// ── Search ads by adset (no Insights — shows 0-spend ads) ────────────────────
+export interface AdSearchResult {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  created_time: string;
+  updated_time: string;
+}
+
+export async function searchAdsByAdset(
+  adsetId: string,
+  query: string,
+): Promise<AdSearchResult[]> {
+  const rows = await fbGet<AdSearchResult>(
+    `/${adsetId}/ads`,
+    { fields: "id,name,status,effective_status,created_time,updated_time", limit: "200" },
+  );
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(r => r.name?.toLowerCase().includes(q));
+}
+
 // ── Account Metadata (pixels + pages) ────────────────────────────────────────
 export interface AccountMetadata {
   pixels: { id: string; name: string }[];

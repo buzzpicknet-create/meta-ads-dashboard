@@ -12,6 +12,8 @@ import {
   getAdCreativeInfo,
   getAdCreativeContent,
   searchCampaignsByName,
+  searchAdsetsByCampaign,
+  searchAdsByAdset,
   fetchAccountMetadata,
   isRateLimitActive,
   type CampaignDetails,
@@ -483,10 +485,13 @@ Frequency (في 7 أيام):
   - objectives: OUTCOME_SALES | OUTCOME_LEADS | OUTCOME_TRAFFIC | OUTCOME_AWARENESS | OUTCOME_ENGAGEMENT
   - status: PAUSED (افتراضي — للمراجعة) أو ACTIVE (تشغيل فوري)
   - بعد الإنشاء: استخدم search_campaigns(account_id, campaign_name) للتحقق الهيكلي
-- create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?) — إنشاء مجموعة إعلانية
+- search_adsets(campaign_id, query?) — ابحث عن مجموعات داخل حملة، يعرض حتى 0-spend. استخدم بعد create_adset للتأكد.
+- search_ads(adset_id, query?) — ابحث عن إعلانات داخل مجموعة، يعرض حتى 0-spend. استخدم بعد duplicate_ad / create_ad_from_existing_post للتأكد.
+- create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?) — إنشاء مجموعة إعلانية. يُعيد adset_id + effective_status + daily_budget مع verify فوري. لا "success" بدون adset_id حقيقي.
   - optimization_goal: OFFSITE_CONVERSIONS | LEAD_GENERATION | LINK_CLICKS | LANDING_PAGE_VIEWS | THRUPLAY | REACH
   - billing_event: IMPRESSIONS (الأشيع) | LINK_CLICKS
   - targeting مثال: {geo_locations: {countries: ["EG"]}, age_min: 25, age_max: 45}
+  - بعد الإنشاء: استخدم search_adsets(campaign_id, adset_name) للتحقق الهيكلي
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
@@ -1104,6 +1109,36 @@ const TOOLS = [
           query:      { type: "string", description: "الكلمة أو الجزء الذي تبحث عنه في اسم الحملة — اتركه فارغاً لإظهار كل الحملات (حتى 200)" },
         },
         required: ["account_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "search_adsets",
+      description: "ابحث عن مجموعات إعلانية داخل حملة بالاسم — يعرض النتائج حتى لو إنفاق 0. استخدم بعد create_adset للتحقق الهيكلي بدون Insights، أو للعثور على مجموعة قديمة.",
+      parameters: {
+        type: "object",
+        properties: {
+          campaign_id: { type: "string", description: "رقم الحملة" },
+          query:       { type: "string", description: "جزء من اسم المجموعة — اتركه فارغاً لإظهار كل المجموعات" },
+        },
+        required: ["campaign_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "search_ads",
+      description: "ابحث عن إعلانات داخل مجموعة إعلانية بالاسم — يعرض النتائج حتى لو إنفاق 0. استخدم بعد duplicate_ad أو create_ad_from_existing_post للتحقق من وجود الإعلان.",
+      parameters: {
+        type: "object",
+        properties: {
+          adset_id: { type: "string", description: "رقم المجموعة الإعلانية" },
+          query:    { type: "string", description: "جزء من اسم الإعلان — اتركه فارغاً لإظهار كل الإعلانات" },
+        },
+        required: ["adset_id"],
       },
     },
   },
@@ -3114,6 +3149,61 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         return rows.join("\n");
       } catch (err) {
         return `خطأ في البحث عن الحملات: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "search_adsets") {
+      const campaignId = String(args.campaign_id ?? "");
+      if (!campaignId) return "campaign_id مطلوب.";
+      const query = String(args.query ?? "").trim();
+      try {
+        const results = await searchAdsetsByCampaign(campaignId, query);
+        if (results.length === 0) {
+          return query
+            ? `لم تُعثر على مجموعات تحتوي على "${query}" في الحملة ${campaignId}.`
+            : `لا توجد مجموعات إعلانية في الحملة ${campaignId}.`;
+        }
+        const statusAr = (s: string) =>
+          s === "ACTIVE" ? "✅ نشطة" : s === "PAUSED" ? "⏸ موقوفة" : s === "ARCHIVED" ? "🗄 مؤرشفة" : s;
+        const rows = [
+          `## مجموعات الحملة ${campaignId}${query ? ` — "${query}"` : ""} (${results.length}):\n`,
+          "| المجموعة | id | الحالة | effective_status | الميزانية/يوم | تاريخ الإنشاء |",
+          "|----------|-----|--------|-----------------|--------------|--------------|",
+        ];
+        for (const a of results) {
+          const budget = a.daily_budget ? `${(Number(a.daily_budget) / 100).toFixed(0)} EGP` : "—";
+          rows.push(`| ${a.name} | ${a.id} | ${statusAr(a.status)} | ${statusAr(a.effective_status)} | ${budget} | ${a.created_time?.slice(0, 10) ?? "—"} |`);
+        }
+        return rows.join("\n");
+      } catch (err) {
+        return `خطأ في البحث عن المجموعات: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "search_ads") {
+      const adsetId = String(args.adset_id ?? "");
+      if (!adsetId) return "adset_id مطلوب.";
+      const query = String(args.query ?? "").trim();
+      try {
+        const results = await searchAdsByAdset(adsetId, query);
+        if (results.length === 0) {
+          return query
+            ? `لم تُعثر على إعلانات تحتوي على "${query}" في المجموعة ${adsetId}.`
+            : `لا توجد إعلانات في المجموعة ${adsetId}.`;
+        }
+        const statusAr = (s: string) =>
+          s === "ACTIVE" ? "✅ نشط" : s === "PAUSED" ? "⏸ موقوف" : s === "ARCHIVED" ? "🗄 مؤرشف" : s;
+        const rows = [
+          `## إعلانات المجموعة ${adsetId}${query ? ` — "${query}"` : ""} (${results.length}):\n`,
+          "| الإعلان | id | الحالة | effective_status | تاريخ الإنشاء | آخر تعديل |",
+          "|---------|-----|--------|-----------------|--------------|-----------|",
+        ];
+        for (const ad of results) {
+          rows.push(`| ${ad.name} | ${ad.id} | ${statusAr(ad.status)} | ${statusAr(ad.effective_status)} | ${ad.created_time?.slice(0, 10) ?? "—"} | ${ad.updated_time?.slice(0, 10) ?? "—"} |`);
+        }
+        return rows.join("\n");
+      } catch (err) {
+        return `خطأ في البحث عن الإعلانات: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
 
