@@ -1,0 +1,62 @@
+Act as a Principal AI Architect and 8-Figure Media Buyer. We are implementing the "Opus 4.7" standard—the absolute pinnacle of AI reasoning and professional UI design, specifically mimicking the high-contrast, clean, and analytical aesthetic of the latest premium AI dashboards (Claude/Gemini Style).
+
+Please implement this "Opus-Level Mastery" architecture:
+
+1. THE "OPUS 4.7" INTELLIGENCE PROTOCOL
+
+Update the System Prompt to enforce the most advanced expert persona ever created for Media Buying:
+
+Executive Reasoning Block (The Brain): Before any data is shown, the AI must output a "Strategic Logic" section. This is a high-level summary of the "Why" behind the numbers using a soft-background block.
+
+The "Sovereign" Header (H1): Start with a massive, elegant header: # 🧠 مستوى Opus 4.7: العقل المدبر للميديا باينج.
+
+Precision Typography:
+
+English Numerals (123) ONLY for all metrics and data.
+
+Use ### for secondary titles with increased vertical whitespace.
+
+Semantic Annotations: Use status-text with high-contrast badges: (CPA: 12.5 EGP | Status: Scaling 🟢).
+
+2. FRONTEND: THE "ELITE ARTIFACTS" UI (UX)
+
+Rewrite the Chat and Table components to meet the highest "Pro-SaaS" standards (Claude-like):
+
+Observation Cards (The Insight System):
+When the AI provides diagnostics, it MUST use styled cards for different insight types:
+
+إنجاز (Achievement): Green border, light green background, for winning campaigns.
+
+تراجع (Setback): Red border, light red background, for bleeding campaigns.
+
+ملاحظة (Note): Yellow/Blue border, for neutral observations.
+
+The "Opus" Table Fix:
+
+min-w-[1300px] to ensure zero squashing.
+
+Comparison Mode: Columns should support showing "Trend" (e.g., 42.6 ج.م (-15%) with color coding).
+
+Subtle Heatmapping: Very light background tints for numeric cells to indicate performance tiers.
+
+Visual Density: Increase base font size to text-[18px] for headings and text-[16px] for body text. Use 'Readex Pro' for Arabic and 'Inter' for numbers.
+
+3. THE "STRATEGIC COMMAND" REASONING
+
+The AI must behave like a Chief Marketing Officer (CMO):
+
+Root Cause Analysis: If a campaign is failing, look for the "Root Cause" (Creative, LP, or Auction).
+
+Predictive Modeling: Predict spend/performance for the next 7 days based on current velocity.
+
+Decisive Authority: Use "قرار الأوبوس (Opus Verdict):" followed by a bold, numbered action plan.
+
+4. DATA INTEGRITY & ARCHITECTURE
+
+100% Payload Fidelity: Never skip rows. Process every single ad in the account.
+
+Meta API Synthesis: Fetch deep-funnel video metrics (Hook Rate, Hold Rate) for true creative audit.
+
+Long-Term Memory: AI must remember Target CPAs from previous sessions and judge current data against them.
+
+Please implement this total overhaul to move from "Fast AI" to "Deep Intelligence" (Opus 4.7 Standard).
