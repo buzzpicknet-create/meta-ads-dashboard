@@ -1768,11 +1768,10 @@ async function getPipeboardClient(): Promise<Client> {
 
 // ── Pipeboard MCP read helper ────────────────────────────────────────────────
 // Uses the singleton client — no per-call connection overhead.
-// ── Tool-result truncation ────────────────────────────────────────────────────
-// Pipeboard/Meta API responses can be thousands of tokens.
-// We keep only the first MAX_TOOL_RESULT_CHARS characters so the LLM receives
-// the most-relevant rows (top of the list) without ballooning the context window.
-const MAX_TOOL_RESULT_CHARS = 3500;
+// ── Tool-result safety cap ────────────────────────────────────────────────────
+// Hard ceiling only — keeps context window sane if an API returns an absurd payload.
+// Normal adset/ad responses (hundreds of rows) are well under this limit.
+const MAX_TOOL_RESULT_CHARS = 50_000;
 
 function truncateToolResult(text: string, maxChars = MAX_TOOL_RESULT_CHARS): string {
   if (text.length <= maxChars) return text;
@@ -1780,11 +1779,7 @@ function truncateToolResult(text: string, maxChars = MAX_TOOL_RESULT_CHARS): str
   const slice = text.slice(0, maxChars);
   const lastNl = slice.lastIndexOf("\n");
   const cutAt = lastNl > maxChars * 0.75 ? lastNl : maxChars;
-  const removed = text.length - cutAt;
-  return (
-    text.slice(0, cutAt) +
-    `\n\n⚠️ [تم اختصار ${Math.round(removed / 1000)}K حرف — أرسل نتائج جزئية فقط لتوفير التكلفة]`
-  );
+  return text.slice(0, cutAt);
 }
 
 async function callPipeboardRead(
