@@ -1261,12 +1261,12 @@ function CampaignBreakdown({
           </CardTitle>
           <div className="flex items-center gap-1.5 mr-auto">
             {worstCount > 0 && (
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-400">
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 border border-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20">
                 {worstCount} خاسر
               </span>
             )}
             {bestCount > 0 && (
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20">
                 {bestCount} رابح
               </span>
             )}
@@ -1276,90 +1276,43 @@ function CampaignBreakdown({
           مقارنة كل حملة بمتوسط الحساب — الانحراف بالـ% عن CPA و CTR و CPC
         </p>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {/* Desktop header */}
-          <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
-            <button
-              onClick={() => handleSort("score")}
-              className={`flex items-center gap-0.5 hover:text-foreground transition-colors text-start ${sortKey === "score" ? "text-primary font-bold" : "font-bold"}`}
-            >
-              الحملة
-              {sortKey === "score" && (sortDir === "asc" ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />)}
-              {sortKey !== "score" && <span className="opacity-30">↕</span>}
-            </button>
-            <SortBtn label="FREQ" sortKey="frequency" active={sortKey === "frequency"} dir={sortDir} onClick={handleSort} className="w-12" />
-            <SortBtn label="CPA"  sortKey="cpa"       active={sortKey === "cpa"}       dir={sortDir} onClick={handleSort} className="w-16" />
-            <SortBtn label="CTR"  sortKey="ctr"       active={sortKey === "ctr"}       dir={sortDir} onClick={handleSort} className="w-16" />
-            <SortBtn label="CPC"  sortKey="cpc"       active={sortKey === "cpc"}       dir={sortDir} onClick={handleSort} className="w-16" />
-            <SortBtn label="أوردر" sortKey="purchases" active={sortKey === "purchases"} dir={sortDir} onClick={handleSort} className="w-14" />
-          </div>
+      <CardContent className="px-0 pb-0">
+        {/* Mobile cards */}
+        <div className="sm:hidden px-4 pb-4 space-y-2">
           {rows.map((r) => {
             const isWorst = r.score > 10;
             const isBest  = r.score < -10;
             const rowBg = isWorst ? "bg-rose-500/5 ring-1 ring-rose-500/10" : isBest ? "bg-emerald-500/5 ring-1 ring-emerald-500/10" : "bg-muted/20";
             return (
-              <div key={r.id}>
-                {/* Mobile card */}
-                <div className={`sm:hidden rounded-xl px-3 py-3 space-y-2 ${rowBg}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      {isWorst && <TrendingDown className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
-                      {isBest  && <TrendingUp   className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
-                      <span dir="ltr" className="text-sm font-semibold leading-snug line-clamp-2 text-right" title={r.name}>{r.name}</span>
-                    </div>
-                    <OvFreqBadge freq={r.frequency} />
+              <div key={r.id} className={`rounded-xl px-3 py-3 space-y-2 ${rowBg}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    {isWorst && <TrendingDown className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
+                    {isBest  && <TrendingUp   className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
+                    <span dir="ltr" className="text-sm font-bold leading-snug line-clamp-2 text-right" title={r.name}>{r.name}</span>
                   </div>
-                  <div className="text-[11px] text-muted-foreground num">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP إنفاق</div>
-                  <div className="grid grid-cols-4 gap-1 pt-1 border-t border-border/50">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CPA</span>
-                      <span className="text-sm font-bold num">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
-                      <OvDevBadge value={r.cpaDev} lowerIsBetter />
-                    </div>
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CTR</span>
-                      <span className="text-sm font-bold num">{r.ctr.toFixed(2)}%</span>
-                      <OvDevBadge value={r.ctrDev} lowerIsBetter={false} />
-                    </div>
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CPC</span>
-                      <span className="text-sm font-bold num">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
-                      <OvDevBadge value={r.cpcDev} lowerIsBetter />
-                    </div>
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">أوردر</span>
-                      <span className={`text-sm font-bold num ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-                        {r.purchases > 0 ? r.purchases : "—"}
-                      </span>
-                    </div>
-                  </div>
+                  <OvFreqBadge freq={r.frequency} />
                 </div>
-                {/* Desktop row */}
-                <div className={`hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
-                      {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
-                      <span dir="ltr" className="text-xs font-medium truncate text-right" title={r.name}>{r.name}</span>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP</span>
-                  </div>
-                  <div className="flex justify-center w-12"><OvFreqBadge freq={r.frequency} /></div>
-                  <div className="flex flex-col items-center gap-0.5 w-16">
-                    <span className="text-xs font-bold">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                <div className="text-[11px] text-muted-foreground num">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP إنفاق</div>
+                <div className="grid grid-cols-4 gap-1 pt-1 border-t border-border/50">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CPA</span>
+                    <span className="text-sm font-bold num">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
                     <OvDevBadge value={r.cpaDev} lowerIsBetter />
                   </div>
-                  <div className="flex flex-col items-center gap-0.5 w-16">
-                    <span className="text-xs font-bold">{r.ctr.toFixed(2)}%</span>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CTR</span>
+                    <span className="text-sm font-bold num">{r.ctr.toFixed(2)}%</span>
                     <OvDevBadge value={r.ctrDev} lowerIsBetter={false} />
                   </div>
-                  <div className="flex flex-col items-center gap-0.5 w-16">
-                    <span className="text-xs font-bold">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CPC</span>
+                    <span className="text-sm font-bold num">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
                     <OvDevBadge value={r.cpcDev} lowerIsBetter />
                   </div>
-                  <div className="text-center w-14">
-                    <span className={`text-xs font-bold ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">أوردر</span>
+                    <span className={`text-sm font-bold num ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
                       {r.purchases > 0 ? r.purchases : "—"}
                     </span>
                   </div>
@@ -1367,6 +1320,93 @@ function CampaignBreakdown({
               </div>
             );
           })}
+        </div>
+
+        {/* Desktop Elite table */}
+        <div className="hidden sm:block rounded-b-xl overflow-hidden elite-scroll">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] text-sm" dir="rtl">
+              <thead className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-card/90 border-b border-slate-200 dark:border-border">
+                <tr>
+                  <th className="text-right px-5 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold">
+                    <button onClick={() => handleSort("score")} className={`flex items-center gap-1 hover:text-foreground transition-colors ${sortKey === "score" ? "text-primary" : ""}`}>
+                      الحملة
+                      {sortKey === "score" ? (sortDir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <span className="opacity-30 text-[10px]">↕</span>}
+                    </button>
+                  </th>
+                  <th className="text-center px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-16">
+                    <SortBtn label="FREQ" sortKey="frequency" active={sortKey === "frequency"} dir={sortDir} onClick={handleSort} />
+                  </th>
+                  <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-28">
+                    <SortBtn label="CPA" sortKey="cpa" active={sortKey === "cpa"} dir={sortDir} onClick={handleSort} />
+                  </th>
+                  <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-24">
+                    <SortBtn label="CTR" sortKey="ctr" active={sortKey === "ctr"} dir={sortDir} onClick={handleSort} />
+                  </th>
+                  <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-28">
+                    <SortBtn label="CPC" sortKey="cpc" active={sortKey === "cpc"} dir={sortDir} onClick={handleSort} />
+                  </th>
+                  <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-20">
+                    <SortBtn label="أوردر" sortKey="purchases" active={sortKey === "purchases"} dir={sortDir} onClick={handleSort} />
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => {
+                  const isWorst = r.score > 10;
+                  const isBest  = r.score < -10;
+                  return (
+                    <tr
+                      key={r.id}
+                      className={`border-t border-slate-100 dark:border-border/50 transition-all duration-200 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 ${
+                        isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : idx % 2 === 1 ? "bg-slate-50/40 dark:bg-slate-800/10" : ""
+                      }`}
+                    >
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col items-end gap-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
+                            {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
+                            <span dir="ltr" className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[260px] text-sm text-right" title={r.name}>{r.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span dir="ltr" className="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">{r.id}</span>
+                            <span className="text-[10px] text-muted-foreground num">{r.spend.toLocaleString("ar-EG", { maximumFractionDigits: 0 })} EGP</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center w-16">
+                        <OvFreqBadge freq={r.frequency} />
+                      </td>
+                      <td className="px-4 py-4 text-left w-28">
+                        <div className="flex flex-col items-start gap-0.5">
+                          <span className="text-sm font-bold tabular-nums">{r.cpa > 0 ? r.cpa.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                          <OvDevBadge value={r.cpaDev} lowerIsBetter />
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-left w-24">
+                        <div className="flex flex-col items-start gap-0.5">
+                          <span className="text-sm font-bold tabular-nums">{r.ctr.toFixed(2)}%</span>
+                          <OvDevBadge value={r.ctrDev} lowerIsBetter={false} />
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-left w-28">
+                        <div className="flex flex-col items-start gap-0.5">
+                          <span className="text-sm font-bold tabular-nums">{r.cpc > 0 ? r.cpc.toLocaleString("ar-EG", { maximumFractionDigits: 0 }) : "—"}</span>
+                          <OvDevBadge value={r.cpcDev} lowerIsBetter />
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-left w-20">
+                        <span className={`text-sm font-bold tabular-nums ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                          {r.purchases > 0 ? r.purchases : "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -1508,16 +1548,24 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
           <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-2 mb-2">
             <CheckCircle2 className="h-4 w-4" /> أفضل الحملات — الرابحون
           </div>
-          <div className="space-y-2">
-            {winners.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 rounded-xl bg-emerald-500/8 ring-1 ring-emerald-500/15 px-4 py-3">
+          <div className="rounded-2xl border border-emerald-100 dark:border-emerald-500/20 overflow-hidden bg-white dark:bg-card shadow-sm">
+            {winners.map((c, idx) => (
+              <div key={c.id} className={`flex items-center gap-3 px-4 py-3.5 ${idx > 0 ? "border-t border-emerald-50 dark:border-emerald-500/10" : ""} hover:bg-emerald-50/50 dark:hover:bg-emerald-500/5 transition-colors`}>
                 <div className="flex-1 min-w-0">
-                  <div dir="ltr" className="text-sm font-semibold truncate text-right" title={c.name}>{c.name}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">CPA <Num>{fmt(c.cpa, 0)} EGP</Num> · <Num>{c.purchases}</Num> طلب · <Num>{fmt(c.spend, 0)} EGP</Num> · CTR <Num>{fmtPct(c.ctr)}</Num></span>
+                  <div dir="ltr" className="text-sm font-bold truncate text-right text-slate-900 dark:text-slate-100" title={c.name}>{c.name}</div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
+                    <span className="text-[11px] text-muted-foreground">CPA <span className="font-bold text-emerald-600 dark:text-emerald-400 num">{fmt(c.cpa, 0)} EGP</span></span>
+                    <span className="text-[11px] text-muted-foreground">·</span>
+                    <span className="text-[11px] text-muted-foreground"><span className="font-bold text-slate-700 dark:text-slate-300 num">{c.purchases}</span> طلب</span>
+                    <span className="text-[11px] text-muted-foreground">·</span>
+                    <span className="text-[11px] text-muted-foreground num">{fmt(c.spend, 0)} EGP</span>
+                    <span className="text-[11px] text-muted-foreground">·</span>
+                    <span className="text-[11px] text-muted-foreground">CTR <span className="font-bold num">{fmtPct(c.ctr)}</span></span>
                   </div>
                 </div>
-                <span className="shrink-0 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">رابح</span>
+                <span className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 px-2.5 py-1 rounded-full">
+                  <Sparkles className="h-3 w-3" /> رابح
+                </span>
               </div>
             ))}
           </div>
@@ -1530,16 +1578,24 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
           <div className="text-sm font-bold text-rose-700 dark:text-rose-400 flex items-center gap-2 mb-2">
             <XCircle className="h-4 w-4" /> أسوأ الحملات — الخاسرون
           </div>
-          <div className="space-y-2">
-            {losers.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 rounded-xl bg-rose-500/8 ring-1 ring-rose-500/15 px-4 py-3">
+          <div className="rounded-2xl border border-rose-100 dark:border-rose-500/20 overflow-hidden bg-white dark:bg-card shadow-sm">
+            {losers.map((c, idx) => (
+              <div key={c.id} className={`flex items-center gap-3 px-4 py-3.5 ${idx > 0 ? "border-t border-rose-50 dark:border-rose-500/10" : ""} hover:bg-rose-50/50 dark:hover:bg-rose-500/5 transition-colors`}>
                 <div className="flex-1 min-w-0">
-                  <div dir="ltr" className="text-sm font-semibold truncate text-right" title={c.name}>{c.name}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    <span className="inline-flex flex-wrap items-baseline gap-x-1 gap-y-0.5">إنفاق <Num>{fmt(c.spend, 0)} EGP</Num> · <Num>{c.purchases}</Num> طلب{c.purchases > 0 && <> · CPA <Num>{fmt(c.cpa, 0)} EGP</Num></>}</span>
+                  <div dir="ltr" className="text-sm font-bold truncate text-right text-slate-900 dark:text-slate-100" title={c.name}>{c.name}</div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
+                    <span className="text-[11px] text-muted-foreground">إنفاق <span className="font-bold text-rose-600 dark:text-rose-400 num">{fmt(c.spend, 0)} EGP</span></span>
+                    <span className="text-[11px] text-muted-foreground">·</span>
+                    <span className="text-[11px] text-muted-foreground"><span className="font-bold text-slate-700 dark:text-slate-300 num">{c.purchases}</span> طلب</span>
+                    {c.purchases > 0 && <>
+                      <span className="text-[11px] text-muted-foreground">·</span>
+                      <span className="text-[11px] text-muted-foreground">CPA <span className="font-bold text-rose-600 dark:text-rose-400 num">{fmt(c.cpa, 0)} EGP</span></span>
+                    </>}
                   </div>
                 </div>
-                <span className="shrink-0 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full">أوقف</span>
+                <span className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-100 dark:border-rose-500/20 px-2.5 py-1 rounded-full">
+                  <XCircle className="h-3 w-3" /> أوقف
+                </span>
               </div>
             ))}
           </div>
@@ -1547,7 +1603,12 @@ function CampaignTable({ campaigns }: { campaigns: CampaignSummaryFull[] }) {
       )}
 
       {winners.length === 0 && losers.length === 0 && (
-        <div className="text-center text-sm text-muted-foreground italic py-6">لا توجد بيانات كافية لتحليل الحملات</div>
+        <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-2xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-muted/10">
+          <div className="h-10 w-10 rounded-full bg-slate-100 dark:bg-muted/30 flex items-center justify-center">
+            <Target className="h-4 w-4 text-slate-400" />
+          </div>
+          <p className="text-sm text-muted-foreground">لا توجد بيانات كافية لتحليل الحملات</p>
+        </div>
       )}
     </div>
   );

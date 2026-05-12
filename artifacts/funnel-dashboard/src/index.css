@@ -208,6 +208,12 @@
   }
 }
 
+/* ── Elite SaaS table: thin scrollbar ───────────────────────── */
+.elite-scroll ::-webkit-scrollbar { height: 4px; width: 4px; }
+.elite-scroll ::-webkit-scrollbar-track { background: transparent; }
+.elite-scroll ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 9999px; }
+.elite-scroll ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button {
     @apply hidden;

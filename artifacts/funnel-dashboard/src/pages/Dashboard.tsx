@@ -138,14 +138,14 @@ function verdictFor(s: SegmentEntry, all: SegmentEntry[]): "winner" | "kill" | "
 
 function VerdictBadge({ type }: { type: "winner" | "kill" | "okay" | "improve" }) {
   const cfg = {
-    winner:  { icon: Sparkles,    text: "رابح",          cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 ring-emerald-500/30" },
-    kill:    { icon: XCircle,     text: "أوقفه",         cls: "bg-rose-500/15 text-rose-700 dark:text-rose-400 ring-rose-500/30" },
-    okay:    { icon: CheckCircle2,text: "مقبول",         cls: "bg-sky-500/15 text-sky-700 dark:text-sky-400 ring-sky-500/30" },
-    improve: { icon: TrendingDown,text: "قم بتحسين",     cls: "bg-amber-500/15 text-amber-700 dark:text-amber-400 ring-amber-500/30" },
+    winner:  { icon: Sparkles,    text: "رابح",     cls: "bg-emerald-50 text-emerald-600 border border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20" },
+    kill:    { icon: XCircle,     text: "أوقفه",    cls: "bg-rose-50 text-rose-600 border border-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20" },
+    okay:    { icon: CheckCircle2,text: "مقبول",    cls: "bg-sky-50 text-sky-600 border border-sky-100 dark:bg-sky-500/10 dark:text-sky-400 dark:border-sky-500/20" },
+    improve: { icon: TrendingDown,text: "حسّن",     cls: "bg-amber-50 text-amber-600 border border-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20" },
   }[type];
   const Icon = cfg.icon;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${cfg.cls}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${cfg.cls}`}>
       <Icon className="h-3 w-3" />
       {cfg.text}
     </span>
@@ -574,8 +574,14 @@ function PerformanceAnalysis({ byAd, byAdset, onDiagnose }: { byAd: SegmentEntry
 function SegmentBreakdownTable({ segments, label }: { segments: SegmentEntry[]; label: string }) {
   if (segments.length === 0) {
     return (
-      <div className="text-sm text-muted-foreground italic text-center py-8">
-        لا توجد بيانات على مستوى {label} في الفترة دي
+      <div className="flex flex-col items-center justify-center py-12 gap-3 rounded-2xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-muted/10">
+        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-muted/30 flex items-center justify-center">
+          <Activity className="h-5 w-5 text-slate-400" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">لا توجد بيانات</p>
+          <p className="text-xs text-muted-foreground mt-0.5">لا توجد بيانات على مستوى {label} في الفترة دي</p>
+        </div>
       </div>
     );
   }
@@ -585,66 +591,71 @@ function SegmentBreakdownTable({ segments, label }: { segments: SegmentEntry[]; 
     return a.cpa - b.cpa;
   });
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[680px] text-sm" dir="rtl">
-        <thead className="sticky top-0 z-20 bg-background shadow-[0_1px_0_0_hsl(var(--border))]">
-          <tr className="text-xs font-bold uppercase tracking-wider text-muted-foreground bg-muted/40">
-            <th className="text-right px-4 py-3 w-[220px]">{label}</th>
-            <th className="text-center px-3 py-3 whitespace-nowrap">CPA</th>
-            <th className="text-center px-3 py-3 whitespace-nowrap">طلبات</th>
-            <th className="text-center px-3 py-3 whitespace-nowrap">Spend</th>
-            <th className="text-center px-3 py-3 whitespace-nowrap">CTR</th>
-            <th className="text-center px-3 py-3 whitespace-nowrap">CR</th>
-            <th className="text-center px-3 py-3 whitespace-nowrap">CPC</th>
-            <th className="text-center px-3 py-3 whitespace-nowrap">الحكم</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((s, idx) => {
-            const v = verdictFor(s, segments);
-            return (
-              <tr
-                key={s.key}
-                className={`border-t border-border transition-colors hover:bg-blue-50/60 dark:hover:bg-blue-950/20 ${idx % 2 === 1 ? "bg-muted/20" : ""}`}
-              >
-                {/* Name — dir=ltr + text-right prevents Arabic bidi from flipping | separators */}
-                <td className="px-4 py-3.5 w-[220px] max-w-[220px]">
-                  <div
-                    dir="ltr"
-                    className="text-right text-sm font-semibold text-slate-900 dark:text-slate-100 truncate leading-snug"
-                    title={s.label}
-                  >
-                    {s.label}
-                  </div>
-                </td>
-                <td className="px-3 py-3.5 text-center tabular-nums font-bold text-slate-900 dark:text-slate-100">
-                  {s.cpa > 0 ? <Num>{fmt(s.cpa, 0)} ج.م</Num> : <span className="text-muted-foreground">—</span>}
-                </td>
-                <td className="px-3 py-3.5 text-center tabular-nums font-bold">
-                  <span className={s.purchases > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>
-                    <Num>{fmt(s.purchases)}</Num>
-                  </span>
-                </td>
-                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
-                  <Num>{fmt(s.spend, 0)} ج.م</Num>
-                </td>
-                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
-                  <Num>{fmtPct(s.ctr)}</Num>
-                </td>
-                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
-                  <Num>{fmtPct(s.cr)}</Num>
-                </td>
-                <td className="px-3 py-3.5 text-center tabular-nums text-slate-700 dark:text-slate-300">
-                  <Num>{fmt(s.cpc, 0)} ج.م</Num>
-                </td>
-                <td className="px-3 py-3.5 text-center">
-                  <VerdictBadge type={v} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="rounded-2xl border border-slate-200 dark:border-border overflow-hidden shadow-sm bg-white dark:bg-card elite-scroll">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[700px] text-sm" dir="rtl">
+          <thead className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-card/90 border-b border-slate-200 dark:border-border">
+            <tr>
+              <th className="text-right px-5 py-4 w-[240px] text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold">{label}</th>
+              <th className="text-left px-5 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">CPA</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">طلبات</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">Spend</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">CTR</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">CR</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">CPC</th>
+              <th className="text-center px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">الحكم</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((s, idx) => {
+              const v = verdictFor(s, segments);
+              return (
+                <tr
+                  key={s.key}
+                  className={`border-t border-slate-100 dark:border-border/50 transition-all duration-200 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 ${idx % 2 === 1 ? "bg-slate-50/40 dark:bg-slate-800/10" : ""}`}
+                >
+                  <td className="px-5 py-4 w-[240px] max-w-[240px]">
+                    <div className="flex flex-col items-end gap-1">
+                      <span dir="ltr" className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[220px] text-sm leading-snug text-right" title={s.label}>
+                        {s.label}
+                      </span>
+                      <span dir="ltr" className="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                        {s.key}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 text-left whitespace-nowrap">
+                    {s.cpa > 0
+                      ? <span className="tabular-nums font-bold text-slate-900 dark:text-slate-100 text-sm"><Num>{fmt(s.cpa, 0)}</Num> <span className="text-xs font-medium text-slate-400">ج.م</span></span>
+                      : <span className="text-slate-300 dark:text-slate-600 text-sm">—</span>
+                    }
+                  </td>
+                  <td className="px-4 py-4 text-left tabular-nums">
+                    <span className={`font-bold text-sm ${s.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-300 dark:text-slate-600"}`}>
+                      <Num>{fmt(s.purchases)}</Num>
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-left tabular-nums text-slate-700 dark:text-slate-300 text-sm whitespace-nowrap">
+                    <Num>{fmt(s.spend, 0)}</Num> <span className="text-xs text-slate-400">ج.م</span>
+                  </td>
+                  <td className="px-4 py-4 text-left tabular-nums text-slate-700 dark:text-slate-300 text-sm">
+                    <Num>{fmtPct(s.ctr)}</Num>
+                  </td>
+                  <td className="px-4 py-4 text-left tabular-nums text-slate-700 dark:text-slate-300 text-sm">
+                    <Num>{fmtPct(s.cr)}</Num>
+                  </td>
+                  <td className="px-4 py-4 text-left tabular-nums text-slate-700 dark:text-slate-300 text-sm whitespace-nowrap">
+                    <Num>{fmt(s.cpc, 0)}</Num> <span className="text-xs text-slate-400">ج.م</span>
+                  </td>
+                  <td className="px-4 py-4 text-center">
+                    <VerdictBadge type={v} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1702,39 +1713,35 @@ function DevBadge({ value, lowerIsBetter }: { value: number; lowerIsBetter: bool
 }
 
 function DevBreakdownTable({ rows, label, segments }: { rows: BreakdownRow[]; label: string; segments: SegmentEntry[] }) {
-  if (rows.length === 0) return <div className="text-sm text-muted-foreground text-center py-4">لا توجد بيانات لـ {label}</div>;
+  if (rows.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-2xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-muted/10">
+      <div className="h-10 w-10 rounded-full bg-slate-100 dark:bg-muted/30 flex items-center justify-center">
+        <Target className="h-4 w-4 text-slate-400" />
+      </div>
+      <p className="text-sm text-muted-foreground">لا توجد بيانات لـ {label}</p>
+    </div>
+  );
   const freqMap = new Map(segments.map((s) => [s.key, s.frequency ?? 0]));
   return (
-    <div className="space-y-2">
-      {/* ── Desktop header (hidden on mobile) ── */}
-      <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
-        <span>{label}</span>
-        <span className="text-center w-12">Freq</span>
-        <span className="text-center w-16">CPA</span>
-        <span className="text-center w-16">CTR</span>
-        <span className="text-center w-16">CPC</span>
-        <span className="text-center w-14">أوردر</span>
-      </div>
-
-      {rows.map((r, i) => {
-        const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
-        const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
-        const rowBg = isWorst ? "bg-rose-500/5 ring-1 ring-rose-500/10" : isBest ? "bg-emerald-500/5 ring-1 ring-emerald-500/10" : "bg-muted/20";
-        const freq = freqMap.get(r.key) ?? 0;
-        return (
-          <div key={r.key}>
-            {/* ── Mobile card layout ── */}
-            <div className={`sm:hidden rounded-xl px-3 py-3 space-y-2 ${rowBg}`}>
+    <div className="rounded-2xl border border-slate-200 dark:border-border overflow-hidden shadow-sm bg-white dark:bg-card elite-scroll">
+      {/* Mobile cards */}
+      <div className="sm:hidden divide-y divide-slate-100 dark:divide-border/50">
+        {rows.map((r, i) => {
+          const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
+          const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
+          const freq = freqMap.get(r.key) ?? 0;
+          return (
+            <div key={r.key} className={`px-4 py-3.5 space-y-2 ${isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : ""}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   {isWorst && <TrendingDown className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
                   {isBest  && <TrendingUp   className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
-                  <span dir="ltr" className="text-sm font-semibold leading-snug line-clamp-2 text-right" title={r.label}>{r.label}</span>
+                  <span dir="ltr" className="text-sm font-bold leading-snug line-clamp-2 text-right" title={r.label}>{r.label}</span>
                 </div>
                 <FreqBadge freq={freq} />
               </div>
               <div className="text-[11px] text-muted-foreground num">{fmt(r.spend, 0)} EGP إنفاق</div>
-              <div className="grid grid-cols-4 gap-1 pt-1 border-t border-border/50">
+              <div className="grid grid-cols-4 gap-1 pt-1 border-t border-slate-100 dark:border-border/50">
                 <div className="flex flex-col items-center gap-0.5">
                   <span className="text-[9px] font-bold uppercase text-muted-foreground tracking-wide">CPA</span>
                   <span className="text-sm font-bold num">{r.cpa > 0 ? fmt(r.cpa, 0) : "—"}</span>
@@ -1758,39 +1765,77 @@ function DevBreakdownTable({ rows, label, segments }: { rows: BreakdownRow[]; la
                 </div>
               </div>
             </div>
+          );
+        })}
+      </div>
 
-            {/* ── Desktop row (hidden on mobile) ── */}
-            <div className={`hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 items-center rounded-lg px-3 py-2 ${rowBg}`}>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
-                  {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
-                  <span dir="ltr" className="text-xs font-medium truncate text-right" title={r.label}>{r.label}</span>
-                </div>
-                <span className="text-[10px] text-muted-foreground num">{fmt(r.spend, 0)} EGP</span>
-              </div>
-              <div className="flex justify-center w-12"><FreqBadge freq={freq} /></div>
-              <div className="flex flex-col items-center gap-0.5 w-16">
-                <span className="text-xs font-bold num">{r.cpa > 0 ? fmt(r.cpa, 0) : "—"}</span>
-                <DevBadge value={r.cpaDev} lowerIsBetter />
-              </div>
-              <div className="flex flex-col items-center gap-0.5 w-16">
-                <span className="text-xs font-bold num">{fmtPct(r.ctr)}</span>
-                <DevBadge value={r.ctrDev} lowerIsBetter={false} />
-              </div>
-              <div className="flex flex-col items-center gap-0.5 w-16">
-                <span className="text-xs font-bold num">{r.cpc > 0 ? fmt(r.cpc, 0) : "—"}</span>
-                <DevBadge value={r.cpcDev} lowerIsBetter />
-              </div>
-              <div className="text-center w-14">
-                <span className={`text-xs font-bold num ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-                  {r.purchases > 0 ? r.purchases : "—"}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      {/* Desktop table */}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full min-w-[560px] text-sm" dir="rtl">
+          <thead className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-card/90 border-b border-slate-200 dark:border-border">
+            <tr>
+              <th className="text-right px-5 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold">{label}</th>
+              <th className="text-center px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-16 whitespace-nowrap">Freq</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-28 whitespace-nowrap">CPA</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-24 whitespace-nowrap">CTR</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-28 whitespace-nowrap">CPC</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-16 whitespace-nowrap">أوردر</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const isWorst = i < Math.ceil(rows.length * 0.3) && r.score > 10;
+              const isBest  = i >= rows.length - Math.ceil(rows.length * 0.3) && r.score < -10;
+              const freq = freqMap.get(r.key) ?? 0;
+              return (
+                <tr
+                  key={r.key}
+                  className={`border-t border-slate-100 dark:border-border/50 transition-all duration-200 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 ${
+                    isWorst ? "bg-rose-500/5" : isBest ? "bg-emerald-500/5" : i % 2 === 1 ? "bg-slate-50/40 dark:bg-slate-800/10" : ""
+                  }`}
+                >
+                  <td className="px-5 py-4">
+                    <div className="flex flex-col items-end gap-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        {isWorst && <TrendingDown className="h-3 w-3 text-rose-500 shrink-0" />}
+                        {isBest  && <TrendingUp   className="h-3 w-3 text-emerald-500 shrink-0" />}
+                        <span dir="ltr" className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[220px] text-sm text-right" title={r.label}>{r.label}</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground num">{fmt(r.spend, 0)} EGP</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-center w-16">
+                    <FreqBadge freq={freq} />
+                  </td>
+                  <td className="px-4 py-4 text-left w-28">
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span className="text-sm font-bold tabular-nums">{r.cpa > 0 ? fmt(r.cpa, 0) : "—"}</span>
+                      <DevBadge value={r.cpaDev} lowerIsBetter />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-left w-24">
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span className="text-sm font-bold tabular-nums">{fmtPct(r.ctr)}</span>
+                      <DevBadge value={r.ctrDev} lowerIsBetter={false} />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-left w-28">
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span className="text-sm font-bold tabular-nums">{r.cpc > 0 ? fmt(r.cpc, 0) : "—"}</span>
+                      <DevBadge value={r.cpcDev} lowerIsBetter />
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-left w-16">
+                    <span className={`text-sm font-bold tabular-nums ${r.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
+                      {r.purchases > 0 ? r.purchases : "—"}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1911,39 +1956,61 @@ function cpaTone(cpa: number): string {
 
 function BreakdownTable({ segments, emptyLabel }: { segments: BreakdownSegment[]; emptyLabel: string }) {
   if (segments.length === 0) {
-    return <div className="text-sm text-muted-foreground text-center py-6">{emptyLabel}</div>;
+    return (
+      <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-2xl border border-slate-200 dark:border-border bg-slate-50/50 dark:bg-muted/10">
+        <div className="h-10 w-10 rounded-full bg-slate-100 dark:bg-muted/30 flex items-center justify-center">
+          <Activity className="h-4 w-4 text-slate-400" />
+        </div>
+        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+      </div>
+    );
   }
   const maxSpend = Math.max(...segments.map((s) => s.spend), 1);
   return (
-    <div className="space-y-1.5">
-      {/* Header */}
-      <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto] gap-x-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-3 pb-1 border-b border-border">
-        <span>الشريحة</span>
-        <span className="w-20 text-center">إنفاق</span>
-        <span className="w-12 text-center">CTR</span>
-        <span className="w-12 text-center">أوردر</span>
-        <span className="w-16 text-center">CPA</span>
+    <div className="rounded-2xl border border-slate-200 dark:border-border overflow-hidden shadow-sm bg-white dark:bg-card elite-scroll">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[420px] text-sm" dir="rtl">
+          <thead className="sticky top-0 z-30 backdrop-blur-md bg-white/90 dark:bg-card/90 border-b border-slate-200 dark:border-border">
+            <tr>
+              <th className="text-right px-5 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold">الشريحة</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-28 whitespace-nowrap">Spend</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-16 whitespace-nowrap">CTR</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-16 whitespace-nowrap">أوردر</th>
+              <th className="text-left px-4 py-4 text-[11px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-bold w-24 whitespace-nowrap">CPA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {segments.map((s, idx) => {
+              const barPct = (s.spend / maxSpend) * 100;
+              return (
+                <tr
+                  key={s.label}
+                  className={`border-t border-slate-100 dark:border-border/50 transition-all duration-200 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 relative ${idx % 2 === 1 ? "bg-slate-50/40 dark:bg-slate-800/10" : ""}`}
+                >
+                  <td className="px-5 py-4 relative">
+                    <div className="absolute inset-y-0 right-0 bg-primary/5 dark:bg-primary/8 pointer-events-none" style={{ width: `${barPct}%` }} />
+                    <span className="relative font-semibold text-slate-800 dark:text-slate-200 truncate">{s.label}</span>
+                  </td>
+                  <td className="px-4 py-4 text-left w-28 whitespace-nowrap tabular-nums text-slate-600 dark:text-slate-400 text-sm">
+                    <Num>{fmt(s.spend, 0)}</Num> <span className="text-xs text-slate-400">EGP</span>
+                  </td>
+                  <td className="px-4 py-4 text-left w-16 tabular-nums text-slate-600 dark:text-slate-400 text-sm">
+                    <Num>{s.ctr.toFixed(2)}%</Num>
+                  </td>
+                  <td className="px-4 py-4 text-left w-16 tabular-nums font-bold text-sm">
+                    <span className={s.purchases > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-300 dark:text-slate-600"}>
+                      <Num>{s.purchases > 0 ? s.purchases : "—"}</Num>
+                    </span>
+                  </td>
+                  <td className={`px-4 py-4 text-left w-24 tabular-nums font-bold text-sm whitespace-nowrap ${cpaTone(s.cpa)}`}>
+                    {s.cpa > 0 ? <><Num>{fmt(s.cpa, 0)}</Num> <span className="text-xs font-medium opacity-70">EGP</span></> : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-      {segments.map((s) => {
-        const barPct = (s.spend / maxSpend) * 100;
-        return (
-          <div key={s.label} className="rounded-lg bg-muted/20 px-3 py-2.5 relative overflow-hidden">
-            {/* spend bar */}
-            <div className="absolute inset-y-0 right-0 bg-primary/6 rounded-lg" style={{ width: `${barPct}%` }} />
-            <div className="relative sm:grid sm:grid-cols-[1fr_auto_auto_auto_auto] sm:gap-x-3 sm:items-center">
-              <span className="text-sm font-medium truncate">{s.label}</span>
-              <div className="flex items-center justify-between sm:contents gap-2 mt-1 sm:mt-0">
-                <span className="w-20 text-center text-xs font-mono text-muted-foreground">{fmt(s.spend, 0)} EGP</span>
-                <span className="w-12 text-center text-xs font-mono text-muted-foreground">{s.ctr.toFixed(2)}%</span>
-                <span className="w-12 text-center text-xs font-bold">{s.purchases > 0 ? s.purchases : "—"}</span>
-                <span className={`w-16 text-center text-xs ${cpaTone(s.cpa)}`}>
-                  {s.cpa > 0 ? `${fmt(s.cpa, 0)} EGP` : "—"}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }
