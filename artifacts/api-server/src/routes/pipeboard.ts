@@ -162,6 +162,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "create_adset",
     "duplicate_campaign",
     "launch_pipeboard_campaign",
+    "duplicate_ad",
+    "create_ad_from_post",
     // Google Ads
     "ga_pause_campaign",
     "ga_enable_campaign",
@@ -285,6 +287,164 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       default:
         return { mcpTool: t, mcpArgs: a };
     }
+  }
+
+  // ── Special: duplicate_ad — direct Meta Graph API POST /{ad_id}/copies ──────
+  if (tool === "duplicate_ad") {
+    const adId = String(args?.ad_id ?? "");
+    const destAdsetId = String(args?.destination_adset_id ?? "");
+    const adLabel = String(args?.name ?? adId);
+    if (!adId) { res.status(400).json({ error: "ad_id مطلوب" }); return; }
+    if (!destAdsetId) { res.status(400).json({ error: "destination_adset_id مطلوب" }); return; }
+
+    const metaToken = process.env.META_ACCESS_TOKEN;
+    if (!metaToken) { res.status(500).json({ error: "META_ACCESS_TOKEN غير مضبوط" }); return; }
+
+    let dupSuccess = false;
+    let dupMsg = "";
+    try {
+      const body = new URLSearchParams({
+        access_token: metaToken,
+        adset_id: destAdsetId,
+        status_option: "PAUSED",
+      });
+      const resp = await fetch(`https://graph.facebook.com/v21.0/${adId}/copies`, {
+        method: "POST",
+        body,
+        signal: AbortSignal.timeout(30_000),
+      });
+      const json = await resp.json() as Record<string, unknown>;
+      if (json.error) {
+        const err = json.error as Record<string, unknown>;
+        const msg = String(err.error_user_msg ?? err.message ?? "خطأ Meta غير معروف");
+        dupMsg = `${msg} (code: ${err.code ?? "?"})`;
+      } else {
+        dupSuccess = true;
+        const newIds = (json.copies as Array<Record<string, unknown>> | undefined)?.[0];
+        const newAdId = String(newIds?.id ?? json.id ?? "");
+        dupMsg = newAdId ? `تم نسخ الإعلان — الرقم الجديد: ${newAdId}` : "تم نسخ الإعلان";
+      }
+    } catch (err) {
+      dupMsg = err instanceof Error ? err.message : String(err);
+    }
+
+    await query(
+      `INSERT INTO pipeboard_actions
+         (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [executedBy, tool, JSON.stringify(args ?? {}), dupSuccess, dupMsg, adLabel, null, false]
+    ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
+
+    if (dupSuccess) {
+      res.json({ success: true, message: dupMsg });
+    } else {
+      res.status(500).json({ error: dupMsg });
+    }
+    return;
+  }
+
+  // ── Special multi-step: create_ad_from_post ───────────────────────────────
+  if (tool === "create_ad_from_post") {
+    const rawAccountId = String(args?.account_id ?? "");
+    const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
+    const accountIdWithAct = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
+    const adsetId = String(args?.adset_id ?? "");
+    const postId = String(args?.post_id ?? "");
+    const adName = String(args?.ad_name ?? args?.name ?? "إعلان من منشور");
+    if (!adsetId || !postId) {
+      res.status(400).json({ error: "adset_id و post_id مطلوبان" });
+      return;
+    }
+
+    function mcpTextLocal(result: unknown): string {
+      return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+        .filter((c: { type: string }) => c.type === "text")
+        .map((c: { text?: string }) => c.text ?? "")
+        .join("")
+        .trim();
+    }
+
+    let cafpSuccess = false;
+    let cafpMsg = "";
+    try {
+      const client = await getPipeboardWriteClient();
+
+      // Step 1: Get page_id (auto-fetch if not provided)
+      let pageId = String(args?.page_id ?? "").trim();
+      if (!pageId && accountId) {
+        try {
+          const pagesResult = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
+          const pagesText = mcpTextLocal(pagesResult);
+          const pageMatch = pagesText.match(/"id"\s*:\s*"(\d+)"/) ?? pagesText.match(/\b(\d{10,})\b/);
+          pageId = pageMatch?.[1] ?? "";
+          if (!pageId) logger.warn("create_ad_from_post: get_account_pages — no page_id found");
+        } catch (e) {
+          logger.warn({ e }, "create_ad_from_post: get_account_pages threw");
+        }
+      }
+      if (!pageId) throw new Error("تعذّر جلب page_id للحساب — أرسل page_id يدوياً في الأمر");
+
+      const objectStoryId = `${pageId}_${postId}`;
+
+      // Step 2: create_ad_creative using existing post
+      const creativeArgs: Record<string, unknown> = {
+        account_id: accountId,
+        name: `${adName} — creative`,
+        page_id: pageId,
+        object_story_id: objectStoryId,
+      };
+      const creativeResult = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+      const creativeText = mcpTextLocal(creativeResult);
+      logger.info({ creativeText }, "create_ad_from_post: create_ad_creative");
+      const hasRealId = /"id"\s*:\s*"(\d{10,})"/.test(creativeText);
+      if (/"error"/.test(creativeText) && !hasRealId) {
+        throw new Error(`فشل إنشاء creative — ${extractMetaError(creativeText)}`);
+      }
+      const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
+      const creativeId = creativeMatch?.[1] ?? "";
+      if (!creativeId) throw new Error(`لم يُعاد creative_id — ${extractMetaError(creativeText)}`);
+
+      // Step 3: create_ad
+      const adResult = await client.callTool({
+        name: "create_ad",
+        arguments: {
+          account_id: accountIdWithAct,
+          name: adName,
+          adset_id: adsetId,
+          creative_id: creativeId,
+          status: "PAUSED",
+        },
+      });
+      const adText = mcpTextLocal(adResult);
+      logger.info({ adText }, "create_ad_from_post: create_ad");
+      if (/"error"/.test(adText) && !/"id"/.test(adText)) {
+        throw new Error(`فشل create_ad — ${extractMetaError(adText)}`);
+      }
+      const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
+      const newAdId = adMatch?.[1] ?? "";
+      cafpSuccess = true;
+      cafpMsg = newAdId
+        ? `تم إنشاء الإعلان من المنشور ${postId} — Ad ID: ${newAdId} — موقوف للمراجعة`
+        : `تم إنشاء الإعلان من المنشور — موقوف للمراجعة`;
+    } catch (err) {
+      cafpMsg = err instanceof Error ? err.message : String(err);
+      _pbWriteClient = null;
+      _pbWriteConnecting = null;
+    }
+
+    await query(
+      `INSERT INTO pipeboard_actions
+         (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [executedBy, tool, JSON.stringify(args ?? {}), cafpSuccess, cafpMsg, null, null, false]
+    ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
+
+    if (cafpSuccess) {
+      res.json({ success: true, message: cafpMsg });
+    } else {
+      res.status(500).json({ error: cafpMsg });
+    }
+    return;
   }
 
   // ── Special multi-step: launch_pipeboard_campaign ────────────────────────

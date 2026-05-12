@@ -1736,6 +1736,44 @@ export async function getAdDetails(ad_id: string): Promise<AdDetails> {
   };
 }
 
+// ── Ad Creative Info (Post ID) ────────────────────────────────────────────────
+export interface AdCreativeInfo {
+  ad_id: string;
+  ad_name: string;
+  adset_id: string;
+  campaign_id: string;
+  creative_id: string;
+  /** "{page_id}_{post_id}" — the Facebook post backing this ad */
+  object_story_id: string;
+  /** Same format — reflects the currently active post (may differ from object_story_id after edits) */
+  effective_object_story_id: string;
+}
+
+export async function getAdCreativeInfo(ad_id: string): Promise<AdCreativeInfo> {
+  const json = await fbGetSingle<{
+    id?: string;
+    name?: string;
+    adset_id?: string;
+    campaign_id?: string;
+    creative?: {
+      id?: string;
+      object_story_id?: string;
+      effective_object_story_id?: string;
+    };
+  }>(`/${ad_id}`, {
+    fields: "id,name,adset_id,campaign_id,creative{id,object_story_id,effective_object_story_id}",
+  });
+  return {
+    ad_id:                    json.id ?? ad_id,
+    ad_name:                  json.name ?? "",
+    adset_id:                 json.adset_id ?? "",
+    campaign_id:              json.campaign_id ?? "",
+    creative_id:              json.creative?.id ?? "",
+    object_story_id:          json.creative?.object_story_id ?? "",
+    effective_object_story_id: json.creative?.effective_object_story_id ?? "",
+  };
+}
+
 // ── Account Metadata (pixels + pages) ────────────────────────────────────────
 export interface AccountMetadata {
   pixels: { id: string; name: string }[];

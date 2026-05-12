@@ -60,6 +60,8 @@ const INTERVENTION_TOOL_LABELS: Record<string, string> = {
   pause_ad: "إيقاف الإعلان",
   enable_ad: "تشغيل الإعلان",
   rename_ad: "تغيير اسم الإعلان",
+  duplicate_ad: "نسخ الإعلان",
+  create_ad_from_post: "إنشاء إعلان من منشور",
 };
 
 function formatInterventionAge(hoursAgo: number): string {
