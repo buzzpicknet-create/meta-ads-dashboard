@@ -552,23 +552,22 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               account_id: accountId,
               name: `${adset.name} — creative ${ci + 1}`,
               page_id: pageId,
-              // ── Instagram Actor ID fix ────────────────────────────────────
-              // Meta rejects creatives on Advantage+ Placements (which include IG)
-              // if instagram_actor_id is missing — error OAuthException 100/1487006.
-              // Setting it to the same FB Page ID tells Meta to "Mock" the page
-              // as an Instagram profile, which bypasses the linked-IG-account
-              // requirement entirely. This is the official Meta workaround.
-              instagram_actor_id: pageId,
-              // ─────────────────────────────────────────────────────────────
+              // NOTE: Do NOT pass instagram_actor_id here.
+              // Pipeboard validates that the token has instagram_basic permission
+              // when instagram_actor_id is present, and rejects the request if not —
+              // causing a Pipeboard-level error before Meta is even reached.
+              // Without instagram_actor_id, Meta will use automatic placements
+              // (Facebook + Instagram where available based on page permissions).
+              //
+              // NOTE: Do NOT add advantage_plus_creative / degrees_of_freedom_spec
+              // here — those create an Advantage+ creative format that is incompatible
+              // with Pipeboard's create_ad tool and causes error 1487015
+              // ("Ad Creative Invalid") at the ad-creation step.
               link_url: landingPageUrl,
               destination_url: landingPageUrl,
               message: creative.primary_text,
               headline: creative.headline,
               call_to_action_type: callToAction,
-              // NOTE: Do NOT add advantage_plus_creative / degrees_of_freedom_spec
-              // here — those create an Advantage+ creative format that is incompatible
-              // with Pipeboard's create_ad tool and causes error 1487015
-              // ("Ad Creative Invalid") at the ad-creation step.
             };
             if (pixelId) creativeArgs.pixel_id = pixelId;
             if (isVid) creativeArgs.video_id = media.videoId;
@@ -579,11 +578,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             logger.info({ creativeText }, `launch_pipeboard_campaign: create_ad_creative [${adset.name}][${ci}]`);
 
             // ── Strict error parsing: check for nested errors even on 200 ──
-            if (/"error"/.test(creativeText) && !/"id"/.test(creativeText)) {
+            // Use tight regex: a real creative ID appears as "id": "NNNNN" (standalone key).
+            // This avoids false matches on keys like "instagram_actor_id", "account_id", etc.
+            // that also contain "id" as a substring.
+            const hasRealId = /"id"\s*:\s*"(\d{10,})"/.test(creativeText);
+            if (/"error"/.test(creativeText) && !hasRealId) {
               adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, error: `فشل creative — ${extractMetaError(creativeText)}` });
               continue;
             }
-            const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d+)"/) ?? creativeText.match(/\b(\d{10,})\b/);
+            // Extract creative ID using tight regex (standalone "id" key only)
+            const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
             creativeId = creativeMatch?.[1] ?? "";
             if (!creativeId) {
               adResults.push({ adset_name: adset.name, adset_id: adsetId, creative_index: ci, error: `لم يُعاد creative_id — ${extractMetaError(creativeText)}` });
