@@ -1,0 +1,57 @@
+Act as a Senior UI/UX Architect and Master Media Buyer. The user wants the AI to use English Numerals (123) for all metrics and IDs, while maintaining high-quality Arabic for diagnostics and analysis.
+
+Please implement this "Elite Strategic" architecture:
+
+1. THE "ENGLISH NUMERALS" PROTOCOL
+
+Update the System Prompt to enforce strict numbering rules:
+
+Numerical Output: ALWAYS use Western Arabic numerals (1, 2, 3...) for all spend, CPA, ROAS, IDs, and percentages. Never use Eastern Arabic numerals (١, ٢, ٣...).
+
+Mixed Content: Even when writing Arabic diagnostics, ensure the numbers within the text are in English format.
+
+Currency & Symbols: Format currency as [Number] EGP or [Number] ج.م ensuring the number remains in English font.
+
+2. CHAT FORMATTING (Claude-Style)
+
+Update the System Prompt for clean, professional formatting:
+
+Headers: Use ### for sections.
+
+Analysis Structure:
+
+Summary Card: 2-line high-level overview in Arabic.
+
+The Elite Table: 100% data integrity, English numbers.
+
+Funnel Diagnostics: Categorized into "✅ الإيجابيات" and "⚠️ نقاط الضعف" in Arabic.
+
+Action Plan: Bold, numbered instructions in Arabic.
+
+3. FRONTEND: ELITE TABLE COMPONENT (UI/UX)
+
+Rewrite the React Table component with these specifications:
+
+English Numbers Force: Use a specific font-family for numeric cells (e.g., 'Inter', 'Roboto', or 'system-ui') that defaults to English glyphs.
+
+Cell Styling:
+
+Numeric Cells: Force dir="ltr" text-right and font-variant-numeric: tabular-nums. This keeps decimal points perfectly aligned.
+
+Campaign Names: Use dir="ltr" text-right to handle English names and | symbols correctly.
+
+Typography: Headers text-[13px], Data text-base (16px). Use font-bold for primary metrics (Spend, CPA).
+
+Zebra & Hover: Use even:bg-slate-50/50 and hover:bg-indigo-50/40.
+
+Layout: min-w-[1100px] with overflow-x-auto and a custom thin indigo scrollbar.
+
+4. DATA INTEGRITY & EXPERT ANALYSIS
+
+Zero Truncation: Fetch and display every single row.
+
+Funnel Diagnostics: AI must calculate and interpret Hook Rate, Hold Rate, and LP Drop-off.
+
+Heatmap: Color-code metrics based on performance (Green for winning, Red for bleeding).
+
+Please apply this update to ensure a world-class, readable, and highly analytical Media Buying experience.

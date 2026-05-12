@@ -224,15 +224,15 @@
   border: 1px solid hsl(var(--border) / 0.4);
   box-shadow: 0 2px 10px hsl(0 0% 0% / 0.06), 0 1px 2px hsl(0 0% 0% / 0.04);
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
+  scrollbar-color: hsl(234 89% 74% / 0.6) transparent;
 }
-.ai-tbl-wrap::-webkit-scrollbar { height: 5px; }
+.ai-tbl-wrap::-webkit-scrollbar { height: 4px; }
 .ai-tbl-wrap::-webkit-scrollbar-track { background: transparent; }
-.ai-tbl-wrap::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 9999px; }
+.ai-tbl-wrap::-webkit-scrollbar-thumb { background: hsl(234 89% 74% / 0.55); border-radius: 9999px; }
 
 .ai-tbl {
   width: max-content;
-  min-width: 100%;
+  min-width: 1100px;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12px;
@@ -268,17 +268,19 @@
 .ai-tbl tbody tr { transition: background 0.12s; }
 .ai-tbl tbody tr:nth-child(odd)  { background: hsl(var(--background)); }
 .ai-tbl tbody tr:nth-child(even) { background: hsl(var(--muted) / 0.13); }
-.ai-tbl tbody tr:hover { background: hsl(234 89% 74% / 0.07) !important; }
+.ai-tbl tbody tr:hover { background: hsl(234 89% 74% / 0.08) !important; }
 
-/* ── All body cells ── */
+/* ── All body cells (numeric) ── */
 .ai-tbl tbody td {
   padding: 6px 10px;
   text-align: center;
+  direction: ltr;
   color: hsl(var(--foreground) / 0.8);
   white-space: nowrap;
   border-bottom: 1px solid hsl(var(--border) / 0.1);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
   vertical-align: middle;
 }
 .ai-tbl tbody tr:last-child td { border-bottom: none; }
@@ -289,6 +291,7 @@
   left: 0;
   z-index: 1;
   text-align: right;
+  direction: rtl;
   min-width: 165px;
   max-width: 225px;
   font-weight: 500;
@@ -296,6 +299,7 @@
   background: inherit;
   box-shadow: 3px 0 8px -3px hsl(0 0% 0% / 0.1);
   padding: 5px 12px;
+  font-family: inherit;
 }
 
 /* ── Name cell inner layout ── */
@@ -355,13 +359,28 @@
 .dark .ai-tbl-pill-green { background: hsl(142 71% 45% / 0.2); color: hsl(142 71% 65%); }
 .dark .ai-tbl-pill-amber { background: hsl(38 92% 50% / 0.2);  color: hsl(38 92% 65%); }
 
-/* ── Metric heatmap ── */
+/* ── Metric heatmap — Hook Rate ── */
 .ai-tbl-hook-good { background-color: hsl(142 71% 45% / 0.12) !important; }
 .ai-tbl-hook-bad  { background-color: hsl(0 84% 60% / 0.11)   !important; }
+
+/* ── Metric heatmap — CTR ── */
 .ai-tbl-ctr-good  { color: hsl(142 71% 30%) !important; font-weight: 700; }
 .ai-tbl-ctr-bad   { color: hsl(0 84% 48%)   !important; font-weight: 700; }
 .dark .ai-tbl-ctr-good { color: hsl(142 71% 62%) !important; }
 .dark .ai-tbl-ctr-bad  { color: hsl(0 84% 65%)   !important; }
+
+/* ── Metric heatmap — CPA (lower = greener) ── */
+.ai-tbl-cpa-good  { color: hsl(142 71% 30%) !important; font-weight: 700; }
+.ai-tbl-cpa-bad   { color: hsl(0 84% 48%)   !important; font-weight: 700; background-color: hsl(0 84% 60% / 0.07) !important; }
+.dark .ai-tbl-cpa-good { color: hsl(142 71% 62%) !important; }
+.dark .ai-tbl-cpa-bad  { color: hsl(0 84% 65%)   !important; }
+
+/* ── Metric heatmap — Hold Rate ── */
+.ai-tbl-hold-good { background-color: hsl(142 71% 45% / 0.10) !important; }
+.ai-tbl-hold-bad  { background-color: hsl(0 84% 60% / 0.09)   !important; }
+
+/* ── Bold primary metric columns (Spend, CPA) ── */
+.ai-tbl-primary { font-weight: 700; color: hsl(var(--foreground)) !important; }
 
 /* ── Legacy compat ── */
 .ai-tbl-name-cell { direction: ltr; text-align: right; }

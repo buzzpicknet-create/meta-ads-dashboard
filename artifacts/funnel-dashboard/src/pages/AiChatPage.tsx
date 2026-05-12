@@ -226,6 +226,9 @@ function RenderMarkdown({ text }: { text: string }) {
       const colTypes = hdrs.map(h=>{
         if (/جذب|hook\s*rate/i.test(h)) return "hook";
         if (/نقر|ctr/i.test(h) && !/outbound/i.test(h)) return "ctr";
+        if (/hold\s*rate|مشاهدة كاملة|مشاهدة/i.test(h)) return "hold";
+        if (/cpa|تكلفة التحويل|تكلفة\s*تحويل/i.test(h)) return "cpa";
+        if (/إنفاق|spend/i.test(h)) return "spend";
         return "";
       });
       const renderNameCell = (raw: string) => {
@@ -257,6 +260,9 @@ function RenderMarkdown({ text }: { text: string }) {
                     let extraClass = "";
                     if (colType==="hook" && !isNaN(numVal)) extraClass=numVal>=30?"ai-tbl-hook-good":numVal<20?"ai-tbl-hook-bad":"";
                     else if (colType==="ctr" && !isNaN(numVal)) extraClass=numVal>=1.5?"ai-tbl-ctr-good":numVal<0.8?"ai-tbl-ctr-bad":"";
+                    else if (colType==="hold" && !isNaN(numVal)) extraClass=numVal>=20?"ai-tbl-hold-good":numVal<10?"ai-tbl-hold-bad":"";
+                    else if (colType==="cpa" && !isNaN(numVal)) extraClass=numVal<=40?"ai-tbl-cpa-good":numVal>100?"ai-tbl-cpa-bad":"";
+                    else if (colType==="spend") extraClass="ai-tbl-primary";
                     return (
                       <td key={ci} className={extraClass||undefined}>
                         {isStatus
