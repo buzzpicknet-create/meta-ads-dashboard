@@ -224,30 +224,27 @@ function RenderMarkdown({ text }: { text: string }) {
       const rows: string[][] = [];
       while (i<lines.length && /^\|/.test(lines[i]!)) { rows.push(lines[i]!.split("|").map(c=>c.trim()).filter((_,j,a)=>j>0&&j<a.length-1)); i++; }
       elems.push(
-        <div key={`t${i}`} className="my-4 elite-scroll overflow-x-auto rounded-2xl border border-border/40 shadow-md ring-1 ring-black/5">
-          <table className="w-full text-[12.5px] border-collapse">
+        <div key={`t${i}`} className="ai-tbl-wrap">
+          <table className="ai-tbl">
             <thead>
-              <tr className="border-b border-border/40 bg-muted/70 backdrop-blur-sm sticky top-0">
+              <tr>
                 {hdrs.map((h,hi)=>(
-                  <th key={hi} className="px-3.5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-                    {renderInline(h)}
-                  </th>
+                  <th key={hi}>{renderInline(h)}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((row,ri)=>(
-                <tr key={ri} className={`border-b border-border/20 transition-colors hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 ${ri%2===0?"bg-background":"bg-muted/15"}`}>
+                <tr key={ri}>
                   {row.map((cell,ci)=>{
-                    const isStatus = /^[✅⏸🔴🟡🟢]/.test(cell) || /^(ACTIVE|PAUSED|نشطة|متوقفة)/.test(cell);
-                    const pillCls = isStatus
-                      ? /نشطة|ACTIVE|✅/.test(cell)
-                        ? "inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
-                        : "inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
-                      : "";
+                    const isActive = /نشطة|ACTIVE|✅/.test(cell);
+                    const isPaused = /متوقفة|PAUSED|⏸/.test(cell);
+                    const isStatus = isActive || isPaused || /^[🔴🟡🟢]/.test(cell);
                     return (
-                      <td key={ci} className={`px-3.5 py-2.5 text-right border-b border-border/10 last:border-b-0 whitespace-nowrap ${ci===0?"font-medium text-foreground":"text-foreground/75"}`}>
-                        {isStatus ? <span className={pillCls}>{renderInline(cell)}</span> : renderInline(cell)}
+                      <td key={ci}>
+                        {isStatus
+                          ? <span className={isActive ? "ai-tbl-pill-green" : "ai-tbl-pill-amber"}>{renderInline(cell)}</span>
+                          : renderInline(cell)}
                       </td>
                     );
                   })}

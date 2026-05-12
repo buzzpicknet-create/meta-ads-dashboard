@@ -209,10 +209,102 @@
 }
 
 /* ── Elite SaaS table: thin scrollbar ───────────────────────── */
-.elite-scroll ::-webkit-scrollbar { height: 4px; width: 4px; }
-.elite-scroll ::-webkit-scrollbar-track { background: transparent; }
-.elite-scroll ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 9999px; }
-.elite-scroll ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+.elite-scroll::-webkit-scrollbar { height: 4px; width: 4px; }
+.elite-scroll::-webkit-scrollbar-track { background: transparent; }
+.elite-scroll::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 9999px; }
+.elite-scroll::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+
+/* ── AI Chat table — Elite SaaS style ───────────────────────── */
+.ai-tbl-wrap {
+  margin: 1rem 0;
+  overflow-x: auto;
+  border-radius: 1rem;
+  border: 1px solid hsl(var(--border) / 0.45);
+  box-shadow: 0 4px 12px hsl(0 0% 0% / 0.07), 0 1px 3px hsl(0 0% 0% / 0.05);
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+.ai-tbl-wrap::-webkit-scrollbar { height: 4px; }
+.ai-tbl-wrap::-webkit-scrollbar-track { background: transparent; }
+.ai-tbl-wrap::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 9999px; }
+
+.ai-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.ai-tbl thead tr {
+  border-bottom: 1px solid hsl(var(--border) / 0.4);
+  background: hsl(var(--muted) / 0.7);
+  position: sticky;
+  top: 0;
+}
+
+.ai-tbl thead th {
+  padding: 10px 14px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+
+.ai-tbl tbody tr {
+  border-bottom: 1px solid hsl(var(--border) / 0.2);
+  transition: background 0.15s;
+}
+.ai-tbl tbody tr:last-child { border-bottom: none; }
+.ai-tbl tbody tr:nth-child(odd)  { background: hsl(var(--background)); }
+.ai-tbl tbody tr:nth-child(even) { background: hsl(var(--muted) / 0.18); }
+.ai-tbl tbody tr:hover           { background: hsl(234 89% 74% / 0.08); }
+
+.ai-tbl tbody td {
+  padding: 10px 14px;
+  text-align: right;
+  color: hsl(var(--foreground) / 0.78);
+  white-space: nowrap;
+  border-bottom: 1px solid hsl(var(--border) / 0.1);
+}
+.ai-tbl tbody td:last-child { border-bottom: none; }
+.ai-tbl tbody td:first-child {
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+
+/* Status pill badges inside AI tables */
+.ai-tbl-pill-green {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: hsl(142 71% 45% / 0.15);
+  color: hsl(142 71% 30%);
+  border: 1px solid hsl(142 71% 45% / 0.3);
+}
+.ai-tbl-pill-amber {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: hsl(38 92% 50% / 0.15);
+  color: hsl(38 92% 28%);
+  border: 1px solid hsl(38 92% 50% / 0.3);
+}
+.dark .ai-tbl-pill-green {
+  background: hsl(142 71% 45% / 0.2);
+  color: hsl(142 71% 65%);
+}
+.dark .ai-tbl-pill-amber {
+  background: hsl(38 92% 50% / 0.2);
+  color: hsl(38 92% 65%);
+}
 
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button {
