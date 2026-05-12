@@ -441,15 +441,19 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - campaign_name: اسم الحملة كما هو
    - landing_page_url: Destination URL
    - media_url: Media URL (Drive link)
+   - pixel_id: الرقم بعد "Pixel ID:" — **إلزامي لحملات SALES/Purchase**
    - primary texts → creatives[].primary_text (كل النصوص)
    - headlines → creatives[].headline (كل العناوين)
 ٤. لـ TESTING (ABO):
    - نفّذ adsets: [{name: "Broad Test", budget: [رقم من Budget]}]
    - creatives: كل الأصول المذكورة
+   - pixel_id: مرّره مباشرةً للأداة — لا تتجاهله أبداً
 ٥. لـ SCALING (CBO):
    - نفّذ daily_budget: [Campaign Budget من Blueprint] بدون adsets[] (CBO على مستوى الحملة)
    - creatives: كل الأصول المذكورة
+   - pixel_id: مرّره مباشرةً للأداة — لا تتجاهله أبداً
    - الـ backend سيفعّل Advantage+ Creative تلقائياً
+⚠️ تحذير Pixel: حملة SALES بدون pixel_id ستفشل أو تنحدر إلى Awareness — دائماً مرّر pixel_id إذا كان موجوداً في الـ Blueprint.
 ٦. بعد الاستدعاء رد فقط بـ:
    - TESTING: "🧪 جاري إطلاق حملة الاختبار بميزانية ABO — في انتظار موافقتك..."
    - SCALING: "🚀 جاري إطلاق حملة التوسع بميزانية CBO — في انتظار موافقتك..."

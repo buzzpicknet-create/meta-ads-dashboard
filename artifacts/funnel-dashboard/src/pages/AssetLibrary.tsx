@@ -69,6 +69,7 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 function buildBlueprint(
   mode: CampaignMode,
   budget: number,
+  pixelId: string,
   product: string,
   angle: string,
   assets: Asset[],
@@ -90,6 +91,8 @@ function buildBlueprint(
     ? heads.map((h, i) => `  ${i + 1}. ${h.content}`).join("\n")
     : "  — لم يُحدد عنوان";
 
+  const pixelLine = pixelId.trim() ? `- Pixel ID: ${pixelId.trim()}` : `- Pixel ID: — (لم يُحدد — أضفه من لوحة التحكم)`;
+
   if (mode === "TEST") {
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
 قم ببناء حملة (TESTING) عبر Pipeboard باستخدام الإعدادات التالية. نفذ فوراً:
@@ -105,6 +108,7 @@ function buildBlueprint(
 - Budget: ${budget} EGP daily
 - Targeting: Advantage+ Audience (Broad)
 - Placements: Advantage+ Placements
+${pixelLine}
 
 # 3. Ad Settings (Multi-Asset Test)
 - Media URL: ${driveUrl}
@@ -132,6 +136,7 @@ ${headsStr}
 - Adset Name: ASC+ / Broad Scale
 - Targeting: Advantage+ Audience (Broad)
 - Placements: Advantage+ Placements
+${pixelLine}
 
 # 3. Ad Settings (Aggressive Multi-Asset Scaling)
 - Media URL (Extract ALL from folder): ${driveUrl}
@@ -336,9 +341,9 @@ function AssetGroup({
 // ── Angle Card ─────────────────────────────────────────────────────────────────
 
 function AngleCard({
-  angle, productName, mode, budget, selByType, onToggle, onDeleted, onAssetsChange, onGenerate,
+  angle, productName, mode, budget, pixelId, selByType, onToggle, onDeleted, onAssetsChange, onGenerate,
 }: {
-  angle: Angle; productName: string; mode: CampaignMode; budget: number;
+  angle: Angle; productName: string; mode: CampaignMode; budget: number; pixelId: string;
   selByType: Record<AssetType, Set<number>>;
   onToggle: (type: AssetType, id: number) => void;
   onDeleted: () => void; onAssetsChange: () => void;
@@ -399,7 +404,7 @@ function AngleCard({
       toast({ title: "لم تختر أي أصول", description: "اختر على الأقل صفحة هبوط ونصاً قبل التوليد.", variant: "destructive" });
       return;
     }
-    const bp = buildBlueprint(mode, budget, productName, angle.name, assets, selByType);
+    const bp = buildBlueprint(mode, budget, pixelId, productName, angle.name, assets, selByType);
     onGenerate(bp);
   }
 
@@ -592,6 +597,9 @@ export default function AssetLibrary() {
   // ── Campaign Mode State ──────────────────────────────────────────────────────
   const [mode, setMode]     = useState<CampaignMode>("TEST");
   const [budget, setBudget] = useState<number>(MODE_CONFIG.TEST.defaultBudget);
+  const [pixelId, setPixelId] = useState<string>(() => {
+    try { return localStorage.getItem("launchpad_pixel_id") ?? ""; } catch { return ""; }
+  });
 
   function switchMode(m: CampaignMode) {
     setMode(m);
@@ -783,22 +791,51 @@ export default function AssetLibrary() {
             </button>
           </div>
 
-          {/* Budget input */}
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium shrink-0">
-              الميزانية اليومية (EGP):
-            </label>
-            <div className="relative flex-1 max-w-[180px]">
-              <Input
-                type="number"
-                min={1}
-                value={budget}
-                onChange={e => setBudget(Number(e.target.value) || 0)}
-                className="h-9 text-sm pl-12"
-              />
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">EGP</span>
+          {/* Budget + Pixel row */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Budget */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium shrink-0">الميزانية (EGP):</label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  min={1}
+                  value={budget}
+                  onChange={e => setBudget(Number(e.target.value) || 0)}
+                  className="h-9 text-sm pl-12 w-[130px]"
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">EGP</span>
+              </div>
             </div>
-            <span className={`text-xs px-3 py-1.5 rounded-full border font-medium ${
+
+            <span className="text-muted-foreground/40 hidden sm:block">|</span>
+
+            {/* Pixel ID */}
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <label className="text-sm font-medium shrink-0">معرّف البيكسل:</label>
+              <div className="relative flex-1 max-w-[220px]">
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="مثال: 1234567890"
+                  value={pixelId}
+                  onChange={e => {
+                    const v = e.target.value.replace(/\D/g, "");
+                    setPixelId(v);
+                    try { localStorage.setItem("launchpad_pixel_id", v); } catch { /* ignore */ }
+                  }}
+                  className="h-9 text-sm pr-2 font-mono"
+                  dir="ltr"
+                />
+              </div>
+              {pixelId.trim() ? (
+                <span className="text-xs text-emerald-600 font-medium shrink-0">✓ محفوظ</span>
+              ) : (
+                <span className="text-xs text-amber-600 shrink-0">مطلوب للـ SALES</span>
+              )}
+            </div>
+
+            <span className={`text-xs px-3 py-1.5 rounded-full border font-medium shrink-0 ${
               mode === "TEST"
                 ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800"
                 : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
@@ -881,6 +918,7 @@ export default function AssetLibrary() {
                   productName={selectedProduct?.name ?? ""}
                   mode={mode}
                   budget={budget}
+                  pixelId={pixelId}
                   selByType={getAngleSel(angle.id)}
                   onToggle={(type, id) => handleToggle(angle.id, type, id)}
                   onDeleted={() => { refetchAngles(); qc.invalidateQueries({ queryKey: ["lib-assets", angle.id] }); }}
