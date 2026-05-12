@@ -509,13 +509,13 @@ function AngleCard({
           ))}
 
           {/* Launch blueprint button */}
-          <div className={`flex items-center gap-2 pt-2 border-t rounded-lg p-3 ${modeColors} border`}>
+          <div className={`flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2 border-t rounded-lg p-3 ${modeColors} border`}>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold">
                 {MODE_CONFIG[mode].emoji} {MODE_CONFIG[mode].label}
               </div>
-              <div className="text-xs opacity-75 mt-0.5">
-                ميزانية {budget} EGP · {MODE_CONFIG[mode].budgetLabel}
+              <div className="text-xs opacity-75 mt-0.5 truncate">
+                ميزانية {budget} EGP · {mode === "TEST" ? "ABO" : "CBO"}
               </div>
             </div>
             <Button
@@ -557,7 +557,7 @@ function BlueprintModal({
 
   return (
     <Dialog open={open} onOpenChange={o => { if (!o) { setCopied(false); } onClose(); }}>
-      <DialogContent className="max-w-xl" dir="rtl">
+      <DialogContent className="max-w-xl w-[calc(100vw-2rem)] sm:w-full" dir="rtl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isScale
@@ -807,20 +807,20 @@ export default function AssetLibrary() {
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
 
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
             <Library className="h-5 w-5 text-primary" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold">مكتبة الأصول — Campaign Launchpad</h1>
-            <p className="text-sm text-muted-foreground">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold leading-tight">مكتبة الأصول — Campaign Launchpad</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
               أضف اللاندينج ← AI يولّد النصوص ← اختر الوضع ← أطلق Blueprint
             </p>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="mr-auto gap-1.5"
+            className="gap-1.5 w-full sm:w-auto sm:mr-auto"
             onClick={() => { setHistoryOpen(true); refetchHistory(); }}
           >
             <Clock className="h-4 w-4" />
@@ -878,9 +878,8 @@ export default function AssetLibrary() {
             </button>
           </div>
 
-          {/* Budget + Pixel row */}
+          {/* Budget row */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Budget */}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium shrink-0">الميزانية (EGP):</label>
               <div className="relative">
@@ -889,97 +888,92 @@ export default function AssetLibrary() {
                   min={1}
                   value={budget}
                   onChange={e => setBudget(Number(e.target.value) || 0)}
-                  className="h-9 text-sm pl-12 w-[130px]"
+                  className="h-9 text-sm pl-12 w-[120px]"
                 />
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">EGP</span>
               </div>
             </div>
-
-            <span className="text-muted-foreground/40 hidden sm:block">|</span>
-
-            {/* Pixel dropdown */}
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <label className="text-sm font-medium shrink-0">البيكسل:</label>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={() => { setNewPixelId(""); setNewPixelName(""); setAddPixelOpen(true); }}
-                title="إضافة بيكسل جديد"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-              <Select
-                value={selectedPixelId}
-                onValueChange={handleSelectPixel}
-                dir="rtl"
-              >
-                <SelectTrigger className="h-9 text-sm flex-1 max-w-[220px]">
-                  <SelectValue placeholder={pixels.length ? "اختر بيكسل..." : "أضف بيكسلاً أولاً"} />
-                </SelectTrigger>
-                <SelectContent dir="rtl">
-                  {pixels.map(p => (
-                    <SelectItem key={p.id} value={p.id}>
-                      <span className="font-medium">{p.name}</span>
-                      <span className="text-muted-foreground font-mono text-xs mr-2">({p.id})</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {pixelId ? (
-                <span className="text-xs text-emerald-600 font-medium shrink-0">✓</span>
-              ) : (
-                <span className="text-xs text-amber-600 shrink-0">مطلوب</span>
-              )}
-            </div>
-
-            <span className={`text-xs px-3 py-1.5 rounded-full border font-medium shrink-0 ${
+            <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
               mode === "TEST"
                 ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800"
                 : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
             }`}>
-              {MODE_CONFIG[mode].budgetLabel}
+              {mode === "TEST" ? "ABO" : "CBO"}
             </span>
           </div>
 
+          {/* Pixel dropdown row */}
+          <div className="flex items-center gap-2 min-w-0">
+            <label className="text-sm font-medium shrink-0">البيكسل:</label>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={() => { setNewPixelId(""); setNewPixelName(""); setAddPixelOpen(true); }}
+              title="إضافة بيكسل جديد"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Select
+              value={selectedPixelId}
+              onValueChange={handleSelectPixel}
+              dir="rtl"
+            >
+              <SelectTrigger className="h-9 text-sm flex-1 min-w-0">
+                <SelectValue placeholder={pixels.length ? "اختر بيكسل..." : "أضف بيكسلاً أولاً"} />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                {pixels.map(p => (
+                  <SelectItem key={p.id} value={p.id}>
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-muted-foreground font-mono text-xs mr-2">({p.id})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {pixelId ? (
+              <span className="text-xs text-emerald-600 font-medium shrink-0">✓</span>
+            ) : (
+              <span className="text-xs text-amber-600 shrink-0">مطلوب</span>
+            )}
+          </div>
+
           {/* Page dropdown row */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <label className="text-sm font-medium shrink-0">الصفحة:</label>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={() => { setNewPageId(""); setNewPageName(""); setAddPageOpen(true); }}
-                title="إضافة صفحة جديدة"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-              <Select
-                value={selectedPageId}
-                onValueChange={handleSelectPage}
-                dir="rtl"
-              >
-                <SelectTrigger className="h-9 text-sm flex-1 max-w-[220px]">
-                  <SelectValue placeholder={pages.length ? "اختر صفحة..." : "أضف صفحة أولاً"} />
-                </SelectTrigger>
-                <SelectContent dir="rtl">
-                  {pages.map(p => (
-                    <SelectItem key={p.id} value={p.id}>
-                      <span className="font-medium">{p.name}</span>
-                      <span className="text-muted-foreground font-mono text-xs mr-2">({p.id})</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {pageId ? (
-                <span className="text-xs text-emerald-600 font-medium shrink-0">✓</span>
-              ) : (
-                <span className="text-xs text-muted-foreground shrink-0">اختياري</span>
-              )}
-            </div>
+          <div className="flex items-center gap-2 min-w-0">
+            <label className="text-sm font-medium shrink-0">الصفحة:</label>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={() => { setNewPageId(""); setNewPageName(""); setAddPageOpen(true); }}
+              title="إضافة صفحة جديدة"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Select
+              value={selectedPageId}
+              onValueChange={handleSelectPage}
+              dir="rtl"
+            >
+              <SelectTrigger className="h-9 text-sm flex-1 min-w-0">
+                <SelectValue placeholder={pages.length ? "اختر صفحة..." : "أضف صفحة أولاً"} />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                {pages.map(p => (
+                  <SelectItem key={p.id} value={p.id}>
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-muted-foreground font-mono text-xs mr-2">({p.id})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {pageId ? (
+              <span className="text-xs text-emerald-600 font-medium shrink-0">✓</span>
+            ) : (
+              <span className="text-xs text-muted-foreground shrink-0">اختياري</span>
+            )}
           </div>
         </div>
 
@@ -1018,9 +1012,9 @@ export default function AssetLibrary() {
               placeholder="اسم منتج جديد..."
               value={newProductName}
               onChange={e => setNewProductName(e.target.value)}
-              className="h-8 text-sm max-w-xs"
+              className="h-8 text-sm flex-1 min-w-0"
             />
-            <Button type="submit" size="sm" className="h-8 gap-1" disabled={!newProductName.trim() || createProduct.isPending}>
+            <Button type="submit" size="sm" className="h-8 gap-1 shrink-0" disabled={!newProductName.trim() || createProduct.isPending}>
               <Plus className="h-4 w-4" /> إضافة منتج
             </Button>
           </form>
@@ -1030,16 +1024,16 @@ export default function AssetLibrary() {
         {selectedProductId !== null && (
           <div className="space-y-4">
             <form
-              className="flex gap-2"
+              className="flex flex-col sm:flex-row gap-2"
               onSubmit={e => { e.preventDefault(); if (newAngleName.trim()) createAngle.mutate(newAngleName.trim()); }}
             >
               <Input
                 placeholder="اسم الزاوية التسويقية (مثال: قبل وبعد، زاوية الخصم...)"
                 value={newAngleName}
                 onChange={e => setNewAngleName(e.target.value)}
-                className="h-8 text-sm"
+                className="h-8 text-sm flex-1 min-w-0"
               />
-              <Button type="submit" size="sm" className="h-8 gap-1 shrink-0" disabled={!newAngleName.trim() || createAngle.isPending}>
+              <Button type="submit" size="sm" className="h-8 gap-1 shrink-0 w-full sm:w-auto" disabled={!newAngleName.trim() || createAngle.isPending}>
                 <Plus className="h-4 w-4" /> زاوية جديدة
               </Button>
             </form>
@@ -1181,7 +1175,7 @@ export default function AssetLibrary() {
 
       {/* ── History Dialog ───────────────────────────────────────────────────── */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="max-w-2xl h-[80vh] flex flex-col" dir="rtl">
+        <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] sm:w-full h-[80vh] flex flex-col" dir="rtl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-primary" />
