@@ -1289,74 +1289,87 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         throw new Error(`فشل إنشاء المجموعة الإعلانية — ${detail}`);
       }
 
-      // ── Verify with Meta Graph API — best-effort only, never blocks success ──
-      // Success is determined by Pipeboard returning an id, NOT by verify result.
+      // ── Hard verify: adset MUST appear in /{campaign_id}/adsets ─────────────
+      // Success = adset found by name in campaign's adset list.
+      // Failure = not found → throw (caught below → 500).
       const token = process.env.META_ACCESS_TOKEN;
-      // Start with minimal fields; Meta rejects optimization_goal/billing_event/campaign_id
-      const VERIFY_FIELDS = ["id,name,status,effective_status,daily_budget,created_time,updated_time", "id,name,status,effective_status", "id,name"];
+      if (!token) throw new Error("META_ACCESS_TOKEN غير موجود — لا يمكن التحقق من إنشاء المجموعة");
 
-      // Base data from args (always available regardless of verify outcome)
+      const expectedCampaignId = String(args?.campaign_id ?? "");
+      const expectedName       = String(args?.name ?? "");
+
+      // Step 1: GET /{candidateId}?fields=id,name,campaign_id
+      // Confirm the id Pipeboard returned is actually an adset (not a campaign).
+      logger.info({ asAdsetId, expectedCampaignId }, "create_adset: step1 — GET /{id}?fields=id,name,campaign_id");
+      const step1Url = new URL(`https://graph.facebook.com/v21.0/${asAdsetId}`);
+      step1Url.searchParams.set("fields", "id,name,campaign_id,status,effective_status,daily_budget,created_time,updated_time");
+      step1Url.searchParams.set("access_token", token);
+      const step1Resp = await fetch(step1Url.toString(), { signal: AbortSignal.timeout(12_000) });
+      const step1Json = await step1Resp.json() as Record<string, unknown>;
+
+      if (step1Json.error) {
+        const ve = typeof step1Json.error === "object" && step1Json.error !== null
+          ? step1Json.error as Record<string, unknown> : {};
+        logger.warn({ ve, asAdsetId }, "create_adset: step1 GET failed — candidate id may be wrong");
+        // Don't throw yet — step2 (by-name search) is the authoritative check
+      } else {
+        const step1CampaignId = String(step1Json.campaign_id ?? "");
+        if (step1CampaignId && step1CampaignId !== expectedCampaignId) {
+          logger.warn({ step1CampaignId, expectedCampaignId, asAdsetId },
+            "create_adset: step1 campaign_id mismatch — id from Pipeboard likely wrong");
+        } else {
+          logger.info({ asAdsetId, step1CampaignId }, "create_adset: step1 OK — id is an adset");
+        }
+      }
+
+      // Step 2: GET /{campaign_id}/adsets?fields=id,name,... — authoritative check
+      // Find by name → get the REAL adset_id. Fail hard if not found.
+      logger.info({ expectedCampaignId, expectedName }, "create_adset: step2 — GET /{campaign_id}/adsets");
+      const step2Url = new URL(`https://graph.facebook.com/v21.0/${expectedCampaignId}/adsets`);
+      step2Url.searchParams.set("fields", "id,name,status,effective_status,daily_budget,created_time,updated_time");
+      step2Url.searchParams.set("limit", "200");
+      step2Url.searchParams.set("access_token", token);
+      const step2Resp = await fetch(step2Url.toString(), { signal: AbortSignal.timeout(15_000) });
+      const step2Json = await step2Resp.json() as { data?: Array<Record<string, unknown>>; error?: unknown };
+
+      if (step2Json.error) {
+        const ve = typeof step2Json.error === "object" && step2Json.error !== null
+          ? step2Json.error as Record<string, unknown> : {};
+        throw new Error(`التحقق من قائمة المجموعات فشل — ${String(ve.message ?? JSON.stringify(ve))}`);
+      }
+
+      const allAdsets = step2Json.data ?? [];
+      logger.info({ count: allAdsets.length, expectedName }, "create_adset: step2 adsets returned");
+
+      // Match by exact name
+      const matched = allAdsets.find(a => String(a.name ?? "") === expectedName);
+      if (!matched) {
+        const names = allAdsets.map(a => String(a.name ?? "")).slice(0, 10);
+        throw new Error(
+          `لم يظهر الـ adset "${expectedName}" في قائمة الحملة ${expectedCampaignId} — فشل التحقق. ` +
+          `الأسماء الموجودة (أول 10): ${JSON.stringify(names)}`
+        );
+      }
+
+      // Use confirmed data from Meta
+      const confirmedId  = String(matched.id ?? asAdsetId);
+      const rawBudget    = matched.daily_budget != null ? Number(matched.daily_budget) / 100 : null;
+      asAdsetId = confirmedId;
       asData = {
-        adset_id:          asAdsetId,
-        name:              String(args?.name ?? ""),
-        campaign_id:       String(args?.campaign_id ?? ""),
+        adset_id:          confirmedId,
+        name:              String(matched.name ?? expectedName),
+        campaign_id:       expectedCampaignId,
         account_id:        rawAccId,
         optimization_goal: String(args?.optimization_goal ?? ""),
         billing_event:     String(args?.billing_event ?? ""),
-        daily_budget:      args?.daily_budget != null ? Number(args.daily_budget) : undefined,
-        status:            String(args?.status ?? "PAUSED"),
-        effective_status:  String(args?.status ?? "PAUSED"),
+        daily_budget:      rawBudget ?? (args?.daily_budget != null ? Number(args.daily_budget) : undefined),
+        status:            matched.status           != null ? String(matched.status)           : String(args?.status ?? "PAUSED"),
+        effective_status:  matched.effective_status != null ? String(matched.effective_status) : String(args?.status ?? "PAUSED"),
+        created_time:      matched.created_time     != null ? String(matched.created_time)     : undefined,
+        updated_time:      matched.updated_time     != null ? String(matched.updated_time)     : undefined,
       };
-
-      if (token) {
-        for (const fields of VERIFY_FIELDS) {
-          try {
-            const verifyUrl = new URL(`https://graph.facebook.com/v21.0/${asAdsetId}`);
-            verifyUrl.searchParams.set("fields", fields);
-            verifyUrl.searchParams.set("access_token", token);
-            const vResp = await fetch(verifyUrl.toString(), { signal: AbortSignal.timeout(12_000) });
-            const vJson = await vResp.json() as Record<string, unknown>;
-
-            if (vJson.error) {
-              const ve = typeof vJson.error === "object" && vJson.error !== null
-                ? vJson.error as Record<string, unknown> : {};
-              asVerifyError = {
-                code:          ve.code          != null ? Number(ve.code)          : undefined,
-                message:       String(ve.message ?? `Meta error for ${asAdsetId}`),
-                error_subcode: ve.error_subcode != null ? Number(ve.error_subcode) : undefined,
-                fbtrace_id:    ve.fbtrace_id    != null ? String(ve.fbtrace_id)    : undefined,
-              };
-              logger.warn({ verifyError: asVerifyError, fields }, "create_adset: verify field error — will retry with fewer fields");
-              continue; // try next field set
-            }
-
-            // Merge verified data over arg-based defaults
-            const rawBudget = vJson.daily_budget != null ? Number(vJson.daily_budget) / 100 : null;
-            asData = {
-              ...asData,
-              adset_id:         String(vJson.id ?? asAdsetId),
-              name:             vJson.name != null ? String(vJson.name) : asData.name,
-              status:           vJson.status != null ? String(vJson.status) : asData.status,
-              effective_status: vJson.effective_status != null ? String(vJson.effective_status) : asData.effective_status,
-              daily_budget:     rawBudget != null ? rawBudget : asData.daily_budget,
-              created_time:     vJson.created_time != null ? String(vJson.created_time) : undefined,
-              updated_time:     vJson.updated_time != null ? String(vJson.updated_time) : undefined,
-            };
-            asVerifyOk = true;
-            asVerifyError = undefined;
-            break; // success — stop retrying
-          } catch (fetchErr) {
-            asVerifyError = { message: fetchErr instanceof Error ? fetchErr.message : String(fetchErr) };
-            logger.warn({ fetchErr, fields }, "create_adset: verify fetch threw — will retry");
-          }
-        }
-
-        if (!asVerifyOk) {
-          logger.warn({ verifyError: asVerifyError, asAdsetId }, "create_adset: all verify attempts failed — returning success with arg-based data");
-        }
-      } else {
-        logger.warn("create_adset: META_ACCESS_TOKEN missing — skipping verify");
-      }
+      asVerifyOk = true;
+      logger.info({ confirmedId, expectedName }, "create_adset: step2 matched — adset confirmed");
 
       asSuccess = true;
       asMsg = [
