@@ -636,22 +636,34 @@ export default function AiChatPage() {
       let res: string;
       if (r.ok && d.success && pending.tool === "launch_pipeboard_campaign") {
         const ld = d.launchData ?? {};
+        // Extract text/headline from creatives[] (new format) or top-level (legacy)
+        const firstCreative = (Array.isArray(pending.args.creatives) && (pending.args.creatives as Array<Record<string,unknown>>).length > 0)
+          ? (pending.args.creatives as Array<Record<string,unknown>>)[0]!
+          : null;
+        const primaryText = String(firstCreative?.primary_text ?? pending.args.primary_text ?? "");
+        const headline    = String(firstCreative?.headline    ?? pending.args.headline    ?? "");
+        // Budget: sum adsets[].budget or fall back to daily_budget arg
+        const adsetArgs = Array.isArray(pending.args.adsets)
+          ? (pending.args.adsets as Array<{ budget?: number }>)
+          : [];
+        const dailyBudget = adsetArgs.length > 0
+          ? adsetArgs.reduce((s, a) => s + (Number(a.budget) || 0), 0)
+          : Number(pending.args.daily_budget ?? 20);
         const cardData: PipeboardLaunchData = {
           campaign_name: String(pending.args.campaign_name ?? ""),
-          daily_budget: Number(pending.args.daily_budget ?? 20),
-          primary_text: String(pending.args.primary_text ?? ""),
-          headline: String(pending.args.headline ?? ""),
+          daily_budget: dailyBudget,
+          primary_text: primaryText || undefined,
+          headline: headline || undefined,
           status: "PAUSED",
           landing_page_url: String(pending.args.landing_page_url ?? ""),
           campaign_id: ld.campaign_id ? String(ld.campaign_id) : undefined,
-          adset_id: ld.adset_id ? String(ld.adset_id) : undefined,
-          adset_error: ld.adset_error ? String(ld.adset_error) : undefined,
-          creative_id: ld.creative_id ? String(ld.creative_id) : undefined,
-          creative_error: ld.creative_error ? String(ld.creative_error) : undefined,
-          ad_id: ld.ad_id ? String(ld.ad_id) : undefined,
-          ad_error: ld.ad_error ? String(ld.ad_error) : undefined,
           objective: ld.objective ? String(ld.objective) : undefined,
           has_pixel: Boolean(ld.has_pixel),
+          ads_created: ld.ads_created != null ? Number(ld.ads_created) : undefined,
+          ads_failed:  ld.ads_failed  != null ? Number(ld.ads_failed)  : undefined,
+          adsets_count:    ld.adsets_count    != null ? Number(ld.adsets_count)    : undefined,
+          creatives_count: ld.creatives_count != null ? Number(ld.creatives_count) : undefined,
+          ad_results: Array.isArray(ld.ad_results) ? (ld.ad_results as import("@/components/PipeboardLaunchCard").AdResult[]) : undefined,
         };
         res = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
       } else {
