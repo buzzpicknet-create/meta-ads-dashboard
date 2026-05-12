@@ -1844,6 +1844,30 @@ export async function getAdCreativeContent(ad_id: string): Promise<AdCreativeCon
   };
 }
 
+// ── Search campaigns by name (no Insights — shows 0-spend campaigns) ─────────
+export interface CampaignSearchResult {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  created_time: string;
+  updated_time: string;
+}
+
+export async function searchCampaignsByName(
+  adAccountId: string,
+  query: string,
+): Promise<CampaignSearchResult[]> {
+  const cleanId = adAccountId.replace(/^act_/, "");
+  const rows = await fbGet<CampaignSearchResult>(
+    `/act_${cleanId}/campaigns`,
+    { fields: "id,name,status,effective_status,created_time,updated_time", limit: "200" },
+  );
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(r => r.name?.toLowerCase().includes(q));
+}
+
 // ── Account Metadata (pixels + pages) ────────────────────────────────────────
 export interface AccountMetadata {
   pixels: { id: string; name: string }[];

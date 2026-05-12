@@ -11,6 +11,7 @@ import {
   getAdDetails,
   getAdCreativeInfo,
   getAdCreativeContent,
+  searchCampaignsByName,
   fetchAccountMetadata,
   isRateLimitActive,
   type CampaignDetails,
@@ -476,10 +477,12 @@ Frequency (في 7 أيام):
 - لا تذكر للمستخدم أن "Meta لا يدعم duplicate_ad" — الأداة موجودة ومُنفَّذة.
 
 الأدوات المتاحة — إنشاء:
-- create_campaign(account_id, name, objective, daily_budget, status?) — إنشاء حملة جديدة
+- search_campaigns(account_id, query?) — ابحث عن حملة بالاسم، يعرض حتى 0-spend. استخدم بعد create_campaign للتأكد من الإنشاء.
+- create_campaign(account_id, name, objective, daily_budget, status?) — إنشاء حملة جديدة. يُعيد campaign_id + effective_status مباشرةً من Meta (لا Insights). لا "success" بدون ID حقيقي.
   - استخدم get_campaigns أولاً للحصول على account_id من الحسابات المرتبطة
   - objectives: OUTCOME_SALES | OUTCOME_LEADS | OUTCOME_TRAFFIC | OUTCOME_AWARENESS | OUTCOME_ENGAGEMENT
   - status: PAUSED (افتراضي — للمراجعة) أو ACTIVE (تشغيل فوري)
+  - بعد الإنشاء: استخدم search_campaigns(account_id, campaign_name) للتحقق الهيكلي
 - create_adset(account_id, campaign_id, name, optimization_goal, billing_event, daily_budget?, targeting?) — إنشاء مجموعة إعلانية
   - optimization_goal: OFFSITE_CONVERSIONS | LEAD_GENERATION | LINK_CLICKS | LANDING_PAGE_VIEWS | THRUPLAY | REACH
   - billing_event: IMPRESSIONS (الأشيع) | LINK_CLICKS
@@ -1092,8 +1095,23 @@ const TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "search_campaigns",
+      description: "ابحث عن حملة بالاسم — يعرض النتائج حتى لو إنفاق 0 (بخلاف get_campaigns التي تتطلب إنفاق). استخدم بعد create_campaign للتحقق من وجود الحملة، أو للعثور على حملات قديمة أو حملات بـ 0 spend. يعمل على مستوى حساب إعلاني واحد في كل مرة.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX أو الرقم فقط)" },
+          query:      { type: "string", description: "الكلمة أو الجزء الذي تبحث عنه في اسم الحملة — اتركه فارغاً لإظهار كل الحملات (حتى 200)" },
+        },
+        required: ["account_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "create_campaign",
-      description: "اقتراح إنشاء حملة إعلانية جديدة على Meta. استخدم get_campaigns أولاً للحصول على account_id. سيظهر طلب تأكيد للمستخدم قبل الإنشاء.",
+      description: "اقتراح إنشاء حملة إعلانية جديدة على Meta. بعد الإنشاء يُعيد campaign_id + effective_status مباشرةً من Meta (لا Insights). سيظهر طلب تأكيد للمستخدم قبل الإنشاء. استخدم search_campaigns بعده للتحقق.",
       parameters: {
         type: "object",
         properties: {
@@ -3065,6 +3083,38 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       if (hookGoodCvrBad) rows.push(`🔻 Funnel Leak (Hook جيد → CVR ضعيف): ${hookGoodCvrBad.label} — Hook: ${fmt(hookGoodCvrBad.hookRate, 1)}%، CVR: ${fmt(hookGoodCvrBad.cr, 1)}% — المشكلة في الصفحة أو العرض وليس في الإعلان`);
 
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
+    }
+
+    if (name === "search_campaigns") {
+      const rawAccId = String(args.account_id ?? "");
+      if (!rawAccId) return "account_id مطلوب.";
+      const query = String(args.query ?? "").trim();
+      try {
+        const results = await searchCampaignsByName(rawAccId, query);
+        const accLabel = rawAccId.startsWith("act_") ? rawAccId : `act_${rawAccId}`;
+        if (results.length === 0) {
+          return query
+            ? `لم تُعثر على حملات تحتوي على "${query}" في الحساب ${accLabel}.`
+            : `لا توجد حملات في الحساب ${accLabel} (أو الحساب غير مرتبط).`;
+        }
+        const rows = [
+          `## نتائج البحث في ${accLabel}${query ? ` — "${query}"` : ""} (${results.length} حملة):\n`,
+          "| الحملة | id | الحالة | effective_status | تاريخ الإنشاء | آخر تعديل |",
+          "|--------|-----|--------|-----------------|--------------|-----------|",
+        ];
+        const statusAr = (s: string) =>
+          s === "ACTIVE" ? "✅ نشطة" :
+          s === "PAUSED" ? "⏸ موقوفة" :
+          s === "ARCHIVED" ? "🗄 مؤرشفة" : s;
+        for (const c of results) {
+          const created = c.created_time ? c.created_time.slice(0, 10) : "—";
+          const updated = c.updated_time ? c.updated_time.slice(0, 10) : "—";
+          rows.push(`| ${c.name} | ${c.id} | ${statusAr(c.status)} | ${statusAr(c.effective_status)} | ${created} | ${updated} |`);
+        }
+        return rows.join("\n");
+      } catch (err) {
+        return `خطأ في البحث عن الحملات: ${err instanceof Error ? err.message : String(err)}`;
+      }
     }
 
     if (name === "get_ad_creative") {

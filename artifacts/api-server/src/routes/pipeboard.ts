@@ -974,6 +974,96 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     return;
   }
 
+  // ── Special: create_campaign — verify with Meta after Pipeboard MCP ─────────
+  if (tool === "create_campaign") {
+    const rawAccId = String(args?.account_id ?? "");
+    const { mcpTool: ccMcpTool, mcpArgs: ccMcpArgs } = translateToMcp("create_campaign", args ?? {});
+
+    let ccSuccess = false;
+    let ccMsg = "";
+    let ccCampaignId = "";
+    let ccData: Record<string, unknown> = {};
+
+    try {
+      const client = await getPipeboardWriteClient();
+      const result = await client.callTool({ name: ccMcpTool, arguments: ccMcpArgs });
+      const textContent = ((result as { content?: Array<{ type: string; text?: string }> }).content ?? [])
+        .filter(c => c.type === "text")
+        .map(c => c.text ?? "")
+        .join("")
+        .trim();
+
+      logger.info({ textContent: textContent.slice(0, 300) }, "create_campaign: MCP response");
+
+      // Extract campaign_id — fail hard if not found
+      const idMatch = textContent.match(/"id"\s*:\s*"(\d+)"/) ?? textContent.match(/\b(\d{13,})\b/);
+      ccCampaignId = idMatch?.[1] ?? "";
+      if (!ccCampaignId) {
+        // Try to extract real Meta error
+        const errMatch = textContent.match(/"message"\s*:\s*"([^"]+)"/) ?? textContent.match(/"error"\s*:\s*"([^"]+)"/);
+        const codeMatch = textContent.match(/"code"\s*:\s*(\d+)/);
+        const subMatch = textContent.match(/"error_subcode"\s*:\s*(\d+)/);
+        const errMsg = errMatch?.[1] ?? textContent.slice(0, 400);
+        const code = codeMatch?.[1] ? Number(codeMatch[1]) : undefined;
+        const sub = subMatch?.[1] ? Number(subMatch[1]) : undefined;
+        const detail = [
+          code ? `code: ${code}` : null,
+          sub  ? `error_subcode: ${sub}` : null,
+          `message: ${errMsg}`,
+        ].filter(Boolean).join(" | ");
+        throw new Error(`فشل إنشاء الحملة — ${detail}`);
+      }
+
+      // ── Verify with Meta Graph API directly ──────────────────────────────
+      const token = process.env.META_ACCESS_TOKEN;
+      if (token) {
+        try {
+          const verifyUrl = new URL(`https://graph.facebook.com/v21.0/${ccCampaignId}`);
+          verifyUrl.searchParams.set("fields", "id,name,status,effective_status,updated_time");
+          verifyUrl.searchParams.set("access_token", token);
+          const vResp = await fetch(verifyUrl.toString(), { signal: AbortSignal.timeout(15_000) });
+          const vJson = await vResp.json() as Record<string, unknown>;
+          if (!vJson.error) {
+            ccData = {
+              campaign_id: vJson.id,
+              name: vJson.name,
+              status: vJson.status,
+              effective_status: vJson.effective_status,
+              updated_time: vJson.updated_time,
+            };
+          }
+        } catch (verifyErr) {
+          logger.warn({ verifyErr }, "create_campaign: Meta verify fetch threw (non-fatal)");
+        }
+      }
+
+      if (!ccData.campaign_id) {
+        ccData = { campaign_id: ccCampaignId };
+      }
+
+      ccSuccess = true;
+      ccMsg = `تم إنشاء الحملة "${String(args?.name ?? "")}" — campaign_id: ${ccCampaignId} — الحالة: ${String(ccData.effective_status ?? ccData.status ?? "PAUSED")}`;
+    } catch (err) {
+      ccMsg = err instanceof Error ? err.message : String(err);
+      _pbWriteClient = null;
+      _pbWriteConnecting = null;
+    }
+
+    await query(
+      `INSERT INTO pipeboard_actions
+         (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [executedBy, tool, JSON.stringify(args ?? {}), ccSuccess, ccMsg, String(args?.name ?? ""), null, false]
+    ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
+
+    if (ccSuccess) {
+      res.json({ success: true, message: ccMsg, ...ccData, account_id: rawAccId });
+    } else {
+      res.status(500).json({ error: ccMsg });
+    }
+    return;
+  }
+
   const isGaTool = GA_WRITE_TOOLS.has(tool);
   const { mcpTool, mcpArgs } = isGaTool
     ? translateToGoogleAdsMcp(tool, args ?? {})
