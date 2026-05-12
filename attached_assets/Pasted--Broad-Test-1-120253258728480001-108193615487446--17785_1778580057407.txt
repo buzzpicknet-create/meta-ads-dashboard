@@ -1,0 +1,62 @@
+⚠️
+مجموعة: Broad Test — إعلان 1
+120253258728480001
+✅
+المحتوى الإبداعي
+108193615487446
+⚠️
+الإعلان (Ad)
+لم يُعاد ad_id — {"data":"{\"error\":{\"message\":\"HTTP Error: 400\",\"details\":{\"error\":{\"message\":\"Invalid parameter\",\"type\":\"OAuthException\",\"code\":100,\"error_subcode\":1487015,\"is_transient\":false,\"error_user_title\":\"Ad Creative Invalid\",\"error_user_msg\":\"The ad creative is invalid.\",\"fbtrace_id\":\"A_1YeEZev-uX74YEwq0V6hK\"}},\"respon
+
+⚠️
+مجموعة: Broad Test — إعلان 2
+120253258728480001
+✅
+المحتوى الإبداعي
+108193615487446
+⚠️
+الإعلان (Ad)
+لم يُعاد ad_id — {"data":"{\"error\":{\"message\":\"HTTP Error: 400\",\"details\":{\"error\":{\"message\":\"Invalid parameter\",\"type\":\"OAuthException\",\"code\":100,\"error_subcode\":1487015,\"is_transient\":false,\"error_user_title\":\"Ad Creative Invalid\",\"error_user_msg\":\"The ad creative is invalid.\",\"fbtrace_id\":\"AB2HQ7vz9zk6AJF-S2E75CA\"}},\"respon
+
+⚠️
+مجموعة: Broad Test — إعلان 3
+120253258728480001
+✅
+المحتوى الإبداعي
+108193615487446
+⚠️
+الإعلان (Ad)
+لم يُعاد ad_id — {"data":"{\"error\":{\"message\":\"HTTP Error: 400\",\"details\":{\"error\":{\"message\":\"Invalid parameter\",\"type\":\"OAuthException\",\"code\":100,\"error_subcode\":1487015,\"is_transient\":false,\"error_user_title\":\"Ad Creative Invalid\",\"error_user_msg\":\"The ad creative is invalid.\",\"fbtrace_id\":\"AqD-kcy2iWUF3Qs1fRAn_Fw\"}},\"respon
+
+⚠️
+مجموعة: Broad Test — إعلان 4
+120253258728480001
+✅
+المحتوى الإبداعي
+108193615487446
+⚠️
+الإعلان (Ad)
+لم يُعاد ad_id — {"data":"{\"error\":{\"message\":\"HTTP Error: 400\",\"details\":{\"error\":{\"message\":\"Invalid parameter\",\"type\":\"OAuthException\",\"code\":100,\"error_subcode\":1487015,\"is_transient\":false,\"error_user_title\":\"Ad Creative Invalid\",\"error_user_msg\":\"The ad creative is invalid.\",\"fbtrace_id\":\"A4XhGGOvR6emLa-KOr3N_Nh\"}},\"respon
+
+⚠️
+مجموعة: Broad Test — إعلان 5
+120253258728480001
+✅
+المحتوى الإبداعي
+108193615487446
+⚠️
+الإعلان (Ad)
+لم يُعاد ad_id — {"data":"{\"error\":{\"message\":\"HTTP Error: 400\",\"details\":{\"error\":{\"message\":\"Invalid parameter\",\"type\":\"OAuthException\",\"code\":100,\"error_subcode\":1487015,\"is_transient\":false,\"error_user_title\":\"Ad Creative Invalid\",\"error_user_msg\":\"The ad creative is invalid.\",\"fbtrace_id\":\"A3YfDhKLaP5oKZaMdOFz8rU\"}},\"respon
+
+⚠️
+مجموعة: Broad Test — إعلان 6
+120253258728480001
+✅
+المحتوى الإبداعي
+108193615487446
+⚠️
+الإعلان (Ad)
+لم يُعاد ad_id — {"data":"{\"error\":{\"message\":\"HTTP Error: 400\",\"details\":{\"error\":{\"message\":\"Invalid parameter\",\"type\":\"OAuthException\",\"code\":100,\"error_subcode\":1487015,\"is_transient\":false,\"error_user_title\":\"Ad Creative Invalid\",\"error_user_msg\":\"The ad creative is invalid.\",\"fbtrace_id\":\"ANhMZBRXvtxvYRRN_d0I2ug\"}},\"respon
+
+استهداف: مصر — Advantage+ Audience — Broad
+تأكد أن روابط الصور/الفيديوهات مباشرة ومتاحة للعموم، أو استخدم Google Drive بصلاحية "أي شخص لديه الرابط".

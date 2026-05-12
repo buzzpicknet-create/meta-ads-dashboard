@@ -565,15 +565,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               message: creative.primary_text,
               headline: creative.headline,
               call_to_action_type: callToAction,
-              // Advantage+ Creative Enhancements — opt-in explicitly so Meta doesn't
-              // silently strip standard enhancements (default OFF for API-created ads)
-              advantage_plus_creative: true,
-              enable_standard_enhancements: true,
-              degrees_of_freedom_spec: {
-                creative_features_spec: {
-                  standard_enhancements: { enroll_status: "OPT_IN" },
-                },
-              },
+              // NOTE: Do NOT add advantage_plus_creative / degrees_of_freedom_spec
+              // here — those create an Advantage+ creative format that is incompatible
+              // with Pipeboard's create_ad tool and causes error 1487015
+              // ("Ad Creative Invalid") at the ad-creation step.
             };
             if (pixelId) creativeArgs.pixel_id = pixelId;
             if (isVid) creativeArgs.video_id = media.videoId;
@@ -601,15 +596,22 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
           // Create ad — must use act_ prefix for Meta's /ads endpoint
           try {
+            const adArgs: Record<string, unknown> = {
+              account_id: accountIdWithAct,
+              name: `${adset.name} — إعلان ${ci + 1}`,
+              adset_id: adsetId,
+              creative_id: creativeId,
+              status: "PAUSED",
+            };
+            // For SALES/PURCHASE campaigns Meta requires tracking_specs on the ad
+            // itself (not just promoted_object on the adset) — without this the
+            // creative is considered "invalid" for the conversion context (error 1487015).
+            if (hasPixel && pixelId) {
+              adArgs.tracking_specs = [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }];
+            }
             const adResult = await client.callTool({
               name: "create_ad",
-              arguments: {
-                account_id: accountIdWithAct,
-                name: `${adset.name} — إعلان ${ci + 1}`,
-                adset_id: adsetId,
-                creative_id: creativeId,
-                status: "PAUSED",
-              },
+              arguments: adArgs,
             });
             const adText = mcpText(adResult);
             logger.info({ adText }, `launch_pipeboard_campaign: create_ad [${adset.name}][${ci}]`);
