@@ -349,7 +349,7 @@ Frequency (في 7 أيام):
 - launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, adsets[], creatives[], pixel_id?, page_id?, call_to_action?) — إنشاء حملة كاملة مع عدة AdSets وعدة Creatives دفعة واحدة عبر Pipeboard CMP
   - adsets[]: مصفوفة [{name, budget}] — كل AdSet له ميزانية مستقلة
   - creatives[]: مصفوفة [{media_url, media_type, primary_text, headline}] — يُنشأ كل creative داخل كل AdSet
-  - page_id: مطلوب لإنشاء الإعلانات — اجلبه دائماً من fetch_account_metadata قبل الاستدعاء
+  - page_id: اختياري — الـ backend يجلبه تلقائياً. مرّره فقط إذا أعطاه المستخدم صراحةً
   - pixel_id: OUTCOME_SALES بوجوده، OUTCOME_TRAFFIC بدونه
   - media_url: Google Drive (أي شكل — يُحوَّل تلقائياً) أو رابط مباشر
   - الاستهداف: Advantage+ Audience تلقائياً — لا تضف أعمار أو اهتمامات
@@ -365,17 +365,12 @@ Frequency (في 7 أيام):
 FACEBOOK PAGE ID — قاعدة حرجة لا تُكسر
 ══════════════════════════════════════
 
-🚨 إذا أعطاك المستخدم page_id مباشرةً (مثال: "استخدم الصفحة 123456789"):
-- استخدمه **فوراً** بدون أي تحقق أو تساؤل
-- **ممنوع** تماماً أن تطلب منه ربط الصفحة بـ Business Manager أو إضافتها كـ Asset
-- صلاحية Personal Admin كافية تماماً لإنشاء الإعلانات عبر Pipeboard API
-- ثق بالمستخدم واعدّ الـ page_id جاهزاً للإرسال — Pipeboard/Meta هما اللي يحكموا على الصلاحية إذا كان فيه مشكلة
-- إذا رجع Pipeboard بخطأ صلاحيات الصفحة → أخبر المستخدم بنص الخطأ الحرفي فقط — لا تقترح Business Manager
-
-🚨 إذا لم يوجد page_id في نتائج fetch_account_metadata (الصفحات: لم يُعثر على صفحات):
-- هذا طبيعي جداً للصفحات الشخصية (Personal Admin) — لا تفسّره على أنه خطأ
-- اسأل المستخدم مباشرةً: "ما هو معرّف صفحتك على Facebook (Page ID)؟ يمكنك إيجاده في إعدادات الصفحة > معلومات الصفحة"
-- **ممنوع** تماماً أن تقول له "اربط الصفحة بـ Business Manager" أو "أضفها كـ Asset"
+🚨 قاعدة الصفحة (page_id) — حرجة:
+- **لا تسأل المستخدم عن page_id أبداً** — الـ backend يجلبه تلقائياً عبر Pipeboard
+- إذا أعطاك المستخدم page_id طوعاً → مرّره مباشرةً للأداة بدون أي تحقق
+- إذا لم يذكر page_id → لا تسأل، لا تقترح Business Manager، فقط أرسل launch_pipeboard_campaign بدون page_id والـ backend سيتولى الأمر
+- **ممنوع تماماً**: "اربط الصفحة بـ Business Manager" / "أضفها كـ Asset" / "ما هو Page ID صفحتك؟"
+- إذا رجع Pipeboard بخطأ صلاحيات الصفحة → أخبر المستخدم بنص الخطأ الحرفي فقط
 
 ══════════════════════════════════════
 CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
@@ -391,8 +386,7 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
 
 ٢. بعد ما تعود النتائج، ابعت رسالة ملخّصة واحدة تتضمن:
    - اقتراح البيكسل: "لاحظت عندك بيكسل **[اسم البيكسل]** — هل أستخدمه لتتبع التحويلات؟" (إذا كان فيه أكثر من بيكسل اذكرهم جميعاً)
-   - اقتراح الصفحة: "سأنشر الإعلان من صفحة **[اسم الصفحة]** — صح؟" (إذا كان فيه صفحة واحدة فقط)
-   - إذا لم تُعثر على صفحات: اسأل "ما هو Page ID صفحتك؟ يمكنك إيجاده في إعدادات الصفحة" — لا تذكر Business Manager أبداً
+   - **لا تذكر الصفحة ولا تسأل عنها** — الـ backend يحددها تلقائياً
    - سؤال نوع الميديا: "الرابط اللي أرسلته **صورة أم فيديو**؟" ← مطلوب دايماً
    - سؤال النص الإعلاني: "تريد أن **تكتب النص والعنوان بنفسك** أم **أكتبهما لك**؟"
    إذا لم يوجد بيكسل في الحساب: لا تسأل عنه — استخدم OUTCOME_TRAFFIC تلقائياً وأخبر المستخدم.
@@ -413,7 +407,7 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
    - creatives: مصفوفة [{media_url, media_type, primary_text, headline}] — حتى لو creative واحد
      * إذا أرسل المستخدم رابط مجلد Google Drive (drive.google.com/drive/folders/...) → ضعه في media_url مباشرةً وسيستخرج الـ backend جميع الصور/الفيديوهات منه تلقائياً ويوسّعها إلى creatives متعددة
      * إذا أرسل روابط ملفات مباشرة → ضعها في creatives كمصفوفة كالمعتاد
-   - page_id: من نتيجة fetch_account_metadata إذا وُجد، أو من المستخدم مباشرةً إذا أعطاه — كلاهما صحيح
+   - page_id: **لا تضفه** إلا إذا أعطاك المستخدم page_id صراحةً — الـ backend يجلبه تلقائياً إذا لم يُرسَل
    - pixel_id: أرسله إذا وافق المستخدم
    - ⚠️ لا تفترض ميزانية افتراضية — اسأل المستخدم عن الميزانية إذا لم يذكرها
 
@@ -946,7 +940,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "launch_pipeboard_campaign",
-      description: "أنشئ حملة Meta Ads كاملة عبر Pipeboard CMP. تدعم إنشاء عدة AdSets وعدة Creatives (Ads) دفعة واحدة — لاختبار ABO أو تعدد الإعلانات. الحملة تُنشأ دائماً PAUSED للمراجعة. استخدم adsets[] وcreatives[] للإنشاء الجماعي. مطلوب page_id لإنشاء الإعلانات — اجلبه من fetch_account_metadata قبل الاستدعاء.",
+      description: "أنشئ حملة Meta Ads كاملة عبر Pipeboard CMP. تدعم إنشاء عدة AdSets وعدة Creatives (Ads) دفعة واحدة — لاختبار ABO أو تعدد الإعلانات. الحملة تُنشأ دائماً PAUSED للمراجعة. استخدم adsets[] وcreatives[] للإنشاء الجماعي. page_id اختياري — الـ backend يجلبه تلقائياً عبر Pipeboard إذا لم يُرسَل.",
       parameters: {
         type: "object",
         properties: {
@@ -954,7 +948,7 @@ const TOOLS = [
           campaign_name: { type: "string", description: "اسم الحملة" },
           landing_page_url: { type: "string", description: "رابط الصفحة الهبوطية لجميع الإعلانات" },
           pixel_id: { type: "string", description: "معرّف بيكسل Meta — يُنشئ OUTCOME_SALES. بدونه OUTCOME_TRAFFIC." },
-          page_id: { type: "string", description: "معرّف صفحة Facebook — مطلوب لإنشاء الإعلانات. اجلبه من fetch_account_metadata." },
+          page_id: { type: "string", description: "معرّف صفحة Facebook — اختياري. الـ backend يجلبه تلقائياً عبر Pipeboard. مرّره فقط إذا أعطاه المستخدم صراحةً." },
           call_to_action: { type: "string", description: "زر CTA — LEARN_MORE | SHOP_NOW | SIGN_UP | SUBSCRIBE. افتراضي: LEARN_MORE" },
           adsets: {
             type: "array",
