@@ -869,6 +869,8 @@ Raw API Response (للتشخيص التقني):
 \`\`\`
 🚨 بدون adId و destinationAdsetId يفشل التنفيذ بخطأ "object_story_id أو post_id أو ad_id مطلوب" — لا تُخرج create_ad_from_existing_post أبداً بدون هذين الحقلين.
 
+🔴 قاعدة حديدية: إذا لم تكن تعرف ad_id للإعلان المصدر (Winner) → استدعِ search_ads(adset_id) أولاً للحصول عليه، ثم ضعه في adId. لا تُخرج bulk_action بدون adId الفعلي لكل إعلان.
+
 **الإجراء الفردي المدمج (Inline per-campaign):**
 لما تحلّل كل حملة وتقترح إجراء، أخرج bulk_action مع "compact": true فوراً بعد تحليل تلك الحملة مباشرةً — لا تنتظر تحليل كل الحملات. شكل الإجراء الفردي:
 \`\`\`bulk_action

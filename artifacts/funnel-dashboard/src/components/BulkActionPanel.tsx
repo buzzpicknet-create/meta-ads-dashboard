@@ -114,8 +114,16 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
       return { tool: "duplicate_ad", args: { ad_id: item.adId, destination_adset_id: item.destinationAdsetId, name: item.name } };
     case "create_ad_from_post":
       return { tool: "create_ad_from_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, post_id: item.postId, name: item.name } };
-    case "create_ad_from_existing_post":
+    case "create_ad_from_existing_post": {
+      const hasSource = item.adId || item.postId;
+      if (!hasSource) {
+        throw new Error(
+          "❌ adId مفقود — الـ AI لم يُحدّد الإعلان المصدر (Winner). " +
+          "اطلب منه: 'ابحث عن الإعلانات في المجموعة أولاً ثم أعد إنشاء الـ bulk'"
+        );
+      }
       return { tool: "create_ad_from_existing_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, object_story_id: item.postId, ad_id: item.adId, name: item.name } };
+    }
   }
 }
 
