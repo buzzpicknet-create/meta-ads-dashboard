@@ -1243,6 +1243,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     let asAdsetId = "";
     let asData: Record<string, unknown> = {};
     let asError: Record<string, unknown> | null = null;
+    let asVerifyOk = false;
+    let asVerifyError: MetaErrorDetails | undefined;
 
     try {
       const client = await getPipeboardWriteClient();
@@ -1287,71 +1289,83 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         throw new Error(`فشل إنشاء المجموعة الإعلانية — ${detail}`);
       }
 
-      // ── Verify with Meta Graph API directly ──────────────────────────────
+      // ── Verify with Meta Graph API — best-effort only, never blocks success ──
+      // Success is determined by Pipeboard returning an id, NOT by verify result.
       const token = process.env.META_ACCESS_TOKEN;
-      if (!token) {
-        // No token: trust Pipeboard id but flag clearly
-        asData = { adset_id: asAdsetId };
-        logger.warn("create_adset: META_ACCESS_TOKEN missing — cannot verify with Meta");
+      // Start with minimal fields; Meta rejects optimization_goal/billing_event/campaign_id
+      const VERIFY_FIELDS = ["id,name,status,effective_status,daily_budget,created_time,updated_time", "id,name,status,effective_status", "id,name"];
+
+      // Base data from args (always available regardless of verify outcome)
+      asData = {
+        adset_id:          asAdsetId,
+        name:              String(args?.name ?? ""),
+        campaign_id:       String(args?.campaign_id ?? ""),
+        account_id:        rawAccId,
+        optimization_goal: String(args?.optimization_goal ?? ""),
+        billing_event:     String(args?.billing_event ?? ""),
+        daily_budget:      args?.daily_budget != null ? Number(args.daily_budget) : undefined,
+        status:            String(args?.status ?? "PAUSED"),
+        effective_status:  String(args?.status ?? "PAUSED"),
+      };
+
+      if (token) {
+        for (const fields of VERIFY_FIELDS) {
+          try {
+            const verifyUrl = new URL(`https://graph.facebook.com/v21.0/${asAdsetId}`);
+            verifyUrl.searchParams.set("fields", fields);
+            verifyUrl.searchParams.set("access_token", token);
+            const vResp = await fetch(verifyUrl.toString(), { signal: AbortSignal.timeout(12_000) });
+            const vJson = await vResp.json() as Record<string, unknown>;
+
+            if (vJson.error) {
+              const ve = typeof vJson.error === "object" && vJson.error !== null
+                ? vJson.error as Record<string, unknown> : {};
+              asVerifyError = {
+                code:          ve.code          != null ? Number(ve.code)          : undefined,
+                message:       String(ve.message ?? `Meta error for ${asAdsetId}`),
+                error_subcode: ve.error_subcode != null ? Number(ve.error_subcode) : undefined,
+                fbtrace_id:    ve.fbtrace_id    != null ? String(ve.fbtrace_id)    : undefined,
+              };
+              logger.warn({ verifyError: asVerifyError, fields }, "create_adset: verify field error — will retry with fewer fields");
+              continue; // try next field set
+            }
+
+            // Merge verified data over arg-based defaults
+            const rawBudget = vJson.daily_budget != null ? Number(vJson.daily_budget) / 100 : null;
+            asData = {
+              ...asData,
+              adset_id:         String(vJson.id ?? asAdsetId),
+              name:             vJson.name != null ? String(vJson.name) : asData.name,
+              status:           vJson.status != null ? String(vJson.status) : asData.status,
+              effective_status: vJson.effective_status != null ? String(vJson.effective_status) : asData.effective_status,
+              daily_budget:     rawBudget != null ? rawBudget : asData.daily_budget,
+              created_time:     vJson.created_time != null ? String(vJson.created_time) : undefined,
+              updated_time:     vJson.updated_time != null ? String(vJson.updated_time) : undefined,
+            };
+            asVerifyOk = true;
+            asVerifyError = undefined;
+            break; // success — stop retrying
+          } catch (fetchErr) {
+            asVerifyError = { message: fetchErr instanceof Error ? fetchErr.message : String(fetchErr) };
+            logger.warn({ fetchErr, fields }, "create_adset: verify fetch threw — will retry");
+          }
+        }
+
+        if (!asVerifyOk) {
+          logger.warn({ verifyError: asVerifyError, asAdsetId }, "create_adset: all verify attempts failed — returning success with arg-based data");
+        }
       } else {
-        const verifyUrl = new URL(`https://graph.facebook.com/v21.0/${asAdsetId}`);
-        verifyUrl.searchParams.set(
-          "fields",
-          "id,name,status,effective_status,daily_budget,created_time,updated_time"
-        );
-        verifyUrl.searchParams.set("access_token", token);
-
-        let vJson: Record<string, unknown>;
-        try {
-          const vResp = await fetch(verifyUrl.toString(), { signal: AbortSignal.timeout(15_000) });
-          vJson = await vResp.json() as Record<string, unknown>;
-        } catch (fetchErr) {
-          logger.warn({ fetchErr }, "create_adset: Meta verify fetch threw");
-          // Non-fatal — trust Pipeboard id
-          asData = { adset_id: asAdsetId };
-          vJson = {};
-        }
-
-        if (vJson.error) {
-          // Verification returned an error — treat as failure
-          const ve = (typeof vJson.error === "object" && vJson.error !== null)
-            ? vJson.error as Record<string, unknown>
-            : {};
-          asError = {
-            code:          ve.code          ?? undefined,
-            message:       ve.message       ?? `Meta returned error for adset_id ${asAdsetId}`,
-            error_subcode: ve.error_subcode ?? undefined,
-            fbtrace_id:    ve.fbtrace_id    ?? undefined,
-          };
-          throw new Error(
-            `create_adset: Pipeboard أعطى id=${asAdsetId} لكن Meta فشل التحقق — ` +
-            `code: ${String(asError.code ?? "?")} | message: ${String(asError.message)}`
-          );
-        }
-
-        // ── Success: build full response from Meta data ───────────────────
-        const rawBudget = vJson.daily_budget != null ? Number(vJson.daily_budget) / 100 : null;
-        asData = {
-          adset_id:         vJson.id,
-          name:             vJson.name,
-          campaign_id:      vJson.campaign_id,
-          status:           vJson.status,
-          effective_status: vJson.effective_status,
-          daily_budget:     rawBudget != null ? rawBudget : undefined,
-          optimization_goal: vJson.optimization_goal,
-          billing_event:    vJson.billing_event,
-          created_time:     vJson.created_time,
-          updated_time:     vJson.updated_time,
-        };
+        logger.warn("create_adset: META_ACCESS_TOKEN missing — skipping verify");
       }
 
       asSuccess = true;
       asMsg = [
-        `تم إنشاء المجموعة الإعلانية "${String(args?.name ?? "")}"`,
+        `تم إنشاء المجموعة الإعلانية "${String(asData.name ?? args?.name ?? "")}"`,
         `adset_id: ${asAdsetId}`,
-        asData.campaign_id ? `campaign_id: ${String(asData.campaign_id)}` : null,
+        `campaign_id: ${String(asData.campaign_id ?? args?.campaign_id ?? "?")}`,
         asData.effective_status ? `الحالة: ${String(asData.effective_status)}` : null,
-        asData.daily_budget    ? `الميزانية: ${String(asData.daily_budget)} EGP/يوم` : null,
+        asData.daily_budget    ? `الميزانية: ${Number(asData.daily_budget).toFixed(0)} EGP/يوم` : null,
+        asVerifyOk ? "✅ مُتحقَّق من Meta" : "⚠️ تم الإنشاء (verify لم يكتمل — الـ id مؤكد من Pipeboard)",
       ].filter(Boolean).join(" — ");
 
     } catch (err) {
@@ -1369,7 +1383,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (create_adset)"));
 
     if (asSuccess) {
-      res.json({ success: true, message: asMsg, account_id: rawAccId, ...asData });
+      res.json({
+        success: true,
+        message: asMsg,
+        account_id: rawAccId,
+        ...asData,
+        verified: asVerifyOk,
+        verify_attempted: true,
+        ...(asVerifyError ? { verify_error: asVerifyError } : {}),
+      });
     } else {
       res.status(500).json({
         error: asMsg,
