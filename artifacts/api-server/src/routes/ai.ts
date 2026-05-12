@@ -1584,7 +1584,7 @@ async function getPipeboardClient(): Promise<Client> {
 // Pipeboard/Meta API responses can be thousands of tokens.
 // We keep only the first MAX_TOOL_RESULT_CHARS characters so the LLM receives
 // the most-relevant rows (top of the list) without ballooning the context window.
-const MAX_TOOL_RESULT_CHARS = 4000;
+const MAX_TOOL_RESULT_CHARS = 8000;
 
 function truncateToolResult(text: string, maxChars = MAX_TOOL_RESULT_CHARS): string {
   if (text.length <= maxChars) return text;
@@ -1899,29 +1899,12 @@ async function tryExecuteViaPipeboard(
     }
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────
-    // DB stores account_id WITHOUT the "act_" prefix — we add it back for Pipeboard.
-    if (name === "get_campaigns") {
-      const accRows = await query<{ account_id: string }>(
-        `SELECT DISTINCT account_id FROM meta_campaigns_cache LIMIT 5`
-      ).catch(() => [] as { account_id: string }[]);
-      const filtered = selectedAccFilter
-        ? accRows.filter(r => selectedAccFilter.has(r.account_id))
-        : accRows;
-      if (filtered.length === 0) return null;
-
-      const results = await Promise.all(
-        filtered.map((r) =>
-          callPipeboardRead("get_insights", {
-            object_id: `act_${r.account_id}`,
-            level: "campaign",
-            time_range: timeRange,
-          }).catch(() => null)
-        )
-      );
-      const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
-      if (successes.length === 0) return null;
-      return successes.join("\n\n---\n\n");
-    }
+    // NOTE: get_campaigns is intentionally NOT handled here via Pipeboard because
+    // get_insights only returns campaigns that have SPEND in the period — zero-spend
+    // active campaigns are silently omitted. The native Meta API path (below) fetches
+    // all active campaigns via the campaigns endpoint first, then joins insights,
+    // so it correctly shows all 9 active campaigns even if some have 0 spend.
+    // Returning null here lets the native path always run for campaign listing.
 
     if (name === "get_account_daily") {
       const accRows = await query<{ account_id: string }>(
@@ -2123,16 +2106,16 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       for (const acc of accounts) {
         const result = await fetchCampaignsCached(acc.id);
         if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
-        // Filter: only campaigns with spend > 0, sorted by spend desc
-        const spending = result.data
-          .filter((c) => c.spend > 0)
-          .sort((a, b) => b.spend - a.spend);
-        for (const c of spending) {
+        // Show ALL active campaigns (including 0-spend), sorted by spend desc.
+        // Do NOT filter spend > 0 — campaigns that haven't run yet in this period
+        // are still valid and the AI must see them (e.g. to use their IDs for actions).
+        const sorted = [...result.data].sort((a, b) => b.spend - a.spend);
+        for (const c of sorted) {
           rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
           totalShown++;
         }
       }
-      if (totalShown === 0) rows.push("_(لا توجد حملات بإنفاق خلال هذه الفترة)_");
+      if (totalShown === 0) rows.push("_(لا توجد حملات نشطة في هذا الحساب)_");
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
 

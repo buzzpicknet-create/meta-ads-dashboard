@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, Link, useRoute, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter, Link, useLocation } from "wouter";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -131,15 +131,10 @@ function NavBar() {
     return item.roles.includes(role);
   });
 
-  const routes = ALL_NAV_ITEMS.map((item) => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [active] = useRoute(item.useRoute);
-    return active;
-  });
+  const [location] = useLocation();
 
   function activeFor(href: string) {
-    const idx = ALL_NAV_ITEMS.findIndex((i) => i.href === href);
-    return idx >= 0 ? routes[idx] : false;
+    return location === href || location.startsWith(href + "/");
   }
 
   return (
