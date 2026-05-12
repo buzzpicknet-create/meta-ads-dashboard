@@ -1,0 +1,55 @@
+Act as a Principal AI Architect and 8-Figure Media Buyer. We are implementing the "Opus 4.7" standard—the absolute pinnacle of AI reasoning and professional UI design. The goal is to transform the dashboard into a "Strategic Command Center" characterized by deep contextual intelligence and a ultra-refined, high-end aesthetic.
+
+Please implement this "Opus-Level Mastery" architecture:
+
+1. THE "OPUS 4.7" INTELLIGENCE PROTOCOL
+
+Update the System Prompt to enforce the most advanced expert persona ever created for Media Buying:
+
+Executive Reasoning Block (The Brain): Before any data is shown, the AI must output a "Strategic Logic" section. This isn't just "thinking"—it's a high-level summary of the "Why" behind the numbers (e.g., > المنطق الاستراتيجي (Opus Logic): تم رصد تداخل في الجماهير (Audience Overlap) بين حملتين، مما أدى لارتفاع الـ CPA. جاري عزل البيانات وتقديم حل جذري...).
+
+The "Sovereign" Header (H1): Start with a massive, elegant header: # 🧠 مستوى Opus 4.7: العقل المدبر للميديا باينج.
+
+Precision Typography:
+
+English Numerals (123) ONLY for all metrics and data.
+
+Use ### for secondary titles with increased vertical whitespace for "breathability."
+
+Semantic Annotations: Instead of just emojis, use status-text: (CPA: 12.5 EGP | Performance: Optimal 🟢).
+
+2. FRONTEND: THE "ELITE ARTIFACTS" UI (UX)
+
+Rewrite the Chat and Table components to meet the highest "Pro-SaaS" standards:
+
+Visual Density & Clarity: Increase base font size to text-[18px] for primary headings and text-[16px] for body text.
+
+The "Opus" Table Fix:
+
+min-w-[1300px] to ensure absolute data integrity with zero squashing.
+
+Subtle Heatmapping: Numeric cells should have background tints so light they are almost transparent, indicating performance tiers (Emerald for success, Slate for neutral, Rose for danger).
+
+Micro-Interactions: Add a soft border-glow effect to "Winning" rows to make them visually pop.
+
+Contextual Sidebars: Ensure that when a campaign is analyzed, the "Artifact" view opens with a clean sidebar showing "Top Hooks" and "Low Performing Angles" separately.
+
+3. THE "STRATEGIC COMMAND" REASONING
+
+The AI must behave like a CMO (Chief Marketing Officer):
+
+Root Cause Analysis: If a campaign is failing, the AI must look for the "Root Cause" (e.g., Is it the Creative, the Landing Page, or the Meta Auction itself?).
+
+Predictive Modeling: Based on the last 7 days, the AI should predict: "إذا استمر الإنفاق بهذا المعدل، سنتخطى الميزانية الشهرية بـ 15% مقابل عائد ROAS مستقر."
+
+Decisive Authority: Use "قرار الأوبوس (Opus Verdict): أوقف الحملة فوراً؛ التكرار (Frequency) وصل لـ 3.5 والجمهور بدأ يشعر بالملل (Creative Fatigue)."
+
+4. DATA INTEGRITY & ARCHITECTURE
+
+100% Payload Fidelity: No data is too small. Process every single ad.
+
+Meta API Synthesis: Use Batch API calls to fetch "Hidden Metrics" (Average Watch Time, Cost Per 10-Second View) to determine true creative quality.
+
+Long-Term Memory Integration: The AI must remember the "Target CPA" set in previous sessions and judge current data against it.
+
+Please implement this total overhaul to move from "Fast AI" to "Deep Intelligence" (Opus 4.7 Standard).

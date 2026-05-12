@@ -520,13 +520,42 @@ function RenderMarkdown({ text }: { text: string }) {
     if (/^#{1,3}\s/.test(line)) {
       const level = (line.match(/^(#{1,3})/)?.[1].length ?? 1);
       const content = line.replace(/^#{1,3}\s/, "");
-      const sizeClass = level === 1 ? "text-base" : level === 2 ? "text-[14px]" : "text-[13px]";
-      elements.push(
-        <p key={i} className={`font-bold ${sizeClass} text-foreground mt-4 mb-1.5 leading-snug border-b border-border/40 pb-1.5`}>
-          {renderInline(content)}
-        </p>
-      );
+      if (level === 1) {
+        elements.push(
+          <p key={i} className="ai-h1-sovereign">{renderInline(content)}</p>
+        );
+      } else {
+        const sizeClass = level === 2 ? "text-[14px]" : "text-[13px]";
+        elements.push(
+          <p key={i} className={`font-bold ${sizeClass} text-foreground mt-4 mb-1.5 leading-snug border-b border-border/40 pb-1.5`}>
+            {renderInline(content)}
+          </p>
+        );
+      }
       i++; continue;
+    }
+
+    // Blockquote > — Opus Logic card if contains strategic keywords, else standard
+    if (/^>\s/.test(line)) {
+      const bqLines: string[] = [];
+      while (i < lines.length && /^>\s/.test(lines[i]!)) {
+        bqLines.push(lines[i]!.replace(/^>\s/, ""));
+        i++;
+      }
+      const bqText = bqLines.join("\n");
+      const isOpus = /المنطق الاستراتيجي|Opus Logic/i.test(bqText);
+      if (isOpus) {
+        elements.push(
+          <div key={i} className="ai-opus-logic">{renderInline(bqText)}</div>
+        );
+      } else {
+        elements.push(
+          <div key={i} className="my-2 border-r-4 border-primary/40 pr-3 py-1 bg-primary/5 rounded-sm text-[13px] text-foreground/80 leading-relaxed">
+            {renderInline(bqText)}
+          </div>
+        );
+      }
+      continue;
     }
 
     // Markdown table  | col | col |
@@ -571,39 +600,43 @@ function RenderMarkdown({ text }: { text: string }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => {
-                    if (ci === 0) {
-                      return <td key={ci}>{renderNameCell(cell)}</td>;
-                    }
-                    const colType = colTypes[ci] ?? "";
-                    const isActive = /نشطة|ACTIVE|✅/.test(cell);
-                    const isPaused = /متوقفة|PAUSED|⏸/.test(cell);
-                    const isStatus = isActive || isPaused || /^[🔴🟡🟢]/.test(cell);
-                    const numVal = parseFloat(cell.replace(/[^\d.,]/g, "").replace(",", ""));
-                    let extraClass = "";
-                    if (colType === "hook" && !isNaN(numVal)) {
-                      extraClass = numVal >= 30 ? "ai-tbl-hook-good" : numVal < 20 ? "ai-tbl-hook-bad" : "";
-                    } else if (colType === "ctr" && !isNaN(numVal)) {
-                      extraClass = numVal >= 1.5 ? "ai-tbl-ctr-good" : numVal < 0.8 ? "ai-tbl-ctr-bad" : "";
-                    } else if (colType === "hold" && !isNaN(numVal)) {
-                      extraClass = numVal >= 20 ? "ai-tbl-hold-good" : numVal < 10 ? "ai-tbl-hold-bad" : "";
-                    } else if (colType === "cpa" && !isNaN(numVal)) {
-                      extraClass = numVal <= 40 ? "ai-tbl-cpa-good" : numVal > 100 ? "ai-tbl-cpa-bad" : "";
-                    } else if (colType === "spend") {
-                      extraClass = "ai-tbl-primary";
-                    }
-                    return (
-                      <td key={ci} className={extraClass || undefined}>
-                        {isStatus
-                          ? <span className={isActive ? "ai-tbl-pill-green" : "ai-tbl-pill-amber"}>{renderInline(cell)}</span>
-                          : renderInline(cell)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {rows.map((row, ri) => {
+                const rowText = row.join(" ");
+                const isWinner = /🟢\s*(Scale|توسيع|مقياس)|Winning Angle|✅\s*Scale/i.test(rowText);
+                const isKill   = /🔴\s*(Kill|أوقف|إيقاف)/i.test(rowText);
+                const rowClass = isWinner ? "ai-tbl-winner-row" : isKill ? "ai-tbl-kill-row" : "";
+                return (
+                  <tr key={ri} className={rowClass || undefined}>
+                    {row.map((cell, ci) => {
+                      if (ci === 0) return <td key={ci}>{renderNameCell(cell)}</td>;
+                      const colType = colTypes[ci] ?? "";
+                      const isActive = /نشطة|ACTIVE|✅/.test(cell);
+                      const isPaused = /متوقفة|PAUSED|⏸/.test(cell);
+                      const isStatus = isActive || isPaused || /^[🔴🟡🟢]/.test(cell);
+                      const numVal = parseFloat(cell.replace(/[^\d.,]/g, "").replace(",", ""));
+                      let extraClass = "";
+                      if (colType === "hook" && !isNaN(numVal)) {
+                        extraClass = numVal >= 30 ? "ai-tbl-hook-good" : numVal < 20 ? "ai-tbl-hook-bad" : "";
+                      } else if (colType === "ctr" && !isNaN(numVal)) {
+                        extraClass = numVal >= 1.5 ? "ai-tbl-ctr-good" : numVal < 0.8 ? "ai-tbl-ctr-bad" : "";
+                      } else if (colType === "hold" && !isNaN(numVal)) {
+                        extraClass = numVal >= 20 ? "ai-tbl-hold-good" : numVal < 10 ? "ai-tbl-hold-bad" : "";
+                      } else if (colType === "cpa" && !isNaN(numVal)) {
+                        extraClass = numVal <= 40 ? "ai-tbl-cpa-good" : numVal > 100 ? "ai-tbl-cpa-bad" : "";
+                      } else if (colType === "spend") {
+                        extraClass = "ai-tbl-primary";
+                      }
+                      return (
+                        <td key={ci} className={extraClass || undefined}>
+                          {isStatus
+                            ? <span className={isActive ? "ai-tbl-pill-green" : "ai-tbl-pill-amber"}>{renderInline(cell)}</span>
+                            : renderInline(cell)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -611,16 +644,6 @@ function RenderMarkdown({ text }: { text: string }) {
       continue;
     }
 
-    // Blockquote >
-    if (/^>\s/.test(line)) {
-      const content = line.replace(/^>\s/, "");
-      elements.push(
-        <div key={i} className="my-2 border-r-4 border-primary/40 pr-3 py-1 bg-primary/5 rounded-sm">
-          <p className="text-[13px] text-foreground/80 leading-relaxed italic">{renderInline(content)}</p>
-        </div>
-      );
-      i++; continue;
-    }
 
     // Bullet list
     if (/^[-•*]\s/.test(line)) {
