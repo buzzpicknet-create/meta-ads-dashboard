@@ -421,6 +421,7 @@ export interface CampaignSummary {
   impressions: number;
   link_clicks: number;
   ctr: number;
+  updated_time?: string;
 }
 
 export interface AdAccountSummary {
@@ -445,9 +446,9 @@ export async function listCampaigns(opts: {
     : rawAccount;
 
   // 1) Fetch campaigns metadata
-  // activeOnly: restrict to spending statuses only — skips ARCHIVED/DELETED/PAUSED metadata fetch
+  // activeOnly: fetch ACTIVE + PAUSED (incl. CAMPAIGN_PAUSED) — skip ARCHIVED/DELETED for AI tool calls
   const statusFilter = opts.activeOnly
-    ? ["ACTIVE", "CAMPAIGN_PAUSED"]
+    ? ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED"]
     : ["ACTIVE", "PAUSED", "ARCHIVED", "DELETED", "CAMPAIGN_PAUSED"];
   const campaigns = await fbGet<{
     id: string;
@@ -455,8 +456,9 @@ export async function listCampaigns(opts: {
     status: string;
     effective_status: string;
     objective: string;
+    updated_time?: string;
   }>(`/act_${adAccount}/campaigns`, {
-    fields: "id,name,status,effective_status,objective",
+    fields: "id,name,status,effective_status,objective,updated_time",
     filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: statusFilter }]),
     limit: "500",
   });
@@ -498,6 +500,7 @@ export async function listCampaigns(opts: {
       reach: m.reach,
       link_clicks: m.link_clicks,
       ctr: d.ctr,
+      updated_time: c.updated_time,
     };
   });
 }

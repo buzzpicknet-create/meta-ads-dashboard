@@ -76,6 +76,24 @@ const SYSTEM_PROMPT = `أنت Media Buyer خبير متخصص في Meta Ads (Fac
 - سؤال عن مجموعات إعلانية؟ → get_adsets أولاً
 - سؤال عن إيقاف أو تعديل؟ → اجلب الحالة الحالية أولاً (get_campaign_status / get_adset_status)
 
+══════════════════════════════════════
+قاعدة المحقق — DATA DISCOVERY RULE
+══════════════════════════════════════
+
+🕵️ أنت محقق بيانات — مش مجرد قارئ أرقام. قواعد غير قابلة للمساومة:
+
+١. إذا طلب المستخدم "مراجعة شاملة للحساب" أو "تحليل كامل" أو ما شابه:
+   - اجلب الحملات النشطة (ACTIVE) والمتوقفة مؤقتاً (PAUSED) من آخر 7 إلى 14 يوم.
+   - لا تكتفي بالحملات النشطة فقط — الحملات المتوقفة مؤخراً هي الأهم للتحليل.
+
+٢. إذا لاحظت فجوة في البيانات أو بيانات ناقصة:
+   - لا تقل للمستخدم "ربما الحملات مش نشطة" أو "لا توجد بيانات".
+   - بدلاً من ذلك: استخدم get_campaigns بفترة أوسع (days=14 أو days=30)، أو ابحث بالاسم، أو وسّع نطاق التاريخ بنفسك.
+
+٣. هدفك الأساسي هو اكتشاف:
+   - الـ Hidden Winners: حملات ممتازة كانت شغّالة وأُوقفت — اكتشفها وأوصِ بإعادة تشغيلها.
+   - الـ Silent Bleeders: حملات تستنزف الميزانية بصمت — اكتشفها قبل ما تسأل.
+
 📅 قواعد تحديد الفترة الزمنية في الأدوات:
 - لو المستخدم طلب "أداء اليوم" → since=today, until=today (نفس التاريخ)
 - لو طلب "أداء أمس" → since=yesterday, until=yesterday
@@ -1224,7 +1242,7 @@ const TOOLS = [
 // ── Arabic label for each read tool (used in tool_call_label SSE events) ─────
 function getToolLabel(name: string, args: Record<string, unknown>): string {
   switch (name) {
-    case "get_campaigns":       return "جلب قائمة الحملات الإعلانية…";
+    case "get_campaigns":       return "🔍 جاري سحب وتحليل كافة الحملات (النشطة والمتوقفة مؤخراً) لتقديم تحليل كامل…";
     case "get_campaign_daily":  return `جلب الأداء اليومي للحملة ${String(args.campaign_id ?? "")}…`;
     case "get_account_daily":   return "جلب الأداء اليومي للحساب…";
     case "get_adsets":          return `جلب المجموعات الإعلانية للحملة ${String(args.campaign_id ?? "")}…`;
@@ -2232,33 +2250,48 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
     if (accounts.length === 0) return "لا توجد بيانات للحسابات المحددة.";
 
     if (name === "get_campaigns") {
-      const rows: string[] = [`## الحملات النشطة (آخر ${days} يوم):\n`];
+      const PAGE_LIMIT = 50;
+      const rows: string[] = [`## الحملات (النشطة والمتوقفة مؤقتاً) — آخر ${days} يوم:\n`];
       let maxCacheAgeMs = 0;
       let anyFromCache = false;
       let totalShown = 0;
       for (const acc of accounts) {
         const result = await fetchCampaignsCached(acc.id);
         if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
-        // Show ALL active campaigns (including 0-spend), sorted by spend desc.
-        // Do NOT filter spend > 0 — campaigns that haven't run yet in this period
-        // are still valid and the AI must see them (e.g. to use their IDs for actions).
-        const sorted = [...result.data].sort((a, b) => b.spend - a.spend);
+        // Filter out campaigns with $0 spend over the full period (old dead campaigns).
+        // Keep all campaigns with spend > 0 — both ACTIVE and recently-PAUSED.
+        const withSpend = result.data.filter(c => c.spend > 0);
+        // Sort by updated_time desc (most recently edited first), fallback to spend desc.
+        const sorted = [...withSpend].sort((a, b) => {
+          const tA = a.updated_time ? new Date(a.updated_time).getTime() : 0;
+          const tB = b.updated_time ? new Date(b.updated_time).getTime() : 0;
+          if (tB !== tA) return tB - tA;
+          return b.spend - a.spend;
+        });
         if (sorted.length === 0) continue;
         // IMPORTANT: show account_id header so the AI can use it for create_campaign/launch_pipeboard_campaign
         const accId = acc.id.startsWith("act_") ? acc.id : `act_${acc.id}`;
+        const activeCount = sorted.filter(c => c.effective_status === "ACTIVE").length;
+        const pausedCount = sorted.filter(c => c.effective_status !== "ACTIVE").length;
         rows.push(`\n### حساب: ${accId} — ${acc.name ?? accId}\n`);
+        rows.push(`> ملخص ما قبل التحليل: إجمالي ${sorted.length} حملة بإنفاق (نشطة: ${activeCount} | متوقفة مؤقتاً: ${pausedCount})`);
+        // Pre-analysis condensed summary: [{name, id, status, spend, cpa}]
+        const summary = sorted.slice(0, PAGE_LIMIT).map(c =>
+          `{name:"${c.name}", id:${c.id}, status:${c.effective_status}, spend:${fmt(c.spend)}, cpa:${c.cpa > 0 ? fmt(c.cpa) : "—"}}`
+        );
+        rows.push(`\nقائمة الحملات المختصرة:\n${summary.join("\n")}\n`);
         rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
         rows.push("|--------|--------|--------------|---------|-----------|------|");
-        const PAGE_LIMIT = 20;
         const limited = sorted.slice(0, PAGE_LIMIT);
         const hasMore = sorted.length > PAGE_LIMIT;
         for (const c of limited) {
-          rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
+          const statusAr = c.effective_status === "ACTIVE" ? "✅ نشطة" : "⏸ متوقفة";
+          rows.push(`| ${c.name} (id:${c.id}) | ${statusAr} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
           totalShown++;
         }
-        if (hasMore) rows.push(`\n> has_more: true — تم عرض أعلى ${PAGE_LIMIT} حملة إنفاقاً من ${sorted.length} إجمالاً. لرؤية المزيد: ضيّق الفترة الزمنية أو حدد حساباً بعينه.`);
+        if (hasMore) rows.push(`\n> has_more: true — إجمالي ${sorted.length} حملة موجودة، يُعرض أحدث ${PAGE_LIMIT} حملة تعديلاً. لرؤية المزيد: ضيّق الفترة أو حدد حساباً بعينه.`);
       }
-      if (totalShown === 0) rows.push("_(لا توجد حملات نشطة في هذا الحساب)_");
+      if (totalShown === 0) rows.push("_(لا توجد حملات بإنفاق خلال هذه الفترة)_");
       rows.push(`\n> لإنشاء حملة أو مجموعة إعلانية: استخدم account_id من عنوان الحساب أعلاه (مثال: act_XXXXXXXXX)`);
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }

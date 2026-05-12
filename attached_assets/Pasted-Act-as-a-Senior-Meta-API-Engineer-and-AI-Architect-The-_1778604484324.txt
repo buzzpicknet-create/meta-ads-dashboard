@@ -1,0 +1,42 @@
+Act as a Senior Meta API Engineer and AI Architect. The user is complaining that the AI Agent is missing data ("incomplete data") because the get_campaigns tool is filtering too strictly, leading to weak and incomplete analysis.
+
+Please implement this surgical update to the Meta Ads fetching logic:
+
+1. REVISE FETCHING FILTERS (The "Recent History" Logic)
+
+Update the get_campaigns and get_campaign_insights tools in the backend:
+
+Status Filter: Change from effective_status=['ACTIVE'] to effective_status=['ACTIVE', 'PAUSED']. We MUST see paused campaigns to analyze why they were stopped.
+
+Spending Filter: Instead of filtering out campaigns with $0 spend today, only filter out campaigns that have had $0 spend in the last 30 days.
+
+Sorting: Always sort results by updated_time (Descending). This ensures the AI always sees the most recently edited campaigns first.
+
+2. DYNAMIC PAGINATION & LIMITS
+
+Increase the fetch limit from 20 to 50 campaigns per request.
+
+If the account has more than 50 campaigns, the backend should return a summary: "Total 150 campaigns found, showing top 50 recently updated." This prevents the LLM from crashing while keeping it informed.
+
+3. CONTEXT SUMMARY (Token Saving)
+
+To prevent the LLM from getting confused by too much data:
+
+The backend should create a "Pre-Analysis Summary" before sending data to the AI.
+
+For example, instead of sending full JSON for 50 campaigns, send a condensed list: [{ name, id, status, spend_7d, cpa_7d }]. This allows the AI to "see" everything without hitting context limits.
+
+4. SYSTEM PROMPT UPDATE (The "Detective" Persona)
+
+Update the LLM's System Prompt:
+"""
+DATA DISCOVERY RULE: 1. If the user asks for a 'Full Account Audit' or 'Analysis', you must fetch both ACTIVE and PAUSED campaigns from the last 7 to 14 days.
+2. If you notice a gap in data, do NOT tell the user 'maybe they aren't active'. Instead, proactively use your tools to search for campaigns by name or expand the date range yourself.
+3. Your goal is to find the 'hidden' winners and the 'silent' bleeders that were recently paused.
+"""
+
+5. UI FEEDBACK
+
+When the AI is fetching data, update the status message to: "🔍 جاري سحب وتحليل كافة الحملات (النشطة والمتوقفة مؤخراً) لتقديم تحليل كامل..."
+
+Please apply these updates to ensure the AI has the 'Full Picture' of the ad account.

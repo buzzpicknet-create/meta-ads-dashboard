@@ -1837,7 +1837,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                               <span key={k} className="w-2 h-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: `${k * 140}ms` }} />
                             ))}
                           </div>
-                          <p className="text-xs text-muted-foreground">جاري تحميل بيانات الحملات…</p>
+                          <p className="text-xs text-muted-foreground">🔍 جاري سحب وتحليل كافة الحملات (النشطة والمتوقفة مؤخراً)…</p>
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[260px]">
