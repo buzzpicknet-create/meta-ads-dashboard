@@ -1,0 +1,46 @@
+Act as a Senior AI Architect and Full-Stack Developer. The user is complaining that the AI generates low-quality, hallucinated, and irrelevant ad copies in the "Product Asset Vault" when provided with a Landing Page URL. The AI is currently guessing the product based on the URL string instead of actually reading the page content.
+
+We need to implement a Web Scraper tool and upgrade the Copywriting System Prompt. Please implement the following architecture:
+
+1. BACKEND: BUILD A WEB SCRAPER TOOL
+
+Create a new backend utility/MCP tool called scrape_landing_page.
+
+Use lightweight libraries like axios and cheerio (Node.js) or requests and BeautifulSoup (Python). Avoid Puppeteer to save server memory unless the pages are heavily SPA-rendered.
+
+Logic: When given a URL, fetch the HTML, strip out all <script>, <style>, and navigation/footer boilerplate.
+
+Extract the core text: <title>, <h1>, <h2>, and the main paragraph texts <p>, especially focusing on product features, prices, and benefits.
+
+Return this extracted text as a summarized string (max 2000 characters to save tokens) to the LLM.
+
+2. WORKFLOW INTEGRATION
+
+When the user asks to "Generate Ad Copies" or adds a URL to the Asset Vault, the AI MUST FIRST call the scrape_landing_page tool with the provided URL.
+
+The AI must WAIT for the scraped text before generating any headlines or primary texts.
+
+3. THE "PRO COPYWRITER" SYSTEM PROMPT UPGRADE
+
+Inject this strict copywriting framework into the LLM's system prompt (specifically for generating Ad Copies and Headlines):
+
+"""
+AD COPYWRITING MASTER RULES:
+When generating Primary Text and Headlines based on a scraped landing page, act as a Senior Direct-Response Copywriter.
+
+NO HALLUCINATIONS: You MUST ONLY use facts, features, and benefits found in the scraped text. If the text says "Hair Oil", do not write about "Skin Cream".
+
+THE AIDA/PAS FRAMEWORK: Structure your Primary Text using PAS (Problem, Agitate, Solve):
+
+Hook (Problem): Start with a relatable question or pain point based on the product.
+
+Body (Agitate & Solve): Explain how the product solves this exactly, mentioning 2-3 key features from the landing page.
+
+CTA (Call to Action): End with a strong push to click the link/buy now (e.g., "اطلب الآن واستفد من الخصم", "اضغط هنا لمعرفة المزيد").
+
+TONE & STYLE: Write in persuasive, natural Arabic. Use emojis sparingly but effectively (e.g., 🔥, ✅, 👇). Avoid overly robotic or formal MSA (Fusha); keep it engaging and suitable for social media ads.
+
+HEADLINES: Generate 3 short, punchy headlines (max 40 characters each). Focus on the core benefit or the offer (e.g., "تخلص من آلام الظهر في 7 أيام!", "خصم 50% لفترة محدودة 🔥").
+"""
+
+Please implement the scraper and update the prompt logic so the generated assets are highly accurate and conversion-focused.

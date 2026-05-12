@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { scrapeLandingPage } from "../lib/scraper";
 
 const router = Router();
 
@@ -159,6 +160,19 @@ router.delete("/library/assets/:id", async (req, res) => {
   }
 });
 
+// ── Scrape endpoint (standalone) ───────────────────────────────────────────────
+
+router.post("/library/scrape", async (req, res) => {
+  const { url } = req.body as { url?: string };
+  if (!url?.trim()) return res.status(400).json({ error: "url مطلوب" });
+  try {
+    const result = await scrapeLandingPage(url.trim());
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ── AI Content Generation ──────────────────────────────────────────────────────
 
 router.post("/library/angles/:angleId/generate-content", async (req, res) => {
@@ -172,32 +186,55 @@ router.post("/library/angles/:angleId/generate-content", async (req, res) => {
     return res.status(400).json({ error: "اسم الزاوية وروابط اللاندينج مطلوبة" });
   }
 
-  const urlList = landingPageUrls.slice(0, 3).join("، ");
+  // ── Step 1: Scrape all landing page URLs in parallel ──────────────────────
+  const scrapeResults = await Promise.all(
+    landingPageUrls.slice(0, 3).map(u => scrapeLandingPage(u))
+  );
 
-  const systemPrompt = `أنت خبير كتابة إعلانات Meta Ads محترف متخصص في اللهجة المصرية العامية.
-أسلوبك: عاطفي، حياتي، يخلق Empathy مع الجمهور، يبدأ بـ Hook قوي يصف مشكلة أو موقف يعيشه العميل.
+  const scrapedContext = scrapeResults
+    .map((r, i) => {
+      if (!r.ok || !r.text) {
+        return `[صفحة ${i + 1}] فشل الجلب (${r.error ?? "خطأ غير معروف"}) — URL: ${r.url}`;
+      }
+      return `[صفحة ${i + 1}] عنوان الصفحة: ${r.title}\n${r.text}`;
+    })
+    .join("\n\n---\n\n");
 
-قواعد الأسلوب الإلزامية:
-- ابدأ كل نص بـ Hook حياتي يصف لحظة أو مشاعر العميل (مثال: "بترجع من الشغل آخر اليوم… دماغك لسه شغالة ألف فكرة؟ 🤯")
-- استخدم إيموجي بشكل طبيعي (2-4 إيموجي لكل نص)
-- استخدم ✅ لقائمة 3-4 مميزات محددة
-- اختم بـ CTA قوي مع "الدفع عند الاستلام"
-- اللهجة: عربي مصري عامي بسيط ومفهوم
-- طول النص: 80-150 كلمة فعلية
-- العناوين: 4-7 كلمات فقط، جذابة ومباشرة
+  const hasRealContent = scrapeResults.some(r => r.ok && r.text.length > 50);
 
-مهم جداً: يجب أن تولّد المحتوى بناءً على اسم المنتج والزاوية التسويقية المذكورة — لا تنتظر محتوى خارجياً.`;
+  // ── Step 2: Build Pro Copywriter prompt ───────────────────────────────────
+  const systemPrompt = `أنت كاتب إعلانات Direct-Response محترف متخصص في Meta Ads باللهجة المصرية العامية.
+
+══ قواعد لا تُكسر (NO HALLUCINATIONS) ══
+- استخدم فقط المعلومات الموجودة في نص الصفحة المُقدَّم لك — لا تخترع مميزات أو أسعار أو عروض غير موجودة
+- إذا ذكرت الصفحة "زيت للشعر" لا تكتب عن "كريم للبشرة"
+- الحقائق والمميزات والأسعار: نقلها حرفياً من النص — لا تُعدّل
+
+══ إطار PAS (Problem → Agitate → Solve) ══
+كل نص إعلاني يتبع هذا الهيكل:
+1. Hook (المشكلة): ابدأ بسؤال أو موقف حياتي يلمس ألم العميل المحدد بناءً على المنتج
+2. Agitate + Solve (التعمق والحل): 2-3 مميزات حقيقية من الصفحة تحل المشكلة، مع قائمة ✅
+3. CTA: نهاية قوية — "اطلب الآن" أو "اضغط هنا" مع إشارة للدفع عند الاستلام إذا ذُكر
+
+══ قواعد الأسلوب ══
+- اللهجة: عربي مصري عامي، طبيعي، مفهوم — لا فصحى مقعّرة
+- الإيموجي: 2-4 لكل نص (🔥 ✅ 👇 💪) — بشكل طبيعي لا مبالغ فيه
+- الطول: 80-150 كلمة فعلية لكل نص
+- العناوين: 5-7 كلمات، جذابة، تركّز على الفائدة أو العرض (مثال: "تخلص من آلام الظهر في 7 أيام! 🔥")`;
 
   const userPrompt = `المنتج: ${productName ?? "منتج"}
 الزاوية التسويقية: ${angleName}
-رابط اللاندينج (للإشارة فقط): ${urlList}
 
-ولّد الآن بناءً على الزاوية التسويقية "${angleName}" للمنتج "${productName ?? "المنتج"}":
-1. أربعة (4) نصوص إعلانية كاملة مختلفة الـ Hook — كل نص يبدأ بـ Hook مختلف
-2. ستة (6) عناوين قصيرة مختلفة (لا تتجاوز 7 كلمات لكل عنوان)
+══ محتوى صفحة الهبوط (المصدر الوحيد للمعلومات) ══
+${hasRealContent ? scrapedContext : `لم يُتمكن من جلب محتوى الصفحة — استخدم اسم المنتج والزاوية التسويقية فقط: "${productName ?? "المنتج"}" / "${angleName}"`}
+
+══ المطلوب منك الآن ══
+بناءً على المحتوى أعلاه والزاوية التسويقية "${angleName}":
+1. أربعة (4) نصوص إعلانية كاملة — كل نص بـ Hook مختلف (4 مشاكل/مواقف مختلفة)
+2. ستة (6) عناوين قصيرة (5-7 كلمات لكل عنوان)
 
 أعد JSON بهذا الشكل الدقيق فقط، بدون أي نص خارج الـ JSON:
-{"texts":[{"title":"hook_1","content":"نص كامل هنا"},{"title":"hook_2","content":"نص كامل هنا"},{"title":"hook_3","content":"نص كامل هنا"},{"title":"hook_4","content":"نص كامل هنا"}],"headlines":[{"content":"عنوان 1"},{"content":"عنوان 2"},{"content":"عنوان 3"},{"content":"عنوان 4"},{"content":"عنوان 5"},{"content":"عنوان 6"}]}`;
+{"texts":[{"title":"وصف الـ hook","content":"النص الكامل هنا"},{"title":"وصف الـ hook","content":"النص الكامل هنا"},{"title":"وصف الـ hook","content":"النص الكامل هنا"},{"title":"وصف الـ hook","content":"النص الكامل هنا"}],"headlines":[{"content":"عنوان 1"},{"content":"عنوان 2"},{"content":"عنوان 3"},{"content":"عنوان 4"},{"content":"عنوان 5"},{"content":"عنوان 6"}]}`;
 
   try {
     const completion = await openai.chat.completions.create({
@@ -206,14 +243,14 @@ router.post("/library/angles/:angleId/generate-content", async (req, res) => {
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt },
       ],
-      max_completion_tokens: 3000,
+      max_completion_tokens: 3500,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
     let parsed: { texts?: { title?: string; content?: string }[]; headlines?: { content?: string }[] };
     try { parsed = JSON.parse(raw); } catch { parsed = {}; }
 
-    const texts    = (parsed.texts    ?? []).filter(t => t.content?.trim());
+    const texts     = (parsed.texts    ?? []).filter(t => t.content?.trim());
     const headlines = (parsed.headlines ?? []).filter(h => h.content?.trim());
 
     // Save all generated items as assets in DB
@@ -231,7 +268,17 @@ router.post("/library/angles/:angleId/generate-content", async (req, res) => {
       );
     }
 
-    res.json({ texts, headlines });
+    res.json({
+      texts,
+      headlines,
+      scrape_summary: scrapeResults.map(r => ({
+        url: r.url,
+        ok: r.ok,
+        chars: r.text.length,
+        title: r.title,
+        error: r.error,
+      })),
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
