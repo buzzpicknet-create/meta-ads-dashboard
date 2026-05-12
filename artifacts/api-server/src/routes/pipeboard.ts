@@ -189,23 +189,41 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         return { mcpTool: "update_ad", mcpArgs: { ad_id: a.ad_id, status: "PAUSED" } };
       case "enable_ad":
         return { mcpTool: "update_ad", mcpArgs: { ad_id: a.ad_id, status: "ACTIVE" } };
-      case "create_campaign":
+      case "create_campaign": {
+        // Normalise account_id: Pipeboard expects the bare numeric ID (no act_ prefix)
+        const rawAccId = String(a.account_id ?? "");
+        const normAccId = rawAccId.startsWith("act_") ? rawAccId.slice(4) : rawAccId;
+        // special_ad_categories: AI may send a string "NONE" or empty string → normalise to array
+        const rawSac = a.special_ad_categories;
+        const sacArr = Array.isArray(rawSac)
+          ? rawSac
+          : (typeof rawSac === "string" && rawSac && rawSac !== "NONE")
+            ? [rawSac]
+            : [];
         return {
           mcpTool: "create_campaign",
           mcpArgs: {
-            account_id: a.account_id, name: a.name, objective: a.objective,
+            account_id: normAccId, name: a.name, objective: a.objective,
             status: a.status ?? "PAUSED",
+            special_ad_categories: sacArr,
             ...(a.daily_budget != null ? { daily_budget: egpToCents(a.daily_budget) } : {}),
           },
         };
-      case "create_adset":
+      }
+      case "create_adset": {
+        const rawAccId2 = String(a.account_id ?? "");
+        const normAccId2 = rawAccId2.startsWith("act_") ? rawAccId2.slice(4) : rawAccId2;
+        const { account_id: _drop, daily_budget: _db, ...restAdset } = a as Record<string, unknown>;
+        void _drop; void _db;
         return {
           mcpTool: "create_adset",
           mcpArgs: {
-            ...a,
+            ...restAdset,
+            account_id: normAccId2,
             ...(a.daily_budget != null ? { daily_budget: egpToCents(a.daily_budget) } : {}),
           },
         };
+      }
       // duplicate_adset, duplicate_campaign — same name, no budget conversion needed
       default:
         return { mcpTool: t, mcpArgs: a };
@@ -260,12 +278,53 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     const campObjective = hasPixel ? "OUTCOME_SALES" : "OUTCOME_TRAFFIC";
     const optimizationGoal = hasPixel ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS";
 
+    // Helpers ---------------------------------------------------------------
+    const egpToCents = (v: unknown) => Math.round(Number(v) * 100);
+
+    /** Normalise Google Drive sharing URLs → direct download URL */
+    function normaliseMediaUrl(raw: string): string {
+      if (!raw) return raw;
+      const driveFileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+      if (driveFileMatch) {
+        return `https://drive.google.com/uc?export=download&id=${driveFileMatch[1]}`;
+      }
+      const driveOpenMatch = raw.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([^&]+)/);
+      if (driveOpenMatch) {
+        return `https://drive.google.com/uc?export=download&id=${driveOpenMatch[1]}`;
+      }
+      return raw;
+    }
+
+    /** Return true when the URL looks like a video file */
+    function isVideoUrl(url: string): boolean {
+      const clean = url.split("?")[0].toLowerCase();
+      return /\.(mp4|mov|avi|mkv|webm|m4v|3gp|flv)$/.test(clean);
+    }
+
+    /** Extract text content from an MCP tool result */
+    function mcpText(result: unknown): string {
+      return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+        .filter((c: { type: string }) => c.type === "text")
+        .map((c: { text?: string }) => c.text ?? "")
+        .join("")
+        .trim();
+    }
+
     try {
       const client = await getPipeboardWriteClient();
-      const egpToCents = (v: unknown) => Math.round(Number(v) * 100);
       const budget = egpToCents(args?.daily_budget ?? 20);
-      const accountId = String(args?.account_id ?? "");
+
+      // Normalise account_id: Pipeboard expects the bare numeric ID (no act_ prefix)
+      const rawAccountId = String(args?.account_id ?? "");
+      const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
       const campaignName = String(args?.campaign_name ?? "حملة جديدة");
+
+      const originalMediaUrl = String(args?.media_url ?? "").trim();
+      const mediaUrl = normaliseMediaUrl(originalMediaUrl);
+      if (mediaUrl !== originalMediaUrl) {
+        logger.info({ originalMediaUrl, mediaUrl }, "launch_pipeboard_campaign: normalised Google Drive URL");
+      }
+      const isVideo = isVideoUrl(mediaUrl);
 
       // Step 1: create campaign
       const campResult = await client.callTool({
@@ -279,8 +338,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           daily_budget: budget,
         },
       });
-      const campText = (campResult.content as Array<{ type: string; text?: string }>)
-        ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+      const campText = mcpText(campResult);
       logger.info({ campText }, "launch_pipeboard_campaign: create_campaign response");
       const campIdMatch = campText.match(/"id"\s*:\s*"(\d+)"/) ?? campText.match(/\b(\d{10,})\b/);
       campaignId = campIdMatch?.[1] ?? "";
@@ -308,13 +366,11 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             };
           }
           const adsetResult = await client.callTool({ name: "create_adset", arguments: adsetArgs });
-          const adsetText = (adsetResult.content as Array<{ type: string; text?: string }>)
-            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          const adsetText = mcpText(adsetResult);
           logger.info({ adsetText }, "launch_pipeboard_campaign: create_adset response");
           const adsetIdMatch = adsetText.match(/"id"\s*:\s*"(\d+)"/) ?? adsetText.match(/\b(\d{10,})\b/);
           adsetId = adsetIdMatch?.[1] ?? "";
           if (!adsetId) {
-            // Pipeboard may return an error text instead of an id
             adsetError = adsetText.slice(0, 300);
             logger.warn({ adsetText }, "launch_pipeboard_campaign: create_adset — no id found in response");
           }
@@ -326,88 +382,87 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
       // Step 3: Get Facebook Page ID (auto-fetch if not provided in args)
       let pageId = String(args?.page_id ?? "").trim();
-      let pageError = "";
       if (!pageId) {
         try {
           const pagesResult = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
-          const pagesText = (pagesResult.content as Array<{ type: string; text?: string }>)
-            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          const pagesText = mcpText(pagesResult);
           logger.info({ pagesText: pagesText.slice(0, 300) }, "launch_pipeboard_campaign: get_account_pages response");
-          // Parse first page id — can appear as {"id":"12345"} or "id": "12345"
           const pageMatch = pagesText.match(/"id"\s*:\s*"(\d+)"/) ?? pagesText.match(/\b(\d{10,})\b/);
           pageId = pageMatch?.[1] ?? "";
-          if (!pageId) pageError = "لم يُعثر على صفحة Facebook مرتبطة بالحساب";
+          if (!pageId) logger.warn("launch_pipeboard_campaign: get_account_pages — no page id found");
         } catch (e) {
-          pageError = e instanceof Error ? e.message : String(e);
-          logger.warn({ pageError }, "launch_pipeboard_campaign: get_account_pages threw");
+          logger.warn({ e }, "launch_pipeboard_campaign: get_account_pages threw");
         }
       }
 
-      // Step 4: Upload image from media_url → get image_hash
-      // Normalise Google Drive sharing URLs → direct download URL
-      function normaliseMediaUrl(raw: string): string {
-        if (!raw) return raw;
-        // Pattern: /file/d/FILE_ID/view or /file/d/FILE_ID
-        const driveFileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
-        if (driveFileMatch) {
-          return `https://drive.google.com/uc?export=download&id=${driveFileMatch[1]}`;
-        }
-        // Pattern: /open?id=FILE_ID or /uc?id=FILE_ID (already partial)
-        const driveOpenMatch = raw.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([^&]+)/);
-        if (driveOpenMatch) {
-          return `https://drive.google.com/uc?export=download&id=${driveOpenMatch[1]}`;
-        }
-        // Pattern: docs.google.com/... (shared doc/presentation — unsupported, leave as-is)
-        return raw;
-      }
-      const mediaUrl = normaliseMediaUrl(String(args?.media_url ?? "").trim());
-      const originalMediaUrl = String(args?.media_url ?? "").trim();
-      if (mediaUrl !== originalMediaUrl) {
-        logger.info({ originalMediaUrl, mediaUrl }, "launch_pipeboard_campaign: normalised Google Drive URL");
-      }
+      // Step 4: Upload media (image or video) → get image_hash or video_id
       let imageHash = "";
-      let imageError = "";
-      if (mediaUrl && pageId) {
+      let videoId = "";
+      let mediaError = "";
+
+      if (!mediaUrl) {
+        mediaError = "لم يُزوَّد رابط الميديا";
+      } else if (!pageId) {
+        mediaError = "يحتاج page_id لرفع الميديا";
+      } else if (isVideo) {
+        // Video upload path
+        try {
+          const vidResult = await client.callTool({
+            name: "upload_ad_video",
+            arguments: { account_id: accountId, video_url: mediaUrl, name: `${campaignName}-video` },
+          });
+          const vidText = mcpText(vidResult);
+          logger.info({ vidText: vidText.slice(0, 300) }, "launch_pipeboard_campaign: upload_ad_video response");
+          // Pipeboard returns {"id":"<video_id>"} or {"video_id":"<id>"}
+          const vidIdMatch = vidText.match(/"(?:video_id|id)"\s*:\s*"(\d+)"/) ?? vidText.match(/\b(\d{10,})\b/);
+          videoId = vidIdMatch?.[1] ?? "";
+          if (!videoId) {
+            mediaError = `رفع الفيديو فشل — ${vidText.slice(0, 200)}`;
+            logger.warn({ vidText }, "launch_pipeboard_campaign: upload_ad_video — no video_id found");
+          }
+        } catch (e) {
+          mediaError = e instanceof Error ? e.message : String(e);
+          logger.warn({ mediaError }, "launch_pipeboard_campaign: upload_ad_video threw");
+        }
+      } else {
+        // Image upload path
         try {
           const imgResult = await client.callTool({
             name: "upload_ad_image",
             arguments: { account_id: accountId, image_url: mediaUrl, name: `${campaignName}-img` },
           });
-          const imgText = (imgResult.content as Array<{ type: string; text?: string }>)
-            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          const imgText = mcpText(imgResult);
           logger.info({ imgText: imgText.slice(0, 300) }, "launch_pipeboard_campaign: upload_ad_image response");
           // Meta returns {"images":{"filename":{"hash":"abc..."}}} — extract first hash value
           const hashMatch = imgText.match(/"hash"\s*:\s*"([^"]+)"/);
           imageHash = hashMatch?.[1] ?? "";
-          if (!imageHash) imageError = `رفع الصورة فشل — التحقق من رابط الميديا. ${imgText.slice(0, 200)}`;
+          if (!imageHash) mediaError = `رفع الصورة فشل — تأكد أن الرابط مباشر ومتاح للعموم. ${imgText.slice(0, 200)}`;
         } catch (e) {
-          imageError = e instanceof Error ? e.message : String(e);
-          logger.warn({ imageError }, "launch_pipeboard_campaign: upload_ad_image threw");
+          mediaError = e instanceof Error ? e.message : String(e);
+          logger.warn({ mediaError }, "launch_pipeboard_campaign: upload_ad_image threw");
         }
-      } else if (!pageId) {
-        imageError = "يحتاج page_id لرفع الصورة";
-      } else if (!mediaUrl) {
-        imageError = "لم يُزوَّد رابط الميديا";
       }
 
-      // Step 5: Create ad creative
-      if (adsetId && pageId && imageHash) {
+      // Step 5: Create ad creative (image or video)
+      const hasMedia = isVideo ? Boolean(videoId) : Boolean(imageHash);
+      if (adsetId && pageId && hasMedia) {
         try {
-          const creativeResult = await client.callTool({
-            name: "create_ad_creative",
-            arguments: {
-              account_id: accountId,
-              name: `${campaignName} — creative`,
-              page_id: pageId,
-              link_url: String(args?.landing_page_url ?? ""),
-              message: String(args?.primary_text ?? ""),
-              headline: String(args?.headline ?? ""),
-              image_hash: imageHash,
-              call_to_action_type: String(args?.call_to_action ?? "LEARN_MORE"),
-            },
-          });
-          const creativeText = (creativeResult.content as Array<{ type: string; text?: string }>)
-            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          const creativeArgs: Record<string, unknown> = {
+            account_id: accountId,
+            name: `${campaignName} — creative`,
+            page_id: pageId,
+            link_url: String(args?.landing_page_url ?? ""),
+            message: String(args?.primary_text ?? ""),
+            headline: String(args?.headline ?? ""),
+            call_to_action_type: String(args?.call_to_action ?? "LEARN_MORE"),
+          };
+          if (isVideo) {
+            creativeArgs.video_id = videoId;
+          } else {
+            creativeArgs.image_hash = imageHash;
+          }
+          const creativeResult = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+          const creativeText = mcpText(creativeResult);
           logger.info({ creativeText }, "launch_pipeboard_campaign: create_ad_creative response");
           const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d+)"/) ?? creativeText.match(/\b(\d{10,})\b/);
           creativeId = creativeMatch?.[1] ?? "";
@@ -418,8 +473,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
       } else if (!adsetId) {
         creativeError = "يحتاج adset_id — المجموعة الإعلانية لم تُنشأ";
-      } else if (!imageHash) {
-        creativeError = imageError || "يحتاج image_hash — الصورة لم تُرفع";
+      } else if (!hasMedia) {
+        creativeError = mediaError || `يحتاج ${isVideo ? "video_id" : "image_hash"} — الميديا لم تُرفع`;
       }
 
       // Step 6: Create ad
@@ -435,8 +490,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               status: "PAUSED",
             },
           });
-          const adText = (adResult.content as Array<{ type: string; text?: string }>)
-            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("").trim();
+          const adText = mcpText(adResult);
           logger.info({ adText }, "launch_pipeboard_campaign: create_ad response");
           const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
           adId = adMatch?.[1] ?? "";

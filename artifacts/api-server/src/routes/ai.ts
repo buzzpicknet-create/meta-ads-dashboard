@@ -2098,8 +2098,6 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
 
     if (name === "get_campaigns") {
       const rows: string[] = [`## الحملات النشطة (آخر ${days} يوم):\n`];
-      rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
-      rows.push("|--------|--------|--------------|---------|-----------|------|");
       let maxCacheAgeMs = 0;
       let anyFromCache = false;
       let totalShown = 0;
@@ -2110,12 +2108,19 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         // Do NOT filter spend > 0 — campaigns that haven't run yet in this period
         // are still valid and the AI must see them (e.g. to use their IDs for actions).
         const sorted = [...result.data].sort((a, b) => b.spend - a.spend);
+        if (sorted.length === 0) continue;
+        // IMPORTANT: show account_id header so the AI can use it for create_campaign/launch_pipeboard_campaign
+        const accId = acc.id.startsWith("act_") ? acc.id : `act_${acc.id}`;
+        rows.push(`\n### حساب: ${accId} — ${acc.name ?? accId}\n`);
+        rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
+        rows.push("|--------|--------|--------------|---------|-----------|------|");
         for (const c of sorted) {
           rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
           totalShown++;
         }
       }
       if (totalShown === 0) rows.push("_(لا توجد حملات نشطة في هذا الحساب)_");
+      rows.push(`\n> لإنشاء حملة أو مجموعة إعلانية: استخدم account_id من عنوان الحساب أعلاه (مثال: act_XXXXXXXXX)`);
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
     }
 
