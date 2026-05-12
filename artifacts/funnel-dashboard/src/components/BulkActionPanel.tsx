@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, CheckCircle2, XCircle, Rocket, ChevronDown, ChevronUp, TrendingUp, TrendingDown, PauseCircle, PlayCircle, Pencil } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Rocket, ChevronDown, ChevronUp, TrendingUp, TrendingDown, PauseCircle, PlayCircle, Pencil, Copy } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API  = `${BASE}/api`;
@@ -16,12 +16,16 @@ export interface BulkActionItem {
     | "enable_ad"
     | "rename_campaign"
     | "rename_adset"
-    | "rename_ad";
+    | "rename_ad"
+    | "duplicate_adset"
+    | "duplicate_campaign";
   campaignId?: string;
   adsetId?: string;
   adId?: string;
   name: string;
   newName?: string;
+  nameSuffix?: string;
+  newStatus?: "ACTIVE" | "PAUSED";
   campaignName?: string;
   label: string;
   currentBudget?: number;
@@ -47,9 +51,11 @@ const TYPE_META: Record<BulkActionItem["type"], { icon: React.ReactNode; color: 
   enable_campaign: { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
   enable_adset:    { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
   enable_ad:       { icon: <PlayCircle className="h-3.5 w-3.5" />,  color: "text-blue-600 dark:text-blue-400",    badge: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30" },
-  rename_campaign: { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
-  rename_adset:    { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
-  rename_ad:       { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
+  rename_campaign:    { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
+  rename_adset:       { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
+  rename_ad:          { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-violet-600 dark:text-violet-400", badge: "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/30" },
+  duplicate_adset:    { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-sky-600 dark:text-sky-400",     badge: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30" },
+  duplicate_campaign: { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-sky-600 dark:text-sky-400",     badge: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30" },
 };
 
 const FALLBACK_META = { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" };
@@ -92,6 +98,10 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
       return { tool: "rename_adset", args: { adset_id: item.adsetId, current_name: item.name, new_name: item.newName ?? item.name } };
     case "rename_ad":
       return { tool: "rename_ad", args: { ad_id: item.adId, current_name: item.name, new_name: item.newName ?? item.name } };
+    case "duplicate_adset":
+      return { tool: "duplicate_adset", args: { adset_id: item.adsetId, name: item.name } };
+    case "duplicate_campaign":
+      return { tool: "duplicate_campaign", args: { campaign_id: item.campaignId, name: item.name, ...(item.nameSuffix ? { name_suffix: item.nameSuffix } : {}), ...(item.newBudget ? { new_daily_budget: item.newBudget } : {}), new_status: item.newStatus ?? "PAUSED" } };
   }
 }
 
