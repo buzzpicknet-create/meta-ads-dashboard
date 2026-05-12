@@ -2138,15 +2138,11 @@ async function tryExecuteViaPipeboard(
       });
     }
 
-    if (name === "get_ads_in_adset") {
-      const adset_id = String(args.adset_id ?? "");
-      if (!adset_id) return null;
-      return await callPipeboardRead("get_insights", {
-        object_id: adset_id,
-        level: "ad",
-        time_range: timeRange,
-      });
-    }
+    // NOTE: get_ads_in_adset is intentionally NOT handled via Pipeboard.
+    // Pipeboard's get_insights returns raw Meta text without computing
+    // hookRate / holdRate (requires video_play_actions + video_p100_watched_actions).
+    // The native Meta API path below uses getCampaignInsights() which fetches
+    // those fields and computes Hook Rate / Hold Rate correctly for every ad row.
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────
     // NOTE: get_campaigns is intentionally NOT handled here via Pipeboard because
