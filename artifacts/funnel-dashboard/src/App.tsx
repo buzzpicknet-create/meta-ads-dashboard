@@ -37,7 +37,6 @@ const queryClient = new QueryClient({
 const ALL_NAV_ITEMS = [
   { href: "/chat",       label: "المساعد",          Icon: Bot,             useRoute: "/chat",       roles: ["admin", "media_buyer"] },
   { href: "/overview",   label: "نظرة عامة",        Icon: LayoutDashboard, useRoute: "/overview",   roles: ["admin", "media_buyer"] },
-  { href: "/dashboard",  label: "تحليل الحملة",     Icon: Activity,        useRoute: "/dashboard",  roles: ["admin", "media_buyer"] },
   { href: "/decisions",  label: "تشخيص الحملات",   Icon: Target,          useRoute: "/decisions",  roles: ["admin"] },
   { href: "/media",      label: "طلبات الميديا",    Icon: Clapperboard,    useRoute: "/media",      roles: ["admin", "media_buyer", "media_manager"] },
   { href: "/activity",   label: "نشاط الفريق",      Icon: ClipboardList,   useRoute: "/activity",   roles: ["admin", "media_buyer"] },
