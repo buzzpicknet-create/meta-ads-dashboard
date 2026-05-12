@@ -379,6 +379,45 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
       }
 
+      // ── Step 2b: Expand any Google Drive FOLDER URLs into individual file creatives ─
+      {
+        const googleApiKey = process.env.GOOGLE_API_KEY;
+        const expanded: CreativeInput[] = [];
+        for (const creative of rawCreatives) {
+          const rawUrl = creative.media_url?.trim() ?? "";
+          const folderMatch = rawUrl.match(/\/folders\/([a-zA-Z0-9-_]+)/);
+          if (!folderMatch) {
+            expanded.push(creative);
+            continue;
+          }
+          // It's a folder link
+          const folderId = folderMatch[1]!;
+          logger.info({ folderId }, "launch_pipeboard_campaign: detected Google Drive folder, expanding...");
+          if (!googleApiKey) {
+            throw new Error("GOOGLE_API_KEY مفقود في متغيرات البيئة — لا يمكن استخراج ملفات مجلد Drive بدونه");
+          }
+          const apiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
+          const driveResp = await fetch(apiUrl, { signal: AbortSignal.timeout(30_000) });
+          if (!driveResp.ok) {
+            throw new Error(`فشل استعلام Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}`);
+          }
+          const driveData = await driveResp.json() as { files?: Array<{ id: string; mimeType: string; name: string }> };
+          const validFiles = (driveData.files ?? []).filter(
+            f => f.mimeType.startsWith("video/") || f.mimeType.startsWith("image/")
+          );
+          if (validFiles.length === 0) {
+            throw new Error(`مجلد Google Drive "${folderId}" فارغ أو لا يحتوي على فيديوهات أو صور صالحة`);
+          }
+          logger.info({ folderId, count: validFiles.length }, "launch_pipeboard_campaign: folder expanded");
+          for (const file of validFiles) {
+            const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0`;
+            const mediaType = file.mimeType.startsWith("video/") ? "video" : "image";
+            expanded.push({ ...creative, media_url: directUrl, media_type: mediaType });
+          }
+        }
+        rawCreatives = expanded;
+      }
+
       // ── Step 3: Pre-upload all unique media URLs (dedup by normalised URL) ─
       interface MediaCacheEntry { imageHash?: string; videoId?: string; error?: string }
       const mediaCache = new Map<string, MediaCacheEntry>();
