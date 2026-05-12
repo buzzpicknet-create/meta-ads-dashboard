@@ -1,0 +1,37 @@
+Act as a Senior UI/UX Designer and React Developer (using Tailwind CSS). The user is facing severe readability issues with the data tables in the dashboard (specifically the Meta Ads metrics tables). The text is too small, RTL/LTR mixed content is breaking the columns, and it's hard to read across rows.
+
+Please apply a global redesign to all data tables in the app using the following UI/UX best practices:
+
+1. FIX MIXED CONTENT (RTL/LTR) & ALIGNMENT
+
+The dashboard is in Arabic (RTL), but IDs and Campaign names are often in English (LTR).
+
+Fix: Ensure the main table wrapper has dir="rtl". However, for specific columns like id or Campaign Name, force dir="ltr" or dir="auto" on the <td> level so English text and numbers don't break the layout or flip backwards.
+
+Alignment: Align numeric columns (CTR, CPA, Spend, Orders) strictly to the left or center to keep decimal points aligned, and text columns to the right. Use whitespace-nowrap for numbers and IDs so they don't break into multiple lines awkwardly.
+
+2. TYPOGRAPHY & READABILITY UPGRADE
+
+Font Size: Increase the base font size inside the table. Use text-sm or text-base instead of text-xs.
+
+Font Weight & Contrast: Make the table headers font-semibold and use a darker text color (e.g., text-gray-800 or text-slate-900) for data, and text-gray-500 for secondary data (like the currency symbol 'ج').
+
+3. SPACING, PADDING, & BORDERS
+
+Add generous padding to table cells (e.g., px-4 py-3 or p-4). The data needs to "breathe".
+
+Add a subtle bottom border to every row (border-b border-gray-200).
+
+4. VISUAL HIERARCHY (Zebra Striping & Hover)
+
+Add "Zebra Striping" to make it easier for the user's eye to track a row from right to left. Use Tailwind's even:bg-gray-50 or odd:bg-white.
+
+Add a hover effect to the rows: hover:bg-blue-50 or hover:bg-gray-100 so the user clearly sees which row they are looking at.
+
+5. STICKY HEADER & SCROLLING
+
+Wrap the table in a container with overflow-x-auto.
+
+Make the table header sticky (sticky top-0 bg-white z-10 shadow-sm) so when the user scrolls down through many campaigns, the column titles remain visible.
+
+Please rewrite the Table components globally to implement this modern, clean, and highly readable design system.

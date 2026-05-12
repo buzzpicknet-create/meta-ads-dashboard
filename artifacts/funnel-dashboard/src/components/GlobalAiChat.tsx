@@ -3,6 +3,7 @@ import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip, Square,
   History, Plus, ChevronRight, ChevronDown, ChevronUp, Clock, Zap, AlertTriangle, Search,
   Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2, Brain,
+  Pencil, Check, Building2,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import PipeboardLaunchCard, { type PipeboardLaunchData } from "@/components/PipeboardLaunchCard";
@@ -708,6 +709,16 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   const [ltmNewRule, setLtmNewRule]     = useState("");
   const [ltmDirty, setLtmDirty]         = useState(false);
 
+  // Conversation rename
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  // Default account picker (persisted in localStorage)
+  const [defaultAccountId, setDefaultAccountId] = useState<string>(() => localStorage.getItem("ai_default_account_id") ?? "");
+  const [defaultAccountName, setDefaultAccountName] = useState<string>(() => localStorage.getItem("ai_default_account_name") ?? "");
+  const [availableAccounts, setAvailableAccounts] = useState<{ id: string; name?: string }[]>([]);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
+
   // Global history search
   const [historySearch, setHistorySearch] = useState("");
   const [historySearchResults, setHistorySearchResults] = useState<ConvSummary[] | null>(null);
@@ -725,7 +736,20 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   const abortRef = useRef<AbortController | null>(null);
   const stoppedRef = useRef(false);
   const convIdRef = useRef<number | null>(null);
+  const accountPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => { convIdRef.current = convId; }, [convId]);
+
+  // Close account picker when clicking outside
+  useEffect(() => {
+    if (!showAccountPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (accountPickerRef.current && !accountPickerRef.current.contains(e.target as Node)) {
+        setShowAccountPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showAccountPicker]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -763,7 +787,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     fetch(`${API}/meta/accounts`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then(async (data) => {
-        const accounts: { id: string }[] = data?.accounts ?? [];
+        const accounts: { id: string; name?: string }[] = data?.accounts ?? [];
+        if (accounts.length > 0) setAvailableAccounts(accounts);
         if (accounts.length === 0) { setCampaignsCtx(GENERAL_CONTEXT); return; }
 
         const all30: CampaignData[] = [];
@@ -906,6 +931,14 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   const buildContext = useCallback((): string => {
     const parts: string[] = [];
 
+    if (defaultAccountId) {
+      const name = defaultAccountName || defaultAccountId;
+      parts.push(
+        `⭐ الحساب الإعلاني الافتراضي المختار: ${defaultAccountId}${name !== defaultAccountId ? ` (${name})` : ""}\n` +
+        `استخدم هذا الـ account_id مباشرةً في جميع العمليات. لا تحتاج لاستدعاء get_campaigns للحصول على account_id إلا إذا طلب المستخدم صراحةً حساباً مختلفاً.`
+      );
+    }
+
     if (campaignsCtx && campaignsCtx !== GENERAL_CONTEXT) {
       parts.push(campaignsCtx);
     }
@@ -916,7 +949,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
     if (parts.length > 0) return parts.join("\n\n===\n\n");
     return GENERAL_CONTEXT;
-  }, [isAdmin, activityUsers, campaignsCtx]);
+  }, [isAdmin, activityUsers, campaignsCtx, defaultAccountId, defaultAccountName]);
 
   // Ensure there is an active conversation, creating one if needed
   const ensureConversation = useCallback(async (firstMessage: string): Promise<number> => {
@@ -1303,6 +1336,44 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
     finally { setDeletingId(null); }
   }, [convId]);
 
+  const startRename = useCallback((conv: ConvSummary, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(conv.id);
+    setRenameValue(conv.title);
+  }, []);
+
+  const commitRename = useCallback(async (id: number) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenamingId(null); return; }
+    try {
+      const r = await fetch(`${API}/chat/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ title: trimmed }),
+      });
+      if (r.ok) {
+        setConversations((prev) => prev.map((c) => c.id === id ? { ...c, title: trimmed } : c));
+      }
+    } catch {}
+    setRenamingId(null);
+  }, [renameValue]);
+
+  const selectDefaultAccount = useCallback((acc: { id: string; name?: string } | null) => {
+    if (acc) {
+      setDefaultAccountId(acc.id);
+      setDefaultAccountName(acc.name ?? acc.id);
+      localStorage.setItem("ai_default_account_id", acc.id);
+      localStorage.setItem("ai_default_account_name", acc.name ?? acc.id);
+    } else {
+      setDefaultAccountId("");
+      setDefaultAccountName("");
+      localStorage.removeItem("ai_default_account_id");
+      localStorage.removeItem("ai_default_account_name");
+    }
+    setShowAccountPicker(false);
+  }, []);
+
   // Register openToConversation with the parent (FullRouter) so siblings can call it via context
   useEffect(() => {
     onRegisterOpenFn?.(openToConversation);
@@ -1678,7 +1749,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                               {items.map((conv) => (
                                 <div
                                   key={conv.id}
-                                  onClick={() => loadConversation(conv)}
+                                  onClick={() => renamingId !== conv.id && loadConversation(conv)}
                                   className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${
                                     convId === conv.id
                                       ? "bg-primary/10 text-primary"
@@ -1687,21 +1758,58 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                                 >
                                   <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${convId === conv.id ? "text-primary" : "text-muted-foreground"}`} />
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-[13px] truncate leading-tight">
-                                      {conv.title}
-                                    </p>
-                                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                                      {formatRelative(conv.updated_at)}
-                                    </p>
+                                    {renamingId === conv.id ? (
+                                      <input
+                                        autoFocus
+                                        value={renameValue}
+                                        onChange={(e) => setRenameValue(e.target.value)}
+                                        onBlur={() => void commitRename(conv.id)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") { e.preventDefault(); void commitRename(conv.id); }
+                                          if (e.key === "Escape") { setRenamingId(null); }
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="w-full text-[13px] bg-background border border-primary/50 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                        dir="rtl"
+                                      />
+                                    ) : (
+                                      <>
+                                        <p className="text-[13px] truncate leading-tight">
+                                          {conv.title}
+                                        </p>
+                                        <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                                          {formatRelative(conv.updated_at)}
+                                        </p>
+                                      </>
+                                    )}
                                   </div>
-                                  <button
-                                    onClick={(e) => deleteConversation(conv.id, e)}
-                                    disabled={deletingId === conv.id}
-                                    className="shrink-0 opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-30"
-                                    title="حذف المحادثة"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
+                                  {renamingId === conv.id ? (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); void commitRename(conv.id); }}
+                                      className="shrink-0 h-6 w-6 flex items-center justify-center rounded-lg text-primary hover:bg-primary/10 transition-all"
+                                      title="حفظ"
+                                    >
+                                      <Check className="h-3 w-3" />
+                                    </button>
+                                  ) : (
+                                    <div className="shrink-0 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-all">
+                                      <button
+                                        onClick={(e) => startRename(conv, e)}
+                                        className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                                        title="تعديل الاسم"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => deleteConversation(conv.id, e)}
+                                        disabled={deletingId === conv.id}
+                                        className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-30"
+                                        title="حذف المحادثة"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -1966,6 +2074,54 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
               {/* ── Input ── */}
               <div className="shrink-0 border-t border-border/60 px-4 pt-3 pb-4">
+
+                {/* Account Picker Strip */}
+                {availableAccounts.length > 0 && (
+                  <div ref={accountPickerRef} className="relative mb-2.5" dir="rtl">
+                    <button
+                      onClick={() => setShowAccountPicker((v) => !v)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] border transition-colors ${
+                        defaultAccountId
+                          ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                          : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                      }`}
+                    >
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      <span className="max-w-[180px] truncate">
+                        {defaultAccountId ? (defaultAccountName || defaultAccountId) : "اختر الحساب الافتراضي"}
+                      </span>
+                      <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+                    </button>
+                    {showAccountPicker && (
+                      <div className="absolute bottom-full mb-1 right-0 z-50 min-w-[220px] rounded-xl border border-border bg-background shadow-lg py-1">
+                        {defaultAccountId && (
+                          <button
+                            onClick={() => selectDefaultAccount(null)}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-destructive hover:bg-destructive/5 transition-colors"
+                          >
+                            <X className="h-3 w-3 shrink-0" />
+                            إلغاء الحساب الافتراضي
+                          </button>
+                        )}
+                        {availableAccounts.map((acc) => (
+                          <button
+                            key={acc.id}
+                            onClick={() => selectDefaultAccount(acc)}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-[12px] transition-colors hover:bg-muted/60 ${
+                              defaultAccountId === acc.id ? "text-primary font-medium" : "text-foreground"
+                            }`}
+                          >
+                            {defaultAccountId === acc.id && <Check className="h-3 w-3 shrink-0 text-primary" />}
+                            {defaultAccountId !== acc.id && <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                            <span className="flex-1 text-right truncate">{acc.name ?? acc.id}</span>
+                            <span className="text-[10px] text-muted-foreground/60 shrink-0 font-mono">{acc.id.replace("act_", "")}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Quick Action Chips */}
                 <div
                   dir="rtl"

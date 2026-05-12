@@ -3,6 +3,7 @@ import {
   Bot, Send, Trash2, User, Plus, Loader2, CheckCircle2,
   Brain, Paperclip, X, SquarePen, MessageSquare, Clock,
   BarChart2, Zap, AlertTriangle, Square, CheckSquare, Menu,
+  Pencil, Check,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import PipeboardLaunchCard, { type PipeboardLaunchData } from "@/components/PipeboardLaunchCard";
@@ -376,10 +377,12 @@ export default function AiChatPage() {
   const { user, logout } = useAuth();
 
   // ── Conversations ──
-  const [convs, setConvs]       = useState<ConvRow[]>([]);
-  const [convId, setConvId]     = useState<number|null>(null);
-  const [convLoad, setConvLoad] = useState(false);
-  const [delId, setDelId]       = useState<number|null>(null);
+  const [convs, setConvs]           = useState<ConvRow[]>([]);
+  const [convId, setConvId]         = useState<number|null>(null);
+  const [convLoad, setConvLoad]     = useState(false);
+  const [delId, setDelId]           = useState<number|null>(null);
+  const [renamingId, setRenamingId] = useState<number|null>(null);
+  const [renameValue, setRenameVal] = useState("");
   const convIdRef = useRef<number|null>(null);
   useEffect(() => { convIdRef.current = convId; }, [convId]);
 
@@ -530,6 +533,27 @@ export default function AiChatPage() {
     } catch {}
     finally { setDelId(null); }
   }, []);
+
+  const startRename = useCallback((c: ConvRow, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(c.id);
+    setRenameVal(c.title);
+  }, []);
+
+  const commitRename = useCallback(async (id: number) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) { setRenamingId(null); return; }
+    try {
+      const r = await fetch(`${API}/chat/conversations/${id}`, {
+        method: "PATCH",
+        headers: {"Content-Type":"application/json"},
+        credentials: "include",
+        body: JSON.stringify({title: trimmed}),
+      });
+      if (r.ok) setConvs(p => p.map(c => c.id===id ? {...c, title: trimmed} : c));
+    } catch {}
+    setRenamingId(null);
+  }, [renameValue]);
 
   const ensureConv = useCallback(async (firstMsg: string): Promise<number> => {
     if (convIdRef.current!==null) return convIdRef.current;
@@ -742,16 +766,50 @@ export default function AiChatPage() {
                 {g.items.map(c=>(
                   <div
                     key={c.id}
-                    onClick={()=>{ void loadConv(c); setSidebarOpen(false); }}
+                    onClick={()=>{ if (renamingId!==c.id) { void loadConv(c); setSidebarOpen(false); } }}
                     className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors text-right ${convId===c.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground/80"}`}
                   >
-                    <span className="flex-1 text-[13px] truncate leading-snug">{c.title}</span>
-                    <button
-                      onClick={e=>void deleteConv(c.id,e)}
-                      className="opacity-0 group-hover:opacity-100 h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-all shrink-0"
-                    >
-                      {delId===c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                    </button>
+                    {renamingId===c.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={e=>setRenameVal(e.target.value)}
+                        onBlur={()=>void commitRename(c.id)}
+                        onKeyDown={e=>{
+                          if (e.key==="Enter") { e.preventDefault(); void commitRename(c.id); }
+                          if (e.key==="Escape") setRenamingId(null);
+                        }}
+                        onClick={e=>e.stopPropagation()}
+                        className="flex-1 text-[13px] bg-background border border-primary/50 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        dir="rtl"
+                      />
+                    ) : (
+                      <span className="flex-1 text-[13px] truncate leading-snug">{c.title}</span>
+                    )}
+                    {renamingId===c.id ? (
+                      <button
+                        onClick={e=>{ e.stopPropagation(); void commitRename(c.id); }}
+                        className="h-5 w-5 flex items-center justify-center rounded text-primary hover:bg-primary/10 transition-all shrink-0"
+                      >
+                        <Check className="h-3 w-3" />
+                      </button>
+                    ) : (
+                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 shrink-0 transition-all">
+                        <button
+                          onClick={e=>startRename(c,e)}
+                          className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                          title="تعديل الاسم"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={e=>void deleteConv(c.id,e)}
+                          className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-all"
+                        >
+                          {delId===c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
