@@ -224,24 +224,43 @@ function AssetItem({
   onToggle: () => void; onDelete: () => void;
 }) {
   const disabled = atLimit && !checked;
+
+  function handleLabelClick(e: React.MouseEvent) {
+    // Ignore clicks that bubble up from the delete button
+    if ((e.target as HTMLElement).closest("button")) return;
+    if (!disabled) onToggle();
+  }
+
   return (
-    <label
-      className={`group flex items-start gap-2.5 rounded-lg border p-2.5 transition-colors ${
+    <div
+      role={multi ? "checkbox" : "radio"}
+      aria-checked={checked}
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
+      onClick={handleLabelClick}
+      onKeyDown={e => { if ((e.key === " " || e.key === "Enter") && !disabled) { e.preventDefault(); onToggle(); } }}
+      className={`group flex items-start gap-2.5 rounded-lg border p-2.5 transition-colors select-none ${
         checked
-          ? "border-primary bg-primary/5"
+          ? "border-primary bg-primary/5 cursor-pointer"
           : disabled
             ? "border-border bg-muted/30 opacity-40 cursor-not-allowed"
             : "border-border hover:border-primary/40 hover:bg-muted/50 cursor-pointer"
       }`}
     >
-      <input
-        type={multi ? "checkbox" : "radio"}
-        name={multi ? undefined : `angle-${angleId}-${type}`}
-        checked={checked}
-        disabled={disabled}
-        onChange={disabled ? undefined : onToggle}
-        className="mt-0.5 accent-primary shrink-0"
-      />
+      {/* Visual checkbox/radio indicator — purely decorative, state driven by parent div */}
+      <div className={`mt-0.5 h-4 w-4 shrink-0 rounded-sm border-2 flex items-center justify-center transition-colors ${
+        checked
+          ? "bg-primary border-primary"
+          : "border-muted-foreground/40 bg-background"
+      }`}>
+        {checked && (
+          <svg className="h-2.5 w-2.5 text-primary-foreground" viewBox="0 0 10 10" fill="none">
+            {multi
+              ? <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              : <circle cx="5" cy="5" r="2.5" fill="currentColor" />}
+          </svg>
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         {asset.title && (
           <div className="text-xs font-semibold text-primary mb-0.5">{asset.title}</div>
@@ -252,12 +271,12 @@ function AssetItem({
       </div>
       <button
         type="button"
-        onClick={e => { e.preventDefault(); onDelete(); }}
+        onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
         className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5 text-muted-foreground hover:text-destructive"
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
-    </label>
+    </div>
   );
 }
 
