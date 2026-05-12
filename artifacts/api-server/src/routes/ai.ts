@@ -596,7 +596,19 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
 
 **قاعدة ذهبية:**
 لو السؤال عن مقارنة أو اتجاه → جدول أو رسم بياني أولاً، ثم التحليل.
-لو السؤال عن تشخيص حملة واحدة → نص مباشر مع عناوين لتقسيم الأجزاء.`;
+لو السؤال عن تشخيص حملة واحدة → نص مباشر مع عناوين لتقسيم الأجزاء.
+
+══════════════════════════════════════
+بروتوكول العرض الإلزامي — لا استثناءات
+══════════════════════════════════════
+
+1. **جدول أولاً دائماً**: أي وقت ترجع بيانات من أداة (حملات، مجموعات، إعلانات، أداء يومي) — الجدول الأول، التعليق بعده. لا تبدأ بفقرات نصية ثم تضع الجدول في المنتصف.
+
+2. **ممنوع JSON خام**: لا ترجع أبداً كود JSON أو قيم رقمية خام بدون جدول. بيانات الأدوات = جداول مباشرةً.
+
+3. **البيانات المقطوعة (has_more)**: لو ظهر has_more: true في نتيجة الأداة → اذكر للمستخدم: "يوجد حملات إضافية — ضيّق الفترة الزمنية أو حدد حساباً معيناً لرؤية المزيد."
+
+4. **الردود القصيرة محظورة بعد بيانات الأدوات**: لو استدعيت أداة ورجعت بيانات → يجب أن يكون ردك جدول + تحليل (لا تكتفي بجملة واحدة).`;
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 const TOOLS = [
@@ -1707,7 +1719,7 @@ async function getPipeboardClient(): Promise<Client> {
 // Pipeboard/Meta API responses can be thousands of tokens.
 // We keep only the first MAX_TOOL_RESULT_CHARS characters so the LLM receives
 // the most-relevant rows (top of the list) without ballooning the context window.
-const MAX_TOOL_RESULT_CHARS = 8000;
+const MAX_TOOL_RESULT_CHARS = 3500;
 
 function truncateToolResult(text: string, maxChars = MAX_TOOL_RESULT_CHARS): string {
   if (text.length <= maxChars) return text;
@@ -2237,10 +2249,14 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         rows.push(`\n### حساب: ${accId} — ${acc.name ?? accId}\n`);
         rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CTR% |");
         rows.push("|--------|--------|--------------|---------|-----------|------|");
-        for (const c of sorted) {
+        const PAGE_LIMIT = 20;
+        const limited = sorted.slice(0, PAGE_LIMIT);
+        const hasMore = sorted.length > PAGE_LIMIT;
+        for (const c of limited) {
           rows.push(`| ${c.name} (id:${c.id}) | ${c.effective_status} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${fmt(c.ctr, 2)} |`);
           totalShown++;
         }
+        if (hasMore) rows.push(`\n> has_more: true — تم عرض أعلى ${PAGE_LIMIT} حملة إنفاقاً من ${sorted.length} إجمالاً. لرؤية المزيد: ضيّق الفترة الزمنية أو حدد حساباً بعينه.`);
       }
       if (totalShown === 0) rows.push("_(لا توجد حملات نشطة في هذا الحساب)_");
       rows.push(`\n> لإنشاء حملة أو مجموعة إعلانية: استخدم account_id من عنوان الحساب أعلاه (مثال: act_XXXXXXXXX)`);
@@ -2362,9 +2378,13 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       rows.push("| المجموعة | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة النقر% | التكرار |");
       rows.push("|----------|--------------|---------|-----------|-------------|---------|");
       const sorted = [...insights.by_adset].sort((a, b) => b.spend - a.spend);
-      for (const as of sorted) {
+      const ADSET_LIMIT = 20;
+      const limited = sorted.slice(0, ADSET_LIMIT);
+      const hasMore = sorted.length > ADSET_LIMIT;
+      for (const as of limited) {
         rows.push(`| ${as.label} | ${fmt(as.spend)} | ${as.purchases} | ${as.cpa > 0 ? fmt(as.cpa) : "—"} | ${fmt(as.ctr, 2)} | ${fmt(as.frequency, 2)} |`);
       }
+      if (hasMore) rows.push(`\n> has_more: true — تم عرض أعلى ${ADSET_LIMIT} مجموعة من ${sorted.length} إجمالاً.`);
       return rows.join("\n") + buildCacheNote(result.fromCache, result.cacheAgeMs);
     }
 
@@ -2620,10 +2640,14 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         "|---------|--------------|---------|-----------|-------------|-------------|----------|---------|",
       ];
 
+      const AD_LIMIT = 20;
+      const hasMoreAds = sorted.length > AD_LIMIT;
+      const displayAds = sorted.slice(0, AD_LIMIT);
+
       const avgCpa = sorted.filter((a) => a.cpa > 0).reduce((s, a) => s + a.cpa, 0) / (sorted.filter((a) => a.cpa > 0).length || 1);
       const avgHook = sorted.reduce((s, a) => s + a.hookRate, 0) / (sorted.length || 1);
 
-      for (const ad of sorted) {
+      for (const ad of displayAds) {
         let verdict = "—";
         if (ad.cpa > 0 && ad.cpa <= avgCpa * 0.85 && ad.hookRate >= avgHook) {
           verdict = "🏆 Winner";
@@ -2638,6 +2662,8 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
           `| ${ad.label} (id:${ad.id}) | ${fmt(ad.spend)} | ${ad.purchases} | ${ad.cpa > 0 ? fmt(ad.cpa) : "—"} | ${fmt(ad.hookRate, 2)} | ${fmt(ad.ctr, 2)} | ${ad.impressions.toLocaleString()} | ${verdict} |`
         );
       }
+
+      if (hasMoreAds) rows.push(`\n> has_more: true — تم عرض أعلى ${AD_LIMIT} إعلان من ${sorted.length} إجمالاً.`);
 
       // Summary note
       const winner = sorted.find((a) => a.cpa > 0 && a.cpa <= avgCpa * 0.85 && a.hookRate >= avgHook);
@@ -3081,7 +3107,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
-        max_completion_tokens: 2048,
+        max_completion_tokens: 4096,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
@@ -3322,7 +3348,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
-        max_completion_tokens: 2048,
+        max_completion_tokens: 4096,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",

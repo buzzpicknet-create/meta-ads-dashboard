@@ -773,7 +773,7 @@ runMigrations()
   .then(() => rehydrateWarmupHistory())
   .then(() => initVapid())
   .then(() => {
-    app.listen(port, (err) => {
+    const server = app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");
         process.exit(1);
@@ -787,6 +787,8 @@ runMigrations()
       startCreativeCacheWarmer();
       startWatchdogCron();
     });
+    // 60s timeout — Meta API + AI streaming can take up to 45s
+    server.setTimeout(60_000);
   })
   .catch((err) => {
     logger.error({ err }, "Failed to run migrations");
