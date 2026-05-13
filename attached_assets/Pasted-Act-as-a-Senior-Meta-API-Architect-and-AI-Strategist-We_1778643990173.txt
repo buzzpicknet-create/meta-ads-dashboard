@@ -1,0 +1,59 @@
+Act as a Senior Meta API Architect and AI Strategist. We are implementing "Master Logic V14" to transform the AI into a high-reasoning Media Buying Agent that understands structured system commands and executes them with 100% technical integrity.
+
+1. THE "BLUEPRINT" COMMAND RECOGNITION
+
+Update the System Prompt to recognize and execute this specific trigger:
+
+Trigger: If a user message starts with [SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT].
+
+Action: The AI must immediately transition into "Direct Execution Mode." It should extract the Product, Budget, Media, and Strategy from the blueprint and call the launch_pipeboard_campaign tool WITHOUT asking for further confirmation.
+
+2. DYNAMIC BUDGET & ID INTEGRITY (Fixing Logic Errors)
+
+Modify the create_adset tool logic:
+
+CBO vs ABO:
+
+If Campaign has a budget (CBO): The tool MUST exclude the daily_budget from the AdSet request.
+
+If Campaign has no budget (ABO): The tool MUST include the daily_budget in the AdSet request.
+
+ID Variance Check: The tool MUST verify that the returned adset_id is DIFFERENT from the campaign_id. If they match, throw a "Meta Creation Failed" error and show the RAW_RESPONSE.
+
+3. AUTOMATED PIXEL & CONVERSION MAPPING
+
+Automatically inject parameters for all SALES campaigns based on the domain:
+
+Domain buzzpick.net -> pixel_id: "1405391498274239"
+
+Domain dealme-eg.com -> pixel_id: "1537301040808359"
+
+Mandatory: Set promoted_object to {pixel_id, "PURCHASE"} and optimization_goal to OFFSITE_CONVERSIONS.
+
+4. ADVANTAGE+ AUDIENCE & PLACEMENTS
+
+Targeting: Force the injection of advantage_plus_audience: 1 and targeting_automation: { "advantage_plus_audience": 1 } in every create_adset call.
+
+Location: Always default to geo_locations: { "countries": ["EG"] } (Egypt) unless specified otherwise.
+
+5. CREATIVE RECONSTRUCTION (The Duplication Bridge)
+
+If duplicate_ad fails (Subcode 33):
+
+The AI must fetch the source ad's assets (video_id, primary_text, headline) using get_ad_creative.
+
+It must then use create_ad to build a NEW, clean ad in the destination AdSet.
+
+Flex Media Support: Enable degrees_of_freedom_spec to allow Meta to optimize formats (Collection/Catalog) automatically.
+
+6. ELITE UI (Opus 4.7 Style)
+
+Update the Chat output style:
+
+Use English Numerals (123) for all metrics.
+
+Format diagnostics using Observation Cards (Green for Achievement, Red for Setback) as seen in Claude/Opus styles.
+
+Ensure large tables use the "Elite SaaS" layout: Spaced, readable, and perfectly aligned in an RTL environment.
+
+Please apply this global structural update to ensure the system is ready for high-level automated media buying.

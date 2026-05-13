@@ -812,7 +812,7 @@ export default function AssetLibrary() {
             <Library className="h-5 w-5 text-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg sm:text-xl font-bold leading-tight">مكتبة الأصول — Campaign Launchpad</h1>
+            <h1 className="text-lg sm:text-xl font-bold leading-tight">مركز العمليات — Campaign Operations Hub</h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
               أضف اللاندينج ← AI يولّد النصوص ← اختر الوضع ← أطلق Blueprint
             </p>

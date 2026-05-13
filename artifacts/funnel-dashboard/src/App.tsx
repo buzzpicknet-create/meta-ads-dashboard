@@ -41,7 +41,7 @@ const ALL_NAV_ITEMS = [
   { href: "/media",      label: "طلبات الميديا",    Icon: Clapperboard,    useRoute: "/media",      roles: ["admin", "media_buyer", "media_manager"] },
   { href: "/activity",   label: "نشاط الفريق",      Icon: ClipboardList,   useRoute: "/activity",   roles: ["admin", "media_buyer"] },
   { href: "/creative",   label: "مركز الكريتف",     Icon: Sparkles,        useRoute: "/creative",   roles: ["admin", "media_buyer"] },
-  { href: "/library",    label: "مكتبة الأصول",     Icon: Library,         useRoute: "/library",    roles: ["admin", "media_buyer"] },
+  { href: "/library",    label: "مركز العمليات",    Icon: Library,         useRoute: "/library",    roles: ["admin", "media_buyer"] },
   { href: "/inventory",  label: "المخزون",           Icon: Package,         useRoute: "/inventory",  roles: ["admin", "media_buyer"] },
   { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
 ];
