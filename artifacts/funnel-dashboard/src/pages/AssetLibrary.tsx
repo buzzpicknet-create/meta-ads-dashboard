@@ -1461,6 +1461,7 @@ ${allHeadlines}
                 if (activeCard === "TEST" || activeCard === "SCALE") {
                   sendToChat(buildBlueprintCmd(activeCard as "TEST" | "SCALE"), activeCard);
                 } else if (activeCard === "COSTCAP" || activeCard === "RETARGETING" || activeCard === "LOOKALIKE" || activeCard === "INTERESTS") {
+                  if (form.launchMode === "scale") return;
                   sendToChat(buildStrategyCmd(activeCard as "COSTCAP" | "RETARGETING" | "LOOKALIKE" | "INTERESTS"), activeCard);
                 }
               }}
