@@ -922,9 +922,9 @@ function QuickLaunchSection() {
     const today    = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
     const fallbackText     = "[النص الإعلاني]";
     const fallbackHeadline = "[العنوان]";
-    const prod    = form.product.trim() || "منتج";
-    const lp      = form.landingPage.trim() || "—";
-    const drive   = form.driveLink.trim()   || "—";
+    const today2   = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const campName = type === "TEST" ? `${prod} - TEST - ${today2}` : `${prod} - SCALE - ${today2}`;
+    const lp      = addUtm(form.landingPage.trim() || "—", campName, "");
     const allTexts    = form.texts.length    ? form.texts.map((t,i)    => `  ${i+1}. ${t}`).join("\n")    : `  ${fallbackText}`;
     const allHeadlines = form.headlines.length ? form.headlines.map((h,i) => `  ${i+1}. ${h}`).join("\n") : `  ${fallbackHeadline}`;
 
@@ -980,10 +980,26 @@ ${allHeadlines}
   function buildStrategyCmd(type: "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS") {
     const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
     const prod  = form.product.trim() || "منتج";
-    const lp    = form.landingPage.trim() || "—";
+    const today3 = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const campNameStrategy = `${prod} - ${type} - ${today3}`;
+    const lp    = addUtm(form.landingPage.trim() || "—", campNameStrategy, "");
     const drive = form.driveLink.trim() || "—";
     const allTexts     = form.texts.length     ? form.texts.map((t,i) => `  ${i+1}. ${t}`).join("\n") : "  [النص الإعلاني]";
     const allHeadlines = form.headlines.length ? form.headlines.map((h,i) => `  ${i+1}. ${h}`).join("\n") : "  [العنوان]";
+    // Angles with UTM
+    const anglesCmd = form.angles.length > 0 && form.angles[0].landing
+      ? form.angles.map((a, i) => `
+## زاوية ${i+1}${a.name ? ` — ${a.name}` : ""}
+- AdSet Name: ${a.name || `angle${i+1}`}
+- Destination URL: ${addUtm(a.landing, campNameStrategy, a.name || `angle${i+1}`)}
+- Video: ${a.name || `angle${i+1}`} (ابحث في Drive عن ملف باسم "${a.name || `angle${i+1}`}")
+- Primary Texts:
+  1. ${a.texts[0] || "[نص 1]"}
+  2. ${a.texts[1] || "[نص 2]"}
+- Headlines:
+  1. ${a.headlines[0] || "[عنوان 1]"}
+  2. ${a.headlines[1] || "[عنوان 2]"}`).join("\n")
+      : "";
 
     if (type === "COSTCAP") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
 قم ببناء حملة Cost Cap فوراً:
