@@ -665,9 +665,10 @@ PIXEL & DOMAIN MAPPING — خريطة البيكسل التلقائية
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
-- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, adsets[], creatives[], pixel_id?, page_id?, call_to_action?) — إنشاء حملة كاملة مع عدة AdSets وعدة Creatives دفعة واحدة عبر Pipeboard CMP
+- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, adsets[], creatives[], pixel_id?, page_id?, call_to_action?, angles?) — إنشاء حملة كاملة مع عدة AdSets وعدة Creatives دفعة واحدة عبر Pipeboard CMP
   - adsets[]: مصفوفة [{name, budget}] — كل AdSet له ميزانية مستقلة
-  - creatives[]: مصفوفة [{media_url, media_type, primary_text, headline}] — يُنشأ كل creative داخل كل AdSet
+  - creatives[]: مصفوفة [{media_url, media_type, primary_text, headline, landing_page_url?}] — يُنشأ كل creative داخل كل AdSet
+  - angles[]: (الأفضل للزوايا) مصفوفة [{name, landing_url, video_name, texts:[str,str], headlines:[str,str]}] — كل زاوية = AdSet منفصل + إعلان واحد بـ 2 نص و2 عنوان. استخدم هذا بدل adsets+creatives عند وجود زوايا إعلانية
   - page_id: اختياري — الـ backend يجلبه تلقائياً. مرّره فقط إذا أعطاه المستخدم صراحةً
   - pixel_id: OUTCOME_SALES بوجوده، OUTCOME_TRAFFIC بدونه
   - media_url: Google Drive (أي شكل — يُحوَّل تلقائياً) أو رابط مباشر
