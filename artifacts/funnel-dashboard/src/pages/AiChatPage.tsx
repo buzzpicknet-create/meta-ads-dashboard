@@ -1347,7 +1347,7 @@ export default function AiChatPage() {
               )}
               {flexState.step === 3 && (
                 <button onClick={() => {
-                  void send(`استدعِ publish_winners_to_destination: destination_adset_id ${flexState.adsetId} - source_ad_ids الـ winners من الخطوة الأولى - flex_mode true. ليس bulk_action.`);
+                  void send(`استخدم get_ads_in_adset لجلب ad_ids الرابحين من المجموعة المصدر، ثم استدعِ publish_winners_to_destination كـ tool call مباشر مع destination_adset_id: ${flexState.adsetId} و flex_mode: true. تأكد إن source_ad_ids فيها ad_ids حقيقية مش adset_ids.`);
                   setFlexState(null);
                 }} disabled={streaming}
                   className="shrink-0 text-xs px-4 py-2 rounded-full bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 whitespace-nowrap font-medium">
