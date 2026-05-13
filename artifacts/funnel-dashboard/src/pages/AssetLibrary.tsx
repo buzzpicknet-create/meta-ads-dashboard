@@ -919,61 +919,55 @@ function QuickLaunchSection() {
   }
 
   function buildBlueprintCmd(type: "TEST" | "SCALE") {
-    const today    = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-    const fallbackText     = "[النص الإعلاني]";
-    const fallbackHeadline = "[العنوان]";
-    const today2   = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-    const campName = type === "TEST" ? `${prod} - TEST - ${today2}` : `${prod} - SCALE - ${today2}`;
-    const lp      = addUtm(form.landingPage.trim() || "—", campName, "");
-    const allTexts    = form.texts.length    ? form.texts.map((t,i)    => `  ${i+1}. ${t}`).join("\n")    : `  ${fallbackText}`;
-    const allHeadlines = form.headlines.length ? form.headlines.map((h,i) => `  ${i+1}. ${h}`).join("\n") : `  ${fallbackHeadline}`;
+    const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const prod  = form.product.trim() || "منتج";
+    const drive = form.driveLink.trim() || "—";
+    const campName = type === "TEST" ? `${prod} - TEST - ${today}` : `${prod} - SCALE - ${today}`;
+
+    // Build angles section
+    const anglesSection = form.angles.map((a, i) => {
+      const lp = addUtm(a.landing.trim() || "—", campName, a.name.trim() || `angle${i+1}`);
+      return `## زاوية ${i+1}${a.name ? ` — ${a.name}` : ""}
+- AdSet Name: ${a.name.trim() || `angle${i+1}`}
+- Video: ${a.name.trim() || `angle${i+1}`} (ابحث في Drive عن ملف باسم "${a.name.trim() || `angle${i+1}`}")
+- Destination URL: ${lp}
+- Primary Texts:
+  1. ${a.texts[0] || "[نص 1]"}
+  2. ${a.texts[1] || "[نص 2]"}
+- Headlines:
+  1. ${a.headlines[0] || "[عنوان 1]"}
+  2. ${a.headlines[1] || "[عنوان 2]"}`;
+    }).join("\n\n");
 
     if (type === "TEST") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
-قم ببناء حملة (TESTING) فوراً — أنشئ نسخة إعلان مستقلة لكل نص:
-
+قم ببناء حملة (TESTING) فوراً — أنشئ AdSet وإعلان منفصل لكل زاوية:
 # 1. Campaign Settings
 - Objective: SALES (Conversions) · Event: PURCHASE
-- Campaign Name: ${prod} - TEST - ${today}
+- Campaign Name: ${campName}
 - Budget Optimization: ABO (Adset Level Budget)
-
-# 2. AdSet Settings
-- Budget: ${form.budget} EGP daily
-- Targeting: Advantage+ Audience (Broad)
+- Media Drive Folder: ${drive}
+# 2. الزوايا الإعلانية (كل زاوية = AdSet + إعلان منفصل)
+${anglesSection}
+# 3. إعدادات عامة
+- Targeting: Advantage+ Audience (Broad) — مصر فقط
 - Placements: Advantage+ Placements
-
-# 3. Ad Settings — أنشئ إعلاناً منفصلاً (Ad) لكل نص
-- Media URL (Extract ALL): ${drive}
-- Destination URL: ${lp}
-- Primary Texts (Use ALL — create one Ad per text):
-${allTexts}
-- Headlines (Use ALL — rotate across ads):
-${allHeadlines}
 - Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
-
 [END_COMMAND]`;
 
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
-قم ببناء حملة (SCALING) فوراً:
-
+قم ببناء حملة (SCALING) فوراً — أنشئ AdSet وإعلان منفصل لكل زاوية:
 # 1. Campaign Settings
 - Objective: SALES (Conversions) · Event: PURCHASE
-- Campaign Name: ${prod} - SCALE - ${today}
+- Campaign Name: ${campName}
 - Budget Optimization: CBO (Campaign Budget Optimization)
 - Campaign Budget: ${form.budget} EGP daily
-
-# 2. AdSet Settings
-- Targeting: Advantage+ Audience (Broad)
+- Media Drive Folder: ${drive}
+# 2. الزوايا الإعلانية (كل زاوية = AdSet + إعلان منفصل)
+${anglesSection}
+# 3. إعدادات عامة
+- Targeting: Advantage+ Audience (Broad) — مصر فقط
 - Placements: Advantage+ Placements
-
-# 3. Ad Settings
-- Media URL (Extract ALL): ${drive}
-- Destination URL: ${lp}
-- Primary Texts (Use ALL):
-${allTexts}
-- Headlines (Use ALL):
-${allHeadlines}
 - Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
-
 [END_COMMAND]`;
   }
 
