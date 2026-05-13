@@ -917,28 +917,16 @@ ${allHeadlines}
   }
 
   function buildFlexCmd() {
-    const srcLabel   = form.flexSrcName ? `"${form.flexSrcName}"${form.flexSrcId ? ` (${form.flexSrcId})` : ""}` : "[الحملة المصدر]";
-    const today      = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-    const newName    = form.flexNewCampaignName.trim() || `Flex Scale - ${today}`;
-    const newBudget  = form.flexNewBudget.trim() || "200";
-    return `[SYSTEM COMMAND: FLEX_SCALE]
-
-ابحث في الحملة ${srcLabel} عن الإعلانات الرابحة خلال آخر 7 أيام (أفضل CPA + Hook Rate).
-
-المطلوب خطوة بخطوة:
-١. جلب الـ adsets والـ ads من الحملة المصدر وتحديد الرابحين
-٢. إنشاء حملة CBO جديدة بالإعدادات التالية:
-   - الاسم: ${newName}
-   - الميزانية: ${newBudget} EGP/يوم
-   - Objective: SALES · Event: PURCHASE
-   - Budget Optimization: CBO
-٣. نسخ الإعلانات الرابحة للحملة الجديدة بـ flex_mode=true
-   (Meta تولّد تلقائياً: Stories + Collection + Feed بـ Advantage+)
-٤. تأكيد الإنشاء مع عرض campaign_id الجديدة وأسماء الإعلانات المنقولة
-
-[END_COMMAND]`;
+    const srcLabel  = form.flexSrcName ? `"${form.flexSrcName}" (${form.flexSrcId})` : "[الحملة المصدر]";
+    const today     = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const newName   = form.flexNewCampaignName.trim() || `Flex Scale - ${today}`;
+    const newBudget = form.flexNewBudget.trim() || "200";
+    if (form.flexStep === 0) return `جيب الـ adsets من الحملة ${srcLabel} وحدد الرابحين خلال آخر 7 أيام. اعرض النتائج فقط.`;
+    if (form.flexStep === 1) return `استدعِ create_campaign: الاسم ${newName} - daily_budget ${newBudget} - objective OUTCOME_SALES - status PAUSED. لا تفعل أي شيء آخر.`;
+    if (form.flexStep === 2) return `استدعِ create_adset tool call مباشر في حملة ${form.flexCampaignId}: الاسم Flex Adset - بدون budget - targeting مصر residents. لا تفعل أي شيء آخر.`;
+    if (form.flexStep === 3) return `استدعِ publish_winners_to_destination: destination_adset_id ${form.flexAdsetId} - source_ad_ids الـ winners - flex_mode true. ليس bulk_action.`;
+    return "";
   }
-
   async function sendToChat(cmd: string, type: "TEST" | "SCALE" | "FLEX") {
     try { sessionStorage.setItem("quick_chat_command", cmd); } catch { /* ignore */ }
     // Save to launch history
