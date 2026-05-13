@@ -2063,35 +2063,27 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // Meta REQUIRES at least one geo_location. Advantage+ Audience (AA) is
         // injected universally for both ABO and CBO — Meta's AI optimises delivery.
         const DEFAULT_TARGETING = {
-          geo_locations: { countries: ["EG"] },
-          advantage_plus_audience: 1,
-          targeting_automation: { advantage_plus_audience: 1 },
-          publisher_platforms: ["facebook", "instagram", "messenger", "audience_network"],
+          geo_locations: { countries: ["EG"], location_types: ["home"] },
         };
         const tgt = effectiveArgs.targeting as Record<string, unknown> | undefined;
         if (!tgt) {
           effectiveArgs.targeting = DEFAULT_TARGETING;
-          logger.info("create_adset: no targeting supplied — injected EG + Advantage+ Audience + publisher_platforms");
         } else {
-          // Always ensure geo_locations
           if (!tgt.geo_locations) {
-            tgt.geo_locations = { countries: ["EG"] };
+            tgt.geo_locations = { countries: ["EG"], location_types: ["home"] };
           }
-          // Always inject Advantage+ Audience unless already set
-          if (!tgt.advantage_plus_audience) {
-            tgt.advantage_plus_audience = 1;
-          }
-          if (!tgt.targeting_automation) {
-            tgt.targeting_automation = { advantage_plus_audience: 1 };
-          }
-          if (!tgt.publisher_platforms) {
-            tgt.publisher_platforms = ["facebook", "instagram", "messenger", "audience_network"];
-          }
-          logger.info(
-            { had_geo: !!tgt.geo_locations },
-            "create_adset: targeting merged — Advantage+ Audience + EG + publisher_platforms ensured"
-          );
         }
+        // Advantage+ Audience — top-level parameters (NOT inside targeting)
+        if (!effectiveArgs.advantage_plus_audience) {
+          effectiveArgs.advantage_plus_audience = 1;
+        }
+        if (!effectiveArgs.targeting_automation) {
+          effectiveArgs.targeting_automation = { advantage_audience: 1 };
+        }
+        logger.info(
+          { had_geo: !!(tgt?.geo_locations) },
+          "create_adset: targeting merged — Advantage+ Audience top-level + EG residents ensured"
+        );
 
         const isSales = objective.includes("SALES") || objective === "OUTCOME_SALES";
         if (isSales) {
