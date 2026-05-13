@@ -777,7 +777,7 @@ function FlexScaleForm({
           disabled={!form.flexSrcId}
         >
           <Send className="h-3.5 w-3.5" />
-          إرسال للمساعد ↗
+          {form.flexStep === 0 ? "١. جيب الرابحين ↗" : form.flexStep === 1 ? "٢. أنشئ الحملة ↗" : form.flexStep === 2 ? "٣. أنشئ الـ AdSet ↗" : "٤. انشر الرابحين ↗"}
         </Button>
       </div>
     </div>
