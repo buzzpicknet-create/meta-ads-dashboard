@@ -1342,7 +1342,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       try {
         // ── Fetch creative data ──────────────────────────────────────────────
         const srcUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
-        srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,effective_object_story_id,body,title,video_id,image_hash,link_url,call_to_action,instagram_actor_id,asset_feed_spec,thumbnail_url}");
+        srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,effective_object_story_id,body,title,video_id,image_hash,link_url,call_to_action,instagram_actor_id,asset_feed_spec,thumbnail_url,object_story_spec}");
         srcUrl.searchParams.set("access_token", metaTkn);
         const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(12_000) });
         const srcJson = await srcResp.json() as Record<string, unknown>;
@@ -1359,8 +1359,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const assetFeed = (c.asset_feed_spec ?? {}) as Record<string, unknown>;
         const assetVideos = Array.isArray(assetFeed.videos) ? (assetFeed.videos as Array<Record<string,unknown>>) : [];
         const assetImages = Array.isArray(assetFeed.images) ? (assetFeed.images as Array<Record<string,unknown>>) : [];
-        const videoId = String(c.video_id ?? assetVideos[0]?.video_id ?? "");
-        const imageHash = String(c.image_hash ?? assetImages[0]?.hash ?? "");
+        const objStorySpec = (c.object_story_spec ?? {}) as Record<string, unknown>;
+        const videoData = (objStorySpec.video_data ?? {}) as Record<string, unknown>;
+        const linkData = (objStorySpec.link_data ?? {}) as Record<string, unknown>;
+        const videoId = String(c.video_id ?? assetVideos[0]?.video_id ?? videoData.video_id ?? "");
+        const imageHash = String(c.image_hash ?? assetImages[0]?.hash ?? linkData.image_hash ?? "");
+        if (!linkUrl && videoData.call_to_action) {
+          const vtaCta = (videoData.call_to_action as Record<string,unknown>);
+          if (vtaCta.value) linkUrl = String((vtaCta.value as Record<string,unknown>).link ?? "");
+        }
         const primaryText = String(c.body ?? "");
         const headline = String(c.title ?? "");
         let linkUrl = String(c.link_url ?? "");
