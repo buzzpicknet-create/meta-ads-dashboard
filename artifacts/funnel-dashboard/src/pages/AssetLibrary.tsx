@@ -1149,7 +1149,6 @@ ${allHeadlines}
           </div>
 
           {/* Row 2: Landing Page + Drive — for TEST/SCALE */}
-          {(activeCard === "TEST" || activeCard === "SCALE") && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -1176,10 +1175,9 @@ ${allHeadlines}
               />
             </div>
           </div>
-          )}
 
-          {/* Angles Section — for other strategies */}
-          {activeCard !== "TEST" && activeCard !== "SCALE" && (
+          {/* Angles Section */}
+          {(
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
