@@ -1218,18 +1218,7 @@ ${allHeadlines}
 
           {/* Row 2: Landing Page + Drive — for TEST/SCALE */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <Link2 className="h-3 w-3" /> صفحة الهبوط
-              </label>
-              <Input
-                placeholder="https://buzzpick.net/product"
-                value={form.landingPage}
-                onChange={e => upd("landingPage", e.target.value)}
-                className="h-9 text-sm font-mono text-xs"
-                dir="ltr"
-              />
-            </div>
+
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                 <FolderOpen className="h-3 w-3" /> رابط الميديا (Drive)
