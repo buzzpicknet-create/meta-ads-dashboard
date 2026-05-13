@@ -551,10 +551,27 @@ function cairoToday(): string {
 }
 
 async function startCreativeCacheWarmer() {
-  // Warm the most common presets: 7d and 14d for each account
+  // Guard: skip if a warmup already ran within the last 60 minutes (prevents
+  // hammering Meta API on rapid restarts / deploys).
+  try {
+    const rows = await query<{ ran_at: string }>(
+      `SELECT ran_at FROM cache_warmup_log ORDER BY ran_at DESC LIMIT 1`
+    );
+    if (rows[0]) {
+      const ageMs = Date.now() - new Date(rows[0].ran_at).getTime();
+      if (ageMs < 60 * 60 * 1000) {
+        logger.info({ age_min: Math.round(ageMs / 60_000) }, "Creative cache warmup skipped — ran recently");
+        return;
+      }
+    }
+  } catch {
+    // DB not ready yet — proceed anyway
+  }
+
+  // Warm only the most critical preset (7d) to cut startup Meta calls in half.
+  // The 14d preset is warmed lazily on first user request.
   const presets = [
-    { since: cairoDateOffset(6), until: cairoToday() },   // 7d
-    { since: cairoDateOffset(13), until: cairoToday() },  // 14d
+    { since: cairoDateOffset(6), until: cairoToday() },  // 7d only
   ];
   try {
     const accountIds = getAdAccountIds();
@@ -565,6 +582,10 @@ async function startCreativeCacheWarmer() {
         await warmCreativeCache(accountId, preset.since, preset.until);
       }
     }
+    // Record this run so rapid restarts skip the warmup
+    await query(
+      `INSERT INTO cache_warmup_log (ran_at, stats) VALUES (NOW(), '{}') ON CONFLICT DO NOTHING`
+    ).catch(() => null);
   } catch (err) {
     logger.warn({ err }, "Creative cache warmer encountered an error");
   }

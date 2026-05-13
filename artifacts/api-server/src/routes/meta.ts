@@ -660,7 +660,7 @@ router.get("/meta/breakdowns", async (req, res) => {
 // Refreshes any DB cache entries that are >20 min old so user requests almost
 // always hit the DB instead of calling Meta directly.
 
-const PROACTIVE_REFRESH_DELAY_MS = 1_500; // 1.5 s gap between Meta calls
+const PROACTIVE_REFRESH_DELAY_MS = 2_500; // 2.5 s gap between Meta calls (reduced from 1.5s to ease rate limits)
 
 async function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
@@ -784,9 +784,9 @@ export async function proactiveInsightsRefresh(): Promise<{
   }>(
     `SELECT campaign_id, period_since, period_until
      FROM meta_insights_cache
-     WHERE fetched_at < NOW() - INTERVAL '45 minutes'
+     WHERE fetched_at < NOW() - INTERVAL '90 minutes'
      ORDER BY fetched_at DESC
-     LIMIT 10`,
+     LIMIT 5`,
     []
   ).catch(() => [] as { campaign_id: string; period_since: string; period_until: string }[]);
 
@@ -814,8 +814,8 @@ export async function proactiveInsightsRefresh(): Promise<{
   }>(
     `SELECT account_id, period_since, period_until
      FROM meta_campaigns_cache
-     WHERE fetched_at < NOW() - INTERVAL '45 minutes'
-     LIMIT 5`,
+     WHERE fetched_at < NOW() - INTERVAL '90 minutes'
+     LIMIT 3`,
     []
   ).catch(() => [] as { account_id: string; period_since: string; period_until: string }[]);
 
@@ -843,8 +843,8 @@ export async function proactiveInsightsRefresh(): Promise<{
   }>(
     `SELECT account_id, period_since, period_until
      FROM meta_overview_cache
-     WHERE fetched_at < NOW() - INTERVAL '45 minutes'
-     LIMIT 5`,
+     WHERE fetched_at < NOW() - INTERVAL '90 minutes'
+     LIMIT 3`,
     []
   ).catch(() => [] as { account_id: string; period_since: string; period_until: string }[]);
 
@@ -872,9 +872,9 @@ export async function proactiveInsightsRefresh(): Promise<{
      FROM meta_insights_cache ic
      LEFT JOIN meta_campaign_details_cache cdc ON cdc.campaign_id = ic.campaign_id
      WHERE cdc.campaign_id IS NULL
-        OR cdc.fetched_at < NOW() - INTERVAL '45 minutes'
+        OR cdc.fetched_at < NOW() - INTERVAL '90 minutes'
      ORDER BY ic.campaign_id, ic.fetched_at DESC
-     LIMIT 10`,
+     LIMIT 5`,
     []
   ).catch(() => [] as { campaign_id: string }[]);
 
@@ -905,9 +905,9 @@ export async function proactiveInsightsRefresh(): Promise<{
      LEFT JOIN meta_adset_details_cache adc ON adc.adset_id = elem->>'id'
      WHERE (elem->>'id') IS NOT NULL
        AND (adc.adset_id IS NULL
-            OR adc.fetched_at < NOW() - INTERVAL '45 minutes')
+            OR adc.fetched_at < NOW() - INTERVAL '90 minutes')
      ORDER BY elem->>'id', ic.fetched_at DESC
-     LIMIT 15`,
+     LIMIT 8`,
     []
   ).catch(() => [] as { adset_id: string }[]);
 
