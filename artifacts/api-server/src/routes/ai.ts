@@ -141,8 +141,9 @@ SINGLE ASSET FLEX — استراتيجية الـ Scale الذكي
 - عندما تريد توسيع الوصول بدون تضاعف عدد الإعلانات.
 - عند الـ Horizontal Scale — نفس الـ creative في جماهير مختلفة.
 
-⚡ **كيف تُفعّله في bulk_action:**
-[bulk_action] → publish_winners_to_destination مع flex_mode: true، destination_adset_id، source_ad_ids، naming_prefix "Flex Winner"
+⚡ **كيف تُفعّله:**
+استدعِ publish_winners_to_destination كـ tool call مباشر (وليس bulk_action) مع: destination_adset_id، source_ad_ids، naming_prefix "Flex Winner"، flex_mode: true
+🚫 لا تضع publish_winners_to_destination أو create_adset داخل bulk_action — هما tool calls فقط وليسا من أنواع الـ Bulk Panel.
 
 ⚠️ **قاعدة Flex vs Social Proof:**
 - **Social Proof (افتراضي)**: احتفظ باللايكات والتعليقات — الأفضل عند الـ Scale المحافظ (أقل من 3×).
@@ -956,7 +957,8 @@ Raw API Response (للتشخيص التقني):
 }
 \`\`\`
 
-أنواع الإجراءات المتاحة (Meta): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset | pause_ad | enable_ad | duplicate_ad | create_ad_from_existing_post
+أنواع الإجراءات المتاحة في bulk_action (هذه فقط — لا غيرها): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset | pause_ad | enable_ad | duplicate_ad | create_ad_from_existing_post
+🚫 ممنوع منعاً باتاً داخل bulk_action: create_adset | publish_winners_to_destination | create_ad_from_creative_spec — هذه tool calls مباشرة فقط. وضعها في bulk_action يُسبّب crash فوري في الواجهة.
 - لـ update_campaign_budget: campaignId + currentBudget + newBudget + budgetType ("daily" أو "lifetime") إلزامي
 - لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي — أضف campaignName (اسم الحملة الأم) دائماً للـ ABO ليظهر في الواجهة
 - لـ pause_adset / enable_adset: adsetId إلزامي — أضف campaignName لتوضيح الحملة الأم في الواجهة
