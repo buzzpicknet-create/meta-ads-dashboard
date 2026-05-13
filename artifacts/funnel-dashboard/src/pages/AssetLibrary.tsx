@@ -855,15 +855,17 @@ function QuickLaunchSection() {
   }
 
   function buildBlueprintCmd(type: "TEST" | "SCALE") {
-    const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-    const text    = form.texts[form.selText]     ?? "[النص الإعلاني]";
-    const headline = form.headlines[form.selHeadline] ?? "[العنوان]";
+    const today    = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const fallbackText     = "[النص الإعلاني]";
+    const fallbackHeadline = "[العنوان]";
     const prod    = form.product.trim() || "منتج";
     const lp      = form.landingPage.trim() || "—";
     const drive   = form.driveLink.trim()   || "—";
+    const allTexts    = form.texts.length    ? form.texts.map((t,i)    => `  ${i+1}. ${t}`).join("\n")    : `  ${fallbackText}`;
+    const allHeadlines = form.headlines.length ? form.headlines.map((h,i) => `  ${i+1}. ${h}`).join("\n") : `  ${fallbackHeadline}`;
 
     if (type === "TEST") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
-قم ببناء حملة (TESTING) فوراً:
+قم ببناء حملة (TESTING) فوراً — أنشئ نسخة إعلان مستقلة لكل نص:
 
 # 1. Campaign Settings
 - Objective: SALES (Conversions) · Event: PURCHASE
@@ -875,12 +877,14 @@ function QuickLaunchSection() {
 - Targeting: Advantage+ Audience (Broad)
 - Placements: Advantage+ Placements
 
-# 3. Ad Settings
-- Media URL: ${drive}
+# 3. Ad Settings — أنشئ إعلاناً منفصلاً (Ad) لكل نص
+- Media URL (Extract ALL): ${drive}
 - Destination URL: ${lp}
-- Primary Text:
-${text}
-- Headline: ${headline}
+- Primary Texts (Use ALL — create one Ad per text):
+${allTexts}
+- Headlines (Use ALL — rotate across ads):
+${allHeadlines}
+- Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
 
 [END_COMMAND]`;
 
@@ -901,9 +905,9 @@ ${text}
 - Media URL (Extract ALL): ${drive}
 - Destination URL: ${lp}
 - Primary Texts (Use ALL):
-${form.texts.length ? form.texts.map((t,i)=>`  ${i+1}. ${t}`).join("\n") : `  ${text}`}
+${allTexts}
 - Headlines (Use ALL):
-${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n") : `  ${headline}`}
+${allHeadlines}
 - Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
 
 [END_COMMAND]`;
@@ -932,8 +936,21 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
 [END_COMMAND]`;
   }
 
-  function sendToChat(cmd: string) {
+  async function sendToChat(cmd: string, type: "TEST" | "SCALE" | "FLEX") {
     try { sessionStorage.setItem("quick_chat_command", cmd); } catch { /* ignore */ }
+    // Save to launch history
+    try {
+      await fetch(`${API}/library/history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          product_name: form.product.trim() || "منتج",
+          angle_name: `Quick Launch — ${type === "TEST" ? "Blueprint TESTING" : type === "SCALE" ? "Blueprint SCALING" : "Flex Scale"}`,
+          generated_prompt: cmd,
+        }),
+      });
+    } catch { /* ignore — non-critical */ }
     navigate("/chat");
   }
 
@@ -1092,31 +1109,25 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
             </Button>
           </div>
 
-          {/* Texts selection */}
+          {/* Texts — all included, numbered list */}
           {form.texts.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                 <FileText className="h-3 w-3" />
-                {activeCard === "SCALE" ? "النصوص المولّدة (كلها ستُستخدم في SCALE)" : "اختر نصاً واحداً"}
+                النصوص المولّدة
+                <span className="mr-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-medium">
+                  كلها ستُدرج في الأمر
+                </span>
               </label>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {form.texts.map((t, i) => (
-                  <button
+                  <div
                     key={i}
-                    onClick={() => upd("selText", i)}
-                    className={`w-full text-right text-xs rounded-lg border p-2.5 transition-colors leading-relaxed whitespace-pre-wrap ${
-                      form.selText === i
-                        ? "border-primary bg-primary/5 text-foreground"
-                        : activeCard === "SCALE"
-                          ? "border-emerald-300/50 bg-emerald-50/30 dark:bg-emerald-950/10 text-foreground cursor-default"
-                          : "border-border hover:border-primary/40 text-muted-foreground hover:text-foreground cursor-pointer"
-                    }`}
+                    className="w-full text-right text-xs rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/10 p-2.5 leading-relaxed"
                   >
-                    {activeCard !== "SCALE" && (
-                      <span className={`inline-block h-3 w-3 rounded-sm border-2 ml-1.5 shrink-0 align-middle ${form.selText === i ? "bg-primary border-primary" : "border-muted-foreground/40"}`} />
-                    )}
+                    <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold ml-1.5 shrink-0 align-middle">{i + 1}</span>
                     {t}
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -1137,26 +1148,25 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
             </div>
           )}
 
-          {/* Headlines selection */}
+          {/* Headlines — all included as pills */}
           {form.headlines.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                 <Heading1 className="h-3 w-3" />
-                {activeCard === "SCALE" ? "العناوين (كلها ستُستخدم)" : "اختر عنواناً"}
+                العناوين المولّدة
+                <span className="mr-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-medium">
+                  كلها ستُدرج
+                </span>
               </label>
               <div className="flex flex-wrap gap-1.5">
                 {form.headlines.map((h, i) => (
-                  <button
+                  <div
                     key={i}
-                    onClick={() => upd("selHeadline", i)}
-                    className={`text-xs rounded-full px-2.5 py-1 border transition-colors ${
-                      form.selHeadline === i || activeCard === "SCALE"
-                        ? "border-primary bg-primary/10 text-primary font-medium"
-                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                    }`}
+                    className="text-xs rounded-full px-2.5 py-1 border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-1"
                   >
+                    <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-emerald-500 text-white text-[8px] font-bold shrink-0">{i + 1}</span>
                     {h}
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -1180,13 +1190,13 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
           <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
             <div className="flex-1 min-w-0 text-xs text-muted-foreground">
               {activeCard === "TEST"
-                ? "🧪 سيُبنى أمر Blueprint TESTING جاهز للإرسال"
-                : "🚀 سيُبنى أمر Blueprint SCALING مع كل النصوص والعناوين"}
+                ? `🧪 ${form.texts.length > 0 ? `${form.texts.length} نصوص × ${form.headlines.length} عناوين → إعلانات متعددة` : "سيُبنى أمر Blueprint TESTING"}`
+                : `🚀 ${form.texts.length > 0 ? `${form.texts.length} نصوص + ${form.headlines.length} عناوين → SCALE بـ Advantage+` : "سيُبنى أمر Blueprint SCALING"}`}
             </div>
             <Button
               size="sm"
               className="gap-1.5 h-9 text-xs shrink-0 bg-primary hover:bg-primary/90"
-              onClick={() => sendToChat(buildBlueprintCmd(activeCard))}
+              onClick={() => sendToChat(buildBlueprintCmd(activeCard), activeCard)}
             >
               <Send className="h-3.5 w-3.5" />
               إرسال للمساعد ↗
@@ -1197,7 +1207,7 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
 
       {/* ── Flex Scale form ── */}
       {activeCard === "FLEX" && (
-        <FlexScaleForm form={form} upd={upd} onSend={() => sendToChat(buildFlexCmd())} />
+        <FlexScaleForm form={form} upd={upd} onSend={() => sendToChat(buildFlexCmd(), "FLEX")} />
       )}
     </div>
   );
