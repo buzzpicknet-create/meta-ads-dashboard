@@ -1029,7 +1029,6 @@ ${allHeadlines}
   async function sendToChat(cmd: string, type: "TEST" | "SCALE" | "FLEX") {
     try {
       sessionStorage.setItem("quick_chat_command", cmd);
-      // Save flex state for wizard buttons in chat
       if (type === "FLEX") {
         const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
         sessionStorage.setItem("flex_state", JSON.stringify({
@@ -1040,6 +1039,8 @@ ${allHeadlines}
           newName: form.flexNewCampaignName.trim() || `Flex Scale - ${today}`,
           budget: form.flexNewBudget.trim() || "200",
         }));
+      } else {
+        sessionStorage.removeItem("flex_state");
       }
     } catch { /* ignore */ }
     // Save to launch history
