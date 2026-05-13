@@ -788,22 +788,31 @@ function FlexScaleForm({
 
 type QuickCardType = "TEST" | "SCALE" | "FLEX" | "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS";
 
+interface Angle {
+  name: string;
+  landing: string;
+  texts: [string, string];
+  headlines: [string, string];
+  generating?: boolean;
+}
 interface QuickForm {
   product: string; budget: string;
   landingPage: string; driveLink: string;
   texts: string[]; headlines: string[];
   selText: number; selHeadline: number;
   textCount: number; headlineCount: number;
+  angles: Angle[];
   flexAccountId: string;
   flexSrcId: string; flexSrcName: string;
   flexNewCampaignName: string; flexNewBudget: string;
   flexStep: number; flexCampaignId: string; flexAdsetId: string;
 }
-
+const INIT_ANGLE: Angle = { name: "", landing: "", texts: ["", ""], headlines: ["", ""] };
 const INIT_FORM: QuickForm = {
   product: "", budget: "180", landingPage: "", driveLink: "",
   texts: [], headlines: [], selText: 0, selHeadline: 0,
   textCount: 3, headlineCount: 4,
+  angles: [{ ...INIT_ANGLE }],
   flexAccountId: "",
   flexSrcId: "", flexSrcName: "",
   flexNewCampaignName: "", flexNewBudget: "200",
@@ -1139,7 +1148,8 @@ ${allHeadlines}
             </div>
           </div>
 
-          {/* Row 2: Landing Page + Drive */}
+          {/* Row 2: Landing Page + Drive — for TEST/SCALE */}
+          {(activeCard === "TEST" || activeCard === "SCALE") && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -1166,6 +1176,72 @@ ${allHeadlines}
               />
             </div>
           </div>
+          )}
+
+          {/* Angles Section — for other strategies */}
+          {activeCard !== "TEST" && activeCard !== "SCALE" && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <FolderOpen className="h-3 w-3" /> رابط مجلد الميديا (Drive)
+              </label>
+            </div>
+            <Input
+              placeholder="https://drive.google.com/drive/folders/..."
+              value={form.driveLink}
+              onChange={e => upd("driveLink", e.target.value)}
+              className="h-9 text-sm font-mono text-xs"
+              dir="ltr"
+            />
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs font-medium text-muted-foreground">الزوايا الإعلانية</span>
+              <button
+                type="button"
+                onClick={() => upd("angles", [...form.angles, { ...INIT_ANGLE }])}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                + إضافة زاوية
+              </button>
+            </div>
+            {form.angles.map((angle, idx) => (
+              <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">زاوية {idx + 1}</span>
+                  {form.angles.length > 1 && (
+                    <button type="button" onClick={() => upd("angles", form.angles.filter((_, i) => i !== idx))}
+                      className="text-xs text-destructive hover:underline">حذف</button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="اسم الزاوية (= اسم الفيديو في Drive)"
+                    value={angle.name}
+                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], name: e.target.value}; upd("angles", a); }}
+                    className="h-8 text-xs" dir="rtl" />
+                  <Input placeholder="https://buzzpick.net/product"
+                    value={angle.landing}
+                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], landing: e.target.value}; upd("angles", a); }}
+                    className="h-8 text-xs font-mono" dir="ltr" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <textarea placeholder="نص 1" value={angle.texts[0]}
+                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], texts: [e.target.value, a[idx].texts[1]]}; upd("angles", a); }}
+                    className="h-16 text-xs rounded-md border border-border bg-background p-2 resize-none" dir="rtl" />
+                  <textarea placeholder="نص 2" value={angle.texts[1]}
+                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], texts: [a[idx].texts[0], e.target.value]}; upd("angles", a); }}
+                    className="h-16 text-xs rounded-md border border-border bg-background p-2 resize-none" dir="rtl" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder="عنوان 1" value={angle.headlines[0]}
+                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], headlines: [e.target.value, a[idx].headlines[1]]}; upd("angles", a); }}
+                    className="h-8 text-xs" dir="rtl" />
+                  <Input placeholder="عنوان 2" value={angle.headlines[1]}
+                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], headlines: [a[idx].headlines[0], e.target.value]}; upd("angles", a); }}
+                    className="h-8 text-xs" dir="rtl" />
+                </div>
+              </div>
+            ))}
+          </div>
+          )}
 
           {/* AI Generate row with quantity controls */}
           <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
