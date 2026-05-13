@@ -732,9 +732,21 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       return;
     }
 
-    // ── Auto-fetch object_story_id (and account_id) from source ad_id if missing ──
-    // Allows the AI/Bulk Panel to pass only ad_id without calling get_ad_creative first.
-    if (!objectStoryId && !postId && sourceAdId) {
+    // ── Entry log — shows exactly what args arrived ───────────────────────────
+    logger.info(
+      {
+        tool: "create_ad_from_existing_post",
+        received_account_id: rawAccountId || "(empty)",
+        received_ad_id: sourceAdId || "(empty)",
+        received_object_story_id: objectStoryId || "(empty)",
+        received_adset_id: adsetId,
+      },
+      "create_ad_from_existing_post: args received"
+    );
+
+    // ── Auto-fetch from source ad_id when account_id OR object_story_id is missing ──
+    // Two separate conditions so account_id auto-fetch runs even if objectStoryId is present.
+    if (sourceAdId && (!accountId || !objectStoryId)) {
       try {
         const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
         const srcUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
@@ -743,19 +755,29 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(10_000) });
         const srcJson = await srcResp.json() as Record<string, unknown>;
         const srcCreative = srcJson.creative as Record<string, unknown> | undefined;
-        objectStoryId = String(srcCreative?.object_story_id ?? "").trim();
-        // Grab account_id from source ad — update local vars so Pipeboard calls use correct account
+
+        // Fill object_story_id only if still missing
+        if (!objectStoryId && !postId) {
+          objectStoryId = String(srcCreative?.object_story_id ?? "").trim();
+        }
+
+        // Always update account_id from source ad (overrides any provided value if fetched is non-empty)
         if (srcJson.account_id) {
           const fetchedAccId = String(srcJson.account_id).replace(/^act_/, "");
           if (fetchedAccId) {
-            rawAccountId    = fetchedAccId;
-            accountId       = fetchedAccId;
+            rawAccountId     = fetchedAccId;
+            accountId        = fetchedAccId;
             accountIdWithAct = `act_${fetchedAccId}`;
             (args as Record<string, unknown>).account_id = fetchedAccId;
           }
         }
+
         logger.info(
-          { sourceAdId, objectStoryId: objectStoryId || "(none)", accountId: accountId || "(none)" },
+          {
+            sourceAdId,
+            resolved_account_id: accountId || "(still empty)",
+            resolved_object_story_id: objectStoryId || "(still empty)",
+          },
           "create_ad_from_existing_post: auto-fetched from source ad"
         );
       } catch (fetchErr) {
@@ -779,6 +801,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         .join("")
         .trim();
     }
+
+    // ── Pre-Pipeboard log — confirms resolved values before any MCP call ─────────
+    logger.info(
+      {
+        accountId:        accountId        || "(EMPTY — will fail)",
+        accountIdWithAct: accountIdWithAct || "(EMPTY — will fail)",
+        objectStoryId:    objectStoryId    || "(empty)",
+        adsetId,
+        sourceAdId: sourceAdId || "(none)",
+      },
+      "create_ad_from_existing_post: resolved values before Pipeboard calls"
+    );
 
     let efpSuccess = false;
     let efpMsg = "";
