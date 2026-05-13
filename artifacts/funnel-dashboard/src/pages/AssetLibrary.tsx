@@ -1,9 +1,10 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   Library, Plus, Trash2, ChevronDown, ChevronUp, Copy, Wand2,
   Link2, FileText, Heading1, FolderOpen, Clock, X, Sparkles, Loader2,
-  FlaskConical, Rocket, Pencil,
+  FlaskConical, Rocket, Pencil, Send, Zap, ArrowLeftRight, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -614,6 +615,405 @@ const EMPTY_SEL = (): Record<AssetType, Set<number>> => ({
   DRIVE_LINK:   new Set(),
 });
 
+// ── Quick Launch Section ───────────────────────────────────────────────────────
+
+type QuickCardType = "TEST" | "SCALE" | "FLEX";
+
+interface QuickForm {
+  product: string; budget: string;
+  landingPage: string; driveLink: string;
+  texts: string[]; headlines: string[];
+  selText: number; selHeadline: number;
+  srcAdset: string; dstAdset: string;
+}
+
+const INIT_FORM: QuickForm = {
+  product: "", budget: "180", landingPage: "", driveLink: "",
+  texts: [], headlines: [], selText: 0, selHeadline: 0,
+  srcAdset: "", dstAdset: "",
+};
+
+function QuickLaunchSection() {
+  const [, navigate] = useLocation();
+  const { toast }    = useToast();
+  const [activeCard, setActiveCard] = useState<QuickCardType | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [form, setForm] = useState<QuickForm>(INIT_FORM);
+
+  function toggleCard(card: QuickCardType) {
+    setActiveCard(prev => {
+      if (prev === card) return null;
+      setForm(INIT_FORM);
+      return card;
+    });
+  }
+
+  function upd<K extends keyof QuickForm>(k: K, v: QuickForm[K]) {
+    setForm(prev => ({ ...prev, [k]: v }));
+  }
+
+  async function generateTexts() {
+    if (!form.landingPage.trim()) {
+      toast({ title: "أضف رابط صفحة الهبوط أولاً", variant: "destructive" }); return;
+    }
+    setGenerating(true);
+    try {
+      const r = await fetch(`${API}/library/quick-generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ productName: form.product.trim() || "منتج", landingPageUrl: form.landingPage.trim() }),
+      });
+      const d = await r.json() as { texts?: {content:string}[]; headlines?: {content:string}[]; error?: string };
+      if (!r.ok) throw new Error(d.error ?? "خطأ");
+      const texts     = (d.texts     ?? []).map(t => t.content).filter(Boolean);
+      const headlines = (d.headlines ?? []).map(h => h.content).filter(Boolean);
+      setForm(prev => ({ ...prev, texts, headlines, selText: 0, selHeadline: 0 }));
+      toast({ title: "✅ تم التوليد!", description: `${texts.length} نصوص · ${headlines.length} عناوين` });
+    } catch (err) {
+      toast({ title: "خطأ في التوليد", description: String(err), variant: "destructive" });
+    } finally { setGenerating(false); }
+  }
+
+  function buildBlueprintCmd(type: "TEST" | "SCALE") {
+    const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const text    = form.texts[form.selText]     ?? "[النص الإعلاني]";
+    const headline = form.headlines[form.selHeadline] ?? "[العنوان]";
+    const prod    = form.product.trim() || "منتج";
+    const lp      = form.landingPage.trim() || "—";
+    const drive   = form.driveLink.trim()   || "—";
+
+    if (type === "TEST") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة (TESTING) فوراً:
+
+# 1. Campaign Settings
+- Objective: SALES (Conversions) · Event: PURCHASE
+- Campaign Name: ${prod} - TEST - ${today}
+- Budget Optimization: ABO (Adset Level Budget)
+
+# 2. AdSet Settings
+- Budget: ${form.budget} EGP daily
+- Targeting: Advantage+ Audience (Broad)
+- Placements: Advantage+ Placements
+
+# 3. Ad Settings
+- Media URL: ${drive}
+- Destination URL: ${lp}
+- Primary Text:
+${text}
+- Headline: ${headline}
+
+[END_COMMAND]`;
+
+    return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة (SCALING) فوراً:
+
+# 1. Campaign Settings
+- Objective: SALES (Conversions) · Event: PURCHASE
+- Campaign Name: ${prod} - SCALE - ${today}
+- Budget Optimization: CBO (Campaign Budget Optimization)
+- Campaign Budget: ${form.budget} EGP daily
+
+# 2. AdSet Settings
+- Targeting: Advantage+ Audience (Broad)
+- Placements: Advantage+ Placements
+
+# 3. Ad Settings
+- Media URL (Extract ALL): ${drive}
+- Destination URL: ${lp}
+- Primary Texts (Use ALL):
+${form.texts.length ? form.texts.map((t,i)=>`  ${i+1}. ${t}`).join("\n") : `  ${text}`}
+- Headlines (Use ALL):
+${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n") : `  ${headline}`}
+- Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
+
+[END_COMMAND]`;
+  }
+
+  function buildFlexCmd() {
+    const src = form.srcAdset.trim() || "[ADSET_ID_المصدر]";
+    const dst = form.dstAdset.trim() || "[ADSET_ID_الهدف]";
+    return `انقل الرابحين من المجموعة ${src} إلى المجموعة ${dst} بـ Flex Mode.
+
+المطلوب:
+١. جلب الإعلانات من المجموعة المصدر وتحديد الرابحين (أفضل CPA + Hook Rate)
+٢. نقلهم بـ flex_mode=true (Advantage+ creative — Meta تولّد Collection/Stories تلقائياً)
+٣. تأكيد الإنشاء بعرض ad_ids الجديدة`;
+  }
+
+  function sendToChat(cmd: string) {
+    try { sessionStorage.setItem("quick_chat_command", cmd); } catch { /* ignore */ }
+    navigate("/chat");
+  }
+
+  const CARDS: { id: QuickCardType; emoji: string; label: string; hint: string; color: string }[] = [
+    { id: "TEST",  emoji: "🧪", label: "Blueprint TESTING",  hint: "ABO · حملة اختبار جديدة", color: "blue"    },
+    { id: "SCALE", emoji: "🚀", label: "Blueprint SCALING",  hint: "CBO · توسع بـ Advantage+", color: "emerald" },
+    { id: "FLEX",  emoji: "⚡", label: "Flex Scale",         hint: "نقل الرابحين بـ Advantage+", color: "violet"  },
+  ];
+
+  const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {
+    blue:    { border:"border-blue-200 dark:border-blue-800",    bg:"bg-blue-50/50 dark:bg-blue-950/20",    activeBorder:"border-blue-500",    activeBg:"bg-blue-50 dark:bg-blue-950/30",    badge:"bg-blue-500",   btn:"bg-blue-600 hover:bg-blue-700 text-white" },
+    emerald: { border:"border-emerald-200 dark:border-emerald-800", bg:"bg-emerald-50/50 dark:bg-emerald-950/20", activeBorder:"border-emerald-500", activeBg:"bg-emerald-50 dark:bg-emerald-950/30", badge:"bg-emerald-500", btn:"bg-emerald-600 hover:bg-emerald-700 text-white" },
+    violet:  { border:"border-violet-200 dark:border-violet-800",  bg:"bg-violet-50/50 dark:bg-violet-950/20",  activeBorder:"border-violet-500",  activeBg:"bg-violet-50 dark:bg-violet-950/30",  badge:"bg-violet-500",  btn:"bg-violet-600 hover:bg-violet-700 text-white" },
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Zap className="h-4 w-4 text-primary" />
+        <span className="text-sm font-semibold">الإطلاق السريع — Quick Launch</span>
+        <span className="text-[11px] text-muted-foreground mr-auto">اختر استراتيجية ← عبّي الحقول ← أرسل للمساعد</span>
+      </div>
+
+      {/* Card buttons row */}
+      <div className="grid grid-cols-3 gap-2">
+        {CARDS.map(c => {
+          const cl = colorMap[c.color]!;
+          const isActive = activeCard === c.id;
+          return (
+            <button
+              key={c.id}
+              onClick={() => toggleCard(c.id)}
+              className={`rounded-xl border-2 p-3 text-right transition-all ${
+                isActive ? `${cl.activeBorder} ${cl.activeBg}` : `${cl.border} ${cl.bg} hover:${cl.activeBorder}`
+              }`}
+            >
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="text-base">{c.emoji}</span>
+                {isActive && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${cl.badge} text-white font-medium`}>مفتوح</span>}
+              </div>
+              <div className="font-semibold text-xs text-foreground leading-tight">{c.label}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{c.hint}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Blueprint TEST / SCALE form ── */}
+      {(activeCard === "TEST" || activeCard === "SCALE") && (
+        <div className="rounded-xl border border-border bg-background p-4 space-y-3 animate-in fade-in duration-150">
+          {/* Row 1: Product + Budget */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">اسم المنتج</label>
+              <Input
+                placeholder="مثال: كريم الشعر X"
+                value={form.product}
+                onChange={e => upd("product", e.target.value)}
+                className="h-9 text-sm"
+                dir="rtl"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">الميزانية (EGP/يوم)</label>
+              <Input
+                type="number"
+                min={1}
+                value={form.budget}
+                onChange={e => upd("budget", e.target.value)}
+                className="h-9 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Landing Page + Drive */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Link2 className="h-3 w-3" /> صفحة الهبوط
+              </label>
+              <Input
+                placeholder="https://buzzpick.net/product"
+                value={form.landingPage}
+                onChange={e => upd("landingPage", e.target.value)}
+                className="h-9 text-sm font-mono text-xs"
+                dir="ltr"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <FolderOpen className="h-3 w-3" /> رابط الميديا (Drive)
+              </label>
+              <Input
+                placeholder="https://drive.google.com/..."
+                value={form.driveLink}
+                onChange={e => upd("driveLink", e.target.value)}
+                className="h-9 text-sm font-mono text-xs"
+                dir="ltr"
+              />
+            </div>
+          </div>
+
+          {/* AI Generate */}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={form.landingPage.trim() ? "default" : "outline"}
+              className="gap-1.5 h-8 text-xs"
+              onClick={generateTexts}
+              disabled={generating}
+            >
+              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {generating ? "جاري التوليد..." : "✨ توليد النصوص والعناوين بالـ AI"}
+            </Button>
+            {form.texts.length > 0 && (
+              <span className="text-xs text-emerald-600 font-medium">✓ {form.texts.length} نصوص · {form.headlines.length} عناوين</span>
+            )}
+          </div>
+
+          {/* Texts selection */}
+          {form.texts.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <FileText className="h-3 w-3" />
+                {activeCard === "SCALE" ? "النصوص المولّدة (كلها ستُستخدم في SCALE)" : "اختر نصاً واحداً"}
+              </label>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {form.texts.map((t, i) => (
+                  <button
+                    key={i}
+                    onClick={() => upd("selText", i)}
+                    className={`w-full text-right text-xs rounded-lg border p-2.5 transition-colors leading-relaxed whitespace-pre-wrap ${
+                      form.selText === i
+                        ? "border-primary bg-primary/5 text-foreground"
+                        : activeCard === "SCALE"
+                          ? "border-emerald-300/50 bg-emerald-50/30 dark:bg-emerald-950/10 text-foreground cursor-default"
+                          : "border-border hover:border-primary/40 text-muted-foreground hover:text-foreground cursor-pointer"
+                    }`}
+                  >
+                    {activeCard !== "SCALE" && (
+                      <span className={`inline-block h-3 w-3 rounded-sm border-2 ml-1.5 shrink-0 align-middle ${form.selText === i ? "bg-primary border-primary" : "border-muted-foreground/40"}`} />
+                    )}
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {form.texts.length === 0 && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <FileText className="h-3 w-3" /> النص الإعلاني (أو ولّد بالـ AI أعلاه)
+              </label>
+              <Textarea
+                dir="rtl"
+                placeholder="اكتب النص الإعلاني هنا..."
+                value={form.texts[0] ?? ""}
+                onChange={e => upd("texts", [e.target.value])}
+                rows={3}
+                className="text-sm resize-none"
+              />
+            </div>
+          )}
+
+          {/* Headlines selection */}
+          {form.headlines.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Heading1 className="h-3 w-3" />
+                {activeCard === "SCALE" ? "العناوين (كلها ستُستخدم)" : "اختر عنواناً"}
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {form.headlines.map((h, i) => (
+                  <button
+                    key={i}
+                    onClick={() => upd("selHeadline", i)}
+                    className={`text-xs rounded-full px-2.5 py-1 border transition-colors ${
+                      form.selHeadline === i || activeCard === "SCALE"
+                        ? "border-primary bg-primary/10 text-primary font-medium"
+                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    {h}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {form.headlines.length === 0 && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Heading1 className="h-3 w-3" /> العنوان
+              </label>
+              <Input
+                dir="rtl"
+                placeholder="عنوان الإعلان (5-7 كلمات)"
+                value={form.headlines[0] ?? ""}
+                onChange={e => upd("headlines", [e.target.value])}
+                className="h-9 text-sm"
+              />
+            </div>
+          )}
+
+          {/* Send button */}
+          <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
+            <div className="flex-1 min-w-0 text-xs text-muted-foreground">
+              {activeCard === "TEST"
+                ? "🧪 سيُبنى أمر Blueprint TESTING جاهز للإرسال"
+                : "🚀 سيُبنى أمر Blueprint SCALING مع كل النصوص والعناوين"}
+            </div>
+            <Button
+              size="sm"
+              className="gap-1.5 h-9 text-xs shrink-0 bg-primary hover:bg-primary/90"
+              onClick={() => sendToChat(buildBlueprintCmd(activeCard))}
+            >
+              <Send className="h-3.5 w-3.5" />
+              إرسال للمساعد ↗
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Flex Scale form ── */}
+      {activeCard === "FLEX" && (
+        <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-4 space-y-3 animate-in fade-in duration-150">
+          <div className="text-xs text-muted-foreground leading-relaxed">
+            انقل الإعلانات الرابحة من مجموعة إعلانية مصدر إلى مجموعة هدف — Meta ستولّد تلقائياً تنسيقات Stories, Collection, Feed بـ Advantage+
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <ArrowLeftRight className="h-3 w-3" /> Adset ID المصدر
+              </label>
+              <Input
+                placeholder="مثال: 120215xxxxxxxxx"
+                value={form.srcAdset}
+                onChange={e => upd("srcAdset", e.target.value.trim())}
+                className="h-9 text-sm font-mono"
+                dir="ltr"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <ChevronRight className="h-3 w-3" /> Adset ID الهدف (CBO)
+              </label>
+              <Input
+                placeholder="مثال: 120216xxxxxxxxx"
+                value={form.dstAdset}
+                onChange={e => upd("dstAdset", e.target.value.trim())}
+                className="h-9 text-sm font-mono"
+                dir="ltr"
+              />
+            </div>
+          </div>
+          <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-violet-200 dark:border-violet-800">
+            <div className="flex-1 text-xs text-muted-foreground">⚡ flex_mode=true — Meta تختار التنسيق المثالي تلقائياً</div>
+            <Button
+              size="sm"
+              className="gap-1.5 h-9 text-xs shrink-0 bg-violet-600 hover:bg-violet-700 text-white"
+              onClick={() => sendToChat(buildFlexCmd())}
+            >
+              <Send className="h-3.5 w-3.5" />
+              إرسال للمساعد ↗
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AssetLibrary() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -827,6 +1227,9 @@ export default function AssetLibrary() {
             سجل الإطلاقات
           </Button>
         </div>
+
+        {/* ── Quick Launch Section ──────────────────────────────────────────── */}
+        <QuickLaunchSection />
 
         {/* ── Strategy Control Panel ─────────────────────────────────────────── */}
         <div className="rounded-xl border border-border bg-card p-4 space-y-4">

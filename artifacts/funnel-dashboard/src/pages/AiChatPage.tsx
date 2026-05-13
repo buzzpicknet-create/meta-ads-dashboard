@@ -563,6 +563,22 @@ export default function AiChatPage() {
   useEffect(() => { bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs, streamTxt]);
   useEffect(() => { setTimeout(()=>inputRef.current?.focus(), 100); }, [convId]);
 
+  // ── Pick up command sent from مركز العمليات ──────────────────────────────────
+  useEffect(() => {
+    try {
+      const pending = sessionStorage.getItem("quick_chat_command");
+      if (pending) {
+        sessionStorage.removeItem("quick_chat_command");
+        setInput(pending);
+        if (inputRef.current) {
+          inputRef.current.style.height = "auto";
+          inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + "px";
+        }
+        setTimeout(() => inputRef.current?.focus(), 150);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   // ── Load conversations on mount ──────────────────────────────────────────────
   const loadConvs = useCallback(async (autoLoad=false) => {
     setConvLoad(true);

@@ -284,6 +284,52 @@ ${hasRealContent ? scrapedContext : `لم يُتمكن من جلب محتوى ا
   }
 });
 
+// ── Quick Generate (no DB save) ───────────────────────────────────────────────
+
+router.post("/library/quick-generate", async (req, res) => {
+  const { productName, landingPageUrl } = req.body as {
+    productName?: string;
+    landingPageUrl?: string;
+  };
+  if (!landingPageUrl?.trim()) {
+    return res.status(400).json({ error: "رابط صفحة الهبوط مطلوب" });
+  }
+
+  const scrape = await scrapeLandingPage(landingPageUrl.trim());
+  const context = scrape.ok && scrape.text.length > 50
+    ? `عنوان الصفحة: ${scrape.title}\n${scrape.text}`
+    : `لم يُتمكن من جلب محتوى الصفحة — استخدم اسم المنتج فقط: "${productName ?? "المنتج"}"`;
+
+  const systemPrompt = `أنت كاتب إعلانات Direct-Response محترف متخصص في Meta Ads باللهجة المصرية العامية.
+استخدم فقط المعلومات الموجودة في نص الصفحة — لا تخترع مميزات أو أسعار غير موجودة.
+كل نص يتبع PAS: Hook (مشكلة) → مميزات حقيقية بـ ✅ → CTA قوي.
+اللهجة: عربي مصري عامي. الإيموجي: 2-4 لكل نص. الطول: 80-150 كلمة. العناوين: 5-7 كلمات.`;
+
+  const userPrompt = `المنتج: ${productName ?? "منتج"}
+══ محتوى صفحة الهبوط ══
+${context}
+
+المطلوب — أعد JSON فقط بلا نص خارجه:
+{"texts":[{"title":"وصف الهوك","content":"النص الكامل"},{"title":"وصف الهوك","content":"النص الكامل"},{"title":"وصف الهوك","content":"النص الكامل"}],"headlines":[{"content":"عنوان 1"},{"content":"عنوان 2"},{"content":"عنوان 3"},{"content":"عنوان 4"}]}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+      max_completion_tokens: 2500,
+    });
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    let parsed: { texts?: { title?: string; content?: string }[]; headlines?: { content?: string }[] };
+    try { parsed = JSON.parse(raw); } catch { parsed = {}; }
+    res.json({
+      texts:     (parsed.texts     ?? []).filter(t => t.content?.trim()),
+      headlines: (parsed.headlines ?? []).filter(h => h.content?.trim()),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ── Prompt History ─────────────────────────────────────────────────────────────
 
 router.get("/library/history", async (req, res) => {
