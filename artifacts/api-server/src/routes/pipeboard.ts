@@ -225,6 +225,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "duplicate_ad",
     "create_ad_from_post",
     "create_ad_from_existing_post",
+    "publish_winners_to_destination",
+    "create_ad_from_creative_spec",
     // Google Ads
     "ga_pause_campaign",
     "ga_enable_campaign",
