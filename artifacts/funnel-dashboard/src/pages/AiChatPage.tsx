@@ -726,7 +726,7 @@ export default function AiChatPage() {
     const text = (qa!==undefined ? qa : input).trim();
     if ((!text && !attachment) || streaming) return;
     const userText = text || (attachment?.isImage ? "[صورة مرفقة]" : `📎 ${attachment?.name}`);
-    setInput(""); if (inputRef.current) inputRef.current.style.height="auto";
+    setInput(""); if (inputRef.current) inputRef.current.style.height="88px";
     const att = attachment; setAtt(null);
     const newMsg: ChatMsg = {role:"user", content:userText};
     if (att?.isImage && att.previewUrl) newMsg.imagePreviewUrl=att.previewUrl;
@@ -1329,12 +1329,12 @@ export default function AiChatPage() {
                 const f=img.getAsFile(); if(!f)return;
                 try{setAtt(await readFile(f));}catch{}
               }}
-              onInput={e=>{const t=e.currentTarget;t.style.height="auto";t.style.height=Math.min(t.scrollHeight,128)+"px";}}
+              onInput={e=>{const t=e.currentTarget;t.style.height="auto";t.style.height=Math.min(t.scrollHeight,240)+"px";}}
               placeholder="اكتب رسالتك..."
-              rows={1}
+              rows={3}
               disabled={streaming}
-              className="flex-1 resize-none bg-card border border-border/60 rounded-2xl px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 min-h-[44px] max-h-32 leading-relaxed disabled:opacity-50 transition-all"
-              style={{height:"auto"}}
+              className="flex-1 resize-none bg-card border border-border/60 rounded-2xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 min-h-[88px] max-h-[240px] leading-relaxed disabled:opacity-50 transition-all"
+              style={{height:"88px"}}
             />
 
             {streaming ? (
