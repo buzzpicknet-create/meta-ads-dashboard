@@ -4320,7 +4320,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
       }
     }
 
-    const MAX_TOOL_ROUNDS = 3;
+    const MAX_TOOL_ROUNDS = 1;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
@@ -4561,7 +4561,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     // ── TRUE streaming tool-use loop ────────────────────────────────────────
     // Uses stream:true for every round so tokens flow to the client immediately
     // (eliminates the 3-5s "wait for full response" before any text appears).
-    const MAX_TOOL_ROUNDS = 3;
+    const MAX_TOOL_ROUNDS = 1;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
