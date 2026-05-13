@@ -142,8 +142,12 @@ SINGLE ASSET FLEX — استراتيجية الـ Scale الذكي
 - عند الـ Horizontal Scale — نفس الـ creative في جماهير مختلفة.
 
 ⚡ **كيف تُفعّله:**
-استدعِ publish_winners_to_destination كـ tool call مباشر (وليس bulk_action) مع: destination_adset_id، source_ad_ids، naming_prefix "Flex Winner"، flex_mode: true
-🚫 لا تضع publish_winners_to_destination أو create_adset داخل bulk_action — هما tool calls فقط وليسا من أنواع الـ Bulk Panel.
+استدعِ publish_winners_to_destination كـ tool call مباشر مع:
+  - destination_adset_id: adset_id المجموعة الهدف
+  - source_ad_ids: قائمة ad_ids الرابحين
+  - naming_prefix: "Flex Winner"
+  - flex_mode: true
+🚫 لا تضع publish_winners_to_destination أو create_adset أو create_ad_from_creative_spec داخل bulk_action أبداً — هذه tool calls مباشرة فقط وليست من أنواع الـ Bulk Panel، ووضعها في bulk_action يسبب crash فوري.
 
 ⚠️ **قاعدة Flex vs Social Proof:**
 - **Social Proof (افتراضي)**: احتفظ باللايكات والتعليقات — الأفضل عند الـ Scale المحافظ (أقل من 3×).
@@ -2007,6 +2011,8 @@ const WRITE_TOOL_NAMES = new Set([
   "duplicate_ad",
   "create_ad_from_post",
   "create_ad_from_existing_post",
+  "create_ad_from_creative_spec",
+  "publish_winners_to_destination",
   // Google Ads write tools
   "ga_pause_campaign",
   "ga_enable_campaign",
@@ -2014,6 +2020,8 @@ const WRITE_TOOL_NAMES = new Set([
   "ga_update_keyword_bid",
   "ga_pause_keyword",
   "ga_enable_keyword",
+  "create_ad_from_creative_spec",
+    "publish_winners_to_destination",
 ]);
 
 // ── Cache-aware getAdDetails ──────────────────────────────────────────────────
@@ -2284,7 +2292,23 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
       return { tool: name, args, summary: `⏸ إيقاف كلمة مفتاحية "${label}"`, proposedValue: "موقوفة ⏸" };
     case "ga_enable_keyword":
       return { tool: name, args, summary: `▶️ تشغيل كلمة مفتاحية "${label}"`, proposedValue: "نشطة ✅" };
-    default:
+      case "publish_winners_to_destination": {
+        const adIds = Array.isArray(args.source_ad_ids) ? (args.source_ad_ids as string[]) : [];
+        const flex = args.flex_mode ? " — Flex Mode ✨" : "";
+        return {
+          tool: name, args,
+          summary: `نشر ${adIds.length} إعلان رابح إلى المجموعة ${String(args.destination_adset_id ?? "")}${flex}`,
+          proposedValue: `${adIds.length} إعلان جديد`,
+        };
+      }
+      case "create_ad_from_creative_spec": {
+        return {
+          tool: name, args,
+          summary: `إنشاء إعلان "${String(args.name ?? "")}" من أصول خام في المجموعة ${String(args.adset_id ?? "")}`,
+          proposedValue: "إعلان جديد",
+        };
+      }
+        default:
       return { tool: name, args, summary: label };
   }
 }
@@ -4267,7 +4291,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
           builtMessages.push({ role: "user", content: textContent });
         }
       } else {
-        builtMessages.push({ role: m.role, content: m.content });
+        builtMessages.push({ role: m.role as "user" | "assistant" | "tool" | "system", content: m.content });
       }
     }
 
