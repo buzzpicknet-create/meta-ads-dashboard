@@ -58,6 +58,70 @@ const QA = [
   { label: "🕵️ تقييم التعديلات",  prompt: "ابحث عن الحملات التي أجرينا عليها تعديلات مؤخراً. قارن أداءها قبل وبعد التعديل. هل نجح الإجراء؟" },
 ];
 
+// ─── Strategy commands (Scale / Blueprint / Flex) ─────────────────────────────
+const QA_STRATEGIES = [
+  {
+    label: "🚀 Flex Scale — انقل الرابحين بـ Advantage+",
+    hint: "Scale كبير فوق 3× — Meta تولّد تنسيقات تلقائياً",
+    prompt: `انقل الرابحين من المجموعة [ADSET_ID_المصدر] إلى المجموعة [ADSET_ID_الهدف] بـ Flex Mode.
+
+المطلوب:
+١. جلب الإعلانات من المجموعة المصدر وتحديد الرابحين (أفضل CPA + Hook Rate)
+٢. نقلهم بـ flex_mode=true (Advantage+ creative — Meta تولّد Collection/Stories تلقائياً)
+٣. تأكيد الإنشاء بعرض ad_ids الجديدة`,
+  },
+  {
+    label: "🧪 Blueprint — إطلاق حملة TESTING (ABO)",
+    hint: "حملة اختبار جديدة بأصل واحد — فوري بلا أسئلة",
+    prompt: `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+Product: [اسم المنتج]
+Type: TESTING
+Budget: [الميزانية] EGP / يوم
+Landing Page: [الرابط — مثال: https://buzzpick.net/product]
+Media: [رابط Google Drive أو رابط مباشر]
+Primary Text: [النص الإعلاني]
+Headline: [العنوان — 15 كلمة بحد أقصى]`,
+  },
+  {
+    label: "🏆 Blueprint — إطلاق حملة SCALING (CBO)",
+    hint: "حملة توسع بميزانية CBO — Advantage+ Creative تلقائياً",
+    prompt: `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+Product: [اسم المنتج]
+Type: SCALING
+Budget: [الميزانية الإجمالية] EGP / يوم
+Landing Page: [الرابط — مثال: https://dealme-eg.com/product]
+Media: [رابط Google Drive أو رابط مباشر]
+Primary Text: [النص الإعلاني]
+Headline: [العنوان]`,
+  },
+  {
+    label: "🟢🔴 تحليل بـ Observation Cards",
+    hint: "بطاقات خضراء للرابحين + حمراء للخاسرين",
+    prompt: `حلّل حملاتي في آخر 7 أيام وأعطني التحليل بـ Observation Cards:
+- 🟢 Green Card لكل حملة رابحة: المقياس الأبرز + سبب النجاح
+- 🔴 Red Card لكل حملة نازفة: Root Cause + الإجراء الفوري (Kill / Reduce / Refresh Creative)
+الجدول بأرقام إنجليزية — عمود القرار: 🟢 Scale / 🟡 Monitor / 🔴 Kill`,
+  },
+  {
+    label: "🔄 نقل الرابحين — Social Proof",
+    hint: "نقل مع الحفاظ على اللايكات والتعليقات",
+    prompt: `انقل الرابحين من المجموعة [ADSET_ID] إلى المجموعة [ADSET_ID_الهدف].
+
+المطلوب:
+١. جلب الإعلانات وتحديد الرابحين (أفضل CPA)
+٢. نقلهم مع الحفاظ على Social Proof (اللايكات والتعليقات)
+٣. الوجهة: المجموعة [ADSET_ID_الهدف] في الحملة CBO`,
+  },
+  {
+    label: "🔎 تحليل إعلانات مجموعة",
+    hint: "مقارنة الإعلانات داخل مجموعة — Winner vs Drain",
+    prompt: `حلّل الإعلانات داخل المجموعة [ADSET_ID] وحدد:
+- الرابح (Winner): أعلى Hook Rate + أفضل CPA
+- الخاسر (Drain): أعلى إنفاق + أسوأ CPA
+- اقتراح: هل نوقف الخاسر ونضاعف ميزانية الرابح؟`,
+  },
+];
+
 // Google Ads quick actions
 const QA_GOOGLE = [
   { label: "🔍 حملات Google Ads",      prompt: "جيب قائمة كل حملات Google Ads عبر كل الحسابات مع حالتها وميزانياتها. ثم اجلب أداءها في آخر 7 أيام (Clicks، CTR، CPC، Conversions، Cost) ورتّبها من الأفضل للأضعف في جدول. حدد أيها يستحق تحسين الميزانية أو الإيقاف." },
@@ -1051,7 +1115,28 @@ export default function AiChatPage() {
                 ))}
               </div>
 
-              {/* Google Ads quick actions — third row */}
+              {/* ── Strategy Commands — Scale / Blueprint / Flex ── */}
+              <div className="w-full max-w-3xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[11px] font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wide">⚡ أوامر الاستراتيجيات</span>
+                  <div className="flex-1 h-px bg-violet-200 dark:bg-violet-900/40" />
+                  <span className="text-[10px] text-muted-foreground">اضغط ← عدّل ← أرسل</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {QA_STRATEGIES.map(q=>(
+                    <button
+                      key={q.label}
+                      onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }}
+                      className="group text-right px-3 py-2.5 rounded-xl border border-violet-500/25 bg-violet-50/50 dark:bg-violet-950/20 hover:border-violet-500/60 hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-all"
+                    >
+                      <span className="block font-semibold text-foreground text-[11px] leading-tight">{q.label}</span>
+                      <span className="block text-[10px] text-muted-foreground mt-1 leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-400">{q.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Google Ads quick actions — fourth row */}
               <div className="w-full max-w-3xl">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Google Ads</span>
