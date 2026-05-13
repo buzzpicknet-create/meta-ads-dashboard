@@ -864,6 +864,18 @@ export default function AiChatPage() {
       const cid=convIdRef.current; if(cid!==null) void saveToDB(cid,pending.summary,res);
       // Auto-continue: send result back to AI so it proceeds to next step
       if (r.ok && d.success) {
+        // Update flex state with new IDs
+        setFlexState(prev => {
+          if (!prev) return prev;
+          const msg = d.message ?? "";
+          const campaignMatch = msg.match(/campaign_id[:\s]+([\d]+)/);
+          const adsetMatch = msg.match(/adset_id[:\s]+([\d]+)/);
+          return {
+            ...prev,
+            campaignId: campaignMatch?.[1] ?? prev.campaignId,
+            adsetId: adsetMatch?.[1] ?? prev.adsetId,
+          };
+        });
         setTimeout(() => void send(`✅ تم تنفيذ: ${pending.summary}. الآن نفّذ الخطوة التالية فوراً — تذكر: create_adset يجب أن يكون tool call مباشر وليس داخل bulk_action.`), 500);
       }
     } catch { setMsgs(p=>[...p,{role:"assistant",content:"❌ خطأ في الاتصال."}]); }
