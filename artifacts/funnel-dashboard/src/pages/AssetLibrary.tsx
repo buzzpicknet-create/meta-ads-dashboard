@@ -797,6 +797,7 @@ interface QuickForm {
   flexAccountId: string;
   flexSrcId: string; flexSrcName: string;
   flexNewCampaignName: string; flexNewBudget: string;
+  flexStep: number; flexCampaignId: string; flexAdsetId: string;
 }
 
 const INIT_FORM: QuickForm = {
@@ -806,6 +807,7 @@ const INIT_FORM: QuickForm = {
   flexAccountId: "",
   flexSrcId: "", flexSrcName: "",
   flexNewCampaignName: "", flexNewBudget: "200",
+  flexStep: 0, flexCampaignId: "", flexAdsetId: "",
 };
 
 function QuickLaunchSection() {
