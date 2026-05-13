@@ -892,6 +892,340 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     return;
   }
 
+  // ── create_ad_from_creative_spec — fallback: rebuild from raw assets ─────────
+  if (tool === "create_ad_from_creative_spec") {
+    const rawAccountId = String(args?.account_id ?? "");
+    const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
+    const accountIdWithAct = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
+    const adsetId = String(args?.adset_id ?? "");
+    const adName = String(args?.name ?? "إعلان من أصول creative");
+    const primaryText = String(args?.primary_text ?? "");
+    const headline = String(args?.headline ?? "");
+    const linkUrl = String(args?.link_url ?? "");
+    const callToAction = String(args?.call_to_action ?? "SHOP_NOW");
+    const mediaType = String(args?.media_type ?? "video");
+    const videoId = String(args?.video_id ?? "");
+    const imageHash = String(args?.image_hash ?? "");
+    let pageId = String(args?.page_id ?? "").trim();
+    let instagramActorId = String(args?.instagram_actor_id ?? "").trim();
+
+    if (!accountId)   { res.status(400).json({ error: "account_id مطلوب" }); return; }
+    if (!adsetId)     { res.status(400).json({ error: "adset_id مطلوب" }); return; }
+    if (!linkUrl)     { res.status(400).json({ error: "link_url مطلوب" }); return; }
+    if (mediaType === "video" && !videoId)   { res.status(400).json({ error: "video_id مطلوب لـ media_type=video" });  return; }
+    if (mediaType === "image" && !imageHash) { res.status(400).json({ error: "image_hash مطلوب لـ media_type=image" }); return; }
+
+    const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+    if (!metaTkn) { res.status(500).json({ error: "META_ACCESS_TOKEN غير مضبوط" }); return; }
+
+    let csSuccess = false;
+    let csMsg = "";
+
+    try {
+      // Auto-fetch page_id if missing
+      if (!pageId) {
+        const pagesUrl = new URL(`https://graph.facebook.com/v21.0/${accountIdWithAct}/pages`);
+        pagesUrl.searchParams.set("fields", "id,name");
+        pagesUrl.searchParams.set("access_token", metaTkn);
+        const pagesResp = await fetch(pagesUrl.toString(), { signal: AbortSignal.timeout(10_000) });
+        const pagesJson = await pagesResp.json() as { data?: Array<{ id: string }> };
+        pageId = pagesJson.data?.[0]?.id ?? "";
+        if (!pageId) throw new Error("تعذّر جلب page_id — أرسل page_id يدوياً");
+      }
+      if (!instagramActorId) instagramActorId = pageId;
+
+      // Step 1: build object_story_spec
+      let objectStorySpec: Record<string, unknown>;
+      if (mediaType === "video") {
+        objectStorySpec = {
+          page_id: pageId,
+          video_data: {
+            video_id: videoId,
+            ...(primaryText ? { message: primaryText } : {}),
+            ...(headline    ? { link_description: headline } : {}),
+            call_to_action: { type: callToAction, value: { link: linkUrl } },
+          },
+        };
+      } else {
+        objectStorySpec = {
+          page_id: pageId,
+          link_data: {
+            image_hash: imageHash,
+            ...(primaryText ? { message: primaryText } : {}),
+            ...(headline    ? { name: headline } : {}),
+            link: linkUrl,
+            call_to_action: { type: callToAction, value: { link: linkUrl } },
+          },
+        };
+      }
+
+      // Step 2: POST adcreatives
+      const creativeBody = new URLSearchParams({
+        name: `${adName} — creative`,
+        object_story_spec: JSON.stringify(objectStorySpec),
+        access_token: metaTkn,
+      });
+      if (instagramActorId) creativeBody.set("instagram_actor_id", instagramActorId);
+
+      const creativeResp = await fetch(
+        `https://graph.facebook.com/v21.0/${accountIdWithAct}/adcreatives`,
+        { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: creativeBody, signal: AbortSignal.timeout(15_000) }
+      );
+      const creativeJson = await creativeResp.json() as Record<string, unknown>;
+      if (creativeJson.error) {
+        const metaErr = parseMetaErrorDetails(JSON.stringify(creativeJson));
+        const e = creativeJson.error as Record<string, unknown>;
+        throw new Error(`فشل create_ad_creative — ${String(e.message ?? "")}${metaErr.fbtrace_id ? ` | fbtrace: ${metaErr.fbtrace_id}` : ""}`);
+      }
+      const creativeId = String(creativeJson.id ?? "");
+      if (!creativeId) throw new Error("Meta لم يُعد creative_id");
+      logger.info({ creativeId, mediaType, adsetId }, "create_ad_from_creative_spec: creative created");
+
+      // Step 3: POST ads
+      const adBody = new URLSearchParams({
+        name: adName,
+        adset_id: adsetId,
+        creative: JSON.stringify({ creative_id: creativeId }),
+        status: "PAUSED",
+        access_token: metaTkn,
+      });
+      const adResp = await fetch(
+        `https://graph.facebook.com/v21.0/${accountIdWithAct}/ads`,
+        { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: adBody, signal: AbortSignal.timeout(15_000) }
+      );
+      const adJson = await adResp.json() as Record<string, unknown>;
+      if (adJson.error) {
+        const metaErr = parseMetaErrorDetails(JSON.stringify(adJson));
+        const e = adJson.error as Record<string, unknown>;
+        throw new Error(`فشل create_ad — ${String(e.message ?? "")}${metaErr.fbtrace_id ? ` | fbtrace: ${metaErr.fbtrace_id}` : ""}`);
+      }
+      const newAdId = String(adJson.id ?? "");
+      if (!newAdId) throw new Error("Meta لم يُعد ad_id");
+
+      // Step 4: verify
+      const csVerify = await verifyMetaEntityDirect(newAdId, "id,name,status,effective_status,adset_id,campaign_id,creative{id}", metaTkn);
+      if (!csVerify.verified) throw new Error(`verify فشل للإعلان ${newAdId}`);
+
+      csSuccess = true;
+      csMsg = [
+        `✅ create_ad_from_creative_spec نجح — تم بناء الإعلان من أصول خام (بدون Social Proof)`,
+        `new_ad_id: ${newAdId}`,
+        `creative_id: ${creativeId}`,
+        `adset_id: ${adsetId}`,
+        `media_type: ${mediaType}`,
+        `الحالة: ${String(csVerify.verified_fields?.effective_status ?? "PAUSED")}`,
+      ].join(" — ");
+      (args as Record<string, unknown>).__new_ad_id = newAdId;
+      (args as Record<string, unknown>).__cs_verify = csVerify;
+      (args as Record<string, unknown>).__creative_id = creativeId;
+    } catch (err) {
+      csMsg = err instanceof Error ? err.message : String(err);
+    }
+
+    await query(
+      `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [executedBy, tool, JSON.stringify(args ?? {}), csSuccess, csMsg, null, adsetId, false]
+    ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
+
+    if (csSuccess) {
+      const newAdIdOut = String((args as Record<string, unknown>).__new_ad_id ?? "");
+      const csV = (args as Record<string, unknown>).__cs_verify as VerifyResult | undefined;
+      const creativeIdOut = String((args as Record<string, unknown>).__creative_id ?? "");
+      res.json({ success: true, message: csMsg, new_ad_id: newAdIdOut, creative_id: creativeIdOut, adset_id: adsetId, media_type: mediaType, verified: true, verified_fields: csV?.verified_fields });
+    } else {
+      const metaErrDetails = parseMetaErrorDetails(csMsg);
+      res.status(500).json({ error: csMsg, meta_error: metaErrDetails });
+    }
+    return;
+  }
+
+  // ── publish_winners_to_destination — Social Proof → Rebuild pipeline ─────────
+  if (tool === "publish_winners_to_destination") {
+    const rawAccountId = String(args?.account_id ?? "");
+    const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
+    const destinationAdsetId = String(args?.destination_adset_id ?? "");
+    const namingPrefix = String(args?.naming_prefix ?? "Winner");
+    const sourceAdIds: string[] = Array.isArray(args?.source_ad_ids)
+      ? (args.source_ad_ids as unknown[]).map(String).filter(Boolean)
+      : String(args?.source_ad_ids ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
+
+    if (!destinationAdsetId) { res.status(400).json({ error: "destination_adset_id مطلوب" }); return; }
+    if (sourceAdIds.length === 0) { res.status(400).json({ error: "source_ad_ids مطلوب" }); return; }
+
+    const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+    if (!metaTkn) { res.status(500).json({ error: "META_ACCESS_TOKEN غير مضبوط" }); return; }
+
+    interface AdPublishResult {
+      source_ad_id: string;
+      method_used: "existing_post" | "creative_spec";
+      new_ad_id: string;
+      creative_id?: string;
+      status: string;
+    }
+    interface AdPublishFailure {
+      source_ad_id: string;
+      social_proof_error: string;
+      rebuild_error: string;
+    }
+
+    const createdAds: AdPublishResult[] = [];
+    const failedAds: AdPublishFailure[] = [];
+
+    for (const sourceAdId of sourceAdIds) {
+      let socialProofError = "";
+      let rebuildError = "";
+
+      try {
+        // ── Fetch creative data ──────────────────────────────────────────────
+        const srcUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
+        srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,effective_object_story_id,body,title,video_id,image_hash,link_url,call_to_action,instagram_actor_id}");
+        srcUrl.searchParams.set("access_token", metaTkn);
+        const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(12_000) });
+        const srcJson = await srcResp.json() as Record<string, unknown>;
+        if (srcJson.error) {
+          const e = srcJson.error as Record<string, unknown>;
+          throw new Error(`Meta error fetching ad: ${String(e.message ?? "")}`);
+        }
+
+        const rawSrcAccId = String(srcJson.account_id ?? "").replace(/^act_/, "") || accountId;
+        const c = (srcJson.creative ?? {}) as Record<string, unknown>;
+        const objectStoryId = String(c.effective_object_story_id ?? c.object_story_id ?? "").trim();
+        const pageId = objectStoryId ? objectStoryId.split("_")[0] ?? "" : "";
+        const instagramActorId = String(c.instagram_actor_id ?? pageId);
+        const videoId = String(c.video_id ?? "");
+        const imageHash = String(c.image_hash ?? "");
+        const primaryText = String(c.body ?? "");
+        const headline = String(c.title ?? "");
+        let linkUrl = String(c.link_url ?? "");
+        const ctaObj = (c.call_to_action ?? {}) as Record<string, unknown>;
+        const callToAction = String(ctaObj.type ?? "SHOP_NOW");
+        if (!linkUrl && ctaObj.value) linkUrl = String((ctaObj.value as Record<string, unknown>).link ?? "");
+        const adLabel = `${namingPrefix} — ${sourceAdId}`;
+
+        logger.info({ sourceAdId, objectStoryId, videoId: videoId || "(none)" }, "publish_winners: creative fetched");
+
+        // ── Path 1: Social Proof ─────────────────────────────────────────────
+        if (objectStoryId) {
+          try {
+            const pbClient = await getPipeboardWriteClient();
+            const spCreativeArgs: Record<string, unknown> = {
+              account_id: rawSrcAccId,
+              name: `${adLabel} — creative`,
+              page_id: pageId,
+              object_story_id: objectStoryId,
+            };
+            if (instagramActorId) spCreativeArgs.instagram_actor_id = instagramActorId;
+
+            const spCreativeResult = await pbClient.callTool({ name: "create_ad_creative", arguments: spCreativeArgs });
+            const spCreativeText = ((spCreativeResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+              .filter((x: { type: string }) => x.type === "text")
+              .map((x: { text?: string }) => x.text ?? "")
+              .join("").trim();
+
+            if (/"error"/.test(spCreativeText) && !/"id"/.test(spCreativeText)) throw new Error(extractMetaError(spCreativeText));
+            const spCreativeId = spCreativeText.match(/"id"\s*:\s*"(\d{10,})"/)?.[1] ?? "";
+            if (!spCreativeId) throw new Error(`لم يُعد creative_id: ${spCreativeText.slice(0, 200)}`);
+
+            const spAdResult = await pbClient.callTool({
+              name: "create_ad",
+              arguments: { account_id: `act_${rawSrcAccId}`, name: adLabel, adset_id: destinationAdsetId, creative_id: spCreativeId, status: "PAUSED" },
+            });
+            const spAdText = ((spAdResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+              .filter((x: { type: string }) => x.type === "text")
+              .map((x: { text?: string }) => x.text ?? "")
+              .join("").trim();
+
+            if (/"error"/.test(spAdText) && !/"id"/.test(spAdText)) throw new Error(extractMetaError(spAdText));
+            const spNewAdId = spAdText.match(/"id"\s*:\s*"(\d+)"/)?.[1] ?? spAdText.match(/\b(\d{10,})\b/)?.[1] ?? "";
+            if (!spNewAdId) throw new Error(`لم يُعد ad_id: ${spAdText.slice(0, 200)}`);
+
+            const spVerify = await verifyMetaEntityDirect(spNewAdId, "id,name,status,effective_status,adset_id", metaTkn);
+            if (!spVerify.verified) throw new Error(`verify فشل للإعلان ${spNewAdId}`);
+
+            createdAds.push({ source_ad_id: sourceAdId, method_used: "existing_post", new_ad_id: spNewAdId, creative_id: spCreativeId, status: String(spVerify.verified_fields?.effective_status ?? "PAUSED") });
+            logger.info({ sourceAdId, spNewAdId }, "publish_winners: Social Proof succeeded");
+            continue;
+          } catch (spErr) {
+            socialProofError = spErr instanceof Error ? spErr.message : String(spErr);
+            logger.warn({ sourceAdId, socialProofError }, "publish_winners: Social Proof failed — trying Rebuild");
+            _pbWriteClient = null; _pbWriteConnecting = null;
+          }
+        } else {
+          socialProofError = "لا يوجد object_story_id — Social Proof غير ممكن";
+        }
+
+        // ── Path 2: Rebuild from raw assets ──────────────────────────────────
+        if (!videoId && !imageHash) {
+          rebuildError = "لا يوجد video_id أو image_hash — Rebuild غير ممكن";
+          failedAds.push({ source_ad_id: sourceAdId, social_proof_error: socialProofError, rebuild_error: rebuildError });
+          continue;
+        }
+        if (!linkUrl) {
+          rebuildError = "لا يوجد link_url — Rebuild غير ممكن";
+          failedAds.push({ source_ad_id: sourceAdId, social_proof_error: socialProofError, rebuild_error: rebuildError });
+          continue;
+        }
+
+        const objSpec: Record<string, unknown> = videoId
+          ? { page_id: pageId, video_data: { video_id: videoId, ...(primaryText ? { message: primaryText } : {}), ...(headline ? { link_description: headline } : {}), call_to_action: { type: callToAction, value: { link: linkUrl } } } }
+          : { page_id: pageId, link_data: { image_hash: imageHash, ...(primaryText ? { message: primaryText } : {}), ...(headline ? { name: headline } : {}), link: linkUrl, call_to_action: { type: callToAction, value: { link: linkUrl } } } };
+
+        const rbCreativeBody = new URLSearchParams({ name: `${adLabel} — rebuild creative`, object_story_spec: JSON.stringify(objSpec), access_token: metaTkn });
+        if (instagramActorId) rbCreativeBody.set("instagram_actor_id", instagramActorId);
+
+        const rbCreativeResp = await fetch(`https://graph.facebook.com/v21.0/act_${rawSrcAccId}/adcreatives`,
+          { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: rbCreativeBody, signal: AbortSignal.timeout(15_000) });
+        const rbCreativeJson = await rbCreativeResp.json() as Record<string, unknown>;
+        if (rbCreativeJson.error) {
+          const e = rbCreativeJson.error as Record<string, unknown>;
+          throw new Error(`Rebuild creative فشل: ${String(e.message ?? "")}`);
+        }
+        const rbCreativeId = String(rbCreativeJson.id ?? "");
+        if (!rbCreativeId) throw new Error("Rebuild: Meta لم يُعد creative_id");
+
+        const rbAdBody = new URLSearchParams({ name: `${adLabel} — rebuild`, adset_id: destinationAdsetId, creative: JSON.stringify({ creative_id: rbCreativeId }), status: "PAUSED", access_token: metaTkn });
+        const rbAdResp = await fetch(`https://graph.facebook.com/v21.0/act_${rawSrcAccId}/ads`,
+          { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: rbAdBody, signal: AbortSignal.timeout(15_000) });
+        const rbAdJson = await rbAdResp.json() as Record<string, unknown>;
+        if (rbAdJson.error) {
+          const e = rbAdJson.error as Record<string, unknown>;
+          throw new Error(`Rebuild create_ad فشل: ${String(e.message ?? "")}`);
+        }
+        const rbNewAdId = String(rbAdJson.id ?? "");
+        if (!rbNewAdId) throw new Error("Rebuild: Meta لم يُعد ad_id");
+
+        const rbVerify = await verifyMetaEntityDirect(rbNewAdId, "id,name,status,effective_status,adset_id", metaTkn);
+        if (!rbVerify.verified) throw new Error(`Rebuild verify فشل للإعلان ${rbNewAdId}`);
+
+        createdAds.push({ source_ad_id: sourceAdId, method_used: "creative_spec", new_ad_id: rbNewAdId, creative_id: rbCreativeId, status: String(rbVerify.verified_fields?.effective_status ?? "PAUSED") });
+        logger.info({ sourceAdId, rbNewAdId }, "publish_winners: Rebuild succeeded");
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (!socialProofError) socialProofError = errMsg; else rebuildError = errMsg;
+        failedAds.push({ source_ad_id: sourceAdId, social_proof_error: socialProofError, rebuild_error: rebuildError || errMsg });
+        logger.warn({ sourceAdId, errMsg }, "publish_winners: both paths failed");
+      }
+    }
+
+    const pwMsg = `publish_winners_to_destination: ${createdAds.length} نجح، ${failedAds.length} فشل`;
+    await query(
+      `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [executedBy, tool, JSON.stringify(args ?? {}), createdAds.length > 0, pwMsg, null, destinationAdsetId, false]
+    ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed"));
+
+    res.json({
+      success: createdAds.length > 0,
+      message: pwMsg,
+      destination_adset_id: destinationAdsetId,
+      created_ads: createdAds,
+      failed_ads: failedAds,
+      summary: { total: sourceAdIds.length, succeeded: createdAds.length, failed: failedAds.length },
+    });
+    return;
+  }
+
   // ── Special multi-step: launch_pipeboard_campaign ────────────────────────
   if (tool === "launch_pipeboard_campaign") {
     // ── Types ──────────────────────────────────────────────────────────────

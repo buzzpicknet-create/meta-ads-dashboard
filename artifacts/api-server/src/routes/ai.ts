@@ -480,7 +480,9 @@ Frequency (في 7 أيام):
 - get_ad_creative(ad_id) — اجلب محتوى الإعلان الكامل: primary_text، headline، video_id/image_hash، link_url، call_to_action، object_story_id، page_id، instagram_actor_id. أفضل من get_ad_post_id لأنه يُعيد أكثر بيانات.
 - get_ad_post_id(ad_id) — اجلب Post ID فقط (بديل أخف من get_ad_creative إذا كنت تحتاج object_story_id فقط)
 - create_ad_from_post(account_id, adset_id, post_id, name, page_id?) — أنشئ إعلاناً من منشور بـ post_id مع الحفاظ على Social Proof
-- create_ad_from_existing_post(account_id, adset_id, name, object_story_id?, post_id?, ad_id?) — أنشئ إعلاناً من منشور موجود. يقبل object_story_id (من get_ad_creative) أو post_id أو ad_id (الإعلان المصدر — backend يجلب object_story_id تلقائياً). 🔴 عند الاستخدام في bulk_action: يجب أن تضع ad_id الفعلي للإعلان المصدر في حقل adId — احصل عليه من search_ads أو get_ad_creative أولاً.
+- create_ad_from_existing_post(account_id, adset_id, name, object_story_id?, post_id?, ad_id?) — أنشئ إعلاناً من منشور موجود. يقبل object_story_id (من get_ad_creative) أو post_id أو ad_id (الإعلان المصدر — backend يجلب object_story_id تلقائياً). 🔴 عند الاستخدام في bulk_action: يجب أن تضع ad_id الفعلي في adId و account_id في accountId.
+- create_ad_from_creative_spec(account_id, adset_id, name, link_url, media_type, video_id?, image_hash?, primary_text?, headline?, call_to_action?, page_id?) — 🔧 Fallback: أنشئ إعلان من أصول خام (بدون Social Proof). استخدم فقط عندما لا يوجد object_story_id.
+- publish_winners_to_destination(destination_adset_id, source_ad_ids[], naming_prefix?, account_id?) — ⭐ الأداة الأقوى: pipeline كامل لنقل رابحين متعددين دفعة واحدة. تجرب Social Proof تلقائياً، وإذا فشل تعيد البناء من raw assets. لا تحتاج get_ad_creative أولاً.
 
 ⚠️ Ad Scale — قاعدة حرجة:
 - لا يوجد "move ad" في Meta API — الإعلان لا يُنقل، يُنسَخ فقط.
@@ -679,23 +681,22 @@ STRATEGIC INTENT RECOGNITION — التعرف على النية الاسترات
 
 ٤. **تنفيذ Creative Bridge (نقل الأصول بدقة)**
 
-   **الطريقة المُفضَّلة (للـ CBO/Broad — Social Proof محفوظ):**
+   **⭐ الطريقة الأقوى والأسرع (للرابحين المتعددين):**
+   - publish_winners_to_destination(destination_adset_id, source_ad_ids=[ad_id1, ad_id2, ...], naming_prefix)
+   - تجرب Social Proof تلقائياً لكل إعلان، وإذا فشل تعيد البناء من raw assets — بدون تدخل يدوي
+   - لا تحتاج get_ad_creative أولاً — كل شيء داخلي
+
+   **الطريقة اليدوية (إعلان واحد):**
    - إذا يوجد object_story_id (من get_ad_creative) → create_ad_from_existing_post(account_id, adset_id, object_story_id, name)
-   - إذا لم تعرف object_story_id بعد → مرّر ad_id فقط: create_ad_from_existing_post(account_id, adset_id, name, ad_id=SOURCE_AD_ID) — الـ backend يجلب object_story_id تلقائياً بدون حاجة لـ get_ad_creative
-   - هذا يحافظ على Social Proof (اللايكات والتعليقات) ويُنشئ fresh creative متوافق 100% مع CBO
+   - إذا لم تعرف object_story_id → مرّر ad_id: create_ad_from_existing_post(account_id, adset_id, name, ad_id=SOURCE_AD_ID)
+   - إذا لا يوجد object_story_id (إعلان جديد بدون منشور) → create_ad_from_creative_spec(account_id, adset_id, name, link_url, media_type, video_id, ...)
 
-   **الطريقة السريعة (إذا كانت الهيكل غير CBO):**
-   - duplicate_ad(ad_id, destination_adset_id, name) — أسرع، نفس Creative
+   **الطريقة السريعة (نسخ مباشر):**
+   - duplicate_ad(ad_id, destination_adset_id, name) — أسرع، لكن قد يفشل بـ subcode 33 في CBO
 
-   **Fallback تلقائي (إذا فشل duplicate_ad بـ code 100 / subcode 33):**
-   - الـ backend يحاول Creative Reconstruction تلقائياً:
-     1. يجلب object_story_id من الإعلان المصدر
-     2. ينشئ creative جديد عبر create_ad_creative مع instagram_actor_id = page_id
-     3. ينشئ الإعلان عبر create_ad في adset الهدف
-   - إذا نجح الـ backend: ستحصل على "reconstruction_used: true" في الرد
-   - إذا فشل الـ backend أيضاً: نفّذ يدوياً:
-     1. get_ad_creative(ad_id) → استخرج object_story_id + page_id
-     2. create_ad_from_existing_post(account_id, dest_adset_id, object_story_id, name)
+   **Fallback تلقائي لـ duplicate_ad (code 100 / subcode 33):**
+   - الـ backend يحاول Creative Reconstruction تلقائياً عبر object_story_id + create_ad_creative + create_ad
+   - إذا فشل الـ backend أيضاً: استخدم publish_winners_to_destination أو create_ad_from_existing_post يدوياً
 
 ٥. **تحقق هيكلي**
    - استدعِ search_ads(destination_adset_id, ad_name) للتأكد من وجود الإعلان
@@ -1476,6 +1477,50 @@ const TOOLS = [
           page_id:          { type: "string", description: "رقم صفحة Facebook — اختياري إذا أُرسل object_story_id (يُستخرج منه تلقائياً)" },
         },
         required: ["account_id", "adset_id", "name"],
+      },
+    },
+  },
+  // ── create_ad_from_creative_spec — fallback rebuild from raw assets ──────────
+  {
+    type: "function" as const,
+    function: {
+      name: "create_ad_from_creative_spec",
+      description: "🔧 Fallback: أنشئ إعلاناً من أصول خام (video_id أو image_hash + نص + رابط) بدون Social Proof — استخدم هذا فقط عندما يفشل create_ad_from_existing_post (لا يوجد object_story_id). يستدعي Meta Graph API مباشرةً لإنشاء adcreative ثم ad.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id:          { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXX أو الرقم فقط)" },
+          adset_id:            { type: "string", description: "رقم المجموعة الإعلانية الهدف" },
+          name:                { type: "string", description: "اسم الإعلان الجديد" },
+          primary_text:        { type: "string", description: "النص الرئيسي للإعلان (body)" },
+          headline:            { type: "string", description: "العنوان (title)" },
+          link_url:            { type: "string", description: "رابط الصفحة الهبوطية — إلزامي" },
+          call_to_action:      { type: "string", description: "نوع CTA: SHOP_NOW | LEARN_MORE | SIGN_UP | SUBSCRIBE | GET_OFFER (افتراضي: SHOP_NOW)" },
+          media_type:          { type: "string", description: "نوع الوسيط: video أو image" },
+          video_id:            { type: "string", description: "رقم الفيديو — مطلوب إذا media_type=video" },
+          image_hash:          { type: "string", description: "hash الصورة — مطلوب إذا media_type=image" },
+          page_id:             { type: "string", description: "رقم صفحة Facebook — اختياري، يُجلب تلقائياً" },
+          instagram_actor_id:  { type: "string", description: "رقم حساب Instagram — اختياري، يُستخدم page_id إذا غائب" },
+        },
+        required: ["account_id", "adset_id", "name", "link_url", "media_type"],
+      },
+    },
+  },
+  // ── publish_winners_to_destination — full pipeline: Social Proof → Rebuild ──
+  {
+    type: "function" as const,
+    function: {
+      name: "publish_winners_to_destination",
+      description: "⭐ الأداة الأكثر قوة لنقل الرابحين: تنفّذ الـ pipeline الكامل تلقائياً — تجرب Social Proof (object_story_id) أولاً، وإذا فشل تعيد البناء من video_id/image_hash (Rebuild). للإعلانات المتعددة دفعة واحدة. لا تحتاج استدعاء get_ad_creative أولاً.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id:            { type: "string", description: "رقم حساب الإعلانات (اختياري — يُجلب تلقائياً من الإعلان المصدر)" },
+          destination_adset_id:  { type: "string", description: "adset_id المجموعة الهدف في CBO — إلزامي" },
+          source_ad_ids:         { type: "array", items: { type: "string" }, description: "قائمة ad_ids الإعلانات الرابحة — كل إعلان سيُنشر في المجموعة الهدف. مثال: [\"120215671290270519\", \"120215671290270520\"]" },
+          naming_prefix:         { type: "string", description: "بادئة اسم الإعلانات الجديدة (افتراضي: Winner)" },
+        },
+        required: ["destination_adset_id", "source_ad_ids"],
       },
     },
   },

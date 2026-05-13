@@ -25,6 +25,7 @@ export interface BulkActionItem {
   campaignId?: string;
   adsetId?: string;
   adId?: string;
+  accountId?: string;
   name: string;
   newName?: string;
   nameSuffix?: string;
@@ -122,7 +123,7 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
           "اطلب منه: 'ابحث عن الإعلانات في المجموعة أولاً ثم أعد إنشاء الـ bulk'"
         );
       }
-      return { tool: "create_ad_from_existing_post", args: { adset_id: item.destinationAdsetId ?? item.adsetId, object_story_id: item.postId, ad_id: item.adId, name: item.name } };
+      return { tool: "create_ad_from_existing_post", args: { account_id: item.accountId, adset_id: item.destinationAdsetId ?? item.adsetId, object_story_id: item.postId, ad_id: item.adId, name: item.name } };
     }
   }
 }

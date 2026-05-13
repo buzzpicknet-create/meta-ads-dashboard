@@ -1,0 +1,151 @@
+أنت Backend Engineer + Meta Ads Automation Architect. مطلوب بناء Automation كاملة لنقل Winner Ads إلى Adset هدف (سواء داخل حملة CBO أو ABO) بدون Ads Manager وبدون Drive/رفع فيديوهات.
+
+الهدف
+
+إنشاء Ads جديدة داخل destination_adset_id باستخدام أحد مسارين:
+
+1) Social Proof (Preferred): create_ad_from_existing_post باستخدام object_story_id
+
+2) Fallback (Mandatory): Rebuild من نفس video_id/image_hash + النص + الرابط بدون Social Proof
+
+قيود أساسية
+
+CBO: الميزانية على مستوى الحملة فقط → ممنوع إرسال daily_budget للـ Adset
+ABO: لازم إرسال daily_budget للـ Adset
+No success بدون IDs
+Verify GET بعد كل Write
+رجّع Meta errors كاملة: code/message/error_subcode/error_user_title/error_user_msg/fbtrace_id
+Tools المطلوبة/تعديلات
+
+1) get_ad_creative(ad_id) (موجود)
+
+لازم يرجّع دائماً:
+
+primary_text, headline
+media_type: video|image
+video_id أو image_hash
+link_url, call_to_action
+object_story_id, page_id, instagram_actor_id
++ عند rate limit يرجّع retry_after_seconds صراحةً.
+
+2) create_ad_from_existing_post(account_id, adset_id, object_story_id, name)
+
+ينشئ Ad من Existing Post ويحافظ على Social Proof.
+
+Output:
+
+new_ad_id
+effective_status
+verified_fields via GET /{new_ad_id}
+3) Tool جديد (إلزامي): create_ad_from_creative_spec
+
+Input
+
+account_id (string)
+adset_id (string)
+name (string)
+primary_text (string)
+headline (string)
+link_url (string)
+call_to_action (string) optional
+media_type ("video"|"image")
+video_id (string) if media_type=video
+image_hash (string) if media_type=image
+page_id (string) optional (auto-fetch if missing)
+instagram_actor_id (string) optional (auto-fetch if missing)
+Implementation
+
+1) POST /act_{account_id}/adcreatives
+
+- object_story_spec.page_id
+
+- link_data:
+
+- message = primary_text
+
+- link = link_url
+
+- name = headline
+
+- call_to_action: {type: CTA, value:{link: link_url}}
+
+- video_id OR image_hash
+
+2) POST /act_{account_id}/ads
+
+- adset_id
+
+- creative: {creative_id}
+
+- status: "PAUSED"
+
+3) Verify:
+
+- GET /{new_ad_id}?fields=id,name,status,effective_status,adset_id,campaign_id,creative{id}
+
+Output
+
+success boolean
+new_ad_id
+creative_id
+effective_status
+verified_fields
+meta_error عند الفشل
+4) create_adset(account_id, campaign_id, name, optimization_goal, billing_event, targeting, promoted_object, daily_budget?)
+
+Logic
+
+Input budget_mode: "CBO" | "ABO"
+If budget_mode="CBO": OMIT daily_budget completely
+If budget_mode="ABO": REQUIRE daily_budget
+Always set:
+- targeting.geo_locations.countries=["EG"] (default)
+
+- promoted_object.pixel_id based on domain:
+
+- buzzpick.net → 1405391498274239
+
+- dealme-eg.com → 1537301040808359
+
+- promoted_object.custom_event_type="PURCHASE"
+
+Output MUST include adset_id + verify GET /{adset_id}
+Workflow Tool (اختياري لكن مفضل): publish_winners_to_destination
+
+Input
+
+account_id
+destination_campaign_id OR (create new campaign)
+budget_mode ("CBO"|"ABO")
+daily_budget_if_abo (number optional)
+destination_adset_id OR (create new adset)
+source_ad_ids[] OR source_adset_ids[] (to discover winners)
+naming_prefix
+Steps
+
+1) Discover winners (if source_adset_ids): get_ads_in_adset → choose winners by CPA + purchases
+
+2) For each winner ad_id:
+
+- creative = get_ad_creative(ad_id)
+
+- Try Social Proof:
+
+- create_ad_from_existing_post(account_id, destination_adset_id, creative.object_story_id, name)
+
+- If fails:
+
+- create_ad_from_creative_spec(account_id, destination_adset_id, name, creative.primary_text, creative.headline, creative.link_url, creative.call_to_action, creative.media_type, creative.video_id/image_hash)
+
+3) Verify via search_ads(destination_adset_id)
+
+Output
+
+destination_campaign_id, destination_adset_id
+created_ads[]: {source_ad_id, method_used(existing_post|rebuild), new_ad_id}
+failed_ads[]: {source_ad_id, meta_error}
+UI/Execution Requirements
+
+Bulk Panel must always pass account_id for create_ad_from_existing_post
+No “pending approval” state without a real approval UI; otherwise execute directly
+Add request_id tracking (fbtrace_id) to debug failures
