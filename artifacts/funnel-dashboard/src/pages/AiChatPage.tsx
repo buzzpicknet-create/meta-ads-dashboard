@@ -569,12 +569,8 @@ export default function AiChatPage() {
       const pending = sessionStorage.getItem("quick_chat_command");
       if (pending) {
         sessionStorage.removeItem("quick_chat_command");
-        setInput(pending);
-        if (inputRef.current) {
-          inputRef.current.style.height = "auto";
-          inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + "px";
-        }
-        setTimeout(() => inputRef.current?.focus(), 150);
+        // Auto-send flex commands directly without user interaction
+        setTimeout(() => void send(pending), 800);
       }
     } catch { /* ignore */ }
   }, []);

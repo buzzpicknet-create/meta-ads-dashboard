@@ -1198,7 +1198,7 @@ ${allHeadlines}
 
       {/* ── Flex Scale form ── */}
       {activeCard === "FLEX" && (
-        <FlexScaleForm form={form} upd={upd} onSend={() => sendToChat(buildFlexCmd(), "FLEX")} />
+        <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
       )}
     </div>
   );
