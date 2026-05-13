@@ -1342,7 +1342,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       try {
         // ── Fetch creative data ──────────────────────────────────────────────
         const srcUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
-        srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,effective_object_story_id,body,title,video_id,image_hash,link_url,call_to_action,instagram_actor_id}");
+        srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,effective_object_story_id,body,title,video_id,image_hash,link_url,call_to_action,instagram_actor_id,asset_feed_spec,thumbnail_url}");
         srcUrl.searchParams.set("access_token", metaTkn);
         const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(12_000) });
         const srcJson = await srcResp.json() as Record<string, unknown>;
@@ -1356,8 +1356,11 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const objectStoryId = String(c.effective_object_story_id ?? c.object_story_id ?? "").trim();
         let pageId = objectStoryId ? objectStoryId.split("_")[0] ?? "" : "";
         const instagramActorId = String(c.instagram_actor_id ?? pageId);
-        const videoId = String(c.video_id ?? "");
-        const imageHash = String(c.image_hash ?? "");
+        const assetFeed = (c.asset_feed_spec ?? {}) as Record<string, unknown>;
+        const assetVideos = Array.isArray(assetFeed.videos) ? (assetFeed.videos as Array<Record<string,unknown>>) : [];
+        const assetImages = Array.isArray(assetFeed.images) ? (assetFeed.images as Array<Record<string,unknown>>) : [];
+        const videoId = String(c.video_id ?? assetVideos[0]?.video_id ?? "");
+        const imageHash = String(c.image_hash ?? assetImages[0]?.hash ?? "");
         const primaryText = String(c.body ?? "");
         const headline = String(c.title ?? "");
         let linkUrl = String(c.link_url ?? "");
