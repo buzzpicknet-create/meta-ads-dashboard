@@ -537,6 +537,7 @@ export default function AiChatPage() {
 
   // ── Messages ──
   const [msgs, setMsgs]       = useState<ChatMsg[]>([]);
+  const [flexState, setFlexState] = useState<{step:number;campaignId:string;adsetId:string;srcId:string;newName:string;budget:string}|null>(null);
   const [streaming, setStr]   = useState(false);
   const [streamTxt, setStTxt] = useState("");
   const [toolLabels, setTL]   = useState<string[]>([]);
@@ -569,7 +570,11 @@ export default function AiChatPage() {
       const pending = sessionStorage.getItem("quick_chat_command");
       if (pending) {
         sessionStorage.removeItem("quick_chat_command");
-        // Auto-send flex commands directly without user interaction
+        // Load flex state if exists
+        try {
+          const fs = sessionStorage.getItem("flex_state");
+          if (fs) setFlexState(JSON.parse(fs) as {step:number;campaignId:string;adsetId:string;srcId:string;newName:string;budget:string});
+        } catch { /* ignore */ }
         setTimeout(() => void send(pending), 800);
       }
     } catch { /* ignore */ }
@@ -1307,6 +1312,42 @@ export default function AiChatPage() {
             </div>
           )}
 
+          {/* Flex Scale wizard buttons */}
+          {flexState && flexState.step > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">
+              {flexState.step === 1 && (
+                <button onClick={() => {
+                  void send(`استدعِ create_campaign: الاسم ${flexState.newName} - daily_budget ${flexState.budget} - objective OUTCOME_SALES - status PAUSED. لا تفعل أي شيء آخر.`);
+                  setFlexState(p => p ? {...p, step: 2} : null);
+                }} disabled={streaming}
+                  className="shrink-0 text-xs px-4 py-2 rounded-full bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 whitespace-nowrap font-medium">
+                  ٢. أنشئ الحملة ↗
+                </button>
+              )}
+              {flexState.step === 2 && (
+                <button onClick={() => {
+                  void send(`استدعِ create_adset tool call مباشر في حملة ${flexState.campaignId}: الاسم Flex Adset - بدون budget - targeting مصر residents. لا تفعل أي شيء آخر.`);
+                  setFlexState(p => p ? {...p, step: 3} : null);
+                }} disabled={streaming}
+                  className="shrink-0 text-xs px-4 py-2 rounded-full bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 whitespace-nowrap font-medium">
+                  ٣. أنشئ الـ AdSet ↗
+                </button>
+              )}
+              {flexState.step === 3 && (
+                <button onClick={() => {
+                  void send(`استدعِ publish_winners_to_destination: destination_adset_id ${flexState.adsetId} - source_ad_ids الـ winners من الخطوة الأولى - flex_mode true. ليس bulk_action.`);
+                  setFlexState(null);
+                }} disabled={streaming}
+                  className="shrink-0 text-xs px-4 py-2 rounded-full bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 whitespace-nowrap font-medium">
+                  ٤. انشر الرابحين ↗
+                </button>
+              )}
+              <button onClick={() => setFlexState(null)}
+                className="shrink-0 text-xs px-3 py-2 rounded-full border border-border/60 text-muted-foreground hover:text-foreground whitespace-nowrap">
+                إلغاء
+              </button>
+            </div>
+          )}
           {/* Quick actions strip (when chat has messages) — hidden on mobile to save space */}
           {!isEmpty && (
             <div className="hidden sm:flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">

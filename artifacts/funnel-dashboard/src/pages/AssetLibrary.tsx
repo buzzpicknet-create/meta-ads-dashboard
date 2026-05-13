@@ -928,7 +928,21 @@ ${allHeadlines}
     return "";
   }
   async function sendToChat(cmd: string, type: "TEST" | "SCALE" | "FLEX") {
-    try { sessionStorage.setItem("quick_chat_command", cmd); } catch { /* ignore */ }
+    try {
+      sessionStorage.setItem("quick_chat_command", cmd);
+      // Save flex state for wizard buttons in chat
+      if (type === "FLEX") {
+        const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+        sessionStorage.setItem("flex_state", JSON.stringify({
+          step: form.flexStep + 1,
+          campaignId: form.flexCampaignId,
+          adsetId: form.flexAdsetId,
+          srcId: form.flexSrcId,
+          newName: form.flexNewCampaignName.trim() || `Flex Scale - ${today}`,
+          budget: form.flexNewBudget.trim() || "200",
+        }));
+      }
+    } catch { /* ignore */ }
     // Save to launch history
     try {
       await fetch(`${API}/library/history`, {
