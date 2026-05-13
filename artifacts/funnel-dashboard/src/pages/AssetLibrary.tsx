@@ -906,6 +906,18 @@ function QuickLaunchSection() {
     } finally { setGenerating(false); }
   }
 
+  function addUtm(url: string, campaignName: string, angleName: string): string {
+    if (!url || url === "—") return url;
+    try {
+      const u = new URL(url);
+      u.searchParams.set("utm_source", "facebook");
+      u.searchParams.set("utm_medium", "paid");
+      u.searchParams.set("utm_campaign", campaignName.replace(/\s+/g, "-"));
+      if (angleName) u.searchParams.set("utm_content", angleName.replace(/\s+/g, "-"));
+      return u.toString();
+    } catch { return url; }
+  }
+
   function buildBlueprintCmd(type: "TEST" | "SCALE") {
     const today    = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
     const fallbackText     = "[النص الإعلاني]";
