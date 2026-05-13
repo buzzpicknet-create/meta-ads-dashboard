@@ -2092,6 +2092,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         if (!effectiveArgs.targeting_automation) {
           effectiveArgs.targeting_automation = { advantage_audience: 1 };
         }
+        // Always use LOWEST_COST_WITHOUT_CAP to avoid bid amount requirement
+        if (!effectiveArgs.bid_strategy) {
+          effectiveArgs.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+        }
         logger.info(
           { had_geo: !!(tgt?.geo_locations) },
           "create_adset: targeting merged — Advantage+ Audience top-level + EG residents ensured"
