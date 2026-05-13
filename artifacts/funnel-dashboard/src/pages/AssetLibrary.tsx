@@ -630,10 +630,10 @@ function FlexScaleForm({
   const accounts = accountsData?.accounts ?? [];
 
   // 30-day window for campaign discovery
-  const today = new Date();
-  const since = new Date(today); since.setDate(since.getDate() - 30);
+  const now = new Date();
+  const since = new Date(now); since.setDate(since.getDate() - 30);
   const sinceStr = since.toISOString().slice(0, 10);
-  const untilStr = today.toISOString().slice(0, 10);
+  const untilStr = now.toISOString().slice(0, 10);
 
   const { data: campaignsData, isFetching: loadingCampaigns } = useQuery({
     queryKey: ["flex-campaigns", form.flexAccountId, sinceStr, untilStr],
@@ -655,24 +655,22 @@ function FlexScaleForm({
     const c = allCampaigns.find(x => x.id === id);
     upd("flexSrcId", id);
     upd("flexSrcName", c?.name ?? "");
-    if (form.flexDstId === id) { upd("flexDstId", ""); upd("flexDstName", ""); }
   }
-  function pickDst(id: string) {
-    const c = allCampaigns.find(x => x.id === id);
-    upd("flexDstId", id);
-    upd("flexDstName", c?.name ?? "");
-  }
+
+  const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
 
   return (
     <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-4 space-y-3 animate-in fade-in duration-150">
-      <div className="text-xs text-muted-foreground leading-relaxed">
-        اختر الحملة المصدر والحملة الهدف — المساعد سيجلب الرابحين تلقائياً وينقلهم بـ Advantage+ Creative (flex_mode)
+
+      {/* How it works */}
+      <div className="rounded-lg bg-violet-100/60 dark:bg-violet-900/20 border border-violet-200/60 dark:border-violet-700/40 p-2.5 text-xs text-violet-800 dark:text-violet-300 leading-relaxed">
+        <span className="font-semibold">⚡ كيف يعمل:</span> المساعد يجلب الرابحين من الحملة المصدر ← ينشئ حملة CBO جديدة ← ينقل الإعلانات بـ <span className="font-mono font-medium">flex_mode=true</span> (Meta تختار الفورمات تلقائياً)
       </div>
 
       {/* Step 1: Account */}
       <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold">١</span>
+        <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold shrink-0">١</span>
           الحساب الإعلاني
         </label>
         <Select
@@ -680,7 +678,6 @@ function FlexScaleForm({
           onValueChange={val => {
             upd("flexAccountId", val);
             upd("flexSrcId", ""); upd("flexSrcName", "");
-            upd("flexDstId", ""); upd("flexDstName", "");
           }}
         >
           <SelectTrigger className="h-9 text-sm" dir="rtl">
@@ -699,91 +696,84 @@ function FlexScaleForm({
         </Select>
       </div>
 
-      {/* Step 2: Campaigns — only show after account selected */}
+      {/* Step 2: Source campaign — show after account selected */}
       {form.flexAccountId && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Source campaign */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold">٢</span>
-              الحملة المصدر (ABO/مختلطة)
-            </label>
-            <Select
-              value={form.flexSrcId}
-              onValueChange={pickSrc}
-              disabled={loadingCampaigns}
-            >
-              <SelectTrigger className="h-9 text-sm" dir="rtl">
-                {loadingCampaigns
-                  ? <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />جاري التحميل...</span>
-                  : <SelectValue placeholder="اختر الحملة المصدر..." />
-                }
-              </SelectTrigger>
-              <SelectContent dir="rtl">
-                {allCampaigns.length === 0 && !loadingCampaigns && (
-                  <SelectItem value="__none" disabled>لا توجد حملات</SelectItem>
-                )}
-                {allCampaigns.map(c => (
-                  <SelectItem key={c.id} value={c.id} disabled={c.id === form.flexDstId}>
-                    <span className="block max-w-[220px] truncate">{c.name}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Destination campaign (CBO) */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold">٣</span>
-              الحملة الهدف (CBO)
-            </label>
-            <Select
-              value={form.flexDstId}
-              onValueChange={pickDst}
-              disabled={loadingCampaigns || !form.flexSrcId}
-            >
-              <SelectTrigger className="h-9 text-sm" dir="rtl">
-                <SelectValue placeholder="اختر الحملة الهدف..." />
-              </SelectTrigger>
-              <SelectContent dir="rtl">
-                {allCampaigns.filter(c => c.id !== form.flexSrcId).map(c => (
-                  <SelectItem key={c.id} value={c.id}>
-                    <span className="block max-w-[220px] truncate">{c.name}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold shrink-0">٢</span>
+            الحملة المصدر — المساعد سيجلب رابحيها
+          </label>
+          <Select
+            value={form.flexSrcId}
+            onValueChange={pickSrc}
+            disabled={loadingCampaigns}
+          >
+            <SelectTrigger className="h-9 text-sm" dir="rtl">
+              {loadingCampaigns
+                ? <span className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />جاري تحميل الحملات...</span>
+                : <SelectValue placeholder="اختر الحملة المصدر..." />
+              }
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              {allCampaigns.length === 0 && !loadingCampaigns && (
+                <SelectItem value="__none" disabled>لا توجد حملات نشطة</SelectItem>
+              )}
+              {allCampaigns.map(c => (
+                <SelectItem key={c.id} value={c.id}>
+                  <span className="block max-w-[260px] truncate">{c.name}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
-      {/* Preview of selected campaigns */}
-      {(form.flexSrcName || form.flexDstName) && (
-        <div className="rounded-lg border border-violet-200 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 p-2.5 space-y-1">
-          {form.flexSrcName && (
-            <div className="text-[11px] text-muted-foreground flex gap-2">
-              <span className="font-medium text-violet-700 dark:text-violet-400 shrink-0">المصدر:</span>
-              <span className="truncate">{form.flexSrcName}</span>
+      {/* Step 3: New campaign details — show after source selected */}
+      {form.flexSrcId && (
+        <div className="space-y-2.5 rounded-lg border border-violet-200 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 p-3">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold shrink-0">٣</span>
+            <span className="text-xs font-medium text-violet-800 dark:text-violet-300">إعدادات الحملة CBO الجديدة (ستُنشأ تلقائياً)</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="space-y-1 sm:col-span-1">
+              <label className="text-[11px] text-muted-foreground">اسم الحملة الجديدة</label>
+              <Input
+                dir="rtl"
+                placeholder={`Flex Scale - ${today}`}
+                value={form.flexNewCampaignName}
+                onChange={e => upd("flexNewCampaignName", e.target.value)}
+                className="h-8 text-xs"
+              />
             </div>
-          )}
-          {form.flexDstName && (
-            <div className="text-[11px] text-muted-foreground flex gap-2">
-              <span className="font-medium text-violet-700 dark:text-violet-400 shrink-0">الهدف CBO:</span>
-              <span className="truncate">{form.flexDstName}</span>
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">الميزانية (EGP/يوم)</label>
+              <Input
+                type="number"
+                min={1}
+                value={form.flexNewBudget}
+                onChange={e => upd("flexNewBudget", e.target.value)}
+                className="h-8 text-xs"
+                dir="ltr"
+              />
             </div>
-          )}
+          </div>
+          <div className="text-[10px] text-violet-600 dark:text-violet-400">
+            ✓ المساعد سينشئ الحملة بـ Objective: SALES · CBO · Advantage+ Placements
+          </div>
         </div>
       )}
 
       {/* Send */}
       <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-violet-200 dark:border-violet-800">
-        <div className="flex-1 text-xs text-muted-foreground">⚡ flex_mode=true — Meta تختار التنسيق المثالي تلقائياً</div>
+        <div className="flex-1 text-xs text-muted-foreground">
+          {form.flexSrcName ? <span>المصدر: <span className="font-medium text-foreground">{form.flexSrcName}</span></span> : "اختر الحساب والحملة المصدر للمتابعة"}
+        </div>
         <Button
           size="sm"
           className="gap-1.5 h-9 text-xs shrink-0 bg-violet-600 hover:bg-violet-700 text-white"
           onClick={onSend}
-          disabled={!form.flexSrcId || !form.flexDstId}
+          disabled={!form.flexSrcId}
         >
           <Send className="h-3.5 w-3.5" />
           إرسال للمساعد ↗
@@ -805,7 +795,7 @@ interface QuickForm {
   textCount: number; headlineCount: number;
   flexAccountId: string;
   flexSrcId: string; flexSrcName: string;
-  flexDstId: string; flexDstName: string;
+  flexNewCampaignName: string; flexNewBudget: string;
 }
 
 const INIT_FORM: QuickForm = {
@@ -814,7 +804,7 @@ const INIT_FORM: QuickForm = {
   textCount: 3, headlineCount: 4,
   flexAccountId: "",
   flexSrcId: "", flexSrcName: "",
-  flexDstId: "", flexDstName: "",
+  flexNewCampaignName: "", flexNewBudget: "200",
 };
 
 function QuickLaunchSection() {
@@ -920,16 +910,26 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
   }
 
   function buildFlexCmd() {
-    const srcLabel = form.flexSrcName ? `"${form.flexSrcName}"${form.flexSrcId ? ` (${form.flexSrcId})` : ""}` : "[الحملة المصدر]";
-    const dstLabel = form.flexDstName ? `"${form.flexDstName}"${form.flexDstId ? ` (${form.flexDstId})` : ""}` : "[الحملة الهدف CBO]";
-    return `ابحث في حملات الحساب عن الإعلانات الرابحة في الحملة ${srcLabel} خلال آخر 7 أيام (معيار الفرز: أفضل CPA + Hook Rate).
+    const srcLabel   = form.flexSrcName ? `"${form.flexSrcName}"${form.flexSrcId ? ` (${form.flexSrcId})` : ""}` : "[الحملة المصدر]";
+    const today      = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const newName    = form.flexNewCampaignName.trim() || `Flex Scale - ${today}`;
+    const newBudget  = form.flexNewBudget.trim() || "200";
+    return `[SYSTEM COMMAND: FLEX_SCALE]
 
-انقل الرابحين بـ flex_mode=true إلى الحملة CBO الهدف: ${dstLabel}
+ابحث في الحملة ${srcLabel} عن الإعلانات الرابحة خلال آخر 7 أيام (أفضل CPA + Hook Rate).
 
 المطلوب خطوة بخطوة:
-١. جلب الـ adsets من الحملة المصدر وتحديد الرابحين
-٢. نقل كل إعلان رابح بـ flex_mode=true — Meta تولّد تلقائياً: Stories + Collection + Feed
-٣. تأكيد الإنشاء مع عرض ad_ids الجديدة وأسماء الإعلانات`;
+١. جلب الـ adsets والـ ads من الحملة المصدر وتحديد الرابحين
+٢. إنشاء حملة CBO جديدة بالإعدادات التالية:
+   - الاسم: ${newName}
+   - الميزانية: ${newBudget} EGP/يوم
+   - Objective: SALES · Event: PURCHASE
+   - Budget Optimization: CBO
+٣. نسخ الإعلانات الرابحة للحملة الجديدة بـ flex_mode=true
+   (Meta تولّد تلقائياً: Stories + Collection + Feed بـ Advantage+)
+٤. تأكيد الإنشاء مع عرض campaign_id الجديدة وأسماء الإعلانات المنقولة
+
+[END_COMMAND]`;
   }
 
   function sendToChat(cmd: string) {
