@@ -868,8 +868,8 @@ export default function AiChatPage() {
         setFlexState(prev => {
           if (!prev) return prev;
           const msg = d.message ?? "";
-          const campaignMatch = msg.match(/campaign_id[:\s]+([\d]+)/);
-          const adsetMatch = msg.match(/adset_id[:\s]+([\d]+)/);
+          const campaignMatch = msg.match(/campaign[_-]?id[^\d]*(\d{10,})/i);
+          const adsetMatch = msg.match(/adset[_-]?id[^\d]*(\d{10,})/i);
           return {
             ...prev,
             campaignId: campaignMatch?.[1] ?? prev.campaignId,

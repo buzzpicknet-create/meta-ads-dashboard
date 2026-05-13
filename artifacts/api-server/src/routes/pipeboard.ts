@@ -2475,7 +2475,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     }
     // pause_ad / enable_ad: no local cache to invalidate (ad details are fetched live)
 
-    res.json({ success: true, message: resultMessage });
+    // Extract IDs from result for frontend state updates
+    const extractedId = textContent?.match(/"id"\s*:\s*"(\d{10,})"/)?.[1] ?? "";
+    const extraData: Record<string, string> = {};
+    if (tool === "create_adset" && extractedId) extraData.adset_id = extractedId;
+    if (tool === "create_campaign" && extractedId) extraData.campaign_id = extractedId;
+    res.json({ success: true, message: resultMessage, ...extraData });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     resultMessage = msg;
