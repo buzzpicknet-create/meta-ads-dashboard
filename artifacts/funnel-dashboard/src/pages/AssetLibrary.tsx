@@ -970,9 +970,13 @@ ${allHeadlines}
   ];
 
   const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {
-    blue:    { border:"border-blue-200 dark:border-blue-800",    bg:"bg-blue-50/50 dark:bg-blue-950/20",    activeBorder:"border-blue-500",    activeBg:"bg-blue-50 dark:bg-blue-950/30",    badge:"bg-blue-500",   btn:"bg-blue-600 hover:bg-blue-700 text-white" },
+    blue:    { border:"border-blue-200 dark:border-blue-800",       bg:"bg-blue-50/50 dark:bg-blue-950/20",       activeBorder:"border-blue-500",    activeBg:"bg-blue-50 dark:bg-blue-950/30",    badge:"bg-blue-500",    btn:"bg-blue-600 hover:bg-blue-700 text-white" },
     emerald: { border:"border-emerald-200 dark:border-emerald-800", bg:"bg-emerald-50/50 dark:bg-emerald-950/20", activeBorder:"border-emerald-500", activeBg:"bg-emerald-50 dark:bg-emerald-950/30", badge:"bg-emerald-500", btn:"bg-emerald-600 hover:bg-emerald-700 text-white" },
-    violet:  { border:"border-violet-200 dark:border-violet-800",  bg:"bg-violet-50/50 dark:bg-violet-950/20",  activeBorder:"border-violet-500",  activeBg:"bg-violet-50 dark:bg-violet-950/30",  badge:"bg-violet-500",  btn:"bg-violet-600 hover:bg-violet-700 text-white" },
+    violet:  { border:"border-violet-200 dark:border-violet-800",   bg:"bg-violet-50/50 dark:bg-violet-950/20",   activeBorder:"border-violet-500",  activeBg:"bg-violet-50 dark:bg-violet-950/30",  badge:"bg-violet-500",  btn:"bg-violet-600 hover:bg-violet-700 text-white" },
+    yellow:  { border:"border-yellow-200 dark:border-yellow-800",   bg:"bg-yellow-50/50 dark:bg-yellow-950/20",   activeBorder:"border-yellow-500",  activeBg:"bg-yellow-50 dark:bg-yellow-950/30",  badge:"bg-yellow-500",  btn:"bg-yellow-600 hover:bg-yellow-700 text-white" },
+    orange:  { border:"border-orange-200 dark:border-orange-800",   bg:"bg-orange-50/50 dark:bg-orange-950/20",   activeBorder:"border-orange-500",  activeBg:"bg-orange-50 dark:bg-orange-950/30",  badge:"bg-orange-500",  btn:"bg-orange-600 hover:bg-orange-700 text-white" },
+    pink:    { border:"border-pink-200 dark:border-pink-800",       bg:"bg-pink-50/50 dark:bg-pink-950/20",       activeBorder:"border-pink-500",    activeBg:"bg-pink-50 dark:bg-pink-950/30",    badge:"bg-pink-500",    btn:"bg-pink-600 hover:bg-pink-700 text-white" },
+    teal:    { border:"border-teal-200 dark:border-teal-800",       bg:"bg-teal-50/50 dark:bg-teal-950/20",       activeBorder:"border-teal-500",    activeBg:"bg-teal-50 dark:bg-teal-950/30",    badge:"bg-teal-500",    btn:"bg-teal-600 hover:bg-teal-700 text-white" },
   };
 
   return (
