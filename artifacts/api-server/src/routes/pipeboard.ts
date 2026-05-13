@@ -714,75 +714,104 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   // ── create_ad_from_existing_post — accepts object_story_id directly OR post_id+page_id ──
   if (tool === "create_ad_from_existing_post") {
-    let rawAccountId = String(args?.account_id ?? "");
-    let accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
-    let accountIdWithAct = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
-    const adsetId = String(args?.adset_id ?? "");
-    const adName = String(args?.ad_name ?? args?.name ?? "إعلان من منشور");
+    // ── Step 1: normalize account_id — accept snake_case OR camelCase, with or without "act_" ──
+    const _rawAccArg = String(args?.account_id ?? args?.accountId ?? "").trim();
+    let accountId = _rawAccArg.replace(/^act_/i, "");          // always WITHOUT act_
+    let accountIdWithAct = accountId ? `act_${accountId}` : ""; // always WITH act_
 
-    // Accept object_story_id directly OR construct from page_id + post_id
-    // OR auto-fetch from source ad_id when both are missing
+    const adsetId    = String(args?.adset_id ?? "").trim();
+    const adName     = String(args?.ad_name ?? args?.name ?? "إعلان من منشور");
     let objectStoryId = String(args?.object_story_id ?? "").trim();
-    let pageId = String(args?.page_id ?? "").trim();
-    let postId = String(args?.post_id ?? "").trim();
-    const sourceAdId = String(args?.ad_id ?? args?.source_ad_id ?? "").trim();
+    let pageId        = String(args?.page_id ?? "").trim();
+    let postId        = String(args?.post_id ?? "").trim();
+    const sourceAdId  = String(args?.ad_id ?? args?.source_ad_id ?? "").trim();
 
     if (!adsetId) {
       res.status(400).json({ error: "adset_id مطلوب" });
       return;
     }
 
-    // ── Entry log — shows exactly what args arrived ───────────────────────────
+    // ── Entry log — received args ─────────────────────────────────────────────
     logger.info(
       {
         tool: "create_ad_from_existing_post",
-        received_account_id: rawAccountId || "(empty)",
-        received_ad_id: sourceAdId || "(empty)",
+        received_account_id:      _rawAccArg    || "(empty)",
+        received_ad_id:           sourceAdId    || "(empty)",
         received_object_story_id: objectStoryId || "(empty)",
-        received_adset_id: adsetId,
+        received_adset_id:        adsetId,
       },
       "create_ad_from_existing_post: args received"
     );
 
-    // ── Auto-fetch from source ad_id when account_id OR object_story_id is missing ──
-    // Two separate conditions so account_id auto-fetch runs even if objectStoryId is present.
-    if (sourceAdId && (!accountId || !objectStoryId)) {
+    // ── Step 2: Always derive account_id if missing — independent of object_story_id ──
+    // Priority: ad_id → adset_id → object_story_id (last resort, page_id only)
+    if (!accountId) {
+      const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+
+      // Try from ad_id first (richest source — also gives object_story_id)
+      if (sourceAdId) {
+        try {
+          const u = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
+          u.searchParams.set("fields", "id,account_id,creative{id,object_story_id}");
+          u.searchParams.set("access_token", metaTkn);
+          const j = await (await fetch(u.toString(), { signal: AbortSignal.timeout(10_000) })).json() as Record<string, unknown>;
+          const fetched = String(j.account_id ?? "").replace(/^act_/, "");
+          if (fetched) { accountId = fetched; accountIdWithAct = `act_${fetched}`; }
+          // Also fill object_story_id while we're here
+          if (!objectStoryId && !postId) {
+            const cr = j.creative as Record<string, unknown> | undefined;
+            objectStoryId = String(cr?.object_story_id ?? "").trim();
+          }
+          logger.info({ sourceAdId, derived_account_id: accountId || "(none)" }, "create_ad_from_existing_post: derived account_id from ad_id");
+        } catch (e) { logger.warn({ e, sourceAdId }, "create_ad_from_existing_post: derive from ad_id failed"); }
+      }
+
+      // Try from adset_id if still missing
+      if (!accountId && adsetId) {
+        try {
+          const u = new URL(`https://graph.facebook.com/v21.0/${adsetId}`);
+          u.searchParams.set("fields", "id,account_id");
+          u.searchParams.set("access_token", metaTkn);
+          const j = await (await fetch(u.toString(), { signal: AbortSignal.timeout(10_000) })).json() as Record<string, unknown>;
+          const fetched = String(j.account_id ?? "").replace(/^act_/, "");
+          if (fetched) { accountId = fetched; accountIdWithAct = `act_${fetched}`; }
+          logger.info({ adsetId, derived_account_id: accountId || "(none)" }, "create_ad_from_existing_post: derived account_id from adset_id");
+        } catch (e) { logger.warn({ e, adsetId }, "create_ad_from_existing_post: derive from adset_id failed"); }
+      }
+    } else if (sourceAdId && !objectStoryId) {
+      // account_id present but object_story_id missing — fetch object_story_id only
       try {
         const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
-        const srcUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
-        srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id}");
-        srcUrl.searchParams.set("access_token", metaTkn);
-        const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(10_000) });
-        const srcJson = await srcResp.json() as Record<string, unknown>;
-        const srcCreative = srcJson.creative as Record<string, unknown> | undefined;
-
-        // Fill object_story_id only if still missing
-        if (!objectStoryId && !postId) {
-          objectStoryId = String(srcCreative?.object_story_id ?? "").trim();
+        const u = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
+        u.searchParams.set("fields", "id,creative{id,object_story_id}");
+        u.searchParams.set("access_token", metaTkn);
+        const j = await (await fetch(u.toString(), { signal: AbortSignal.timeout(10_000) })).json() as Record<string, unknown>;
+        if (!postId) {
+          const cr = j.creative as Record<string, unknown> | undefined;
+          objectStoryId = String(cr?.object_story_id ?? "").trim();
         }
+      } catch (e) { logger.warn({ e, sourceAdId }, "create_ad_from_existing_post: fetch object_story_id failed"); }
+    }
 
-        // Always update account_id from source ad (overrides any provided value if fetched is non-empty)
-        if (srcJson.account_id) {
-          const fetchedAccId = String(srcJson.account_id).replace(/^act_/, "");
-          if (fetchedAccId) {
-            rawAccountId     = fetchedAccId;
-            accountId        = fetchedAccId;
-            accountIdWithAct = `act_${fetchedAccId}`;
-            (args as Record<string, unknown>).account_id = fetchedAccId;
-          }
-        }
+    // ── Computed log — what will be sent to Pipeboard ─────────────────────────
+    logger.info(
+      {
+        accountId:        accountId        || "(EMPTY — will fail)",
+        accountIdWithAct: accountIdWithAct || "(EMPTY — will fail)",
+        objectStoryId:    objectStoryId    || "(empty)",
+        adsetId,
+        sourceAdId: sourceAdId || "(none)",
+      },
+      "create_ad_from_existing_post: resolved values before Pipeboard calls"
+    );
 
-        logger.info(
-          {
-            sourceAdId,
-            resolved_account_id: accountId || "(still empty)",
-            resolved_object_story_id: objectStoryId || "(still empty)",
-          },
-          "create_ad_from_existing_post: auto-fetched from source ad"
-        );
-      } catch (fetchErr) {
-        logger.warn({ fetchErr, sourceAdId }, "create_ad_from_existing_post: failed to auto-fetch from source ad");
-      }
+    // ── Hard guard — fail fast with clear error ────────────────────────────────
+    if (!accountId) {
+      res.status(400).json({
+        error: "No account ID provided — أرسل account_id أو accountId في الـ bulk_action، أو تأكد أن ad_id / adset_id صحيح حتى يُجلب تلقائياً",
+        received: { account_id: _rawAccArg || "(empty)", ad_id: sourceAdId || "(empty)", adset_id: adsetId },
+      });
+      return;
     }
 
     if (!objectStoryId && !postId) {
