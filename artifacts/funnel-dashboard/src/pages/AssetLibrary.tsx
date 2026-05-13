@@ -992,16 +992,16 @@ ${allHeadlines}
 [END_COMMAND]`;
 
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
-قم ببناء حملة Interests مع Advantage+ فوراً:
-# 1. Campaign Settings
-- Objective: OUTCOME_SALES · Event: PURCHASE
-- Campaign Name: ${prod} - Interests - ${today}
+قم ببناء حملة Interests مع Advantage+ فوراً بالخطوات:
+الخطوة 1: استخدم search_interests للبحث عن اهتمامات لمنتج "${prod}" — جيب أفضل 5 نتائج مع IDs
+الخطوة 2: أنشئ الحملة بالإعدادات:
+# Campaign Settings
 - Budget Optimization: ABO
 # 2. AdSet Settings
 - Budget: ${form.budget} EGP daily
 - Targeting:
   Advantage+ Audience مفعّل
-  اقترح 3-5 اهتمامات مناسبة لمنتج "${prod}" في السوق المصري
+- Targeting: ضع الـ Interest IDs من الخطوة 1 في flexible_spec داخل targeting
   الدولة: مصر فقط
 - Placements: Advantage+ Placements
 # 3. Ad Settings
@@ -1012,6 +1012,7 @@ ${allTexts}
 - Headlines:
 ${allHeadlines}
 - Enable: Advantage+ Creative Enhancements
+الخطوة 3: بعد الإنشاء، استخدم update_adset لتحديث targeting بالـ Interest IDs
 [END_COMMAND]`;
   }
 
