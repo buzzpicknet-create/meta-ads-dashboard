@@ -861,6 +861,10 @@ export default function AiChatPage() {
       }
       setMsgs(p=>[...p,{role:"assistant",content:res}]);
       const cid=convIdRef.current; if(cid!==null) void saveToDB(cid,pending.summary,res);
+      // Auto-continue: send result back to AI so it proceeds to next step
+      if (r.ok && d.success) {
+        setTimeout(() => void send(`✅ تم: ${pending.summary}. كمّل الخطوة الجاية تلقائياً.`), 500);
+      }
     } catch { setMsgs(p=>[...p,{role:"assistant",content:"❌ خطأ في الاتصال."}]); }
     finally { setExec(false); setPending(null); }
   }, [pending, executing, saveToDB]);
