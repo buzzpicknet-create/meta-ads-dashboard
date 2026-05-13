@@ -848,6 +848,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     let pageId        = String(args?.page_id ?? "").trim();
     let postId        = String(args?.post_id ?? "").trim();
     const sourceAdId  = String(args?.ad_id ?? args?.source_ad_id ?? "").trim();
+    const flexMode    = Boolean(args?.flex_mode ?? false); // Single Asset Flex — Advantage+ creative
 
     if (!adsetId) {
       res.status(400).json({ error: "adset_id مطلوب" });
@@ -937,10 +938,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       return;
     }
 
-    if (!objectStoryId && !postId) {
+    if (!objectStoryId && !postId && !(flexMode && sourceAdId)) {
       res.status(400).json({
         error: sourceAdId
-          ? `فشل جلب object_story_id من الإعلان ${sourceAdId} — تأكد أن الإعلان يحتوي على منشور (object_story_id)`
+          ? `فشل جلب object_story_id من الإعلان ${sourceAdId} — تأكد أن الإعلان يحتوي على منشور (object_story_id) أو استخدم flex_mode=true لإنشاء Advantage+ creative من الأصول الخام`
           : "object_story_id أو post_id أو ad_id مطلوب",
       });
       return;
@@ -994,65 +995,133 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
       if (!objectStoryId) objectStoryId = `${pageId}_${postId}`;
 
-      // create_ad_creative using object_story_id
-      const creativeArgs: Record<string, unknown> = {
-        account_id: accountId,
-        name: `${adName} — creative`,
-        page_id: pageId,
-        object_story_id: objectStoryId,
-      };
-      const creativeResult = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
-      const creativeText = mcpTextEfp(creativeResult);
-      logger.info({ creativeText }, "create_ad_from_existing_post: create_ad_creative");
-      const hasRealIdEfp = /"id"\s*:\s*"(\d{10,})"/.test(creativeText);
-      if (/"error"/.test(creativeText) && !hasRealIdEfp) {
-        throw new Error(`فشل إنشاء creative — ${extractMetaError(creativeText)}`);
-      }
-      const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
-      const creativeId = creativeMatch?.[1] ?? "";
-      if (!creativeId) throw new Error(`لم يُعاد creative_id — ${extractMetaError(creativeText)}`);
+      // ── FLEX PATH: Advantage+ Single Asset creative via direct Meta API ────────
+      // Bypasses Pipeboard (which rejects degrees_of_freedom_spec / advantage_plus_creative).
+      if (flexMode && sourceAdId) {
+        const metaTknFlex = process.env.META_ACCESS_TOKEN ?? "";
 
-      // create_ad
-      const adResult = await client.callTool({
-        name: "create_ad",
-        arguments: {
-          account_id: accountIdWithAct,
-          name: adName,
-          adset_id: adsetId,
-          creative_id: creativeId,
-          status: "PAUSED",
-        },
-      });
-      const adText = mcpTextEfp(adResult);
-      logger.info({ adText }, "create_ad_from_existing_post: create_ad");
-      if (/"error"/.test(adText) && !/"id"/.test(adText)) {
-        throw new Error(`فشل create_ad — ${extractMetaError(adText)}`);
-      }
-      const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
-      const newAdId = adMatch?.[1] ?? "";
-      if (!newAdId) throw new Error(`لم يُعد ad_id — ${extractMetaError(adText)}`);
+        // Fetch raw creative assets from source ad
+        const flexAssetUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
+        flexAssetUrl.searchParams.set("fields", "creative{id,video_id,image_hash,body,title,link_url,call_to_action}");
+        flexAssetUrl.searchParams.set("access_token", metaTknFlex);
+        const flexAssetJson = await (await fetch(flexAssetUrl.toString(), { signal: AbortSignal.timeout(12_000) })).json() as Record<string, unknown>;
+        const flexCr      = (flexAssetJson.creative ?? {}) as Record<string, unknown>;
+        const flexVideoId = String(flexCr.video_id   ?? "");
+        const flexImgHash = String(flexCr.image_hash  ?? "");
+        const flexText    = String(flexCr.body        ?? "");
+        const flexTitle   = String(flexCr.title       ?? "");
+        let   flexLink    = String(flexCr.link_url    ?? "");
+        const flexCtaObj  = (flexCr.call_to_action ?? {}) as Record<string, unknown>;
+        const flexCtaType = String(flexCtaObj.type ?? "SHOP_NOW");
+        if (!flexLink && flexCtaObj.value) flexLink = String((flexCtaObj.value as Record<string, unknown>).link ?? "");
 
-      // Verify immediately (Standard Write Contract)
-      const efpVerify = await verifyMetaEntityDirect(
-        newAdId,
-        "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
-        process.env.META_ACCESS_TOKEN ?? ""
-      );
-      if (!efpVerify.verified) {
-        const ve = efpVerify.meta_error ?? {};
-        throw new Error(`create_ad_from_existing_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${String(ve.message ?? "")}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`);
-      }
+        if (!flexVideoId && !flexImgHash) throw new Error("Flex Mode: لا يوجد video_id أو image_hash في الإعلان المصدر");
+        if (!flexLink) throw new Error("Flex Mode: لا يوجد link_url في الإعلان المصدر");
 
-      efpSuccess = true;
-      efpMsg = [
-        `تم إنشاء الإعلان من المنشور (object_story_id: ${objectStoryId})`,
-        `new_ad_id: ${newAdId}`,
-        `adset_id: ${adsetId}`,
-        `الحالة: ${String(efpVerify.verified_fields?.effective_status ?? "PAUSED")}`,
-      ].join(" — ");
+        const flexSpec: Record<string, unknown> = flexVideoId
+          ? { page_id: pageId, video_data: { video_id: flexVideoId, ...(flexText ? { message: flexText } : {}), ...(flexTitle ? { link_description: flexTitle } : {}), call_to_action: { type: flexCtaType, value: { link: flexLink } } } }
+          : { page_id: pageId, link_data: { image_hash: flexImgHash, ...(flexText ? { message: flexText } : {}), ...(flexTitle ? { name: flexTitle } : {}), link: flexLink, call_to_action: { type: flexCtaType, value: { link: flexLink } } } };
 
-      (args as Record<string, unknown>).__new_ad_id = newAdId;
-      (args as Record<string, unknown>).__efpVerify = efpVerify;
+        const flexCreativeBody = new URLSearchParams({
+          name:                    `${adName} — flex creative`,
+          object_story_spec:       JSON.stringify(flexSpec),
+          degrees_of_freedom_spec: JSON.stringify({ creative_features_spec: { standard_enhancements: { enroll_status: "OPT_IN" } } }),
+          advantage_plus_creative: JSON.stringify({ enroll_status: "OPT_IN" }),
+          access_token:            metaTknFlex,
+        });
+
+        const flexCrResp = await fetch(`https://graph.facebook.com/v21.0/${accountIdWithAct}/adcreatives`,
+          { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: flexCreativeBody, signal: AbortSignal.timeout(15_000) });
+        const flexCrJson = await flexCrResp.json() as Record<string, unknown>;
+        if (flexCrJson.error) {
+          const fe = flexCrJson.error as Record<string, unknown>;
+          throw new Error(`Flex create_ad_creative فشل — ${String(fe.message ?? "")}${fe.fbtrace_id ? ` | fbtrace: ${String(fe.fbtrace_id)}` : ""}`);
+        }
+        const flexCreativeId = String(flexCrJson.id ?? "");
+        if (!flexCreativeId) throw new Error("Flex Mode: Meta لم يُعد creative_id");
+        logger.info({ flexCreativeId, flexVideoId: flexVideoId || "(image)", adsetId }, "create_ad_from_existing_post: flex creative created (Advantage+)");
+
+        const flexAdBody = new URLSearchParams({
+          name: adName, adset_id: adsetId,
+          creative: JSON.stringify({ creative_id: flexCreativeId }),
+          status: "PAUSED", access_token: metaTknFlex,
+        });
+        const flexAdJson = await (await fetch(`https://graph.facebook.com/v21.0/${accountIdWithAct}/ads`,
+          { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: flexAdBody, signal: AbortSignal.timeout(15_000) })).json() as Record<string, unknown>;
+        if (flexAdJson.error) {
+          const fe = flexAdJson.error as Record<string, unknown>;
+          throw new Error(`Flex create_ad فشل — ${String(fe.message ?? "")}`);
+        }
+        const flexNewAdId = String(flexAdJson.id ?? "");
+        if (!flexNewAdId) throw new Error("Flex Mode: Meta لم يُعد ad_id");
+
+        const flexVerify = await verifyMetaEntityDirect(flexNewAdId, "id,name,status,effective_status,adset_id,campaign_id,creative{id}", metaTknFlex);
+        if (!flexVerify.verified) throw new Error(`Flex Mode: verify فشل للإعلان ${flexNewAdId}`);
+
+        efpSuccess = true;
+        efpMsg = [
+          `✅ Flex Creative (Advantage+) تم إنشاؤه — Standard Enhancements: OPT_IN`,
+          `new_ad_id: ${flexNewAdId}`,
+          `creative_id: ${flexCreativeId}`,
+          `adset_id: ${adsetId}`,
+          `نوع: ${flexVideoId ? "Video" : "Image"} — Meta قد يولّد تنسيقات إضافية تلقائياً`,
+          `الحالة: ${String(flexVerify.verified_fields?.effective_status ?? "PAUSED")}`,
+        ].join(" — ");
+        (args as Record<string, unknown>).__new_ad_id = flexNewAdId;
+        (args as Record<string, unknown>).__efpVerify = flexVerify;
+
+      } else {
+        // ── NORMAL PATH: Pipeboard create_ad_creative (Social Proof preserved) ──
+        const creativeArgs: Record<string, unknown> = {
+          account_id: accountId,
+          name: `${adName} — creative`,
+          page_id: pageId,
+          object_story_id: objectStoryId,
+        };
+        const creativeResult = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+        const creativeText = mcpTextEfp(creativeResult);
+        logger.info({ creativeText }, "create_ad_from_existing_post: create_ad_creative");
+        const hasRealIdEfp = /"id"\s*:\s*"(\d{10,})"/.test(creativeText);
+        if (/"error"/.test(creativeText) && !hasRealIdEfp) {
+          throw new Error(`فشل إنشاء creative — ${extractMetaError(creativeText)}`);
+        }
+        const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
+        const creativeId = creativeMatch?.[1] ?? "";
+        if (!creativeId) throw new Error(`لم يُعاد creative_id — ${extractMetaError(creativeText)}`);
+
+        // create_ad
+        const adResult = await client.callTool({
+          name: "create_ad",
+          arguments: { account_id: accountIdWithAct, name: adName, adset_id: adsetId, creative_id: creativeId, status: "PAUSED" },
+        });
+        const adText = mcpTextEfp(adResult);
+        logger.info({ adText }, "create_ad_from_existing_post: create_ad");
+        if (/"error"/.test(adText) && !/"id"/.test(adText)) {
+          throw new Error(`فشل create_ad — ${extractMetaError(adText)}`);
+        }
+        const adMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
+        const newAdId = adMatch?.[1] ?? "";
+        if (!newAdId) throw new Error(`لم يُعد ad_id — ${extractMetaError(adText)}`);
+
+        const efpVerify = await verifyMetaEntityDirect(
+          newAdId, "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
+          process.env.META_ACCESS_TOKEN ?? ""
+        );
+        if (!efpVerify.verified) {
+          const ve = efpVerify.meta_error ?? {};
+          throw new Error(`create_ad_from_existing_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${String(ve.message ?? "")}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`);
+        }
+
+        efpSuccess = true;
+        efpMsg = [
+          `تم إنشاء الإعلان من المنشور (object_story_id: ${objectStoryId})`,
+          `new_ad_id: ${newAdId}`,
+          `adset_id: ${adsetId}`,
+          `الحالة: ${String(efpVerify.verified_fields?.effective_status ?? "PAUSED")}`,
+        ].join(" — ");
+        (args as Record<string, unknown>).__new_ad_id = newAdId;
+        (args as Record<string, unknown>).__efpVerify = efpVerify;
+      } // end flex vs normal
     } catch (err) {
       efpMsg = err instanceof Error ? err.message : String(err);
       _pbWriteClient = null;
@@ -1237,6 +1306,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
     const destinationAdsetId = String(args?.destination_adset_id ?? "");
     const namingPrefix = String(args?.naming_prefix ?? "Winner");
+    const flexMode = Boolean(args?.flex_mode ?? false); // Single Asset Flex — skip Social Proof, use Advantage+ creative
     const sourceAdIds: string[] = Array.isArray(args?.source_ad_ids)
       ? (args.source_ad_ids as unknown[]).map(String).filter(Boolean)
       : String(args?.source_ad_ids ?? "").split(",").map((s: string) => s.trim()).filter(Boolean);
@@ -1282,7 +1352,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const rawSrcAccId = String(srcJson.account_id ?? "").replace(/^act_/, "") || accountId;
         const c = (srcJson.creative ?? {}) as Record<string, unknown>;
         const objectStoryId = String(c.effective_object_story_id ?? c.object_story_id ?? "").trim();
-        const pageId = objectStoryId ? objectStoryId.split("_")[0] ?? "" : "";
+        let pageId = objectStoryId ? objectStoryId.split("_")[0] ?? "" : "";
         const instagramActorId = String(c.instagram_actor_id ?? pageId);
         const videoId = String(c.video_id ?? "");
         const imageHash = String(c.image_hash ?? "");
@@ -1296,8 +1366,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
         logger.info({ sourceAdId, objectStoryId, videoId: videoId || "(none)" }, "publish_winners: creative fetched");
 
-        // ── Path 1: Social Proof ─────────────────────────────────────────────
-        if (objectStoryId) {
+        // ── Path 1: Social Proof (skipped in Flex Mode — Advantage+ needs raw assets) ──
+        if (objectStoryId && !flexMode) {
           try {
             const pbClient = await getPipeboardWriteClient();
             const spCreativeArgs: Record<string, unknown> = {
@@ -1342,11 +1412,24 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             logger.warn({ sourceAdId, socialProofError }, "publish_winners: Social Proof failed — trying Rebuild");
             _pbWriteClient = null; _pbWriteConnecting = null;
           }
+        } else if (flexMode) {
+          socialProofError = "Flex Mode — Social Proof skipped intentionally (Advantage+ raw asset rebuild)";
+          logger.info({ sourceAdId }, "publish_winners: Flex Mode — skipping Social Proof");
         } else {
           socialProofError = "لا يوجد object_story_id — Social Proof غير ممكن";
         }
 
-        // ── Path 2: Rebuild from raw assets ──────────────────────────────────
+        // ── Path 2: Rebuild from raw assets (+ Advantage+ Flex fields if flexMode) ──
+        // Flex Mode: pageId may be empty if no objectStoryId — fetch from account pages
+        if (flexMode && !pageId && rawSrcAccId) {
+          try {
+            const pgUrl = new URL(`https://graph.facebook.com/v21.0/act_${rawSrcAccId}/pages`);
+            pgUrl.searchParams.set("fields", "id"); pgUrl.searchParams.set("access_token", metaTkn);
+            const pgJson = await (await fetch(pgUrl.toString(), { signal: AbortSignal.timeout(10_000) })).json() as { data?: Array<{ id: string }> };
+            pageId = pgJson.data?.[0]?.id ?? "";
+          } catch { /* use empty — Meta will return a clear error */ }
+        }
+
         if (!videoId && !imageHash) {
           rebuildError = "لا يوجد video_id أو image_hash — Rebuild غير ممكن";
           failedAds.push({ source_ad_id: sourceAdId, social_proof_error: socialProofError, rebuild_error: rebuildError });
@@ -1362,8 +1445,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           ? { page_id: pageId, video_data: { video_id: videoId, ...(primaryText ? { message: primaryText } : {}), ...(headline ? { link_description: headline } : {}), call_to_action: { type: callToAction, value: { link: linkUrl } } } }
           : { page_id: pageId, link_data: { image_hash: imageHash, ...(primaryText ? { message: primaryText } : {}), ...(headline ? { name: headline } : {}), link: linkUrl, call_to_action: { type: callToAction, value: { link: linkUrl } } } };
 
-        const rbCreativeBody = new URLSearchParams({ name: `${adLabel} — rebuild creative`, object_story_spec: JSON.stringify(objSpec), access_token: metaTkn });
+        const rbCreativeBody = new URLSearchParams({ name: `${adLabel} — ${flexMode ? "flex" : "rebuild"} creative`, object_story_spec: JSON.stringify(objSpec), access_token: metaTkn });
         if (instagramActorId) rbCreativeBody.set("instagram_actor_id", instagramActorId);
+        // Advantage+ Single Asset Flex — let Meta generate Collection/Catalog formats automatically
+        if (flexMode) {
+          rbCreativeBody.set("degrees_of_freedom_spec", JSON.stringify({ creative_features_spec: { standard_enhancements: { enroll_status: "OPT_IN" } } }));
+          rbCreativeBody.set("advantage_plus_creative", JSON.stringify({ enroll_status: "OPT_IN" }));
+        }
 
         const rbCreativeResp = await fetch(`https://graph.facebook.com/v21.0/act_${rawSrcAccId}/adcreatives`,
           { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: rbCreativeBody, signal: AbortSignal.timeout(15_000) });
@@ -1389,8 +1477,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const rbVerify = await verifyMetaEntityDirect(rbNewAdId, "id,name,status,effective_status,adset_id", metaTkn);
         if (!rbVerify.verified) throw new Error(`Rebuild verify فشل للإعلان ${rbNewAdId}`);
 
-        createdAds.push({ source_ad_id: sourceAdId, method_used: "creative_spec", new_ad_id: rbNewAdId, creative_id: rbCreativeId, status: String(rbVerify.verified_fields?.effective_status ?? "PAUSED") });
-        logger.info({ sourceAdId, rbNewAdId }, "publish_winners: Rebuild succeeded");
+        createdAds.push({ source_ad_id: sourceAdId, method_used: flexMode ? "creative_spec_flex" as "creative_spec" : "creative_spec", new_ad_id: rbNewAdId, creative_id: rbCreativeId, status: String(rbVerify.verified_fields?.effective_status ?? "PAUSED") });
+        logger.info({ sourceAdId, rbNewAdId, flexMode }, "publish_winners: Rebuild succeeded");
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         if (!socialProofError) socialProofError = errMsg; else rebuildError = errMsg;

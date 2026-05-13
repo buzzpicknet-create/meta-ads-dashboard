@@ -127,6 +127,30 @@ COMMAND PROTOCOL — اختصارات القرار الفوري
    "خيارك الأول: زيادة 20% على نفس الحملة (عمودي). خيارك الثاني: إنشاء CBO جديد بنفس الرابحين (أفضل للـ Scale الكبير فوق 10× من اليوم الأول)."
 ٤. لا تسأل "متأكد؟" — الـ bulk_action نفسه يطلب التأكيد من المستخدم
 
+══════════════════════════════════════
+SINGLE ASSET FLEX — استراتيجية الـ Scale الذكي
+══════════════════════════════════════
+
+🚀 **Single Asset Flex (SAF)** هي الاستراتيجية الأمثل للـ Scale الكبير:
+- **الفكرة**: تأخذ creative واحد رابح (صورة أو فيديو) وتتركه لـ Meta يولّد منه تنسيقات متعددة تلقائياً (Collection، Catalog، Standard، Stories).
+- **التقنية**: SINGLE_IMAGE_OR_VIDEO + degrees_of_freedom_spec + advantage_plus_creative OPT_IN.
+- **النتيجة**: Meta يختبر التنسيقات ويوزّع الميزانية على الأفضل أداءً — بدون تدخل يدوي.
+
+📋 **متى تستخدم Flex Mode:**
+- عند نقل Winner إلى CBO جديدة للـ Scale الكبير (فوق 3× الميزانية الحالية).
+- عندما تريد توسيع الوصول بدون تضاعف عدد الإعلانات.
+- عند الـ Horizontal Scale — نفس الـ creative في جماهير مختلفة.
+
+⚡ **كيف تُفعّله في bulk_action:**
+[bulk_action] → publish_winners_to_destination مع flex_mode: true، destination_adset_id، source_ad_ids، naming_prefix "Flex Winner"
+
+⚠️ **قاعدة Flex vs Social Proof:**
+- **Social Proof (افتراضي)**: احتفظ باللايكات والتعليقات — الأفضل عند الـ Scale المحافظ (أقل من 3×).
+- **Flex Mode**: Creative جديد بـ Advantage+ — الأفضل للـ Scale الكبير والأسواق الجديدة.
+- لا تستخدم Flex لو الـ social proof على الإعلان كبير (أكثر من 500 تفاعل) — ستخسر الـ proof.
+
+══════════════════════════════════════
+
 🏆 لما المستخدم يقول **"انقل الرابحين" / "Move Winners" / "حوّل الفائزين":**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ١. استدعِ get_ads_in_adset(adset_id) فوراً لتحديد الرابحين (أفضل CPA + Hook Rate)
@@ -1596,7 +1620,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "create_ad_from_existing_post",
-      description: "اقتراح إنشاء إعلان جديد من منشور موجود مع الحفاظ على Social Proof — يقبل object_story_id مباشرةً (من get_ad_creative) أو post_id+page_id. مثالي بعد get_ad_creative لنقل Winner مباشرةً إلى CBO جديدة بدون خطوة get_ad_post_id منفصلة. الإعلان PAUSED للمراجعة. سيظهر طلب تأكيد.",
+      description: "اقتراح إنشاء إعلان جديد من منشور موجود — يحفظ Social Proof (افتراضي) أو ينشئ Advantage+ Flex creative (flex_mode=true). يقبل object_story_id أو post_id أو ad_id. الإعلان PAUSED للمراجعة. سيظهر طلب تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1607,6 +1631,7 @@ const TOOLS = [
           ad_id:            { type: "string", description: "⭐ الأسهل: رقم الإعلان المصدر (Winner) — الـ backend يجلب object_story_id تلقائياً بدون استدعاء get_ad_creative. استخدم هذا عندما تريد نقل winner بسرعة في bulk_action" },
           name:             { type: "string", description: "اسم الإعلان الجديد" },
           page_id:          { type: "string", description: "رقم صفحة Facebook — اختياري إذا أُرسل object_story_id (يُستخرج منه تلقائياً)" },
+          flex_mode:        { type: "boolean", description: "🚀 Single Asset Flex: true = ينشئ Advantage+ creative بـ degrees_of_freedom_spec + standard_enhancements OPT_IN — Meta يولّد تنسيقات Collection/Catalog تلقائياً. يتطلب ad_id. استخدم للـ Scale الكبير." },
         },
         required: ["account_id", "adset_id", "name"],
       },
@@ -1643,7 +1668,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "publish_winners_to_destination",
-      description: "⭐ الأداة الأكثر قوة لنقل الرابحين: تنفّذ الـ pipeline الكامل تلقائياً — تجرب Social Proof (object_story_id) أولاً، وإذا فشل تعيد البناء من video_id/image_hash (Rebuild). للإعلانات المتعددة دفعة واحدة. لا تحتاج استدعاء get_ad_creative أولاً.",
+      description: "⭐ الأداة الأكثر قوة لنقل الرابحين: تنفّذ الـ pipeline الكامل تلقائياً — Social Proof أولاً، وإذا فشل Rebuild من raw assets. مع flex_mode=true: ينشئ Advantage+ Flex creative مباشرةً (SINGLE_IMAGE_OR_VIDEO + degrees_of_freedom_spec + standard_enhancements OPT_IN) للـ Scale الكبير.",
       parameters: {
         type: "object",
         properties: {
@@ -1651,6 +1676,7 @@ const TOOLS = [
           destination_adset_id:  { type: "string", description: "adset_id المجموعة الهدف في CBO — إلزامي" },
           source_ad_ids:         { type: "array", items: { type: "string" }, description: "قائمة ad_ids الإعلانات الرابحة — كل إعلان سيُنشر في المجموعة الهدف. مثال: [\"120215671290270519\", \"120215671290270520\"]" },
           naming_prefix:         { type: "string", description: "بادئة اسم الإعلانات الجديدة (افتراضي: Winner)" },
+          flex_mode:             { type: "boolean", description: "🚀 Single Asset Flex: true = يتجاوز Social Proof ويبني Advantage+ creative بـ degrees_of_freedom_spec + advantage_plus_creative OPT_IN — Meta يولّد Collection/Catalog تلقائياً. الأمثل للـ Scale الكبير وتوليد تنسيقات متعددة من asset واحد." },
         },
         required: ["destination_adset_id", "source_ad_ids"],
       },
