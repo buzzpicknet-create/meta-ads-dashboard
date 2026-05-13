@@ -929,6 +929,7 @@ function QuickLaunchSection() {
       const lp = addUtm(a.landing.trim() || "—", campName, a.name.trim() || `angle${i+1}`);
       return `## زاوية ${i+1}${a.name ? ` — ${a.name}` : ""}
 - AdSet Name: ${a.name.trim() || `angle${i+1}`}
+- AdSet Budget: ${form.budget} EGP daily
 - Video: ${a.name.trim() || `angle${i+1}`} (ابحث في Drive عن ملف باسم "${a.name.trim() || `angle${i+1}`}")
 - Destination URL: ${lp}
 - Primary Texts:
