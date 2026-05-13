@@ -802,6 +802,7 @@ interface QuickForm {
   selText: number; selHeadline: number;
   textCount: number; headlineCount: number;
   angles: Angle[];
+  launchMode: "new" | "scale";
   flexAccountId: string;
   flexSrcId: string; flexSrcName: string;
   flexNewCampaignName: string; flexNewBudget: string;
@@ -813,6 +814,7 @@ const INIT_FORM: QuickForm = {
   texts: [], headlines: [], selText: 0, selHeadline: 0,
   textCount: 3, headlineCount: 4,
   angles: [{ ...INIT_ANGLE }],
+  launchMode: "new",
   flexAccountId: "",
   flexSrcId: "", flexSrcName: "",
   flexNewCampaignName: "", flexNewBudget: "200",
@@ -1228,8 +1230,24 @@ ${allHeadlines}
             </div>
           </div>
 
+          {/* Launch Mode Toggle — for non-TEST strategies */}
+          {activeCard !== "TEST" && (
+          <div className="flex gap-2">
+            <button type="button"
+              onClick={() => upd("launchMode", "new")}
+              className={`flex-1 h-9 text-xs rounded-lg border transition-all ${form.launchMode === "new" ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+              ✨ إنشاء جديد بميديا جديدة
+            </button>
+            <button type="button"
+              onClick={() => upd("launchMode", "scale")}
+              className={`flex-1 h-9 text-xs rounded-lg border transition-all ${form.launchMode === "scale" ? "border-violet-500 bg-violet-50/50 text-violet-600 font-medium" : "border-border text-muted-foreground hover:border-violet-400"}`}>
+              🚀 Scale من حملة موجودة
+            </button>
+          </div>
+          )}
+
           {/* Angles Section */}
-          {(
+          {(form.launchMode === "new") && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -1457,6 +1475,9 @@ ${allHeadlines}
       {/* ── Flex Scale form ── */}
       {activeCard === "FLEX" && (
         <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
+      )}
+      {activeCard !== "FLEX" && activeCard !== "TEST" && form.launchMode === "scale" && (
+        <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), activeCard ?? "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
       )}
 
     </div>
