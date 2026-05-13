@@ -800,7 +800,7 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - daily_budget على مستوى الحملة — **لا adsets[] budget**
    - creatives: كل الأصول — pixel_id إلزامي
    - Advantage+ Creative: الـ backend يُفعّله تلقائياً
-٥. استدعِ launch_pipeboard_campaign فوراً بدون أي سؤال إضافي
+٥. استدعِ get_campaigns أولاً للحصول على account_id، ثم استدعِ launch_pipeboard_campaign فوراً بدون أي سؤال إضافي
 ٦. بعد الاستدعاء رد فقط بـ:
    - TESTING: "🧪 حملة الاختبار قيد الإطلاق — ABO [Budget] EGP — في انتظار موافقتك للتنفيذ."
    - SCALING: "🚀 حملة التوسع قيد الإطلاق — CBO [Budget] EGP — في انتظار موافقتك للتنفيذ."
