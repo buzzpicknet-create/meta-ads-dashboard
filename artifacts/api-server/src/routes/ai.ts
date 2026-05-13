@@ -845,7 +845,7 @@ Raw API Response (للتشخيص التقني):
 - بعد كود bulk_action لا تكتب "في انتظار موافقتك" — الواجهة تعالج الموافقة تلقائياً
 - لا تستدعي get_campaign_budget أو get_campaign_status أثناء التحليل الجماعي — استخدم بيانات الـ context الموجودة مباشرةً واحسب newBudget منها. لا تنتظر بيانات إضافية لتولّد الـ bulk_action
 
-⚠️ مثال create_ad_from_existing_post — هذا الشكل الصحيح الوحيد (adId + destinationAdsetId إلزاميان):
+⚠️ مثال create_ad_from_existing_post — هذا الشكل الصحيح الوحيد (adId + accountId + destinationAdsetId إلزاميان):
 \`\`\`bulk_action
 {
   "title": "نشر الرابحين في CBO",
@@ -853,6 +853,7 @@ Raw API Response (للتشخيص التقني):
     {
       "type": "create_ad_from_existing_post",
       "adId": "120215671290270519",
+      "accountId": "123456789012",
       "destinationAdsetId": "120215671290120519",
       "name": "CBO Winners V2 - Ultrasonic - VID01",
       "label": "نشر Winner (Social Proof)",
@@ -861,6 +862,7 @@ Raw API Response (للتشخيص التقني):
     {
       "type": "create_ad_from_existing_post",
       "adId": "120215671290270520",
+      "accountId": "123456789012",
       "destinationAdsetId": "120215671290120519",
       "name": "CBO Winners V2 - Ultrasonic - VID02",
       "label": "نشر Winner (Social Proof)",
@@ -869,7 +871,7 @@ Raw API Response (للتشخيص التقني):
   ]
 }
 \`\`\`
-🚨 بدون adId و destinationAdsetId يفشل التنفيذ بخطأ "object_story_id أو post_id أو ad_id مطلوب" — لا تُخرج create_ad_from_existing_post أبداً بدون هذين الحقلين.
+🚨 بدون adId و accountId و destinationAdsetId يفشل التنفيذ — لا تُخرج create_ad_from_existing_post أبداً بدون هذه الحقول الثلاثة. accountId = رقم الحساب بدون "act_" (مثال: 123456789012).
 
 🔴 قاعدة حديدية: إذا لم تكن تعرف ad_id للإعلان المصدر (Winner) → استدعِ search_ads(adset_id) أولاً للحصول عليه، ثم ضعه في adId. لا تُخرج bulk_action بدون adId الفعلي لكل إعلان.
 
@@ -3259,6 +3261,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       const matchedAds: Awaited<ReturnType<typeof getCampaignInsights>>["by_ad"] = [];
       let foundCampaignName = "";
       let foundAdsetName = "";
+      let foundAccountId = "";
       let maxCacheAgeMs = 0;
       let anyFromCache = false;
 
@@ -3273,6 +3276,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
             if (adsInAdset.length > 0) {
               matchedAds.push(...adsInAdset);
               foundCampaignName = result.data.campaign.name;
+              foundAccountId = acc.id;
               // Try to find adset name from by_adset
               const adsetEntry = result.data.by_adset.find((as) => as.id === adset_id);
               if (adsetEntry) foundAdsetName = adsetEntry.label;
@@ -3346,11 +3350,12 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       const winners = sorted.filter((a) => a.cpa > 0 && a.cpa <= avgCpa * 0.85 && a.hookRate >= avgHook);
       if (winners.length > 0) {
         rows.push(`\n---`);
-        rows.push(`⬆️ لنقل الرابحين أعلاه إلى CBO — انسخ هذا bulk_action مباشرةً (الـ adId مأخوذ من البيانات أعلاه):`);
+        rows.push(`⬆️ لنقل الرابحين أعلاه إلى CBO — انسخ هذا bulk_action مباشرةً (الـ adId و accountId مأخوذان من البيانات الفعلية):`);
         rows.push("```bulk_action");
         const bulkActions = winners.slice(0, 5).map((w) => ({
           type: "create_ad_from_existing_post",
           adId: w.id,
+          accountId: foundAccountId,
           destinationAdsetId: "<adset_id الهدف — اسأل المستخدم أو استخدم search_adsets>",
           name: `${w.label} — Scale`,
           label: `نشر Winner: ${w.label} (CPA: ${fmt(w.cpa)} EGP)`,
@@ -3358,7 +3363,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         }));
         rows.push(JSON.stringify({ title: "نشر الرابحين في CBO", actions: bulkActions }, null, 2));
         rows.push("```");
-        rows.push(`🔴 الـ adId أعلاه هو الرقم الفعلي — لا تغيّره. غيّر destinationAdsetId فقط بعد معرفة المجموعة الهدف.`);
+        rows.push(`🔴 adId و accountId أعلاه أرقام فعلية — لا تغيّرهما. غيّر destinationAdsetId فقط بعد معرفة المجموعة الهدف.`);
       }
 
       return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
@@ -3454,6 +3459,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
     {
       "type": "create_ad_from_existing_post",
       "adId": "<ID من عمود id أعلاه>",
+      "accountId": "<account_id الحساب — مثال: 123456789>",
       "destinationAdsetId": "<adset_id الهدف>",
       "name": "<اسم الإعلان الجديد>",
       "label": "نشر Winner (Social Proof)"
@@ -3461,7 +3467,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
   ]
 }`);
         rows.push("```");
-        rows.push(`🔴 adId يجب أن يكون الرقم الفعلي من عمود id — لا تخمّن ولا تكتب placeholder.`);
+        rows.push(`🔴 adId يجب أن يكون الرقم الفعلي من عمود id — لا تخمّن ولا تكتب placeholder. accountId من قائمة الحسابات أو من get_meta_accounts.`);
         return rows.join("\n");
       } catch (err) {
         return `خطأ في البحث عن الإعلانات: ${err instanceof Error ? err.message : String(err)}`;

@@ -714,9 +714,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   // ── create_ad_from_existing_post — accepts object_story_id directly OR post_id+page_id ──
   if (tool === "create_ad_from_existing_post") {
-    const rawAccountId = String(args?.account_id ?? "");
-    const accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
-    const accountIdWithAct = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
+    let rawAccountId = String(args?.account_id ?? "");
+    let accountId = rawAccountId.startsWith("act_") ? rawAccountId.slice(4) : rawAccountId;
+    let accountIdWithAct = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
     const adsetId = String(args?.adset_id ?? "");
     const adName = String(args?.ad_name ?? args?.name ?? "إعلان من منشور");
 
@@ -732,7 +732,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       return;
     }
 
-    // ── Auto-fetch object_story_id from source ad_id if missing ──────────────
+    // ── Auto-fetch object_story_id (and account_id) from source ad_id if missing ──
     // Allows the AI/Bulk Panel to pass only ad_id without calling get_ad_creative first.
     if (!objectStoryId && !postId && sourceAdId) {
       try {
@@ -744,17 +744,22 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const srcJson = await srcResp.json() as Record<string, unknown>;
         const srcCreative = srcJson.creative as Record<string, unknown> | undefined;
         objectStoryId = String(srcCreative?.object_story_id ?? "").trim();
-        // Also grab account_id from source ad if not provided in args
-        if (!rawAccountId && srcJson.account_id) {
+        // Grab account_id from source ad — update local vars so Pipeboard calls use correct account
+        if (srcJson.account_id) {
           const fetchedAccId = String(srcJson.account_id).replace(/^act_/, "");
-          (args as Record<string, unknown>).account_id = fetchedAccId;
+          if (fetchedAccId) {
+            rawAccountId    = fetchedAccId;
+            accountId       = fetchedAccId;
+            accountIdWithAct = `act_${fetchedAccId}`;
+            (args as Record<string, unknown>).account_id = fetchedAccId;
+          }
         }
         logger.info(
-          { sourceAdId, objectStoryId: objectStoryId || "(none)" },
-          "create_ad_from_existing_post: auto-fetched object_story_id from source ad"
+          { sourceAdId, objectStoryId: objectStoryId || "(none)", accountId: accountId || "(none)" },
+          "create_ad_from_existing_post: auto-fetched from source ad"
         );
       } catch (fetchErr) {
-        logger.warn({ fetchErr, sourceAdId }, "create_ad_from_existing_post: failed to auto-fetch object_story_id");
+        logger.warn({ fetchErr, sourceAdId }, "create_ad_from_existing_post: failed to auto-fetch from source ad");
       }
     }
 
