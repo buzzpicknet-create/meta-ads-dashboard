@@ -916,6 +916,105 @@ ${allHeadlines}
 [END_COMMAND]`;
   }
 
+  function buildStrategyCmd(type: "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS") {
+    const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const prod  = form.product.trim() || "منتج";
+    const lp    = form.landingPage.trim() || "—";
+    const drive = form.driveLink.trim() || "—";
+    const allTexts     = form.texts.length     ? form.texts.map((t,i) => `  ${i+1}. ${t}`).join("\n") : "  [النص الإعلاني]";
+    const allHeadlines = form.headlines.length ? form.headlines.map((h,i) => `  ${i+1}. ${h}`).join("\n") : "  [العنوان]";
+
+    if (type === "COSTCAP") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة Cost Cap فوراً:
+# 1. Campaign Settings
+- Objective: OUTCOME_SALES · Event: PURCHASE
+- Campaign Name: ${prod} - Cost Cap - ${today}
+- Budget Optimization: CBO
+- Campaign Budget: ${form.budget} EGP daily
+- Bid Strategy: COST_CAP
+- Bid Amount (CPA المستهدف): ${form.budget} EGP
+# 2. AdSet Settings
+- Targeting: Advantage+ Audience (Broad) — مصر فقط residents
+- Placements: Advantage+ Placements
+# 3. Ad Settings
+- Media URL: ${drive}
+- Destination URL: ${lp}
+- Primary Texts:
+${allTexts}
+- Headlines:
+${allHeadlines}
+- Enable: Advantage+ Creative Enhancements
+[END_COMMAND]`;
+
+    if (type === "RETARGETING") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة Retargeting فوراً:
+# 1. Campaign Settings
+- Objective: OUTCOME_SALES · Event: PURCHASE
+- Campaign Name: ${prod} - Retargeting - ${today}
+- Budget Optimization: ABO
+# 2. AdSet Settings
+- Budget: ${form.budget} EGP daily
+- Targeting:
+  INCLUDE: زوار صفحة المنتج آخر 30 يوم (ViewContent على ${lp})
+  EXCLUDE: المشترين آخر 30 يوم (Purchase event)
+- Placements: Advantage+ Placements
+# 3. Ad Settings
+- Media URL: ${drive}
+- Destination URL: ${lp}
+- Primary Texts:
+${allTexts}
+- Headlines:
+${allHeadlines}
+- Enable: Advantage+ Creative Enhancements
+[END_COMMAND]`;
+
+    if (type === "LOOKALIKE") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة Lookalike فوراً:
+# 1. Campaign Settings
+- Objective: OUTCOME_SALES · Event: PURCHASE
+- Campaign Name: ${prod} - Lookalike - ${today}
+- Budget Optimization: CBO
+- Campaign Budget: ${form.budget} EGP daily
+# 2. AdSet Settings
+- Targeting:
+  Lookalike Audience 1-3% من المشترين (Purchase events من البيكسل)
+  EXCLUDE: المشترين آخر 30 يوم
+  الدولة: مصر فقط
+- Placements: Advantage+ Placements
+# 3. Ad Settings
+- Media URL: ${drive}
+- Destination URL: ${lp}
+- Primary Texts:
+${allTexts}
+- Headlines:
+${allHeadlines}
+- Enable: Advantage+ Creative Enhancements
+[END_COMMAND]`;
+
+    return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة Interests مع Advantage+ فوراً:
+# 1. Campaign Settings
+- Objective: OUTCOME_SALES · Event: PURCHASE
+- Campaign Name: ${prod} - Interests - ${today}
+- Budget Optimization: ABO
+# 2. AdSet Settings
+- Budget: ${form.budget} EGP daily
+- Targeting:
+  Advantage+ Audience مفعّل
+  اقترح 3-5 اهتمامات مناسبة لمنتج "${prod}" في السوق المصري
+  الدولة: مصر فقط
+- Placements: Advantage+ Placements
+# 3. Ad Settings
+- Media URL: ${drive}
+- Destination URL: ${lp}
+- Primary Texts:
+${allTexts}
+- Headlines:
+${allHeadlines}
+- Enable: Advantage+ Creative Enhancements
+[END_COMMAND]`;
+  }
+
   function buildFlexCmd() {
     const srcLabel  = form.flexSrcName ? `"${form.flexSrcName}" (${form.flexSrcId})` : "[الحملة المصدر]";
     const today     = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
