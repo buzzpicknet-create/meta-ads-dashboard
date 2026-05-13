@@ -866,6 +866,46 @@ function QuickLaunchSection() {
     } finally { setGenerating(false); }
   }
 
+  async function generateAngles() {
+    const angles = form.angles;
+    if (angles.every(a => !a.landing.trim())) {
+      toast({ title: "أضف رابط صفحة الهبوط لكل زاوية أولاً", variant: "destructive" }); return;
+    }
+    setGenerating(true);
+    try {
+      const updated = await Promise.all(angles.map(async (angle, idx) => {
+        if (!angle.landing.trim()) return angle;
+        try {
+          const r = await fetch(`${API}/library/quick-generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              productName: form.product.trim() || "منتج",
+              landingPageUrl: angle.landing.trim(),
+              textCount: 2,
+              headlineCount: 2,
+              angleName: angle.name.trim() || `زاوية ${idx + 1}`,
+            }),
+          });
+          const d = await r.json() as { texts?: {content:string}[]; headlines?: {content:string}[]; error?: string };
+          if (!r.ok) throw new Error(d.error ?? "خطأ");
+          const texts = (d.texts ?? []).map(t => t.content).filter(Boolean);
+          const headlines = (d.headlines ?? []).map(h => h.content).filter(Boolean);
+          return {
+            ...angle,
+            texts: [texts[0] ?? "", texts[1] ?? ""] as [string, string],
+            headlines: [headlines[0] ?? "", headlines[1] ?? ""] as [string, string],
+          };
+        } catch { return angle; }
+      }));
+      upd("angles", updated);
+      toast({ title: "✅ تم توليد النصوص!", description: `${updated.length} زوايا` });
+    } catch (err) {
+      toast({ title: "خطأ في التوليد", description: String(err), variant: "destructive" });
+    } finally { setGenerating(false); }
+  }
+
   function buildBlueprintCmd(type: "TEST" | "SCALE") {
     const today    = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
     const fallbackText     = "[النص الإعلاني]";
@@ -1193,13 +1233,16 @@ ${allHeadlines}
             />
             <div className="flex items-center justify-between mt-2">
               <span className="text-xs font-medium text-muted-foreground">الزوايا الإعلانية</span>
-              <button
-                type="button"
-                onClick={() => upd("angles", [...form.angles, { ...INIT_ANGLE }])}
-                className="text-xs text-primary hover:underline flex items-center gap-1"
-              >
-                + إضافة زاوية
-              </button>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={generateAngles} disabled={generating}
+                  className="text-xs text-violet-600 hover:underline flex items-center gap-1 disabled:opacity-50">
+                  {generating ? "جاري التوليد..." : "✨ توليد النصوص"}
+                </button>
+                <button type="button" onClick={() => upd("angles", [...form.angles, { ...INIT_ANGLE }])}
+                  className="text-xs text-primary hover:underline flex items-center gap-1">
+                  + إضافة زاوية
+                </button>
+              </div>
             </div>
             {form.angles.map((angle, idx) => (
               <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
