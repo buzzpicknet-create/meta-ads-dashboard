@@ -786,7 +786,7 @@ function FlexScaleForm({
 
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
-type QuickCardType = "TEST" | "SCALE" | "FLEX";
+type QuickCardType = "TEST" | "SCALE" | "FLEX" | "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS";
 
 interface QuickForm {
   product: string; budget: string;
@@ -960,9 +960,13 @@ ${allHeadlines}
   }
 
   const CARDS: { id: QuickCardType; emoji: string; label: string; hint: string; color: string }[] = [
-    { id: "TEST",  emoji: "🧪", label: "Blueprint TESTING",  hint: "ABO · حملة اختبار جديدة", color: "blue"    },
-    { id: "SCALE", emoji: "🚀", label: "Blueprint SCALING",  hint: "CBO · توسع بـ Advantage+", color: "emerald" },
-    { id: "FLEX",  emoji: "⚡", label: "Flex Scale",         hint: "نقل الرابحين بـ Advantage+", color: "violet"  },
+    { id: "TEST",        emoji: "🧪", label: "Testing",             hint: "ABO · إعلان منفصل لكل نص",          color: "blue"    },
+    { id: "SCALE",       emoji: "🚀", label: "Scaling",             hint: "CBO · توسع بـ Advantage+",           color: "emerald" },
+    { id: "FLEX",        emoji: "⚡", label: "Flex Scale",          hint: "نقل الرابحين بـ Advantage+",         color: "violet"  },
+    { id: "COSTCAP",     emoji: "💰", label: "Cost Cap",            hint: "CPA مستهدف · تحكم في التكلفة",      color: "yellow"  },
+    { id: "RETARGETING", emoji: "🎯", label: "Retargeting",         hint: "زوار المنتج غير المشترين",           color: "orange"  },
+    { id: "LOOKALIKE",   emoji: "👥", label: "Lookalike",           hint: "جمهور مشابه للمشترين",               color: "pink"    },
+    { id: "INTERESTS",   emoji: "✨", label: "Interests Advantage+", hint: "اهتمامات مع Advantage+",            color: "teal"    },
   ];
 
   const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {
@@ -1004,7 +1008,7 @@ ${allHeadlines}
       </div>
 
       {/* ── Blueprint TEST / SCALE form ── */}
-      {(activeCard === "TEST" || activeCard === "SCALE") && (
+      {(activeCard === "TEST" || activeCard === "SCALE" || activeCard === "COSTCAP" || activeCard === "RETARGETING" || activeCard === "LOOKALIKE" || activeCard === "INTERESTS") && (
         <div className="rounded-xl border border-border bg-background p-4 space-y-3 animate-in fade-in duration-150">
           {/* Row 1: Product + Budget */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1201,7 +1205,13 @@ ${allHeadlines}
             <Button
               size="sm"
               className="gap-1.5 h-9 text-xs shrink-0 bg-primary hover:bg-primary/90"
-              onClick={() => sendToChat(buildBlueprintCmd(activeCard), activeCard)}
+              onClick={() => {
+                if (activeCard === "TEST" || activeCard === "SCALE") {
+                  sendToChat(buildBlueprintCmd(activeCard as "TEST" | "SCALE"), activeCard);
+                } else if (activeCard === "COSTCAP" || activeCard === "RETARGETING" || activeCard === "LOOKALIKE" || activeCard === "INTERESTS") {
+                  sendToChat(buildStrategyCmd(activeCard as "COSTCAP" | "RETARGETING" | "LOOKALIKE" | "INTERESTS"), activeCard);
+                }
+              }}
             >
               <Send className="h-3.5 w-3.5" />
               إرسال للمساعد ↗
@@ -1214,6 +1224,7 @@ ${allHeadlines}
       {activeCard === "FLEX" && (
         <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
       )}
+
     </div>
   );
 }
