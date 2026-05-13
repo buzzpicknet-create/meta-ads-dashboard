@@ -1018,6 +1018,7 @@ const CONTROLLABLE_PAGES = [
   { path: "/activity",  label: "نشاط الفريق" },
   { path: "/media",     label: "طلبات الميديا" },
   { path: "/decisions", label: "تشخيص الحملات" },
+  { path: "/library",   label: "مركز العمليات" },
 ] as const;
 
 const VISIBILITY_ROLES: { role: string; label: string }[] = [
