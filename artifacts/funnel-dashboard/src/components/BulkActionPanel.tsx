@@ -125,12 +125,22 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
       }
       return { tool: "create_ad_from_existing_post", args: { account_id: item.accountId, adset_id: item.destinationAdsetId ?? item.adsetId, object_story_id: item.postId, ad_id: item.adId, name: item.name } };
     }
+    case "create_adset":
+    case "publish_winners_to_destination":
+    case "create_ad_from_creative_spec": {
+      const blockedType = (item as { type: string }).type;
+      throw new Error(
+        `❌ نوع إجراء غير مدعوم في Bulk Panel: "${blockedType}"\n` +
+        `هذا الإجراء يُنفَّذ كـ tool call مباشر وليس bulk_action. الأنواع المتاحة:\n` +
+        `update_campaign_budget | update_adset_budget | pause/enable_campaign | pause/enable_adset | pause/enable_ad | duplicate_ad | create_ad_from_existing_post`
+      );
+    }
     default: {
       const unknownType = (item as { type: string }).type;
       throw new Error(
         `❌ نوع إجراء غير مدعوم في Bulk Panel: "${unknownType}"\n` +
-        `هذا الإجراء يُنفَّذ كـ tool call مباشر وليس bulk_action. ` +
-        `الأنواع المتاحة: update_campaign_budget | update_adset_budget | pause/enable_campaign | pause/enable_adset | pause/enable_ad | duplicate_ad | create_ad_from_existing_post`
+        `هذا الإجراء يُنفَّذ كـ tool call مباشر وليس bulk_action. الأنواع المتاحة:\n` +
+        `update_campaign_budget | update_adset_budget | pause/enable_campaign | pause/enable_adset | pause/enable_ad | duplicate_ad | create_ad_from_existing_post`
       );
     }
   }
