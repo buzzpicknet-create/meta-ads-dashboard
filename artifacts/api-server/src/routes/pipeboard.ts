@@ -451,7 +451,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         try {
           // Step 1: Fetch source ad to get account_id + object_story_id
           const srcUrl = new URL(`https://graph.facebook.com/v21.0/${adId}`);
-          srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,name}");
+          srcUrl.searchParams.set("fields", "id,account_id,creative{id,object_story_id,effective_object_story_id,name,video_id,image_hash,body,title,link_url,call_to_action}");
           srcUrl.searchParams.set("access_token", metaToken);
           const srcResp = await fetch(srcUrl.toString(), { signal: AbortSignal.timeout(10_000) });
           const srcJson = await srcResp.json() as Record<string, unknown>;
@@ -460,7 +460,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           const rawAccountId = String(srcJson.account_id ?? "").replace(/^act_/, "");
           const accountIdWithAct = rawAccountId ? `act_${rawAccountId}` : "";
           const creative = srcJson.creative as Record<string, unknown> | undefined;
-          const objectStoryId = String(creative?.object_story_id ?? "").trim();
+          const objectStoryId = String(creative?.effective_object_story_id ?? creative?.object_story_id ?? "").trim();
 
           if (!objectStoryId || !rawAccountId) {
             throw new Error(
