@@ -1014,6 +1014,44 @@ Raw API Response (للتشخيص التقني):
 لو السؤال عن تشخيص حملة واحدة → نص مباشر مع عناوين لتقسيم الأجزاء.
 
 ══════════════════════════════════════
+══════════════════════════════════════
+THE INFORMED CMO — بروتوكول البحث الاستراتيجي
+══════════════════════════════════════
+
+🌐 أنت الآن "CMO المطّلع" — لديك أداة بحث حية تقرأ أحدث مقالات Meta Ads من 3 مصادر:
+- **Jon Loomer Digital** (الأعمق تقنياً في Meta Ads)
+- **Social Media Examiner** (الأوسع في الاستراتيجيات العملية)
+- **Meta for Business News** عبر Google News (التحديثات الرسمية من Meta)
+
+📋 **متى تستخدم research_latest_meta_strategies:**
+
+١. **قبل أي استراتيجية طويلة المدى** — لو المستخدم سأل عن خطة شهرية أو ربع سنوية:
+   → استدعِ research_latest_meta_strategies(query="meta ads scaling strategy [current year]") أولاً
+   → ابحث بالإنجليزية دائماً للحصول على أفضل نتائج
+
+٢. **تحديثات الخوارزمية** — لو سأل عن Advantage+ أو CAPI أو أي تغيير جديد في Meta:
+   → research_latest_meta_strategies(query="Advantage+ audience algorithm update 2025 2026")
+   → إذا وجدت تحديثاً جديداً: أبرزه للمستخدم بـ "🔔 تحديث جديد من Meta:"
+
+٣. **تحليل منافس أو نيش** — لو أعطاك المستخدم URL منافس أو وصف سوق:
+   → research_latest_meta_strategies(query="[niche] facebook ads winning angles hooks 2025", focus="all")
+   → استخدم النتائج لاقتراح Hooks وزوايا إعلانية مثبتة في السوق
+
+٤. **أسئلة Best Practices** — "أفضل طريقة لـ..."، "كيف أحسّن..."، "هل Advantage+ أفضل من...":
+   → ابحث أولاً، ثم اذكر المصدر في ردك: "وفقاً لـ Jon Loomer Digital..."
+
+🔍 **طريقة عرض نتائج البحث:**
+- لا تعرض النتائج خاماً — حلّلها وأضف رأيك الاستراتيجي
+- إذا كان المقال جديداً وذو صلة مباشرة: قل "🔔 جديد من [المصدر]: [الملاحظة الرئيسية]"
+- إذا أكّدت النتائج ممارساتك الحالية: قل "✅ مؤكَّد من [المصدر]: الاستراتيجية صحيحة"
+- إذا وجدت تناقضاً مع توصيتك: قل "⚠️ تحديث مهم: [التفاصيل] — هذا يغير توصيتي إلى..."
+
+⚡ **قاعدة الكفاءة:** لا تستدعي research_latest_meta_strategies في كل سؤال — فقط لما:
+- السؤال استراتيجي بطبيعته (خطط، best practices، تحديثات)
+- المستخدم يريد تحليل منافس أو نيش
+- القرار يتعلق بمبالغ كبيرة أو تغيير هيكلي
+
+══════════════════════════════════════
 بروتوكول العرض الإلزامي — لا استثناءات
 ══════════════════════════════════════
 
@@ -1862,6 +1900,29 @@ const TOOLS = [
       },
     },
   },
+  // ── Research tool ─────────────────────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "research_latest_meta_strategies",
+      description: "يبحث عن أحدث استراتيجيات وتحديثات Meta Ads من 3 مصادر متخصصة: Jon Loomer Digital، Social Media Examiner، وأخبار Meta للأعمال عبر Google News. استخدم قبل اقتراح استراتيجية طويلة المدى، أو عند طلب أفضل ممارسات جديدة، أو عند تحليل منافس.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "موضوع البحث بالإنجليزية (مثال: 'Advantage+ audience 2025', 'Meta ads CAPI setup', 'scaling CBO campaigns')",
+          },
+          focus: {
+            type: "string",
+            enum: ["all", "jonloomer", "socialmediaexaminer", "meta_news"],
+            description: "مصدر البحث المفضّل — 'all' للبحث في الجميع (افتراضي)",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 // ── Arabic label for each read tool (used in tool_call_label SSE events) ─────
@@ -1882,8 +1943,9 @@ function getToolLabel(name: string, args: Record<string, unknown>): string {
     case "ga_get_ad_groups":         return `جلب المجموعات الإعلانية Google Ads…`;
     case "ga_get_keywords":          return `جلب الكلمات المفتاحية Google Ads…`;
     case "ga_get_search_terms":       return "جلب تقرير مصطلحات البحث Google Ads…";
-    case "fetch_account_metadata":    return "🔍 جاري فحص الحساب الإعلاني واستخراج البيكسلات المتاحة…";
-    default:                          return `جلب البيانات (${name})…`;
+    case "fetch_account_metadata":          return "🔍 جاري فحص الحساب الإعلاني واستخراج البيكسلات المتاحة…";
+    case "research_latest_meta_strategies": return `🌐 جاري البحث في أحدث استراتيجيات Meta Ads: "${String(args.query ?? "")}"…`;
+    default:                                return `جلب البيانات (${name})…`;
   }
 }
 
@@ -2817,6 +2879,99 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
   // This fallback should not be reached in normal operation.
   if (WRITE_TOOL_NAMES.has(name)) {
     return `ACTION_PENDING:${JSON.stringify(buildOptimisticPendingAction(name, args))}`;
+  }
+
+  // ── Research tool — multi-source RSS + Google News scrape ────────────────
+  if (name === "research_latest_meta_strategies") {
+    const searchQuery = String(args.query ?? "meta ads strategy 2025");
+    const focus       = String(args.focus ?? "all");
+
+    type RssSource = { label: string; rssUrl: string; enabled: boolean };
+    const rssSources: RssSource[] = [
+      {
+        label:  "Jon Loomer Digital",
+        rssUrl: "https://www.jonloomer.com/feed/",
+        enabled: focus === "all" || focus === "jonloomer",
+      },
+      {
+        label:  "Social Media Examiner",
+        rssUrl: "https://www.socialmediaexaminer.com/feed/",
+        enabled: focus === "all" || focus === "socialmediaexaminer",
+      },
+      {
+        // Google News RSS — searches across all Meta for Business news
+        label:  "Meta for Business (via Google News)",
+        rssUrl: `https://news.google.com/rss/search?q=${encodeURIComponent("meta for business " + searchQuery)}&hl=en-US&gl=US&ceid=US:en`,
+        enabled: focus === "all" || focus === "meta_news",
+      },
+    ];
+
+    function extractRssItems(xml: string, maxItems = 4): Array<{ title: string; description: string; link: string; date: string }> {
+      const items = xml.match(/<item[\s\S]*?<\/item>/g) ?? [];
+      return items.slice(0, maxItems).map((item) => {
+        const get = (tag: string) =>
+          item.match(new RegExp(`<${tag}(?:[^>]*)><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`))?.[1]
+          ?? item.match(new RegExp(`<${tag}(?:[^>]*)>([\\s\\S]*?)<\\/${tag}>`))?.[1]
+          ?? "";
+        const cleanHtml = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim().slice(0, 280);
+        return {
+          title:       cleanHtml(get("title")),
+          description: cleanHtml(get("description")),
+          link:        get("link").trim() || get("guid").trim(),
+          date:        get("pubDate").trim(),
+        };
+      });
+    }
+
+    const queryLower = searchQuery.toLowerCase();
+    const parts: string[] = [
+      `# 🌐 أحدث استراتيجيات Meta Ads — بحث: "${searchQuery}"`,
+      `_تاريخ البحث: ${new Date().toISOString().slice(0, 10)}_\n`,
+    ];
+
+    const fetchTasks = rssSources
+      .filter((s) => s.enabled)
+      .map(async (src) => {
+        try {
+          const resp = await fetch(src.rssUrl, {
+            signal: AbortSignal.timeout(9_000),
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; MetaResearchBot/1.0)" },
+          });
+          if (!resp.ok) return { src, items: [] as ReturnType<typeof extractRssItems>, error: `HTTP ${resp.status}` };
+          const xml   = await resp.text();
+          const all   = extractRssItems(xml, 8);
+          // Prefer articles that mention the query keyword; fall back to most-recent
+          const ranked = all.filter(
+            (a) => a.title.toLowerCase().includes(queryLower) || a.description.toLowerCase().includes(queryLower)
+          );
+          return { src, items: (ranked.length > 0 ? ranked : all).slice(0, 3), error: null };
+        } catch (e) {
+          return { src, items: [] as ReturnType<typeof extractRssItems>, error: e instanceof Error ? e.message : String(e) };
+        }
+      });
+
+    const results = await Promise.all(fetchTasks);
+
+    for (const { src, items, error } of results) {
+      parts.push(`## 📰 ${src.label}`);
+      if (error || items.length === 0) {
+        parts.push(`_(لا توجد نتائج متاحة${error ? ` — ${error}` : ""})_\n`);
+        continue;
+      }
+      for (const art of items) {
+        parts.push(`### ${art.title || "(بدون عنوان)"}`);
+        if (art.date) parts.push(`_${art.date}_`);
+        if (art.description) parts.push(art.description);
+        if (art.link) parts.push(`🔗 ${art.link}`);
+        parts.push("");
+      }
+    }
+
+    parts.push("---");
+    parts.push("**ملاحظة للـ AI:** استخدم هذه المعلومات لتحديث توصياتك الاستراتيجية. إذا وجدت تحديثات Advantage+ أو CAPI جديدة، أبرزها للمستخدم كـ 'تحديث جديد من Meta'.");
+
+    logger.info({ query: searchQuery, focus, sources: results.map((r) => ({ src: r.src.label, count: r.items.length })) }, "research_latest_meta_strategies: completed");
+    return parts.join("\n");
   }
 
   // ── Google Ads tools — route directly to Google Ads MCP ──────────────────
