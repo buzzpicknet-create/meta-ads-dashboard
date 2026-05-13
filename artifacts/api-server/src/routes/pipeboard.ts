@@ -545,12 +545,135 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           logger.info({ rcNewAdId, objectStoryId, rcCreativeId }, "duplicate_ad: Creative Reconstruction succeeded");
         } catch (rcErr) {
           const rcErrMsg = rcErr instanceof Error ? rcErr.message : String(rcErr);
-          logger.warn({ rcErrMsg, adId, destAdsetId }, "duplicate_ad: Creative Reconstruction fallback also failed");
-          dupMsg = [
-            dupMsg,
-            `[Creative Reconstruction أيضاً فشل: ${rcErrMsg}]`,
-            `[تلميح: استخدم get_ad_creative(${adId}) ثم create_ad_from_existing_post يدوياً]`,
-          ].join(" | ");
+          logger.warn({ rcErrMsg, adId, destAdsetId }, "duplicate_ad: Creative Reconstruction (tier-2) failed — trying Tier-3 spec rebuild");
+
+          // ── TIER-3 FALLBACK: Creative Spec Rebuild ────────────────────────────
+          // Tier-2 (object_story_id path) failed. Last resort: fetch raw creative
+          // assets (video_id / image_hash, primary_text, headline, link) and build
+          // a fresh ad using object_story_spec — no social proof preserved but the
+          // ad is structurally identical and will run.
+          try {
+            const t3Url = new URL(`https://graph.facebook.com/v21.0/${adId}`);
+            t3Url.searchParams.set(
+              "fields",
+              "id,account_id,creative{id,name,object_story_spec,body,title,link_url,image_url,video_id}"
+            );
+            t3Url.searchParams.set("access_token", metaToken);
+            const t3Resp = await fetch(t3Url.toString(), { signal: AbortSignal.timeout(12_000) });
+            const t3Json = await t3Resp.json() as Record<string, unknown>;
+            logger.info({ t3Json: JSON.stringify(t3Json).slice(0, 800) }, "duplicate_ad: tier-3 creative fetch");
+
+            const t3AccId = String(t3Json.account_id ?? "").replace(/^act_/, "");
+            const t3AccWithAct = t3AccId ? `act_${t3AccId}` : "";
+            const t3Creative = t3Json.creative as Record<string, unknown> | undefined;
+            const t3Spec = t3Creative?.object_story_spec as Record<string, unknown> | undefined;
+
+            // Extract page_id from spec
+            const t3PageId = String(t3Spec?.page_id ?? "").trim();
+
+            // Extract video or image + text from spec
+            const t3VideoData = t3Spec?.video_data as Record<string, unknown> | undefined;
+            const t3LinkData  = t3Spec?.link_data  as Record<string, unknown> | undefined;
+            const t3VideoId   = String(t3VideoData?.video_id ?? t3Creative?.video_id ?? "").trim();
+            const t3ImageHash = String(t3LinkData?.image_hash ?? "").trim();
+            const t3Message   = String(t3VideoData?.message ?? t3LinkData?.message ?? t3Creative?.body ?? "").trim();
+            const t3Title     = String(t3VideoData?.link_description ?? t3LinkData?.description ?? t3Creative?.title ?? "").trim();
+            const t3Cta       = (t3VideoData?.call_to_action as Record<string, unknown> | undefined)?.type
+                             ?? (t3LinkData?.call_to_action  as Record<string, unknown> | undefined)?.type
+                             ?? "SHOP_NOW";
+            const t3Link      = String(
+              ((t3VideoData?.call_to_action as Record<string, unknown> | undefined)?.value as Record<string, unknown> | undefined)?.link
+              ?? ((t3LinkData?.call_to_action as Record<string, unknown> | undefined)?.value as Record<string, unknown> | undefined)?.link
+              ?? t3Creative?.link_url ?? ""
+            ).trim();
+
+            if (!t3AccId || !t3PageId || (!t3VideoId && !t3ImageHash)) {
+              throw new Error(
+                `Tier-3: بيانات غير كافية — account_id=${t3AccId}, page_id=${t3PageId}, ` +
+                `video_id=${t3VideoId}, image_hash=${t3ImageHash}`
+              );
+            }
+
+            // Build object_story_spec for the new creative
+            const t3StorySpec: Record<string, unknown> = t3VideoId
+              ? {
+                  page_id: t3PageId,
+                  video_data: {
+                    video_id: t3VideoId,
+                    ...(t3Message ? { message: t3Message } : {}),
+                    ...(t3Title   ? { link_description: t3Title } : {}),
+                    ...(t3Link    ? { call_to_action: { type: t3Cta, value: { link: t3Link } } } : {}),
+                  },
+                }
+              : {
+                  page_id: t3PageId,
+                  link_data: {
+                    image_hash: t3ImageHash,
+                    ...(t3Message ? { message: t3Message } : {}),
+                    ...(t3Title   ? { description: t3Title } : {}),
+                    ...(t3Link    ? { link: t3Link, call_to_action: { type: t3Cta, value: { link: t3Link } } } : {}),
+                  },
+                };
+
+            const t3Client = await getPipeboardWriteClient();
+
+            // Step A: create_ad_creative from spec
+            const t3CreativeArgs: Record<string, unknown> = {
+              account_id:        t3AccId,
+              name:              `${adLabel} — tier3-spec`,
+              object_story_spec: t3StorySpec,
+              instagram_actor_id: t3PageId,
+            };
+            const t3CreativeResult = await t3Client.callTool({ name: "create_ad_creative", arguments: t3CreativeArgs });
+            const t3CreativeText = ((t3CreativeResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+              .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
+            logger.info({ t3CreativeText: t3CreativeText.slice(0, 400) }, "duplicate_ad: tier-3 create_ad_creative");
+
+            const t3CreativeIdMatch = t3CreativeText.match(/"id"\s*:\s*"(\d{10,})"/);
+            const t3CreativeId = t3CreativeIdMatch?.[1] ?? "";
+            if (!t3CreativeId) throw new Error(`Tier-3: فشل create_ad_creative — ${t3CreativeText.slice(0, 200)}`);
+
+            // Step B: create_ad with the spec creative
+            const t3AdResult = await t3Client.callTool({
+              name: "create_ad",
+              arguments: { account_id: t3AccWithAct, name: adLabel, adset_id: destAdsetId, creative_id: t3CreativeId, status: "PAUSED" },
+            });
+            const t3AdText = ((t3AdResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+              .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
+            logger.info({ t3AdText: t3AdText.slice(0, 400) }, "duplicate_ad: tier-3 create_ad");
+
+            const t3AdMatch = t3AdText.match(/"id"\s*:\s*"(\d+)"/) ?? t3AdText.match(/\b(\d{10,})\b/);
+            const t3NewAdId = t3AdMatch?.[1] ?? "";
+            if (!t3NewAdId) throw new Error(`Tier-3: فشل create_ad — ${t3AdText.slice(0, 200)}`);
+
+            // Step C: Verify
+            const t3Verify = await verifyMetaEntityDirect(t3NewAdId, "id,name,status,effective_status", metaToken);
+            if (!t3Verify.verified) throw new Error(`Tier-3: verify فشل للإعلان ${t3NewAdId}`);
+
+            dupSuccess = true;
+            dupNewAdId = t3NewAdId;
+            dupVerify  = t3Verify;
+            dupMsg = [
+              `✅ Tier-3 Spec Rebuild نجح — تم إعادة بناء الإعلان "${adLabel}" من الأصول الخام (بدون Social Proof)`,
+              `new_ad_id: ${t3NewAdId}`,
+              `creative_id: ${t3CreativeId}`,
+              `destination_adset_id: ${destAdsetId}`,
+              `الحالة: ${String(t3Verify.verified_fields?.effective_status ?? "PAUSED")}`,
+              `ملاحظة: تم استخدام object_story_spec (video_id=${t3VideoId || "N/A"}) — اللايكات لم تُحفظ`,
+            ].join(" — ");
+
+            logger.info({ t3NewAdId, t3CreativeId, t3VideoId }, "duplicate_ad: Tier-3 Spec Rebuild succeeded");
+
+          } catch (t3Err) {
+            const t3ErrMsg = t3Err instanceof Error ? t3Err.message : String(t3Err);
+            logger.warn({ t3ErrMsg, adId, destAdsetId }, "duplicate_ad: Tier-3 Spec Rebuild also failed — all paths exhausted");
+            dupMsg = [
+              dupMsg,
+              `[Tier-2 Creative Reconstruction فشل: ${rcErrMsg}]`,
+              `[Tier-3 Spec Rebuild فشل: ${t3ErrMsg}]`,
+              `[كل المسارات فشلت — استخدم get_ad_creative(${adId}) ثم create_ad_from_creative_spec يدوياً]`,
+            ].join(" | ");
+          }
         }
       }
     }
@@ -1808,12 +1931,24 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     if (metaTokenSales && salesCampaignId) {
       try {
+        // Fetch campaign — include campaign_id field so we detect if caller passed an adset_id by mistake
         const campObjUrl = new URL(`https://graph.facebook.com/v21.0/${salesCampaignId}`);
-        campObjUrl.searchParams.set("fields", "id,objective,name,daily_budget,lifetime_budget");
+        campObjUrl.searchParams.set("fields", "id,objective,name,daily_budget,lifetime_budget,campaign_id");
         campObjUrl.searchParams.set("access_token", metaTokenSales);
         const campObjResp = await fetch(campObjUrl.toString(), { signal: AbortSignal.timeout(8_000) });
         const campObjJson = await campObjResp.json() as Record<string, unknown>;
         const objective = String(campObjJson.objective ?? "").toUpperCase();
+
+        // ── PRE-CALL ID GUARD: campaign_id arg MUST be a campaign, not an adset ──
+        // If Meta returns a `campaign_id` field on the fetched entity, the entity IS
+        // an adset — caller accidentally passed adset_id where campaign_id is expected.
+        if (campObjJson.campaign_id != null) {
+          throw new Error(
+            `Pre-call ID Guard: campaign_id="${salesCampaignId}" هو adset_id وليس campaign_id ` +
+            `(Meta أعاد campaign_id=${campObjJson.campaign_id} للـ entity ده). ` +
+            `من فضلك أرسل الـ campaign_id الصحيح، وليس الـ adset_id.`
+          );
+        }
 
         // ── CBO Budget Fix: strip adset-level budget for CBO campaigns ────────
         // Meta REJECTS adsets with daily_budget/lifetime_budget when the parent
@@ -1880,21 +2015,35 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
           const existingPO = effectiveArgs.promoted_object as Record<string, unknown> | undefined;
           if (!existingPO?.pixel_id) {
-            // Detect domain from any string field in args (landing_page_url, etc.)
-            const argsStr = JSON.stringify(effectiveArgs);
+            // ── Keyword-first pixel detection (case-insensitive) ─────────────────
+            // Matches brand keywords (buzzpick / dealme) ANYWHERE in the args —
+            // campaign name, landing_page_url, adset name, etc. — so pixel is
+            // auto-injected even when no full domain URL is present.
+            const pixelKeywordMap: Record<string, string> = {
+              "buzzpick":  "1405391498274239",
+              "dealme":    "1537301040808359",
+            };
+            const argsStrLower = JSON.stringify(effectiveArgs).toLowerCase();
             let detectedPixelId: string | null = null;
-            for (const [domain, pixelId] of Object.entries(pixelDomainMap)) {
-              if (argsStr.includes(domain)) { detectedPixelId = pixelId; break; }
+            // 1st pass: keyword match (e.g. campaign name "Buzzpick Q2")
+            for (const [kw, pixelId] of Object.entries(pixelKeywordMap)) {
+              if (argsStrLower.includes(kw)) { detectedPixelId = pixelId; break; }
+            }
+            // 2nd pass: full domain match as fallback (original pixelDomainMap)
+            if (!detectedPixelId) {
+              for (const [domain, pixelId] of Object.entries(pixelDomainMap)) {
+                if (argsStrLower.includes(domain)) { detectedPixelId = pixelId; break; }
+              }
             }
 
             if (detectedPixelId) {
               effectiveArgs.promoted_object = { pixel_id: detectedPixelId, custom_event_type: "PURCHASE" };
-              logger.info({ detectedPixelId, objective }, "create_adset: auto-injected promoted_object from domain map");
+              logger.info({ detectedPixelId, objective }, "create_adset: auto-injected promoted_object from domain/keyword map");
             } else {
-              // No domain hint — this will likely fail at Meta. Log and let it fail with a clear error.
-              logger.warn({ objective, argsStr: argsStr.slice(0, 200) },
-                "create_adset: SALES campaign but no domain detected in args — promoted_object not injected; " +
-                "please pass promoted_object explicitly or include landing_page_url");
+              // No keyword/domain hint — will fail at Meta. Log clearly.
+              logger.warn({ objective, argsStrLower: argsStrLower.slice(0, 200) },
+                "create_adset: SALES campaign but no brand keyword or domain found — promoted_object not injected; " +
+                "pass promoted_object explicitly or include landing_page_url / campaign name containing buzzpick or dealme");
             }
           } else {
             logger.info({ pixelId: existingPO.pixel_id }, "create_adset: promoted_object already present — using it");
