@@ -287,13 +287,18 @@ ${hasRealContent ? scrapedContext : `لم يُتمكن من جلب محتوى ا
 // ── Quick Generate (no DB save) ───────────────────────────────────────────────
 
 router.post("/library/quick-generate", async (req, res) => {
-  const { productName, landingPageUrl } = req.body as {
+  const { productName, landingPageUrl, textCount, headlineCount } = req.body as {
     productName?: string;
     landingPageUrl?: string;
+    textCount?: number;
+    headlineCount?: number;
   };
   if (!landingPageUrl?.trim()) {
     return res.status(400).json({ error: "رابط صفحة الهبوط مطلوب" });
   }
+
+  const nTexts    = Math.min(Math.max(Number(textCount)    || 3, 1), 8);
+  const nHeadlines = Math.min(Math.max(Number(headlineCount) || 4, 1), 8);
 
   const scrape = await scrapeLandingPage(landingPageUrl.trim());
   const context = scrape.ok && scrape.text.length > 50
@@ -305,12 +310,16 @@ router.post("/library/quick-generate", async (req, res) => {
 كل نص يتبع PAS: Hook (مشكلة) → مميزات حقيقية بـ ✅ → CTA قوي.
 اللهجة: عربي مصري عامي. الإيموجي: 2-4 لكل نص. الطول: 80-150 كلمة. العناوين: 5-7 كلمات.`;
 
+  // Build the JSON template dynamically based on requested counts
+  const textsTemplate  = Array.from({length: nTexts},    () => `{"title":"وصف الهوك","content":"النص الكامل"}`).join(",");
+  const headsTemplate  = Array.from({length: nHeadlines}, () => `{"content":"عنوان"}`).join(",");
+
   const userPrompt = `المنتج: ${productName ?? "منتج"}
 ══ محتوى صفحة الهبوط ══
 ${context}
 
-المطلوب — أعد JSON فقط بلا نص خارجه:
-{"texts":[{"title":"وصف الهوك","content":"النص الكامل"},{"title":"وصف الهوك","content":"النص الكامل"},{"title":"وصف الهوك","content":"النص الكامل"}],"headlines":[{"content":"عنوان 1"},{"content":"عنوان 2"},{"content":"عنوان 3"},{"content":"عنوان 4"}]}`;
+المطلوب — أعد JSON فقط بلا نص خارجه (${nTexts} نصوص · ${nHeadlines} عناوين):
+{"texts":[${textsTemplate}],"headlines":[${headsTemplate}]}`;
 
   try {
     const completion = await openai.chat.completions.create({

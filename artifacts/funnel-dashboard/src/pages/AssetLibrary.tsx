@@ -1,6 +1,8 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { useAccounts } from "@/hooks/use-meta";
+import { fetchCampaignsForAccount } from "@/lib/meta-api";
 import {
   Library, Plus, Trash2, ChevronDown, ChevronUp, Copy, Wand2,
   Link2, FileText, Heading1, FolderOpen, Clock, X, Sparkles, Loader2,
@@ -615,6 +617,182 @@ const EMPTY_SEL = (): Record<AssetType, Set<number>> => ({
   DRIVE_LINK:   new Set(),
 });
 
+// ── Flex Scale sub-component (account → campaign pickers) ─────────────────────
+
+function FlexScaleForm({
+  form, upd, onSend,
+}: {
+  form: QuickForm;
+  upd: <K extends keyof QuickForm>(k: K, v: QuickForm[K]) => void;
+  onSend: () => void;
+}) {
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
+
+  // 30-day window for campaign discovery
+  const today = new Date();
+  const since = new Date(today); since.setDate(since.getDate() - 30);
+  const sinceStr = since.toISOString().slice(0, 10);
+  const untilStr = today.toISOString().slice(0, 10);
+
+  const { data: campaignsData, isFetching: loadingCampaigns } = useQuery({
+    queryKey: ["flex-campaigns", form.flexAccountId, sinceStr, untilStr],
+    queryFn: () =>
+      fetchCampaignsForAccount({
+        ad_account_id: form.flexAccountId,
+        since: sinceStr,
+        until: untilStr,
+      }),
+    enabled: !!form.flexAccountId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const campaigns = campaignsData?.campaigns ?? [];
+  const activeCampaigns = campaigns.filter(c => c.effective_status === "ACTIVE" || c.status === "ACTIVE");
+  const allCampaigns = activeCampaigns.length > 0 ? activeCampaigns : campaigns;
+
+  function pickSrc(id: string) {
+    const c = allCampaigns.find(x => x.id === id);
+    upd("flexSrcId", id);
+    upd("flexSrcName", c?.name ?? "");
+    if (form.flexDstId === id) { upd("flexDstId", ""); upd("flexDstName", ""); }
+  }
+  function pickDst(id: string) {
+    const c = allCampaigns.find(x => x.id === id);
+    upd("flexDstId", id);
+    upd("flexDstName", c?.name ?? "");
+  }
+
+  return (
+    <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-4 space-y-3 animate-in fade-in duration-150">
+      <div className="text-xs text-muted-foreground leading-relaxed">
+        اختر الحملة المصدر والحملة الهدف — المساعد سيجلب الرابحين تلقائياً وينقلهم بـ Advantage+ Creative (flex_mode)
+      </div>
+
+      {/* Step 1: Account */}
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold">١</span>
+          الحساب الإعلاني
+        </label>
+        <Select
+          value={form.flexAccountId}
+          onValueChange={val => {
+            upd("flexAccountId", val);
+            upd("flexSrcId", ""); upd("flexSrcName", "");
+            upd("flexDstId", ""); upd("flexDstName", "");
+          }}
+        >
+          <SelectTrigger className="h-9 text-sm" dir="rtl">
+            <SelectValue placeholder="اختر الحساب..." />
+          </SelectTrigger>
+          <SelectContent dir="rtl">
+            {accounts.length === 0 && (
+              <SelectItem value="__none" disabled>لا توجد حسابات</SelectItem>
+            )}
+            {accounts.map(acc => (
+              <SelectItem key={acc.id} value={acc.id}>
+                {acc.name ?? acc.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Step 2: Campaigns — only show after account selected */}
+      {form.flexAccountId && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Source campaign */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold">٢</span>
+              الحملة المصدر (ABO/مختلطة)
+            </label>
+            <Select
+              value={form.flexSrcId}
+              onValueChange={pickSrc}
+              disabled={loadingCampaigns}
+            >
+              <SelectTrigger className="h-9 text-sm" dir="rtl">
+                {loadingCampaigns
+                  ? <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />جاري التحميل...</span>
+                  : <SelectValue placeholder="اختر الحملة المصدر..." />
+                }
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                {allCampaigns.length === 0 && !loadingCampaigns && (
+                  <SelectItem value="__none" disabled>لا توجد حملات</SelectItem>
+                )}
+                {allCampaigns.map(c => (
+                  <SelectItem key={c.id} value={c.id} disabled={c.id === form.flexDstId}>
+                    <span className="block max-w-[220px] truncate">{c.name}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Destination campaign (CBO) */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-500 text-white text-[10px] font-bold">٣</span>
+              الحملة الهدف (CBO)
+            </label>
+            <Select
+              value={form.flexDstId}
+              onValueChange={pickDst}
+              disabled={loadingCampaigns || !form.flexSrcId}
+            >
+              <SelectTrigger className="h-9 text-sm" dir="rtl">
+                <SelectValue placeholder="اختر الحملة الهدف..." />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                {allCampaigns.filter(c => c.id !== form.flexSrcId).map(c => (
+                  <SelectItem key={c.id} value={c.id}>
+                    <span className="block max-w-[220px] truncate">{c.name}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {/* Preview of selected campaigns */}
+      {(form.flexSrcName || form.flexDstName) && (
+        <div className="rounded-lg border border-violet-200 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 p-2.5 space-y-1">
+          {form.flexSrcName && (
+            <div className="text-[11px] text-muted-foreground flex gap-2">
+              <span className="font-medium text-violet-700 dark:text-violet-400 shrink-0">المصدر:</span>
+              <span className="truncate">{form.flexSrcName}</span>
+            </div>
+          )}
+          {form.flexDstName && (
+            <div className="text-[11px] text-muted-foreground flex gap-2">
+              <span className="font-medium text-violet-700 dark:text-violet-400 shrink-0">الهدف CBO:</span>
+              <span className="truncate">{form.flexDstName}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Send */}
+      <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-violet-200 dark:border-violet-800">
+        <div className="flex-1 text-xs text-muted-foreground">⚡ flex_mode=true — Meta تختار التنسيق المثالي تلقائياً</div>
+        <Button
+          size="sm"
+          className="gap-1.5 h-9 text-xs shrink-0 bg-violet-600 hover:bg-violet-700 text-white"
+          onClick={onSend}
+          disabled={!form.flexSrcId || !form.flexDstId}
+        >
+          <Send className="h-3.5 w-3.5" />
+          إرسال للمساعد ↗
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
 type QuickCardType = "TEST" | "SCALE" | "FLEX";
@@ -624,13 +802,19 @@ interface QuickForm {
   landingPage: string; driveLink: string;
   texts: string[]; headlines: string[];
   selText: number; selHeadline: number;
-  srcAdset: string; dstAdset: string;
+  textCount: number; headlineCount: number;
+  flexAccountId: string;
+  flexSrcId: string; flexSrcName: string;
+  flexDstId: string; flexDstName: string;
 }
 
 const INIT_FORM: QuickForm = {
   product: "", budget: "180", landingPage: "", driveLink: "",
   texts: [], headlines: [], selText: 0, selHeadline: 0,
-  srcAdset: "", dstAdset: "",
+  textCount: 3, headlineCount: 4,
+  flexAccountId: "",
+  flexSrcId: "", flexSrcName: "",
+  flexDstId: "", flexDstName: "",
 };
 
 function QuickLaunchSection() {
@@ -662,7 +846,12 @@ function QuickLaunchSection() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ productName: form.product.trim() || "منتج", landingPageUrl: form.landingPage.trim() }),
+        body: JSON.stringify({
+          productName:   form.product.trim() || "منتج",
+          landingPageUrl: form.landingPage.trim(),
+          textCount:     form.textCount,
+          headlineCount: form.headlineCount,
+        }),
       });
       const d = await r.json() as { texts?: {content:string}[]; headlines?: {content:string}[]; error?: string };
       if (!r.ok) throw new Error(d.error ?? "خطأ");
@@ -731,14 +920,16 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
   }
 
   function buildFlexCmd() {
-    const src = form.srcAdset.trim() || "[ADSET_ID_المصدر]";
-    const dst = form.dstAdset.trim() || "[ADSET_ID_الهدف]";
-    return `انقل الرابحين من المجموعة ${src} إلى المجموعة ${dst} بـ Flex Mode.
+    const srcLabel = form.flexSrcName ? `"${form.flexSrcName}"${form.flexSrcId ? ` (${form.flexSrcId})` : ""}` : "[الحملة المصدر]";
+    const dstLabel = form.flexDstName ? `"${form.flexDstName}"${form.flexDstId ? ` (${form.flexDstId})` : ""}` : "[الحملة الهدف CBO]";
+    return `ابحث في حملات الحساب عن الإعلانات الرابحة في الحملة ${srcLabel} خلال آخر 7 أيام (معيار الفرز: أفضل CPA + Hook Rate).
 
-المطلوب:
-١. جلب الإعلانات من المجموعة المصدر وتحديد الرابحين (أفضل CPA + Hook Rate)
-٢. نقلهم بـ flex_mode=true (Advantage+ creative — Meta تولّد Collection/Stories تلقائياً)
-٣. تأكيد الإنشاء بعرض ad_ids الجديدة`;
+انقل الرابحين بـ flex_mode=true إلى الحملة CBO الهدف: ${dstLabel}
+
+المطلوب خطوة بخطوة:
+١. جلب الـ adsets من الحملة المصدر وتحديد الرابحين
+٢. نقل كل إعلان رابح بـ flex_mode=true — Meta تولّد تلقائياً: Stories + Collection + Feed
+٣. تأكيد الإنشاء مع عرض ad_ids الجديدة وأسماء الإعلانات`;
   }
 
   function sendToChat(cmd: string) {
@@ -845,21 +1036,60 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
             </div>
           </div>
 
-          {/* AI Generate */}
-          <div className="flex items-center gap-2">
+          {/* AI Generate row with quantity controls */}
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
+            {/* Quantity row */}
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-medium text-muted-foreground shrink-0">الكمية:</span>
+              {/* Text count */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground">نصوص</span>
+                <div className="flex items-center gap-0">
+                  <button
+                    type="button"
+                    onClick={() => upd("textCount", Math.max(1, form.textCount - 1))}
+                    className="h-6 w-6 rounded-r-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
+                  >−</button>
+                  <span className="h-6 w-7 border-y border-border bg-background text-xs text-center leading-6 font-semibold">{form.textCount}</span>
+                  <button
+                    type="button"
+                    onClick={() => upd("textCount", Math.min(8, form.textCount + 1))}
+                    className="h-6 w-6 rounded-l-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
+                  >+</button>
+                </div>
+              </div>
+              {/* Headline count */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground">عناوين</span>
+                <div className="flex items-center gap-0">
+                  <button
+                    type="button"
+                    onClick={() => upd("headlineCount", Math.max(1, form.headlineCount - 1))}
+                    className="h-6 w-6 rounded-r-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
+                  >−</button>
+                  <span className="h-6 w-7 border-y border-border bg-background text-xs text-center leading-6 font-semibold">{form.headlineCount}</span>
+                  <button
+                    type="button"
+                    onClick={() => upd("headlineCount", Math.min(8, form.headlineCount + 1))}
+                    className="h-6 w-6 rounded-l-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
+                  >+</button>
+                </div>
+              </div>
+              {form.texts.length > 0 && (
+                <span className="text-xs text-emerald-600 font-medium mr-auto">✓ {form.texts.length} نصوص · {form.headlines.length} عناوين</span>
+              )}
+            </div>
+            {/* Generate button */}
             <Button
               size="sm"
               variant={form.landingPage.trim() ? "default" : "outline"}
-              className="gap-1.5 h-8 text-xs"
+              className="gap-1.5 h-8 text-xs w-full sm:w-auto"
               onClick={generateTexts}
               disabled={generating}
             >
               {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {generating ? "جاري التوليد..." : "✨ توليد النصوص والعناوين بالـ AI"}
+              {generating ? `جاري توليد ${form.textCount} نصوص + ${form.headlineCount} عناوين...` : `✨ توليد ${form.textCount} نصوص + ${form.headlineCount} عناوين بالـ AI`}
             </Button>
-            {form.texts.length > 0 && (
-              <span className="text-xs text-emerald-600 font-medium">✓ {form.texts.length} نصوص · {form.headlines.length} عناوين</span>
-            )}
           </div>
 
           {/* Texts selection */}
@@ -967,48 +1197,7 @@ ${form.headlines.length ? form.headlines.map((h,i)=>`  ${i+1}. ${h}`).join("\n")
 
       {/* ── Flex Scale form ── */}
       {activeCard === "FLEX" && (
-        <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 p-4 space-y-3 animate-in fade-in duration-150">
-          <div className="text-xs text-muted-foreground leading-relaxed">
-            انقل الإعلانات الرابحة من مجموعة إعلانية مصدر إلى مجموعة هدف — Meta ستولّد تلقائياً تنسيقات Stories, Collection, Feed بـ Advantage+
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <ArrowLeftRight className="h-3 w-3" /> Adset ID المصدر
-              </label>
-              <Input
-                placeholder="مثال: 120215xxxxxxxxx"
-                value={form.srcAdset}
-                onChange={e => upd("srcAdset", e.target.value.trim())}
-                className="h-9 text-sm font-mono"
-                dir="ltr"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <ChevronRight className="h-3 w-3" /> Adset ID الهدف (CBO)
-              </label>
-              <Input
-                placeholder="مثال: 120216xxxxxxxxx"
-                value={form.dstAdset}
-                onChange={e => upd("dstAdset", e.target.value.trim())}
-                className="h-9 text-sm font-mono"
-                dir="ltr"
-              />
-            </div>
-          </div>
-          <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-violet-200 dark:border-violet-800">
-            <div className="flex-1 text-xs text-muted-foreground">⚡ flex_mode=true — Meta تختار التنسيق المثالي تلقائياً</div>
-            <Button
-              size="sm"
-              className="gap-1.5 h-9 text-xs shrink-0 bg-violet-600 hover:bg-violet-700 text-white"
-              onClick={() => sendToChat(buildFlexCmd())}
-            >
-              <Send className="h-3.5 w-3.5" />
-              إرسال للمساعد ↗
-            </Button>
-          </div>
-        </div>
+        <FlexScaleForm form={form} upd={upd} onSend={() => sendToChat(buildFlexCmd())} />
       )}
     </div>
   );
