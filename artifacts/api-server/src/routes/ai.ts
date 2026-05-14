@@ -1034,6 +1034,21 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 - بعد كود bulk_action لا تكتب "في انتظار موافقتك" — الواجهة تعالج الموافقة تلقائياً
 - لا تستدعي get_campaign_budget أو get_campaign_status أثناء التحليل الجماعي — استخدم بيانات الـ context الموجودة مباشرةً واحسب newBudget منها. لا تنتظر بيانات إضافية لتولّد الـ bulk_action
 
+🔴 قاعدة التجزئة التلقائية (Batching) — إلزامية:
+إذا كان العدد الإجمالي للعمليات > 15 عملية:
+- قسّمها إلى دفعات بحد أقصى 15 عملية لكل دفعة
+- أخرج الدفعة الأولى bulk_action فوراً
+- اكتب في نهاية ردك: "✅ الدفعة 1/X جاهزة — بعد تنفيذها سأعطيك الدفعة التالية تلقائياً"
+- لا تنتظر المستخدم يسألك — حين يجيب (أو يقول "تم" أو أي رد) أخرج الدفعة التالية فوراً
+- كرر حتى تنتهي جميع العمليات
+
+قاعدة الاستمرارية التلقائية (Auto-Continuation) — عامة:
+بعد أي bulk_action أو action تنفيذي، أنت مطالب تلقائياً بـ:
+- إخبار المستخدم بالخطوة التالية المنطقية بدون انتظار سؤاله
+- لو عندك دفعة تانية → أخرجها مباشرةً
+- لو الموضوع خلص → لخّص ما تم وأقترح الخطوة الاستراتيجية القادمة
+لا تنهي ردك بـ "أخبرني إذا احتجت شيء آخر" — خد المبادرة دائماً.
+
 ⚡ لا تقل أبداً "هذا النوع غير مدعوم في bulk_action" — كل الأنواع أعلاه مدعومة. إذا لم يكن لديك الـ ID → ابحث عنه بسلسلة البحث (get_campaigns → search_adsets → search_ads) ثم نفّذ.
 
 ⚠️ تنبيه حقول الـ rename — فرق حرج بين tool call وبين bulk_action:
@@ -4433,7 +4448,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
-        max_completion_tokens: 8192,
+        max_completion_tokens: 16384,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
@@ -4527,7 +4542,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
 
     const fallbackStream = await openai.chat.completions.create({
       model: CHAT_MODEL,
-      max_completion_tokens: 2048,
+      max_completion_tokens: 4096,
       messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
       stream: true,
     });
@@ -4674,7 +4689,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
-        max_completion_tokens: 8192,
+        max_completion_tokens: 16384,
         messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
         tools: (canExecuteActions ? TOOLS : TOOLS.filter((t) => !WRITE_TOOL_NAMES.has(t.function.name))) as unknown as Parameters<typeof openai.chat.completions.create>[0]["tools"],
         tool_choice: "auto",
@@ -4789,7 +4804,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     // Fallback: ran out of rounds — final streaming answer without tools
     const fallbackStream = await openai.chat.completions.create({
       model: CHAT_MODEL,
-      max_completion_tokens: 2048,
+      max_completion_tokens: 4096,
       messages: builtMessages as Parameters<typeof openai.chat.completions.create>[0]["messages"],
       stream: true,
     });
