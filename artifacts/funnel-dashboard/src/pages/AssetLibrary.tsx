@@ -1334,61 +1334,7 @@ ${allHeadlines}
           </div>
           )}
 
-          {/* AI Generate row with quantity controls */}
-          <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2.5">
-            {/* Quantity row */}
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs font-medium text-muted-foreground shrink-0">الكمية:</span>
-              {/* Text count */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-muted-foreground">نصوص</span>
-                <div className="flex items-center gap-0">
-                  <button
-                    type="button"
-                    onClick={() => upd("textCount", Math.max(1, form.textCount - 1))}
-                    className="h-6 w-6 rounded-r-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
-                  >−</button>
-                  <span className="h-6 w-7 border-y border-border bg-background text-xs text-center leading-6 font-semibold">{form.textCount}</span>
-                  <button
-                    type="button"
-                    onClick={() => upd("textCount", Math.min(8, form.textCount + 1))}
-                    className="h-6 w-6 rounded-l-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
-                  >+</button>
-                </div>
-              </div>
-              {/* Headline count */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-muted-foreground">عناوين</span>
-                <div className="flex items-center gap-0">
-                  <button
-                    type="button"
-                    onClick={() => upd("headlineCount", Math.max(1, form.headlineCount - 1))}
-                    className="h-6 w-6 rounded-r-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
-                  >−</button>
-                  <span className="h-6 w-7 border-y border-border bg-background text-xs text-center leading-6 font-semibold">{form.headlineCount}</span>
-                  <button
-                    type="button"
-                    onClick={() => upd("headlineCount", Math.min(8, form.headlineCount + 1))}
-                    className="h-6 w-6 rounded-l-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted text-xs font-bold transition-colors"
-                  >+</button>
-                </div>
-              </div>
-              {form.texts.length > 0 && (
-                <span className="text-xs text-emerald-600 font-medium mr-auto">✓ {form.texts.length} نصوص · {form.headlines.length} عناوين</span>
-              )}
-            </div>
-            {/* Generate button */}
-            <Button
-              size="sm"
-              variant={form.landingPage.trim() ? "default" : "outline"}
-              className="gap-1.5 h-8 text-xs w-full sm:w-auto"
-              onClick={generateTexts}
-              disabled={generating}
-            >
-              {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {generating ? `جاري توليد ${form.textCount} نصوص + ${form.headlineCount} عناوين...` : `✨ توليد ${form.textCount} نصوص + ${form.headlineCount} عناوين بالـ AI`}
-            </Button>
-          </div>
+         
 
           {/* Texts — all included, numbered list */}
           {form.texts.length > 0 && (
