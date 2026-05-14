@@ -1273,12 +1273,12 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_ads_in_adset",
-      description: "جيب قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية (Ad Set) محددة — مرتّبة حسب الكفاءة (CPA، نسبة الجذب، نسبة النقر، الإنفاق). استخدم قبل التوصية بزيادة إعلان معين أو إيقاف آخر لتحديد الـ Winner والـ Drain بشكل دقيق.",
+      description: "جيب قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية (Ad Set) محددة — مرتّبة حسب الكفاءة (CPA، نسبة الجذب، نسبة النقر، الإنفاق). استخدم قبل التوصية بزيادة إعلان معين أو إيقاف آخر لتحديد الـ Winner والـ Drain بشكل دقيق. لو رجعت رسالة 'لم يتم العثور' أعد المحاولة بـ days=30.",
       parameters: {
         type: "object",
         properties: {
           adset_id: { type: "string", description: "رقم المجموعة الإعلانية (id)" },
-          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 7" },
+          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 14. جرّب 30 لو رجعت بيانات فاضية." },
         },
         required: ["adset_id"],
       },
@@ -3077,7 +3077,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
     return "فشل جلب بيانات Google Ads. تأكد من ربط الحساب مع Pipeboard.";
   }
 
-  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 7 : 14));
+  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 14 : 14));
   // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
   const nowCairoExec = new Date(Date.now() + 2 * 60 * 60 * 1000);
   const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
@@ -3604,11 +3604,20 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       let foundAccountId = "";
       let maxCacheAgeMs = 0;
       let anyFromCache = false;
+      let totalCampaignsChecked = 0;
+      const fetchErrors: string[] = [];
 
       for (const acc of accounts) {
-        const campaignsResult = await fetchCampaignsCached(acc.id);
+        let campaignsResult: Awaited<ReturnType<typeof fetchCampaignsCached>>;
+        try {
+          campaignsResult = await fetchCampaignsCached(acc.id);
+        } catch (err) {
+          fetchErrors.push(`حساب ${acc.id}: فشل جلب الحملات — ${err instanceof Error ? err.message : String(err)}`);
+          continue;
+        }
         if (campaignsResult.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, campaignsResult.cacheAgeMs); }
         for (const campaign of campaignsResult.data) {
+          totalCampaignsChecked++;
           try {
             const result = await fetchInsightsCached(campaign.id);
             if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
@@ -3621,14 +3630,18 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
               const adsetEntry = result.data.by_adset.find((as) => as.id === adset_id);
               if (adsetEntry) foundAdsetName = adsetEntry.label;
             }
-          } catch {
-            // Skip campaigns that fail to load
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            fetchErrors.push(`حملة ${campaign.id} (${campaign.name ?? ""}): ${errMsg}`);
           }
         }
       }
 
       if (matchedAds.length === 0) {
-        return `لم يتم العثور على إعلانات للمجموعة ${adset_id} في البيانات المتاحة (آخر ${days} يوم). تأكد من صحة الرقم أو جرّب فترة زمنية أطول.`;
+        const errDetail = fetchErrors.length > 0
+          ? `\n\nأخطاء أثناء الجلب (${fetchErrors.length} من ${totalCampaignsChecked} حملة فشلت):\n${fetchErrors.slice(0, 5).join("\n")}`
+          : `\n\nتم التحقق من ${totalCampaignsChecked} حملة — لا يوجد بيانات إعلانات لهذا الـ adset_id في الفترة المحددة.`;
+        return `لم يتم العثور على إعلانات للمجموعة ${adset_id} في البيانات المتاحة (آخر ${days} يوم). تأكد من صحة الرقم أو جرّب days=30.${errDetail}`;
       }
 
       // Rank by CPA (ascending, lower is better); ads with no purchases go last
