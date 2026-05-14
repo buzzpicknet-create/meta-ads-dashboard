@@ -975,8 +975,13 @@ Raw API Response (للتشخيص التقني):
 - أداء المجموعات الإعلانية مقارنةً → Bar Chart
 
 **🚀 Bulk Action Panel (للتنفيذ الجماعي):**
+
+🔴🔴🔴 قاعدة حديدية لا استثناء: اكتب دائماً \`\`\`bulk_action وليس \`\`\`json
+إذا كتبت \`\`\`json سيظهر النص خاماً كأكواد بدون أزرار تنفيذ — والمستخدم لن يتمكن من التنفيذ.
+الكلمة الوحيدة المقبولة: bulk_action (وليس json، وليس javascript، وليس أي شيء آخر).
+🔴🔴🔴
+
 لما تقترح إجراءات متعددة (زيادة ميزانية 3 حملات، إيقاف 2، تقليل ميزانية 1) — لازم تُخرج كود bulk_action بالشكل التالي بالضبط (لا تغيّر أي مفتاح):
-⚠️ مهم جداً: اكتب دائماً \`\`\`bulk_action وليس \`\`\`json — الواجهة تعتمد على الكلمة bulk_action لتحويل الكود لأزرار تنفيذ. إذا استخدمت \`\`\`json ستظهر النصوص خاماً بدون أزرار.
 
 \`\`\`bulk_action
 {
@@ -1031,7 +1036,12 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 
 ⚡ لا تقل أبداً "هذا النوع غير مدعوم في bulk_action" — كل الأنواع أعلاه مدعومة. إذا لم يكن لديك الـ ID → ابحث عنه بسلسلة البحث (get_campaigns → search_adsets → search_ads) ثم نفّذ.
 
-مثال rename_ad — الشكل الصحيح الوحيد (adId + name + newName إلزاميان):
+⚠️ تنبيه حقول الـ rename — فرق حرج بين tool call وبين bulk_action:
+- عند استدعاء الأداة مباشرةً كـ tool call: تستخدم current_name و new_name (snake_case)
+- عند الكتابة داخل bulk_action JSON: تستخدم name (الاسم الحالي) و newName (الاسم الجديد) — CamelCase
+هذا الفرق إلزامي — لا تخلط بينهما أبداً.
+
+مثال rename_ad — الشكل الصحيح داخل bulk_action (name + newName — ليس current_name):
 \`\`\`bulk_action
 {
   "title": "تغيير أسماء الإعلانات — استبدال | بـ -",
