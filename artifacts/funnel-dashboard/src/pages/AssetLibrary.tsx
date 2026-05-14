@@ -786,7 +786,7 @@ function FlexScaleForm({
 
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
-type QuickCardType = "TEST" | "SCALE" | "FLEX" | "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS" | "BESTCOMBO";
+type QuickCardType = "TEST" | "SCALE" | "FLEX" | "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS" | "BESTCOMBO" | "SCALEADSETS" | "SCALECREATIVE";
 
 interface Angle {
   name: string;
@@ -1161,6 +1161,8 @@ ${allHeadlines}
     { id: "LOOKALIKE",   emoji: "👥", label: "Lookalike",           hint: "جمهور مشابه للمشترين",               color: "pink"    },
     { id: "INTERESTS",   emoji: "✨", label: "Interests Advantage+", hint: "اهتمامات مع Advantage+",            color: "teal"    },
     { id: "BESTCOMBO",   emoji: "🏆", label: "تركيبة الوينر",        hint: "أفضل فيديو + نص + عنوان من حملاتك",  color: "amber"   },
+    { id: "SCALEADSETS", emoji: "📦", label: "Scale AdSets",         hint: "نسخ AdSets رابحة لحملة جديدة",      color: "rose"    },
+    { id: "SCALECREATIVE",emoji:"🎨", label: "Scale Creative",       hint: "نسخ Creative وينر لـ AdSet جديد",   color: "cyan"    },
   ];
 
   const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {
@@ -1172,6 +1174,8 @@ ${allHeadlines}
     pink:    { border:"border-pink-200 dark:border-pink-800",       bg:"bg-pink-50/50 dark:bg-pink-950/20",       activeBorder:"border-pink-500",    activeBg:"bg-pink-50 dark:bg-pink-950/30",    badge:"bg-pink-500",    btn:"bg-pink-600 hover:bg-pink-700 text-white" },
     teal:    { border:"border-teal-200 dark:border-teal-800",       bg:"bg-teal-50/50 dark:bg-teal-950/20",       activeBorder:"border-teal-500",    activeBg:"bg-teal-50 dark:bg-teal-950/30",    badge:"bg-teal-500",    btn:"bg-teal-600 hover:bg-teal-700 text-white" },
     amber:   { border:"border-amber-200 dark:border-amber-800",     bg:"bg-amber-50/50 dark:bg-amber-950/20",     activeBorder:"border-amber-500",   activeBg:"bg-amber-50 dark:bg-amber-950/30",   badge:"bg-amber-500",   btn:"bg-amber-600 hover:bg-amber-700 text-white" },
+    rose:    { border:"border-rose-200 dark:border-rose-800",       bg:"bg-rose-50/50 dark:bg-rose-950/20",       activeBorder:"border-rose-500",    activeBg:"bg-rose-50 dark:bg-rose-950/30",    badge:"bg-rose-500",    btn:"bg-rose-600 hover:bg-rose-700 text-white" },
+    cyan:    { border:"border-cyan-200 dark:border-cyan-800",       bg:"bg-cyan-50/50 dark:bg-cyan-950/20",       activeBorder:"border-cyan-500",    activeBg:"bg-cyan-50 dark:bg-cyan-950/30",    badge:"bg-cyan-500",    btn:"bg-cyan-600 hover:bg-cyan-700 text-white" },
   };
 
   return (
@@ -1428,7 +1432,7 @@ ${allHeadlines}
                   sendToChat(buildBlueprintCmd(activeCard as "TEST" | "SCALE"), activeCard);
                 } else if (activeCard === "COSTCAP" || activeCard === "RETARGETING" || activeCard === "LOOKALIKE" || activeCard === "INTERESTS") {
                   if (form.launchMode === "scale") return;
-                  sendToChat(buildStrategyCmd(activeCard as "COSTCAP" | "RETARGETING" | "LOOKALIKE" | "INTERESTS"), activeCard);
+                  sendToChat(buildStrategyCmd(activeCard as "COSTCAP" | "RETARGETING" | "LOOKALIKE" | "INTERESTS"), "SCALE" as "TEST" | "SCALE" | "FLEX");
                 }
               }}
             >
@@ -1443,12 +1447,22 @@ ${allHeadlines}
       {activeCard === "FLEX" && (
         <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
       )}
-      {activeCard !== "FLEX" && activeCard !== "TEST" && form.launchMode === "scale" && (
-        <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), activeCard ?? "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
+      {activeCard !== "FLEX" && activeCard !== "TEST" && activeCard !== "BESTCOMBO" && activeCard !== "SCALEADSETS" && activeCard !== "SCALECREATIVE" && form.launchMode === "scale" && (
+        <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
       )}
       {/* ── Best Combo Form ── */}
       {activeCard === "BESTCOMBO" && (
         <BestComboForm form={form} upd={upd} />
+      )}
+
+      {/* ── Scale AdSets Form ── */}
+      {activeCard === "SCALEADSETS" && (
+        <ScaleAdSetsForm accountId={form.flexAccountId} onAccountChange={v => upd("flexAccountId", v)} />
+      )}
+
+      {/* ── Scale Creative Form ── */}
+      {activeCard === "SCALECREATIVE" && (
+        <ScaleCreativeForm accountId={form.flexAccountId} onAccountChange={v => upd("flexAccountId", v)} />
       )}
 
     </div>
@@ -1672,6 +1686,470 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
             disabled={submitting || !form.comboTargetCampaignId || !form.comboNewAdsetName || !form.comboSelVideoId}>
             {submitting ? "جاري الإنشاء..." : "🏆 إنشاء AdSet بـ Best Combination Creative"}
           </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Scale AdSets Component ────────────────────────────────────────────────────
+type AdsetRow = { id: string; name: string; ctr: number | null; cpa: number | null; spend: number | null };
+type CampaignRow = { id: string; name: string; is_cbo?: boolean };
+type SseEvent = { type: string; message?: string; adset_name?: string; new_adset_id?: string; ads_created?: number; total_ads?: number; ad_ids?: string[]; campaign_id?: string; success?: number; failed?: number; adset_id?: string };
+
+function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; onAccountChange: (v: string) => void }) {
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
+  const { toast } = useToast();
+
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [srcCampaignId, setSrcCampaignId] = useState("");
+  const [adsets, setAdsets] = useState<AdsetRow[]>([]);
+  const [loadingAdsets, setLoadingAdsets] = useState(false);
+  const [selectedAdsets, setSelectedAdsets] = useState<string[]>([]);
+
+  const [destType, setDestType] = useState<"existing" | "new">("existing");
+  const [destCampaignId, setDestCampaignId] = useState("");
+  const [newCampaignName, setNewCampaignName] = useState("");
+  const [newCampaignBudget, setNewCampaignBudget] = useState("300");
+  const [newCampaignIsCBO, setNewCampaignIsCBO] = useState(true);
+
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState<SseEvent[]>([]);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) return;
+    setLoadingCampaigns(true);
+    setCampaigns([]); setSrcCampaignId(""); setAdsets([]); setSelectedAdsets([]);
+    apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
+      .then(d => setCampaigns(d.campaigns ?? []))
+      .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
+      .finally(() => setLoadingCampaigns(false));
+  }, [accountId]);
+
+  async function fetchAdsets(campaignId: string) {
+    setSrcCampaignId(campaignId); setLoadingAdsets(true); setAdsets([]); setSelectedAdsets([]);
+    try {
+      const d = await apiFetch<{ adsets: (AdsetRow & { ctr: string | null; cpa: string | null })[] }>(`/pipeboard/campaigns/${campaignId}/adsets?account_id=${accountId}`);
+      setAdsets((d.adsets ?? []).map(a => ({ ...a, ctr: a.ctr ? Number(a.ctr) : null, cpa: a.cpa ? Number(a.cpa) : null })));
+    } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
+    finally { setLoadingAdsets(false); }
+  }
+
+  function toggleAdset(id: string) {
+    setSelectedAdsets(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
+  }
+
+  async function handleScale() {
+    if (!selectedAdsets.length) { toast({ title: "❌ اختار AdSet واحد على الأقل", variant: "destructive" }); return; }
+    if (destType === "existing" && !destCampaignId) { toast({ title: "❌ اختار الحملة الهدف", variant: "destructive" }); return; }
+    if (destType === "new" && !newCampaignName.trim()) { toast({ title: "❌ أدخل اسم الحملة الجديدة", variant: "destructive" }); return; }
+    setRunning(true); setLogs([]); setDone(false);
+    try {
+      const response = await fetch(`${API}/pipeboard/scale-adsets`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({
+          account_id: accountId, source_campaign_id: srcCampaignId,
+          source_adset_ids: selectedAdsets, dest_type: destType,
+          dest_campaign_id: destType === "existing" ? destCampaignId : undefined,
+          new_campaign_name: destType === "new" ? newCampaignName.trim() : undefined,
+          new_campaign_budget: destType === "new" ? Number(newCampaignBudget) : undefined,
+          new_campaign_is_cbo: destType === "new" ? newCampaignIsCBO : undefined,
+        }),
+      });
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder(); let buf = "";
+      while (true) {
+        const { done: d, value } = await reader.read(); if (d) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try { const ev: SseEvent = JSON.parse(line.slice(6)); setLogs(p => [...p, ev]); if (ev.type === "done") setDone(true); } catch { /* ignore */ }
+          }
+        }
+      }
+    } catch (e) { setLogs(p => [...p, { type: "error", message: String(e) }]); }
+    setRunning(false);
+  }
+
+  return (
+    <div className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/30 dark:bg-rose-950/10 p-4 space-y-4 animate-in fade-in duration-150">
+      <div className="flex items-center gap-2">
+        <span className="text-base">📦</span>
+        <span className="text-sm font-semibold">Scale AdSets</span>
+        <span className="text-[11px] text-muted-foreground mr-auto">نسخ AdSets رابحة بكامل إعلاناتها</span>
+      </div>
+
+      {/* Account */}
+      {!accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">اختار الحساب</label>
+          <select className="w-full h-8 text-xs rounded-md border border-border bg-background px-2" onChange={e => { if (e.target.value) onAccountChange(e.target.value.replace(/^act_/, "")); }}>
+            <option value="">— اختار —</option>
+            {accounts.map(acc => <option key={acc.id} value={acc.id.replace(/^act_/, "")}>{acc.name ?? acc.id}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Source campaign */}
+      {accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">① الحملة المصدر</label>
+          <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            {loadingCampaigns && <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div>}
+            {campaigns.map(c => (
+              <button key={c.id} onClick={() => fetchAdsets(c.id)}
+                className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${srcCampaignId === c.id ? "bg-rose-100 dark:bg-rose-900/30 text-rose-700 font-medium" : "hover:bg-muted"}`}>
+                <span>{c.name}</span>
+                <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Multi-select adsets */}
+      {adsets.length > 0 && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">② اختار الـ AdSets المراد نسخها</label>
+          {loadingAdsets ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
+            <div className="space-y-0.5 max-h-40 overflow-y-auto">
+              {adsets.map(a => (
+                <button key={a.id} onClick={() => toggleAdset(a.id)}
+                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors flex justify-between items-center ${selectedAdsets.includes(a.id) ? "border-rose-400 bg-rose-50 dark:bg-rose-900/20" : "border-border hover:border-rose-300"}`}>
+                  <span className="font-medium flex items-center gap-1.5">
+                    {selectedAdsets.includes(a.id) && <span className="text-rose-500">✓</span>}
+                    {a.name}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground flex gap-2">
+                    {a.spend != null && <span>إنفاق: {Number(a.spend).toFixed(0)}</span>}
+                    {a.ctr != null && <span>CTR: {a.ctr}%</span>}
+                    {a.cpa != null && <span>CPA: {a.cpa}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedAdsets.length > 0 && <div className="text-xs text-rose-600 font-medium">✓ {selectedAdsets.length} AdSet مختار</div>}
+        </div>
+      )}
+
+      {/* Destination */}
+      {adsets.length > 0 && (
+        <div className="space-y-2 border-t border-rose-200 dark:border-rose-800 pt-3">
+          <label className="text-xs font-medium text-muted-foreground">③ الحملة الهدف</label>
+          <div className="flex gap-2">
+            <button onClick={() => setDestType("existing")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "existing" ? "border-rose-500 bg-rose-50/60 text-rose-600 font-medium" : "border-border text-muted-foreground hover:border-rose-300"}`}>
+              حملة موجودة
+            </button>
+            <button onClick={() => setDestType("new")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "new" ? "border-rose-500 bg-rose-50/60 text-rose-600 font-medium" : "border-border text-muted-foreground hover:border-rose-300"}`}>
+              ✨ حملة جديدة
+            </button>
+          </div>
+
+          {destType === "existing" && (
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+              {campaigns.map(c => (
+                <button key={c.id} onClick={() => setDestCampaignId(c.id)}
+                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${destCampaignId === c.id ? "bg-rose-100 dark:bg-rose-900/30 text-rose-700 font-medium" : "hover:bg-muted"}`}>
+                  <span>{c.name}</span>
+                  <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {destType === "new" && (
+            <div className="space-y-2">
+              <Input placeholder="اسم الحملة الجديدة" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} className="h-8 text-xs" dir="rtl" />
+              <div className="flex gap-2 items-center">
+                <Input type="number" placeholder="الميزانية (EGP)" value={newCampaignBudget} onChange={e => setNewCampaignBudget(e.target.value)} className="h-8 text-xs flex-1" />
+                <button onClick={() => setNewCampaignIsCBO(!newCampaignIsCBO)} className={`h-8 px-3 text-xs rounded-lg border transition-all ${newCampaignIsCBO ? "border-rose-500 bg-rose-50/60 text-rose-600 font-medium" : "border-border text-muted-foreground"}`}>
+                  {newCampaignIsCBO ? "CBO" : "ABO"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Run button */}
+      {selectedAdsets.length > 0 && (
+        <Button size="sm" onClick={handleScale} disabled={running}
+          className="w-full h-9 text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5">
+          {running ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> جاري النسخ...</> : `📦 نسخ ${selectedAdsets.length} AdSet → ${destType === "new" ? "حملة جديدة" : "الحملة الهدف"}`}
+        </Button>
+      )}
+
+      {/* Progress log */}
+      {logs.length > 0 && (
+        <div className="rounded-lg border border-border bg-background p-3 space-y-1.5 max-h-64 overflow-y-auto">
+          <div className="text-xs font-medium text-muted-foreground mb-2">سجل العمليات</div>
+          {logs.map((ev, i) => (
+            <div key={i} className={`text-xs px-2 py-1 rounded-md ${ev.type === "adset_done" ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800" : ev.type === "adset_error" || ev.type === "error" ? "bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800" : ev.type === "campaign_created" ? "bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400" : "text-muted-foreground"}`}>
+              {ev.type === "adset_done" && <div><span className="font-medium">✅ {ev.adset_name}</span> — AdSet ID: {ev.new_adset_id} · {ev.ads_created}/{ev.total_ads} إعلان</div>}
+              {ev.type === "adset_error" && <div>❌ {ev.adset_name ?? ev.adset_id}: {ev.message}</div>}
+              {ev.type === "campaign_created" && <div>🚀 {ev.message}</div>}
+              {ev.type === "error" && <div>❌ {ev.message}</div>}
+              {ev.type === "progress" && <div>⏳ {ev.message}</div>}
+              {ev.type === "done" && <div className="font-semibold">🏁 اكتمل — نجح: {ev.success} · فشل: {ev.failed}</div>}
+            </div>
+          ))}
+          {done && (
+            <Button size="sm" variant="outline" className="w-full h-7 text-xs mt-1" onClick={() => { setLogs([]); setDone(false); setSelectedAdsets([]); }}>
+              إعادة تعيين
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Scale Creative Component ───────────────────────────────────────────────────
+type AdCreativeRow = { id: string; name: string; adset_id: string; video_id: string | null; image_hash: string | null; body: string | null; title: string | null; link_url: string | null; call_to_action_type: string; creative_id: string | null };
+
+function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; onAccountChange: (v: string) => void }) {
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
+  const { toast } = useToast();
+
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [srcCampaignId, setSrcCampaignId] = useState("");
+  const [ads, setAds] = useState<AdCreativeRow[]>([]);
+  const [loadingAds, setLoadingAds] = useState(false);
+  const [selectedAd, setSelectedAd] = useState<AdCreativeRow | null>(null);
+
+  const [destType, setDestType] = useState<"existing_adset" | "new_adset">("existing_adset");
+  const [destCampaignId, setDestCampaignId] = useState("");
+  const [destAdsets, setDestAdsets] = useState<AdsetRow[]>([]);
+  const [loadingDestAdsets, setLoadingDestAdsets] = useState(false);
+  const [destAdsetId, setDestAdsetId] = useState("");
+  const [newAdsetName, setNewAdsetName] = useState("");
+  const [newCampaignName, setNewCampaignName] = useState("");
+  const [newCampaignBudget, setNewCampaignBudget] = useState("300");
+  const [newCampaignIsCBO, setNewCampaignIsCBO] = useState(true);
+  const [isNewCampaign, setIsNewCampaign] = useState(false);
+  const [pixelId, setPixelId] = useState("");
+
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string; campaign_id?: string; adset_id?: string; creative_id?: string; ad_id?: string } | null>(null);
+
+  useEffect(() => {
+    if (!accountId) return;
+    setLoadingCampaigns(true);
+    setCampaigns([]); setSrcCampaignId(""); setAds([]); setSelectedAd(null);
+    apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
+      .then(d => setCampaigns(d.campaigns ?? []))
+      .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
+      .finally(() => setLoadingCampaigns(false));
+  }, [accountId]);
+
+  async function fetchCampaignAds(campaignId: string) {
+    setSrcCampaignId(campaignId); setLoadingAds(true); setAds([]); setSelectedAd(null);
+    try {
+      const d = await apiFetch<{ ads: AdCreativeRow[] }>(`/pipeboard/campaigns/${campaignId}/ads?account_id=${accountId}`);
+      setAds(d.ads ?? []);
+    } catch { toast({ title: "❌ فشل جلب الإعلانات", variant: "destructive" }); }
+    finally { setLoadingAds(false); }
+  }
+
+  async function fetchDestAdsets(campaignId: string) {
+    setDestCampaignId(campaignId); setLoadingDestAdsets(true); setDestAdsets([]); setDestAdsetId("");
+    try {
+      const d = await apiFetch<{ adsets: (AdsetRow & { ctr: string | null; cpa: string | null })[] }>(`/pipeboard/campaigns/${campaignId}/adsets?account_id=${accountId}`);
+      setDestAdsets((d.adsets ?? []).map(a => ({ ...a, ctr: a.ctr ? Number(a.ctr) : null, cpa: a.cpa ? Number(a.cpa) : null })));
+    } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
+    finally { setLoadingDestAdsets(false); }
+  }
+
+  async function handleScale() {
+    if (!selectedAd) { toast({ title: "❌ اختار الإعلان المصدر", variant: "destructive" }); return; }
+    if (destType === "existing_adset" && !destAdsetId) { toast({ title: "❌ اختار الـ AdSet الهدف", variant: "destructive" }); return; }
+    if (destType === "new_adset" && !newAdsetName.trim()) { toast({ title: "❌ أدخل اسم الـ AdSet الجديد", variant: "destructive" }); return; }
+    if (destType === "new_adset" && isNewCampaign && !newCampaignName.trim()) { toast({ title: "❌ أدخل اسم الحملة الجديدة", variant: "destructive" }); return; }
+    if (destType === "new_adset" && !isNewCampaign && !destCampaignId) { toast({ title: "❌ اختار الحملة الهدف", variant: "destructive" }); return; }
+    setSubmitting(true); setResult(null);
+    try {
+      const data = await apiFetch<{ success: boolean; message: string; campaign_id?: string; adset_id?: string; creative_id?: string; ad_id?: string }>("/pipeboard/scale-creative", {
+        method: "POST",
+        body: JSON.stringify({
+          account_id: accountId, source_ad: selectedAd, dest_type: destType,
+          dest_adset_id: destType === "existing_adset" ? destAdsetId : undefined,
+          dest_campaign_id: destType === "new_adset" && !isNewCampaign ? destCampaignId : undefined,
+          new_adset_name: destType === "new_adset" ? newAdsetName.trim() : undefined,
+          new_campaign_name: destType === "new_adset" && isNewCampaign ? newCampaignName.trim() : undefined,
+          new_campaign_budget: destType === "new_adset" ? Number(newCampaignBudget) : undefined,
+          new_campaign_is_cbo: destType === "new_adset" ? newCampaignIsCBO : undefined,
+          pixel_id: pixelId || undefined,
+        }),
+      });
+      setResult(data);
+      if (data.success) toast({ title: "✅ " + data.message });
+      else toast({ title: "❌ فشل العملية", variant: "destructive" });
+    } catch (e) {
+      const msg = String(e); setResult({ success: false, message: msg });
+      toast({ title: "❌ " + msg, variant: "destructive" });
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50/30 dark:bg-cyan-950/10 p-4 space-y-4 animate-in fade-in duration-150">
+      <div className="flex items-center gap-2">
+        <span className="text-base">🎨</span>
+        <span className="text-sm font-semibold">Scale Creative</span>
+        <span className="text-[11px] text-muted-foreground mr-auto">نسخ Creative وينر لـ AdSet جديد</span>
+      </div>
+
+      {/* Account */}
+      {!accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">اختار الحساب</label>
+          <select className="w-full h-8 text-xs rounded-md border border-border bg-background px-2" onChange={e => { if (e.target.value) onAccountChange(e.target.value.replace(/^act_/, "")); }}>
+            <option value="">— اختار —</option>
+            {accounts.map(acc => <option key={acc.id} value={acc.id.replace(/^act_/, "")}>{acc.name ?? acc.id}</option>)}
+          </select>
+        </div>
+      )}
+
+      {/* Source campaign */}
+      {accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">① الحملة المصدر</label>
+          <div className="max-h-28 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            {loadingCampaigns && <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div>}
+            {campaigns.map(c => (
+              <button key={c.id} onClick={() => fetchCampaignAds(c.id)}
+                className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${srcCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
+                <span>{c.name}</span>
+                <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Source ad */}
+      {ads.length > 0 && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">② اختار الإعلان المصدر</label>
+          {loadingAds ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
+            <div className="space-y-0.5 max-h-36 overflow-y-auto">
+              {ads.map(ad => (
+                <button key={ad.id} onClick={() => setSelectedAd(ad)}
+                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors ${selectedAd?.id === ad.id ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 font-medium" : "border-border hover:border-cyan-300"}`}>
+                  <div className="flex justify-between items-center">
+                    <span>{ad.name}</span>
+                    <span className="text-[10px] text-muted-foreground">{ad.video_id ? "🎬 فيديو" : ad.image_hash ? "🖼 صورة" : "—"}</span>
+                  </div>
+                  {ad.body && <div className="text-[10px] text-muted-foreground truncate mt-0.5">{ad.body}</div>}
+                </button>
+              ))}
+            </div>
+          )}
+          {ads.length === 0 && srcCampaignId && !loadingAds && <div className="text-xs text-muted-foreground text-center py-2">لا توجد إعلانات في هذه الحملة</div>}
+        </div>
+      )}
+
+      {/* Destination */}
+      {selectedAd && (
+        <div className="space-y-3 border-t border-cyan-200 dark:border-cyan-800 pt-3">
+          <label className="text-xs font-medium text-muted-foreground">③ الوجهة</label>
+          <div className="flex gap-2">
+            <button onClick={() => setDestType("existing_adset")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "existing_adset" ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground hover:border-cyan-300"}`}>AdSet موجود</button>
+            <button onClick={() => setDestType("new_adset")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "new_adset" ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground hover:border-cyan-300"}`}>✨ AdSet جديد</button>
+          </div>
+
+          {destType === "existing_adset" && (
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-muted-foreground">اختار الحملة ثم الـ AdSet</label>
+              <div className="max-h-24 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+                {campaigns.map(c => (
+                  <button key={c.id} onClick={() => fetchDestAdsets(c.id)}
+                    className={`w-full text-right text-xs px-2 py-1 rounded-md transition-colors ${destCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+              {loadingDestAdsets && <div className="text-xs text-center py-1 text-muted-foreground">جاري جلب الـ AdSets...</div>}
+              {destAdsets.length > 0 && (
+                <div className="max-h-24 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+                  {destAdsets.map(a => (
+                    <button key={a.id} onClick={() => setDestAdsetId(a.id)}
+                      className={`w-full text-right text-xs px-2 py-1 rounded-md transition-colors ${destAdsetId === a.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {destType === "new_adset" && (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <button onClick={() => setIsNewCampaign(false)} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${!isNewCampaign ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground"}`}>حملة موجودة</button>
+                <button onClick={() => setIsNewCampaign(true)} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${isNewCampaign ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground"}`}>✨ حملة جديدة</button>
+              </div>
+              {!isNewCampaign && (
+                <div className="max-h-24 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+                  {campaigns.map(c => (
+                    <button key={c.id} onClick={() => setDestCampaignId(c.id)}
+                      className={`w-full text-right text-xs px-2 py-1 rounded-md transition-colors flex justify-between ${destCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
+                      <span>{c.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {isNewCampaign && (
+                <div className="flex gap-2">
+                  <Input placeholder="اسم الحملة الجديدة" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} className="h-8 text-xs flex-1" dir="rtl" />
+                  <button onClick={() => setNewCampaignIsCBO(!newCampaignIsCBO)} className={`h-8 px-3 text-xs rounded-lg border transition-all shrink-0 ${newCampaignIsCBO ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground"}`}>
+                    {newCampaignIsCBO ? "CBO" : "ABO"}
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="اسم الـ AdSet الجديد" value={newAdsetName} onChange={e => setNewAdsetName(e.target.value)} className="h-8 text-xs" dir="rtl" />
+                <Input type="number" placeholder="الميزانية (EGP)" value={newCampaignBudget} onChange={e => setNewCampaignBudget(e.target.value)} className="h-8 text-xs" />
+              </div>
+            </div>
+          )}
+
+          {/* Pixel ID */}
+          <div className="space-y-1">
+            <label className="text-[11px] text-muted-foreground">Pixel ID (اختياري)</label>
+            <Input placeholder="مثال: 1405391498274239" value={pixelId} onChange={e => setPixelId(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
+          </div>
+        </div>
+      )}
+
+      {/* Scale button */}
+      {selectedAd && (
+        <Button size="sm" onClick={handleScale} disabled={submitting}
+          className="w-full h-9 text-xs bg-cyan-600 hover:bg-cyan-700 text-white gap-1.5">
+          {submitting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> جاري النسخ...</> : `🎨 نسخ "${selectedAd.name.slice(0, 30)}"`}
+        </Button>
+      )}
+
+      {/* Result */}
+      {result && (
+        <div className={`rounded-lg border p-3 text-xs space-y-1 ${result.success ? "border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400" : "border-red-200 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400"}`}>
+          <div className="font-semibold">{result.message}</div>
+          {result.success && (
+            <div className="space-y-0.5 text-[11px]">
+              {result.campaign_id && <div>🏷 Campaign ID: <span className="font-mono">{result.campaign_id}</span></div>}
+              {result.adset_id && <div>📦 AdSet ID: <span className="font-mono">{result.adset_id}</span></div>}
+              {result.creative_id && <div>🎨 Creative ID: <span className="font-mono">{result.creative_id}</span></div>}
+              {result.ad_id && <div>📢 Ad ID: <span className="font-mono">{result.ad_id}</span></div>}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1,0 +1,95 @@
+You are an expert Meta Ads developer working with the Pipeboard MCP API.
+
+Add TWO new campaign cards to the existing card library section in the codebase. These cards are for scaling winning ads from test campaigns. Both cards must create everything via Pipeboard MCP tools only (create_campaign, create_adset, create_ad, create_ad_creative). No dynamic creative. No is_dynamic_creative flag.
+
+---
+
+## CARD 1: "Scale AdSets"
+
+Purpose: Take winning AdSets from a test campaign and move them (duplicate) into a destination campaign.
+
+UI Flow:
+1. Dropdown: Select source campaign (fetch via get_campaigns)
+2. Multi-select: Choose which AdSets to scale (fetch via get_adsets filtered by campaign_id)
+3. Destination selector (radio):
+   - Option A: Existing campaign → dropdown (get_campaigns)
+   - Option B: New campaign → inputs: name, budget (EGP), budget type (CBO/ABO), bid strategy
+
+Backend Logic:
+- For each selected AdSet:
+  - Fetch AdSet details (get_adset_details) to get targeting, optimization_goal, billing_event, attribution_spec
+  - Fetch Ads inside that AdSet (get_ads filtered by adset_id)
+  - For each Ad: fetch creative details (get_ad_creatives)
+  - If destination = new campaign: create_campaign first (OUTCOME_SALES, PAUSED, special_ad_categories: [])
+  - create_adset in destination campaign with same settings as source AdSet:
+    - Same optimization_goal
+    - Same billing_event
+    - Same targeting
+    - Same attribution_spec
+    - targeting_automation: { advantage_audience: 1 }
+    - geo_locations: { countries: ["EG"] }
+    - status: PAUSED
+    - NO daily_budget if destination campaign is CBO
+  - For each Ad in the AdSet:
+    - create_ad_creative with same: page_id, video_id or image_hash, messages[], headlines[], link_url, call_to_action_type, pixel_id
+    - create_ad with: new adset_id, new creative_id, status: PAUSED
+    - If pixel exists: add tracking_specs: [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }]
+
+Pipeboard-specific rules:
+- account_id must have "act_" prefix for create_ad only
+- account_id WITHOUT "act_" for create_campaign, create_adset, create_ad_creative
+- Do NOT pass instagram_actor_id (causes Pipeboard permission error)
+- Do NOT add advantage_plus_creative or degrees_of_freedom_spec (causes error 1487015)
+- Extract IDs using: text.match(/"id"\s*:\s*"(\d{10,})"/)
+- Always check for nested "error" in response even on 200 status
+- campaign budget in cents (e.g. 100 EGP = 10000)
+
+---
+
+## CARD 2: "Scale Creative"
+
+Purpose: Take a winning Ad (creative) from any campaign and place it into a new or existing AdSet/Campaign.
+
+UI Flow:
+1. Dropdown: Select source campaign (get_campaigns)
+2. Dropdown: Select source Ad from that campaign (get_ads filtered by campaign_id)
+3. Destination selector (radio):
+   - Option A: Existing AdSet → dropdown (get_adsets)
+   - Option B: New AdSet in existing campaign → campaign dropdown + AdSet settings (name, optimization_goal)
+   - Option C: New AdSet in new campaign → inputs: campaign name, budget, CBO/ABO + AdSet name
+
+Backend Logic:
+- Fetch creative details of selected Ad (get_ad_creatives)
+- Extract: video_id or image_hash, page_id, messages[], headlines[], link_url, call_to_action_type, pixel_id
+- If Option C: create_campaign (OUTCOME_SALES, PAUSED, special_ad_categories: [])
+- If Option B or C: create_adset with:
+  - optimization_goal: OFFSITE_CONVERSIONS (default, same as source if available)
+  - billing_event: IMPRESSIONS
+  - targeting: { geo_locations: { countries: ["EG"] } }
+  - targeting_automation: { advantage_audience: 1 }
+  - attribution_spec: [{ event_type: "CLICK_THROUGH", window_days: 7 }, { event_type: "VIEW_THROUGH", window_days: 1 }]
+  - promoted_object: { pixel_id, custom_event_type: "PURCHASE" } if pixel exists
+  - status: PAUSED
+  - NO daily_budget if CBO campaign
+- create_ad_creative with extracted creative data
+- create_ad:
+  - account_id with act_ prefix
+  - adset_id: new or existing
+  - creative_id: newly created
+  - status: PAUSED
+  - tracking_specs if pixel exists
+
+---
+
+## SHARED RULES FOR BOTH CARDS:
+
+- All created campaigns/adsets/ads start as PAUSED
+- Always show progress per step (creating campaign... creating adset... creating ad...)
+- Show success summary: campaign_id, adset_id, ad_id for each created object
+- Show clear error per step if it fails, continue with remaining items
+- Target geo: Egypt only (EG), Presence targeting
+- No budget on AdSet if parent campaign is CBO
+- Use mcpText() helper to extract text from Pipeboard responses
+- Use the same logger.info pattern as existing cards in the codebase
+- Match the exact same card UI style, colors, and component structure as existing cards
+- Add both cards to the existing card library array with: id, title, description, icon, category: "scaling"

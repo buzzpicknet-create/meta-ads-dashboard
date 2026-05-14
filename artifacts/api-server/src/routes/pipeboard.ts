@@ -4397,4 +4397,279 @@ router.post("/pipeboard/best-combo", async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/pipeboard/campaigns/:id/ads — جلب الإعلانات مع Creative ──────────
+router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) => {
+  try {
+    const client = await getPipeboardWriteClient();
+    const accountId = String(req.query.account_id ?? "").replace(/^act_/, "");
+    const campaignId = String(req.params.id ?? "");
+    if (!accountId || !campaignId) {
+      res.status(400).json({ error: "account_id و campaign_id مطلوبان" }); return;
+    }
+    function mcpTxtCa(result: unknown): string {
+      return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+        .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
+    }
+    const adsResult = await client.callTool({
+      name: "get_ads",
+      arguments: { account_id: accountId, campaign_id: campaignId, fields: "id,name,adset_id,creative{id,body,title,video_id,image_hash,link_url,call_to_action{type}}", limit: 100 },
+    });
+    const text = mcpTxtCa(adsResult);
+    let ads: Record<string, unknown>[] = [];
+    try { const p = JSON.parse(text); ads = Array.isArray(p) ? p : (p?.data ?? []); } catch { ads = []; }
+    const normalized = ads.map(ad => {
+      const cr = (ad.creative as Record<string, unknown>) ?? {};
+      return {
+        id: ad.id, name: ad.name, adset_id: ad.adset_id,
+        video_id: cr.video_id ?? null, image_hash: cr.image_hash ?? null,
+        body: cr.body ?? null, title: cr.title ?? null, link_url: cr.link_url ?? null,
+        call_to_action_type: (cr.call_to_action as Record<string, unknown>)?.type ?? "LEARN_MORE",
+        creative_id: cr.id ?? null,
+      };
+    });
+    res.json({ ads: normalized });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// ── POST /api/pipeboard/scale-adsets — SSE streaming ─────────────────────────
+router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
+  const role = req.session?.role;
+  if (role !== "admin" && role !== "media_buyer") { res.status(403).json({ error: "غير مصرح" }); return; }
+  const {
+    account_id: rawAccountId, source_campaign_id, source_adset_ids,
+    dest_type, dest_campaign_id, new_campaign_name, new_campaign_budget, new_campaign_is_cbo,
+  } = req.body as {
+    account_id: string; source_campaign_id?: string; source_adset_ids: string[];
+    dest_type: "existing" | "new"; dest_campaign_id?: string;
+    new_campaign_name?: string; new_campaign_budget?: number; new_campaign_is_cbo?: boolean;
+  };
+  if (!rawAccountId || !source_adset_ids?.length) {
+    res.status(400).json({ error: "account_id, source_adset_ids مطلوبة" }); return;
+  }
+  const accountId = rawAccountId.replace(/^act_/, "");
+  const accountIdWithAct = `act_${accountId}`;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  function sse(data: object) { res.write(`data: ${JSON.stringify(data)}\n\n`); }
+  function mcpTxtSa(result: unknown): string {
+    return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
+  }
+
+  try {
+    const client = await getPipeboardWriteClient();
+    let pageId = "";
+    try {
+      const pr = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
+      const pt = mcpTxtSa(pr); const pm = pt.match(/"id"\s*:\s*"(\d+)"/) ?? pt.match(/(\d{10,})/); pageId = pm?.[1] ?? "";
+    } catch { /* ignore */ }
+
+    let destCampaignId = dest_campaign_id ?? "";
+    const isCBO = new_campaign_is_cbo ?? true;
+
+    if (dest_type === "new") {
+      sse({ type: "progress", message: "جاري إنشاء الحملة الجديدة..." });
+      const campArgs: Record<string, unknown> = {
+        account_id: accountId,
+        name: new_campaign_name ?? `Scale — ${new Date().toLocaleDateString("en-GB")}`,
+        objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [],
+      };
+      if (isCBO && new_campaign_budget) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      const campResult = await client.callTool({ name: "create_campaign", arguments: campArgs });
+      const campText = mcpTxtSa(campResult);
+      logger.info({ campText }, "scale-adsets: create_campaign");
+      const campIdMatch = campText.match(/"id"\s*:\s*"(\d{10,})"/);
+      if (!campIdMatch) { sse({ type: "error", message: `فشل إنشاء الحملة — ${campText.slice(0, 200)}` }); res.end(); return; }
+      destCampaignId = campIdMatch[1];
+      sse({ type: "campaign_created", campaign_id: destCampaignId, message: `✅ الحملة الجديدة (${destCampaignId})` });
+    }
+
+    let successCount = 0, failCount = 0;
+
+    for (const adsetId of source_adset_ids) {
+      try {
+        sse({ type: "progress", message: `جاري جلب تفاصيل الـ AdSet (${adsetId})...` });
+        let adsetDetails: Record<string, unknown> = {};
+        try {
+          const dr = await client.callTool({ name: "get_adset_details", arguments: { adset_id: adsetId } });
+          const dt = mcpTxtSa(dr); const dp = JSON.parse(dt);
+          adsetDetails = Array.isArray(dp) ? (dp[0] ?? {}) : dp;
+        } catch {
+          if (source_campaign_id) {
+            try {
+              const ar = await client.callTool({ name: "get_adsets", arguments: { account_id: accountId, campaign_id: source_campaign_id, fields: "id,name,optimization_goal,billing_event,targeting,attribution_spec,promoted_object,daily_budget", limit: 100 } });
+              const at = mcpTxtSa(ar); const ap = JSON.parse(at);
+              const aa: Record<string, unknown>[] = Array.isArray(ap) ? ap : (ap?.data ?? []);
+              adsetDetails = aa.find(a => String(a.id) === adsetId) ?? {};
+            } catch { /* ignore */ }
+          }
+        }
+        const adsetName = String(adsetDetails.name ?? adsetId);
+        sse({ type: "progress", message: `جاري جلب الإعلانات من "${adsetName}"...` });
+
+        const adsRes = await client.callTool({ name: "get_ads", arguments: { account_id: accountId, adset_id: adsetId, fields: "id,name,creative{id,body,title,video_id,image_hash,link_url,call_to_action{type}}", limit: 50 } });
+        const adsText = mcpTxtSa(adsRes);
+        let ads: Record<string, unknown>[] = [];
+        try { const p = JSON.parse(adsText); ads = Array.isArray(p) ? p : (p?.data ?? []); } catch { ads = []; }
+
+        const promotedObj = adsetDetails.promoted_object as Record<string, unknown> | undefined;
+        const pixelId = String(promotedObj?.pixel_id ?? "");
+        const targeting = (adsetDetails.targeting as Record<string, unknown>) ?? {};
+        const attributionSpec = adsetDetails.attribution_spec ?? [{ event_type: "CLICK_THROUGH", window_days: 7 }, { event_type: "VIEW_THROUGH", window_days: 1 }];
+        const optGoal = String(adsetDetails.optimization_goal ?? (pixelId ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS"));
+        const billingEvent = String(adsetDetails.billing_event ?? "IMPRESSIONS");
+
+        sse({ type: "progress", message: `جاري إنشاء الـ AdSet "${adsetName}"...` });
+        const newAdsetArgs: Record<string, unknown> = {
+          account_id: accountId, campaign_id: destCampaignId, name: adsetName,
+          optimization_goal: optGoal, billing_event: billingEvent,
+          targeting: { ...targeting, geo_locations: { countries: ["EG"] } },
+          targeting_automation: { advantage_audience: 1 },
+          attribution_spec: attributionSpec, status: "PAUSED",
+        };
+        if (!isCBO) { const db = Number(adsetDetails.daily_budget ?? 0); if (db > 0) newAdsetArgs.daily_budget = db; }
+        if (pixelId) newAdsetArgs.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
+
+        const newAdsetRes = await client.callTool({ name: "create_adset", arguments: newAdsetArgs });
+        const newAdsetText = mcpTxtSa(newAdsetRes);
+        logger.info({ newAdsetText }, "scale-adsets: create_adset");
+        const newAdsetIdMatch = newAdsetText.match(/"id"\s*:\s*"(\d{10,})"/);
+        if (!newAdsetIdMatch) { sse({ type: "adset_error", adset_name: adsetName, message: `فشل إنشاء AdSet — ${newAdsetText.slice(0, 200)}` }); failCount++; continue; }
+        const newAdsetId = newAdsetIdMatch[1];
+
+        let adSuccessCount = 0; const createdAdIds: string[] = [];
+        for (const ad of ads) {
+          const cr = (ad.creative as Record<string, unknown>) ?? {};
+          const videoId = String(cr.video_id ?? ""), imageHash = String(cr.image_hash ?? "");
+          const body = String(cr.body ?? ""), title = String(cr.title ?? "");
+          const linkUrl = String(cr.link_url ?? ""), cta = String((cr.call_to_action as Record<string, unknown>)?.type ?? "LEARN_MORE");
+          const adName = String(ad.name ?? "إعلان");
+          try {
+            sse({ type: "progress", message: `جاري إنشاء الإعلان "${adName}"...` });
+            const creativeArgs: Record<string, unknown> = {
+              account_id: accountId, name: `${adName} — Scale`, page_id: pageId,
+              messages: body ? [body] : [], headlines: title ? [title] : [], call_to_action_type: cta,
+            };
+            if (videoId) creativeArgs.video_id = videoId; else if (imageHash) creativeArgs.image_hash = imageHash;
+            if (linkUrl) { creativeArgs.link_url = linkUrl; creativeArgs.destination_url = linkUrl; }
+            if (pixelId) creativeArgs.pixel_id = pixelId;
+            const crRes = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+            const crText = mcpTxtSa(crRes);
+            logger.info({ crText: crText.slice(0, 200) }, "scale-adsets: create_ad_creative");
+            const crIdMatch = crText.match(/"id"\s*:\s*"(\d{10,})"/);
+            if (!crIdMatch) { sse({ type: "progress", message: `⚠️ فشل creative لـ "${adName}"` }); continue; }
+            const newAdArgs: Record<string, unknown> = { account_id: accountIdWithAct, name: adName, adset_id: newAdsetId, creative_id: crIdMatch[1], status: "PAUSED" };
+            if (pixelId) newAdArgs.tracking_specs = [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }];
+            const newAdRes = await client.callTool({ name: "create_ad", arguments: newAdArgs });
+            const newAdText = mcpTxtSa(newAdRes);
+            logger.info({ newAdText: newAdText.slice(0, 200) }, "scale-adsets: create_ad");
+            const newAdIdMatch = newAdText.match(/"id"\s*:\s*"(\d{10,})"/);
+            if (newAdIdMatch) { createdAdIds.push(newAdIdMatch[1]); adSuccessCount++; }
+          } catch (adErr) { sse({ type: "progress", message: `⚠️ خطأ: ${String(adErr).slice(0, 100)}` }); }
+        }
+        sse({ type: "adset_done", adset_name: adsetName, new_adset_id: newAdsetId, ads_created: adSuccessCount, total_ads: ads.length, ad_ids: createdAdIds });
+        successCount++;
+      } catch (adsetErr) { sse({ type: "adset_error", adset_id: adsetId, message: String(adsetErr).slice(0, 200) }); failCount++; }
+    }
+    sse({ type: "done", success: successCount, failed: failCount });
+  } catch (err) { sse({ type: "error", message: String(err) }); }
+  res.end();
+});
+
+// ── POST /api/pipeboard/scale-creative — نسخ Creative لـ AdSet/حملة جديدة ────
+router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => {
+  const role = req.session?.role;
+  if (role !== "admin" && role !== "media_buyer") { res.status(403).json({ error: "غير مصرح" }); return; }
+  const {
+    account_id: rawAccountId, source_ad, dest_type, dest_adset_id, dest_campaign_id,
+    new_adset_name, new_campaign_name, new_campaign_budget, new_campaign_is_cbo, pixel_id: providedPixelId,
+  } = req.body as {
+    account_id: string;
+    source_ad: { id: string; name: string; video_id?: string; image_hash?: string; body?: string; title?: string; link_url?: string; call_to_action_type?: string };
+    dest_type: "existing_adset" | "new_adset";
+    dest_adset_id?: string; dest_campaign_id?: string;
+    new_adset_name?: string; new_campaign_name?: string;
+    new_campaign_budget?: number; new_campaign_is_cbo?: boolean; pixel_id?: string;
+  };
+  if (!rawAccountId || !source_ad || !dest_type) { res.status(400).json({ error: "account_id, source_ad, dest_type مطلوبة" }); return; }
+  const accountId = rawAccountId.replace(/^act_/, "");
+  const accountIdWithAct = `act_${accountId}`;
+  const pixelId = providedPixelId ?? "";
+  const isCBO = new_campaign_is_cbo ?? false;
+  function mcpTxtSc(result: unknown): string {
+    return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
+  }
+  try {
+    const client = await getPipeboardWriteClient();
+    let pageId = "";
+    try {
+      const pr = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
+      const pt = mcpTxtSc(pr); const pm = pt.match(/"id"\s*:\s*"(\d+)"/) ?? pt.match(/(\d{10,})/); pageId = pm?.[1] ?? "";
+    } catch { /* ignore */ }
+
+    let finalCampaignId = dest_campaign_id ?? "";
+    if (dest_type === "new_adset" && !dest_campaign_id && new_campaign_name) {
+      const campArgs: Record<string, unknown> = { account_id: accountId, name: new_campaign_name, objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [] };
+      if (isCBO && new_campaign_budget) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      const cr = await client.callTool({ name: "create_campaign", arguments: campArgs });
+      const ct = mcpTxtSc(cr); logger.info({ ct }, "scale-creative: create_campaign");
+      const cm = ct.match(/"id"\s*:\s*"(\d{10,})"/);
+      if (!cm) { res.status(500).json({ error: `فشل إنشاء الحملة — ${ct.slice(0, 200)}` }); return; }
+      finalCampaignId = cm[1];
+    }
+
+    let finalAdsetId = dest_adset_id ?? "";
+    if (dest_type === "new_adset") {
+      const adsetArgs: Record<string, unknown> = {
+        account_id: accountId, campaign_id: finalCampaignId,
+        name: new_adset_name ?? `Scale Creative — ${new Date().toLocaleDateString("en-GB")}`,
+        optimization_goal: pixelId ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS",
+        billing_event: "IMPRESSIONS", targeting: { geo_locations: { countries: ["EG"] } },
+        targeting_automation: { advantage_audience: 1 },
+        attribution_spec: [{ event_type: "CLICK_THROUGH", window_days: 7 }, { event_type: "VIEW_THROUGH", window_days: 1 }],
+        status: "PAUSED",
+      };
+      if (!isCBO && new_campaign_budget) adsetArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      if (pixelId) adsetArgs.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
+      const ar = await client.callTool({ name: "create_adset", arguments: adsetArgs });
+      const at = mcpTxtSc(ar); logger.info({ at }, "scale-creative: create_adset");
+      const am = at.match(/"id"\s*:\s*"(\d{10,})"/);
+      if (!am) { res.status(500).json({ error: `فشل إنشاء الـ AdSet — ${at.slice(0, 200)}` }); return; }
+      finalAdsetId = am[1];
+    }
+
+    const adName = source_ad.name ?? "إعلان";
+    const creativeArgs: Record<string, unknown> = {
+      account_id: accountId, name: `${adName} — Scale`, page_id: pageId,
+      messages: source_ad.body ? [source_ad.body] : [], headlines: source_ad.title ? [source_ad.title] : [],
+      call_to_action_type: source_ad.call_to_action_type ?? "LEARN_MORE",
+    };
+    if (source_ad.video_id) creativeArgs.video_id = source_ad.video_id;
+    else if (source_ad.image_hash) creativeArgs.image_hash = source_ad.image_hash;
+    if (source_ad.link_url) { creativeArgs.link_url = source_ad.link_url; creativeArgs.destination_url = source_ad.link_url; }
+    if (pixelId) creativeArgs.pixel_id = pixelId;
+    const crRes = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+    const crText = mcpTxtSc(crRes); logger.info({ crText }, "scale-creative: create_ad_creative");
+    const crIdMatch = crText.match(/"id"\s*:\s*"(\d{10,})"/);
+    if (!crIdMatch) { res.status(500).json({ error: `فشل إنشاء Creative — ${crText.slice(0, 200)}` }); return; }
+    const creativeId = crIdMatch[1];
+
+    const newAdArgs: Record<string, unknown> = { account_id: accountIdWithAct, name: `${adName} — Scale`, adset_id: finalAdsetId, creative_id: creativeId, status: "PAUSED" };
+    if (pixelId) newAdArgs.tracking_specs = [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }];
+    const newAdRes = await client.callTool({ name: "create_ad", arguments: newAdArgs });
+    const newAdText = mcpTxtSc(newAdRes); logger.info({ newAdText }, "scale-creative: create_ad");
+    const newAdIdMatch = newAdText.match(/"id"\s*:\s*"(\d{10,})"/);
+    res.json({
+      success: true, campaign_id: finalCampaignId || undefined, adset_id: finalAdsetId,
+      creative_id: creativeId, ad_id: newAdIdMatch?.[1] ?? "",
+      message: `✅ تم نسخ "${adName}" بنجاح`,
+    });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
 export default router;
