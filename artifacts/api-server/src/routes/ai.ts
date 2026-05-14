@@ -794,8 +794,8 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - landing_page_url: Destination URL (أساس خريطة الـ Pixel)
    - media_url: Media URL (Drive link أو رابط مباشر)
    - pixel_id: الرقم بعد "Pixel ID:" — **إلزامي. إذا لم يُذكر: طبّق خريطة الدومين تلقائياً**
-   - primary texts → creatives[].primary_text (كل النصوص)
-   - headlines → creatives[].headline (كل العناوين)
+   - primary texts → creatives[].primary_text (النص الأول فقط — نص واحد بس)
+   - headlines → creatives[].headline (العنوان الأول فقط — عنوان واحد بس)
    - budget: الرقم المذكور (EGP)
 ٣. لـ TESTING (ABO):
    - adsets: كل الـ AdSets المذكورة في البرومبت — كل AdSet له name وbudget من البرومبت. لا تستخدم "Broad Test" كاسم افتراضي
