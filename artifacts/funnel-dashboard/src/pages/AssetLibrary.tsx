@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAccounts } from "@/hooks/use-meta";
@@ -1512,14 +1512,14 @@ ${allHeadlines}
 // ── Best Combo Component ──────────────────────────────────────────────────────
 function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickForm, v: unknown) => void }) {
   const { toast } = useToast();
-  const [campaigns, setCampaigns] = React.useState<{ id: string; name: string; is_cbo: boolean }[]>([]);
-  const [loadingCampaigns, setLoadingCampaigns] = React.useState(false);
-  const [loadingAdsets, setLoadingAdsets] = React.useState(false);
-  const [campaignSearch, setCampaignSearch] = React.useState("");
-  const [targetSearch, setTargetSearch] = React.useState("");
-  const [submitting, setSubmitting] = React.useState(false);
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string; is_cbo: boolean }[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [loadingAdsets, setLoadingAdsets] = useState(false);
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [targetSearch, setTargetSearch] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     async function fetchCampaigns() {
       setLoadingCampaigns(true);
       try {
