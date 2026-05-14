@@ -305,8 +305,8 @@ function RenderMarkdown({ text }: { text: string }) {
       if (lvl === 1) {
         elems.push(<p key={i} className="ai-h1-sovereign">{renderInline(content)}</p>);
       } else {
-        const sz = lvl===2?"text-[14px]":"text-[13px]";
-        elems.push(<p key={i} className={`font-bold ${sz} mt-4 mb-1.5 leading-snug border-b border-border/40 pb-1.5`}>{renderInline(content)}</p>);
+        const sz = lvl===2?"text-[17px]":"text-[15.5px]";
+        elems.push(<p key={i} className={`font-bold ${sz} mt-4 mb-1.5 leading-snug border-b border-border/40 pb-1.5`} dir="auto">{renderInline(content)}</p>);
       }
       i++; continue;
     }
@@ -319,7 +319,7 @@ function RenderMarkdown({ text }: { text: string }) {
       const isOpus = /المنطق الاستراتيجي|Opus Logic/i.test(bqText);
       elems.push(isOpus
         ? <div key={i} className="ai-opus-logic">{renderInline(bqText)}</div>
-        : <div key={i} className="my-2 border-r-4 border-primary/40 pr-3 py-1 bg-primary/5 rounded-sm text-[13px] text-foreground/80 leading-relaxed">{renderInline(bqText)}</div>
+        : <div key={i} className="my-2 border-r-4 border-primary/40 pr-3 py-1 bg-primary/5 rounded-sm text-[15px] text-foreground/80 leading-relaxed" dir="auto">{renderInline(bqText)}</div>
       );
       continue;
     }
@@ -396,9 +396,9 @@ function RenderMarkdown({ text }: { text: string }) {
       const items: string[] = [];
       while (i<lines.length && /^[-*]\s/.test(lines[i]!)) { items.push(lines[i]!.replace(/^[-*]\s/,"")); i++; }
       elems.push(<ul key={`ul${i}`} className="my-2 space-y-1">{items.map((it,ii)=>(
-        <li key={ii} className="flex gap-2 text-[13.5px] leading-relaxed">
-          <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60 shrink-0"/>
-          <span>{renderInline(it)}</span>
+        <li key={ii} className="flex gap-2 text-[15.5px] leading-relaxed">
+          <span className="mt-2 h-1.5 w-1.5 rounded-full bg-primary/60 shrink-0"/>
+          <span dir="auto">{renderInline(it)}</span>
         </li>
       ))}</ul>);
       continue;
@@ -409,15 +409,15 @@ function RenderMarkdown({ text }: { text: string }) {
       let n=1;
       while (i<lines.length && /^\d+\.\s/.test(lines[i]!)) { items.push(lines[i]!.replace(/^\d+\.\s/,"")); i++; n++; }
       elems.push(<ol key={`ol${i}`} className="my-2 space-y-1">{items.map((it,ii)=>(
-        <li key={ii} className="flex gap-2 text-[13.5px] leading-relaxed">
-          <span className="shrink-0 text-primary/60 font-mono text-[12px] mt-0.5">{ii+1}.</span>
-          <span>{renderInline(it)}</span>
+        <li key={ii} className="flex gap-2 text-[15.5px] leading-relaxed">
+          <span className="shrink-0 text-primary/60 font-mono text-[13px] mt-0.5">{ii+1}.</span>
+          <span dir="auto">{renderInline(it)}</span>
         </li>
       ))}</ol>);
       continue;
     }
 
-    elems.push(<p key={i} className="text-[13.5px] leading-relaxed">{renderInline(line)}</p>);
+    elems.push(<p key={i} className="text-[15.5px] leading-relaxed" dir="auto">{renderInline(line)}</p>);
     i++;
   }
   return <div className="space-y-0.5">{elems}</div>;
@@ -1162,7 +1162,7 @@ export default function AiChatPage() {
           ) : (
 
             /* ── Chat messages ── */
-            <div className="max-w-3xl mx-auto w-full px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+            <div className="w-full px-4 sm:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
               {msgs.map((m,i)=>(
                 <div key={i} className={`flex gap-3 ${m.role==="user"?"flex-row-reverse":""}`}>
                   <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${m.role==="user"?"bg-primary text-primary-foreground":"bg-muted"}`}>
@@ -1172,7 +1172,7 @@ export default function AiChatPage() {
                     {m.role==="user" ? (
                       <>
                         {m.imagePreviewUrl && <img src={m.imagePreviewUrl} alt="" className="mb-2 max-h-48 rounded-lg border border-border" />}
-                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3 sm:px-4 py-2.5 text-sm max-w-[90%] sm:max-w-[80%] whitespace-pre-wrap">
+                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 sm:px-5 py-3 text-base max-w-[90%] sm:max-w-[85%] whitespace-pre-wrap" dir="auto">
                           {m.content}
                         </div>
                       </>
@@ -1283,7 +1283,7 @@ export default function AiChatPage() {
         <div className="shrink-0 border-t border-border/60 bg-background/80 backdrop-blur px-3 sm:px-4 pt-2 sm:pt-3 pb-3 sm:pb-4">
           {/* Attachment preview */}
           {attachment && (
-            <div className="mb-2 max-w-3xl mx-auto">
+            <div className="mb-2">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted border border-border text-sm">
                 {attachment.isImage && attachment.previewUrl
                   ? <img src={attachment.previewUrl} alt="" className="h-6 w-6 rounded object-cover"/>
@@ -1298,7 +1298,7 @@ export default function AiChatPage() {
 
           {/* Flex Scale wizard buttons */}
           {flexState && flexState.step > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
               {flexState.step === 1 && (
                 <button onClick={() => {
                   void send(`استدعِ create_campaign: الاسم ${flexState.newName} - daily_budget ${flexState.budget} - objective OUTCOME_SALES - status PAUSED. لا تفعل أي شيء آخر.`);
@@ -1334,7 +1334,7 @@ export default function AiChatPage() {
           )}
           {/* Quick actions strip (when chat has messages) — hidden on mobile to save space */}
           {!isEmpty && (
-            <div className="hidden sm:flex gap-2 overflow-x-auto pb-2 mb-2 max-w-3xl mx-auto scrollbar-hide">
+            <div className="hidden sm:flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
               {QA_ALL.map((q,idx)=>(
                 <button key={q.label} onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }} disabled={streaming}
                   className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 whitespace-nowrap ${
@@ -1351,7 +1351,7 @@ export default function AiChatPage() {
           )}
 
           {/* Input row */}
-          <div className="relative flex gap-2 items-end max-w-3xl mx-auto">
+          <div className="relative flex gap-2 items-end">
             <input ref={fileRef} type="file" accept="image/*,.txt,.csv,.json,.md" className="hidden" onChange={async e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;try{setAtt(await readFile(f));}catch(err){alert(err instanceof Error?err.message:"خطأ");}}} />
 
             <button onClick={()=>fileRef.current?.click()} title="إرفاق ملف أو صورة"
