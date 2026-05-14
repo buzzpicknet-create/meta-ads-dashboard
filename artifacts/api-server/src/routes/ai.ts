@@ -724,8 +724,9 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
 ٦. استدعِ launch_pipeboard_campaign بكل المعلومات:
    - **daily_budget**: الميزانية اليومية بـ EGP — مطلوب دائماً، اجلبه من المستخدم صراحةً (مثال: 50)
    - adsets: مصفوفة [{name, budget}] — للمجموعات المتعددة فقط (ABO). للمجموعة الواحدة استخدم daily_budget بدلاً منه
-   - creatives: مصفوفة [{media_url, media_type, primary_text, headline}] — حتى لو creative واحد
-     * إذا أرسل المستخدم رابط مجلد Google Drive (drive.google.com/drive/folders/...) → ضعه في media_url مباشرةً وسيستخرج الـ backend جميع الصور/الفيديوهات منه تلقائياً ويوسّعها إلى creatives متعددة
+   - creatives: مصفوفة [{media_url, media_type, texts:[], headlines:[]}] — حتى لو creative واحد
+     * إذا أرسل المستخدم رابط مجلد Google Drive (drive.google.com/drive/folders/...) → ضعه في creative واحد فقط في media_url، وضع كل النصوص في texts:[] وكل العناوين في headlines:[] — لا تكرر الـ folder في creatives متعددة
+     * الـ backend سيستخرج كل الفيديوهات من الـ folder تلقائياً ويعمل إعلان لكل فيديو بنفس النصوص والعناوين
      * إذا أرسل روابط ملفات مباشرة → ضعها في creatives كمصفوفة كالمعتاد
    - page_id: **لا تضفه** إلا إذا أعطاك المستخدم page_id صراحةً — الـ backend يجلبه تلقائياً إذا لم يُرسَل
    - pixel_id: أرسله إذا وافق المستخدم
