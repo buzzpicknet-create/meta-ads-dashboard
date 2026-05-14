@@ -1523,8 +1523,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
     async function fetchCampaigns() {
       setLoadingCampaigns(true);
       try {
-        const res = await apiFetch("/pipeboard/campaigns?account_id=auto");
-        const data = await res.json();
+        const data = await apiFetch<{ campaigns: { id: string; name: string; is_cbo: boolean }[] }>("/pipeboard/campaigns?account_id=auto");
         setCampaigns(data.campaigns ?? []);
       } catch { toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }); }
       finally { setLoadingCampaigns(false); }
@@ -1536,8 +1535,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
     setLoadingAdsets(true);
     upd("comboAdsets", []); upd("comboSelAdsets", []); upd("comboStep", 1);
     try {
-      const res = await apiFetch(`/pipeboard/campaigns/${campaignId}/adsets?account_id=auto`);
-      const data = await res.json();
+      const data = await apiFetch<{ adsets: unknown[]; is_cbo: boolean }>(`/pipeboard/campaigns/${campaignId}/adsets?account_id=auto`);
       upd("comboAdsets", data.adsets ?? []);
       upd("comboIsCBO", data.is_cbo ?? false);
     } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
@@ -1555,7 +1553,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
     }
     setSubmitting(true);
     try {
-      const res = await apiFetch("/pipeboard/best-combo", {
+      const data = await apiFetch<{ success: boolean; message?: string; error?: string }>("/pipeboard/best-combo", {
         method: "POST",
         body: JSON.stringify({
           account_id: "auto",
@@ -1569,7 +1567,6 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
           is_cbo: form.comboIsCBO,
         }),
       });
-      const data = await res.json();
       if (data.success) { toast({ title: "✅ " + data.message }); upd("comboStep", 0); }
       else { toast({ title: "❌ " + data.error, variant: "destructive" }); }
     } catch (e) { toast({ title: "❌ خطأ: " + String(e), variant: "destructive" }); }
