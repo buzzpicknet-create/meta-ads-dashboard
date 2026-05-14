@@ -4117,7 +4117,7 @@ router.get(
           campaign_id: campaignId,
           level: "adset",
           fields:
-            "adset_id,adset_name,spend,cpa,ctr,hook_rate,impressions,actions",
+            "adset_id,adset_name,spend,impressions,clicks,actions,video_avg_time_watched_actions,video_thruplay_watched_actions",
           date_preset: "last_7d",
           limit: 50,
         },
