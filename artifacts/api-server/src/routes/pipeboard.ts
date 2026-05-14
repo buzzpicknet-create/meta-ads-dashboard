@@ -2772,68 +2772,70 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
       // ── Step 4: Create adsets × creatives → ads ──────────────────────────
       for (const adset of rawAdsets) {
-        let adsetId = "";
-        let adsetErr = "";
+        // Create one AdSet + one Ad per creative (video)
+        for (let ci = 0; ci < rawCreatives.length; ci++) {
+          // ── Create a dedicated AdSet for this creative (video) ──
+          // Each video gets its own AdSet with is_dynamic_creative=true
+          let adsetId = "";
+          let adsetErr = "";
+          const adsetName = `${adset.name} — video ${ci + 1}`;
 
-        try {
-          // NOTE: Budget lives on the CAMPAIGN (CBO mode). Do NOT set daily_budget on
-          // adsets — it conflicts with CBO and causes Meta to ignore the campaign budget.
-          const adsetArgs: Record<string, unknown> = {
-            account_id: accountId,
-            campaign_id: campaignId,
-            name: adset.name,
-            optimization_goal: optimizationGoal,
-            billing_event: "IMPRESSIONS",
-            status: "PAUSED",
-            targeting: { geo_locations: { countries: ["EG"] } },
-            targeting_automation: { advantage_audience: 1 },
-            attribution_spec: [
-              { event_type: "CLICK_THROUGH", window_days: 7 },
-              { event_type: "VIEW_THROUGH", window_days: 1 },
-            ],
-          };
-          if (hasPixel) {
-            adsetArgs.promoted_object = {
-              pixel_id: pixelId,
-              custom_event_type: "PURCHASE",
+          try {
+            // NOTE: Budget lives on the CAMPAIGN (CBO mode). Do NOT set daily_budget on
+            // adsets — it conflicts with CBO and causes Meta to ignore the campaign budget.
+            const adsetArgs: Record<string, unknown> = {
+              account_id: accountId,
+              campaign_id: campaignId,
+              name: adsetName,
+              optimization_goal: optimizationGoal,
+              billing_event: "IMPRESSIONS",
+              status: "PAUSED",
+              is_dynamic_creative: true,
+              targeting: { geo_locations: { countries: ["EG"] } },
+              targeting_automation: { advantage_audience: 1 },
+              attribution_spec: [
+                { event_type: "CLICK_THROUGH", window_days: 7 },
+                { event_type: "VIEW_THROUGH", window_days: 1 },
+              ],
             };
+            if (hasPixel) {
+              adsetArgs.promoted_object = {
+                pixel_id: pixelId,
+                custom_event_type: "PURCHASE",
+              };
+            }
+            const adsetResult = await client.callTool({
+              name: "create_adset",
+              arguments: adsetArgs,
+            });
+            const adsetText = mcpText(adsetResult);
+            logger.info(
+              { adsetText },
+              `launch_pipeboard_campaign: create_adset "${adsetName}"`,
+            );
+            const adsetIdMatch =
+              adsetText.match(/"id"\s*:\s*"(\d+)"/) ??
+              adsetText.match(/(\d{10,})/);
+            adsetId = adsetIdMatch?.[1] ?? "";
+            if (!adsetId)
+              adsetErr = `فشل إنشاء AdSet "${adsetName}" — ${adsetText.slice(0, 200)}`;
+          } catch (e) {
+            adsetErr = `فشل إنشاء AdSet "${adsetName}": ${e instanceof Error ? e.message : String(e)}`;
+            logger.warn(
+              { adsetErr },
+              "launch_pipeboard_campaign: create_adset threw",
+            );
           }
-          const adsetResult = await client.callTool({
-            name: "create_adset",
-            arguments: adsetArgs,
-          });
-          const adsetText = mcpText(adsetResult);
-          logger.info(
-            { adsetText },
-            `launch_pipeboard_campaign: create_adset "${adset.name}"`,
-          );
-          const adsetIdMatch =
-            adsetText.match(/"id"\s*:\s*"(\d+)"/) ??
-            adsetText.match(/\b(\d{10,})\b/);
-          adsetId = adsetIdMatch?.[1] ?? "";
-          if (!adsetId)
-            adsetErr = `فشل إنشاء AdSet "${adset.name}" — ${adsetText.slice(0, 200)}`;
-        } catch (e) {
-          adsetErr = `فشل إنشاء AdSet "${adset.name}": ${e instanceof Error ? e.message : String(e)}`;
-          logger.warn(
-            { adsetErr },
-            "launch_pipeboard_campaign: create_adset threw",
-          );
-        }
 
-        if (!adsetId) {
-          for (let ci = 0; ci < rawCreatives.length; ci++) {
+          if (!adsetId) {
             adResults.push({
-              adset_name: adset.name,
+              adset_name: adsetName,
               creative_index: ci,
               error: adsetErr,
             });
+            continue;
           }
-          continue;
-        }
 
-        // Create creative + ad for each creative in this adset
-        for (let ci = 0; ci < rawCreatives.length; ci++) {
           const creative = rawCreatives[ci]!;
           const rawUrl = creative.media_url?.trim() ?? "";
           const mediaUrl = normaliseMediaUrl(rawUrl);
@@ -4114,11 +4116,10 @@ router.get(
         name: "get_insights",
         arguments: {
           account_id: accountId,
+          campaign_id: campaignId,
           level: "adset",
-          filtering: [{ field: "campaign.id", operator: "EQUAL", value: campaignId }],
           fields: "adset_id,adset_name,spend,impressions,clicks,actions",
           date_preset: "last_7d",
-          limit: 50,
         },
       });
 
