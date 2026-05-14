@@ -1468,6 +1468,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    if (!form.flexAccountId) return;
     async function fetchCampaigns() {
       setLoadingCampaigns(true);
       try {
@@ -1477,7 +1478,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
       finally { setLoadingCampaigns(false); }
     }
     fetchCampaigns();
-  }, []);
+  }, [form.flexAccountId]);
 
   async function fetchAdsets(campaignId: string) {
     setLoadingAdsets(true);
