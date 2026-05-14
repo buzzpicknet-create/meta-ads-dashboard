@@ -1532,6 +1532,13 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
         <span className="text-sm font-semibold">تركيبة الوينر</span>
         <span className="text-[11px] text-muted-foreground mr-auto">أفضل فيديو + نص + عنوان من حملاتك</span>
       </div>
+      {!form.flexAccountId && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">رقم حساب الإعلانات</label>
+          <Input placeholder="act_XXXXXXXXX" className="h-8 text-xs font-mono" dir="ltr"
+            onBlur={e => { const v = e.target.value.trim(); if (v) upd("flexAccountId", v.replace(/^act_/, "")); }} />
+        </div>
+      )}
 
       {/* Step 1: الحملة المصدر */}
       <div className="space-y-1.5">
