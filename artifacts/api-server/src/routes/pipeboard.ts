@@ -4114,10 +4114,9 @@ router.get(
         name: "get_insights",
         arguments: {
           account_id: accountId,
-          campaign_id: campaignId,
           level: "adset",
-          fields:
-            "adset_id,adset_name,spend,impressions,clicks,actions,video_avg_time_watched_actions,video_thruplay_watched_actions",
+          filtering: [{ field: "campaign.id", operator: "EQUAL", value: campaignId }],
+          fields: "adset_id,adset_name,spend,impressions,clicks,actions",
           date_preset: "last_7d",
           limit: 50,
         },
