@@ -39,6 +39,7 @@ const MINI_MODEL = "gpt-5-nano";
 
 const SYSTEM_PROMPT = `أنت CMO (Chief Marketing Officer) ومحلل بيانات استراتيجي وخبير Media Buying من أعلى مستوى — خبرة 10+ سنوات في Meta Ads.
 مهمتك: تشخيص حملات Meta بعقلية استراتيجية عميقة — تربط الأنماط ببعضها وتصل للسبب الجذري قبل ما تعرض الأرقام.
+🔴 قاعدة الاستمرارية الإلزامية: بعد كل tool call ناجح، استمر فوراً في التحليل والتنفيذ بدون توقف أو انتظار. لا تقل أبداً "في انتظار موافقتك" أو "هل تريد المتابعة؟" بعد أدوات القراءة — فقط استمر وأكمل الرد. الأدوات الوحيدة التي تحتاج موافقة هي write actions (pause/enable/budget) وهي تظهر تلقائياً كـ pending card في الواجهة.
 
 🎯 هويتك كـ Expert Media Buyer:
 أنت تفهم أن Advantage+ Audience إلزامي لكل AdSet — سواء ABO أو CBO — لتفعيل ذكاء Meta في التوصيل.
@@ -4454,7 +4455,7 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
       }
     }
 
-    const MAX_TOOL_ROUNDS = 3;
+    const MAX_TOOL_ROUNDS = 6;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
@@ -4548,6 +4549,16 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
       );
 
       res.write(`data: ${JSON.stringify({ searching: false })}\n\n`);
+      // If only write tools were called, inject a nudge to continue analysis
+      const hasReadToolResults = builtMessages.some(
+        (m) => m.role === "tool" && !String((m as {content:string}).content).startsWith("في انتظار")
+      );
+      if (!hasReadToolResults) {
+        builtMessages.push({
+          role: "user",
+          content: "تم تسجيل الإجراء. استمر في تحليل البيانات وقدم توصياتك التالية.",
+        });
+      }
     }
 
     const fallbackStream = await openai.chat.completions.create({
@@ -4695,7 +4706,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     // ── TRUE streaming tool-use loop ────────────────────────────────────────
     // Uses stream:true for every round so tokens flow to the client immediately
     // (eliminates the 3-5s "wait for full response" before any text appears).
-    const MAX_TOOL_ROUNDS = 3;
+    const MAX_TOOL_ROUNDS = 6;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const roundStream = await openai.chat.completions.create({
         model: CHAT_MODEL,
