@@ -235,17 +235,17 @@
   min-width: 1300px;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 /* ── Header ── */
 .ai-tbl thead th {
-  padding: 9px 10px;
+  padding: 10px 12px;
   text-align: center;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   color: hsl(var(--muted-foreground));
   white-space: nowrap;
   background: hsl(var(--muted) / 0.65);
@@ -272,7 +272,7 @@
 
 /* ── All body cells (numeric) ── */
 .ai-tbl tbody td {
-  padding: 6px 10px;
+  padding: 8px 12px;
   text-align: center;
   direction: ltr;
   color: hsl(var(--foreground) / 0.8);
@@ -280,7 +280,7 @@
   border-bottom: 1px solid hsl(var(--border) / 0.1);
   font-variant-numeric: tabular-nums;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  font-size: 13px;
+  font-size: 15px;
   vertical-align: middle;
 }
 .ai-tbl tbody tr:last-child td { border-bottom: none; }
@@ -316,7 +316,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: hsl(var(--foreground));
   line-height: 1.35;
@@ -457,13 +457,13 @@
 /* ── Opus Logic blockquote card ── */
 .ai-opus-logic {
   margin: 1rem 0;
-  padding: 10px 14px;
+  padding: 14px 18px;
   border-radius: 10px;
   background: linear-gradient(135deg, hsl(234 89% 74% / 0.09), hsl(270 80% 70% / 0.07));
   border: 1px solid hsl(234 89% 74% / 0.25);
   border-right: 3px solid hsl(234 89% 62%);
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: 16px;
+  line-height: 1.75;
   color: hsl(var(--foreground) / 0.9);
 }
 .dark .ai-opus-logic {

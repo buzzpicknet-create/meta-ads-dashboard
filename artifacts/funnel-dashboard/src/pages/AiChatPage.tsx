@@ -192,16 +192,39 @@ function ChartBlock({ spec }: { spec: ChartSpec }) {
 }
 
 // ─── Markdown renderer ─────────────────────────────────────────────────────────
+// Regex to detect Latin (English) word sequences so we can wrap them in <bdi>
+// for correct bidirectional rendering inside Arabic RTL paragraphs.
+const LATIN_RUN_RE = /([A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z][A-Za-z0-9]*)*)/g;
+
+function wrapLatinRuns(text: string, keyPrefix: string): React.ReactNode[] {
+  const chunks = text.split(LATIN_RUN_RE);
+  return chunks.map((chunk, ci) =>
+    /^[A-Za-z]/.test(chunk)
+      ? <bdi key={`${keyPrefix}-l${ci}`}>{chunk}</bdi>
+      : chunk
+  );
+}
+
 function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\([+-][0-9]+(?:\.[0-9]+)?%\))/g);
-  return parts.map((p,i) => {
-    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold">{p.slice(2,-2)}</strong>;
-    if (p.startsWith("*")  && p.endsWith("*"))  return <em key={i} className="italic">{p.slice(1,-1)}</em>;
-    if (p.startsWith("`")  && p.endsWith("`"))  return <code key={i} className="font-mono text-[12px] bg-muted/70 text-primary px-1.5 py-0.5 rounded border border-border/50">{p.slice(1,-1)}</code>;
-    if (/^\(\+[0-9]/.test(p)) return <span key={i} className="ai-trend-up">{p}</span>;
-    if (/^\(-[0-9]/.test(p))  return <span key={i} className="ai-trend-down">{p}</span>;
-    return p;
+  const result: React.ReactNode[] = [];
+  parts.forEach((p, i) => {
+    if (p.startsWith("**") && p.endsWith("**")) {
+      result.push(<strong key={i} className="font-semibold">{p.slice(2,-2)}</strong>);
+    } else if (p.startsWith("*") && p.endsWith("*")) {
+      result.push(<em key={i} className="italic">{p.slice(1,-1)}</em>);
+    } else if (p.startsWith("`") && p.endsWith("`")) {
+      result.push(<code key={i} className="font-mono text-[13px] bg-muted/70 text-primary px-1.5 py-0.5 rounded border border-border/50">{p.slice(1,-1)}</code>);
+    } else if (/^\(\+[0-9]/.test(p)) {
+      result.push(<span key={i} className="ai-trend-up">{p}</span>);
+    } else if (/^\(-[0-9]/.test(p)) {
+      result.push(<span key={i} className="ai-trend-down">{p}</span>);
+    } else {
+      // Plain text — wrap any Latin runs in <bdi> for RTL isolation
+      result.push(...wrapLatinRuns(p, String(i)));
+    }
   });
+  return result;
 }
 
 function RenderMarkdown({ text }: { text: string }) {
@@ -306,7 +329,7 @@ function RenderMarkdown({ text }: { text: string }) {
         elems.push(<p key={i} className="ai-h1-sovereign">{renderInline(content)}</p>);
       } else {
         const sz = lvl===2?"text-[17px]":"text-[15.5px]";
-        elems.push(<p key={i} className={`font-bold ${sz} mt-4 mb-1.5 leading-snug border-b border-border/40 pb-1.5`} dir="auto">{renderInline(content)}</p>);
+        elems.push(<p key={i} className={`font-bold ${sz} mt-4 mb-1.5 leading-snug border-b border-border/40 pb-1.5`}>{renderInline(content)}</p>);
       }
       i++; continue;
     }
@@ -398,7 +421,7 @@ function RenderMarkdown({ text }: { text: string }) {
       elems.push(<ul key={`ul${i}`} className="my-2 space-y-1">{items.map((it,ii)=>(
         <li key={ii} className="flex gap-2 text-[15.5px] leading-relaxed">
           <span className="mt-2 h-1.5 w-1.5 rounded-full bg-primary/60 shrink-0"/>
-          <span dir="auto">{renderInline(it)}</span>
+          <span>{renderInline(it)}</span>
         </li>
       ))}</ul>);
       continue;
@@ -406,18 +429,17 @@ function RenderMarkdown({ text }: { text: string }) {
 
     if (/^\d+\.\s/.test(line)) {
       const items: string[] = [];
-      let n=1;
-      while (i<lines.length && /^\d+\.\s/.test(lines[i]!)) { items.push(lines[i]!.replace(/^\d+\.\s/,"")); i++; n++; }
+      while (i<lines.length && /^\d+\.\s/.test(lines[i]!)) { items.push(lines[i]!.replace(/^\d+\.\s/,"")); i++; }
       elems.push(<ol key={`ol${i}`} className="my-2 space-y-1">{items.map((it,ii)=>(
         <li key={ii} className="flex gap-2 text-[15.5px] leading-relaxed">
           <span className="shrink-0 text-primary/60 font-mono text-[13px] mt-0.5">{ii+1}.</span>
-          <span dir="auto">{renderInline(it)}</span>
+          <span>{renderInline(it)}</span>
         </li>
       ))}</ol>);
       continue;
     }
 
-    elems.push(<p key={i} className="text-[15.5px] leading-relaxed" dir="auto">{renderInline(line)}</p>);
+    elems.push(<p key={i} className="text-[15.5px] leading-relaxed">{renderInline(line)}</p>);
     i++;
   }
   return <div className="space-y-0.5">{elems}</div>;
@@ -1180,17 +1202,11 @@ export default function AiChatPage() {
                       <div className="text-foreground">
                         <RenderMarkdown text={m.content} />
                         {m.tool_calls && m.tool_calls.length>0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {m.tool_calls.slice(0, 3).map((tc,ti)=>(
-                              <span key={ti} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-[11px] text-muted-foreground border border-border/60">
-                                <CheckCircle2 className="h-3 w-3 text-emerald-500" />{tc}
-                              </span>
-                            ))}
-                            {m.tool_calls.length > 3 && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-[11px] text-muted-foreground border border-border/60">
-                                +{m.tool_calls.length - 3} عملية أخرى
-                              </span>
-                            )}
+                          <div className="mt-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 text-[11px] text-muted-foreground/60 border border-border/40">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-500/70" />
+                              {m.tool_calls.length} {m.tool_calls.length === 1 ? "عملية" : "عمليات"}
+                            </span>
                           </div>
                         )}
                       </div>
