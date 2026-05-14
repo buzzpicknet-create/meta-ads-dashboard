@@ -1636,23 +1636,43 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
       {/* Multi-select adsets */}
       {adsets.length > 0 && (
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">② اختار الـ AdSets المراد نسخها</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground">② اختار الـ AdSets المراد نسخها</label>
+            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">آخر 7 أيام</span>
+          </div>
           {loadingAdsets ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
-            <div className="space-y-0.5 max-h-40 overflow-y-auto">
-              {adsets.map(a => (
-                <button key={a.id} onClick={() => toggleAdset(a.id)}
-                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors flex justify-between items-center ${selectedAdsets.includes(a.id) ? "border-rose-400 bg-rose-50 dark:bg-rose-900/20" : "border-border hover:border-rose-300"}`}>
-                  <span className="font-medium flex items-center gap-1.5">
-                    {selectedAdsets.includes(a.id) && <span className="text-rose-500">✓</span>}
-                    {a.name}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground flex gap-2">
-                    {a.spend != null && <span>إنفاق: {Number(a.spend).toFixed(0)}</span>}
-                    {a.ctr != null && <span>CTR: {a.ctr}%</span>}
-                    {a.cpa != null && <span>CPA: {a.cpa}</span>}
-                  </span>
-                </button>
-              ))}
+            <div className="space-y-0.5 max-h-52 overflow-y-auto">
+              {adsets.map(a => {
+                const cpa = a.cpa;
+                const isWinner = cpa !== null && cpa <= 40;
+                const isWarning = cpa !== null && cpa > 40 && cpa <= 100;
+                const isDanger = cpa !== null && cpa > 100;
+                return (
+                  <button key={a.id} onClick={() => toggleAdset(a.id)}
+                    className={`w-full text-right text-xs px-2 py-2 rounded-md border transition-colors ${selectedAdsets.includes(a.id) ? "border-rose-400 bg-rose-50 dark:bg-rose-900/20" : "border-border hover:border-rose-300"}`}>
+                    <div className="flex justify-between items-start gap-2">
+                      <span className="font-medium flex items-center gap-1.5 flex-wrap">
+                        {selectedAdsets.includes(a.id) && <span className="text-rose-500">✓</span>}
+                        {a.name}
+                        {isWinner && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-bold shrink-0">🏆 وينر</span>}
+                      </span>
+                      <div className="flex gap-1.5 items-center shrink-0 flex-wrap justify-end">
+                        {a.spend != null && <span className="text-[10px] text-muted-foreground">{Number(a.spend).toFixed(0)} EGP</span>}
+                        {a.ctr != null && <span className="text-[10px] text-muted-foreground">CTR {a.ctr}%</span>}
+                        {cpa != null ? (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                            isWinner ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" :
+                            isWarning ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400" :
+                            isDanger ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : ""
+                          }`}>CPA {cpa}</span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground/50 italic">لا بيانات</span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
           {selectedAdsets.length > 0 && <div className="text-xs text-rose-600 font-medium">✓ {selectedAdsets.length} AdSet مختار</div>}
@@ -1732,7 +1752,7 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
 }
 
 // ── Scale Creative Component ───────────────────────────────────────────────────
-type AdCreativeRow = { id: string; name: string; adset_id: string; video_id: string | null; image_hash: string | null; body: string | null; title: string | null; link_url: string | null; call_to_action_type: string; creative_id: string | null };
+type AdCreativeRow = { id: string; name: string; adset_id: string; video_id: string | null; image_hash: string | null; body: string | null; title: string | null; link_url: string | null; call_to_action_type: string; creative_id: string | null; spend: number | null; cpa: number | null; ctr: number | null; purchases: number | null };
 
 function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; onAccountChange: (v: string) => void }) {
   const { data: accountsData } = useAccounts();
@@ -1859,19 +1879,44 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
       {/* Source ad */}
       {ads.length > 0 && (
         <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">② اختار الإعلان المصدر</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground">② اختار الإعلان المصدر</label>
+            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">آخر 7 أيام</span>
+          </div>
           {loadingAds ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
-            <div className="space-y-0.5 max-h-36 overflow-y-auto">
-              {ads.map(ad => (
-                <button key={ad.id} onClick={() => setSelectedAd(ad)}
-                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors ${selectedAd?.id === ad.id ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 font-medium" : "border-border hover:border-cyan-300"}`}>
-                  <div className="flex justify-between items-center">
-                    <span>{ad.name}</span>
-                    <span className="text-[10px] text-muted-foreground">{ad.video_id ? "🎬 فيديو" : ad.image_hash ? "🖼 صورة" : "—"}</span>
-                  </div>
-                  {ad.body && <div className="text-[10px] text-muted-foreground truncate mt-0.5">{ad.body}</div>}
-                </button>
-              ))}
+            <div className="space-y-0.5 max-h-52 overflow-y-auto">
+              {ads.map(ad => {
+                const isWinner = ad.cpa !== null && ad.cpa <= 40;
+                const isWarning = ad.cpa !== null && ad.cpa > 40 && ad.cpa <= 100;
+                const isDanger = ad.cpa !== null && ad.cpa > 100;
+                return (
+                  <button key={ad.id} onClick={() => setSelectedAd(ad)}
+                    className={`w-full text-right text-xs px-2 py-2 rounded-md border transition-colors ${selectedAd?.id === ad.id ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 font-medium" : "border-border hover:border-cyan-300"}`}>
+                    <div className="flex justify-between items-start gap-2">
+                      <span className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        {ad.name}
+                        {isWinner && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-bold shrink-0">🏆 وينر</span>}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{ad.video_id ? "🎬 فيديو" : ad.image_hash ? "🖼 صورة" : "—"}</span>
+                    </div>
+                    <div className="flex gap-1.5 items-center mt-1 flex-wrap">
+                      {ad.spend != null && <span className="text-[10px] text-muted-foreground">{ad.spend.toFixed(0)} EGP</span>}
+                      {ad.ctr != null && <span className="text-[10px] text-muted-foreground">CTR {ad.ctr}%</span>}
+                      {ad.purchases != null && <span className="text-[10px] text-muted-foreground">{ad.purchases} مبيعة</span>}
+                      {ad.cpa != null ? (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                          isWinner ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" :
+                          isWarning ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400" :
+                          isDanger ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : ""
+                        }`}>CPA {ad.cpa}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground/50 italic">لا بيانات</span>
+                      )}
+                    </div>
+                    {ad.body && <div className="text-[10px] text-muted-foreground truncate mt-0.5">{ad.body}</div>}
+                  </button>
+                );
+              })}
             </div>
           )}
           {ads.length === 0 && srcCampaignId && !loadingAds && <div className="text-xs text-muted-foreground text-center py-2">لا توجد إعلانات في هذه الحملة</div>}

@@ -4397,7 +4397,7 @@ router.post("/pipeboard/best-combo", async (req: Request, res: Response) => {
   }
 });
 
-// ── GET /api/pipeboard/campaigns/:id/ads — جلب الإعلانات مع Creative ──────────
+// ── GET /api/pipeboard/campaigns/:id/ads — جلب الإعلانات مع Creative + Insights ─
 router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) => {
   try {
     const client = await getPipeboardWriteClient();
@@ -4410,21 +4410,54 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
         .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
     }
-    const adsResult = await client.callTool({
-      name: "get_ads",
-      arguments: { account_id: accountId, campaign_id: campaignId, fields: "id,name,adset_id,creative{id,body,title,video_id,image_hash,link_url,call_to_action{type}}", limit: 100 },
-    });
+    // جلب الـ ads والـ insights بالتوازي
+    const [adsResult, insightsResult] = await Promise.all([
+      client.callTool({
+        name: "get_ads",
+        arguments: { account_id: accountId, campaign_id: campaignId, fields: "id,name,adset_id,creative{id,body,title,video_id,image_hash,link_url,call_to_action{type}}", limit: 100 },
+      }),
+      client.callTool({
+        name: "get_insights",
+        arguments: {
+          account_id: accountId, campaign_id: campaignId,
+          level: "ad",
+          fields: "ad_id,spend,impressions,clicks,actions",
+          date_preset: "last_7d",
+        },
+      }).catch(() => null),
+    ]);
     const text = mcpTxtCa(adsResult);
     let ads: Record<string, unknown>[] = [];
     try { const p = JSON.parse(text); ads = Array.isArray(p) ? p : (p?.data ?? []); } catch { ads = []; }
+    // بناء map الـ insights
+    let insightsMap = new Map<string, Record<string, unknown>>();
+    try {
+      if (insightsResult) {
+        const insText = mcpTxtCa(insightsResult);
+        const insParsed = JSON.parse(insText);
+        const insArr: Record<string, unknown>[] = Array.isArray(insParsed) ? insParsed : (insParsed?.data ?? []);
+        insightsMap = new Map(insArr.map(i => [String(i.ad_id), i]));
+      }
+    } catch { /* ignore */ }
     const normalized = ads.map(ad => {
       const cr = (ad.creative as Record<string, unknown>) ?? {};
+      const ins = insightsMap.get(String(ad.id)) ?? {} as Record<string, unknown>;
+      const spendRaw = Number(ins.spend ?? 0);
+      const spend = spendRaw > 0 ? spendRaw : null;
+      const clicks = Number(ins.clicks ?? 0);
+      const impressions = Number(ins.impressions ?? 0);
+      const actions = Array.isArray(ins.actions) ? ins.actions as Array<{ action_type: string; value: string }> : [];
+      const purchasesVal = actions.find(x => x.action_type === "offsite_conversion.fb_pixel_purchase")?.value;
+      const purchases = purchasesVal ? Number(purchasesVal) : null;
+      const cpa = purchases && spend ? Number((spend / purchases).toFixed(2)) : null;
+      const ctr = impressions ? Number(((clicks / impressions) * 100).toFixed(2)) : null;
       return {
         id: ad.id, name: ad.name, adset_id: ad.adset_id,
         video_id: cr.video_id ?? null, image_hash: cr.image_hash ?? null,
         body: cr.body ?? null, title: cr.title ?? null, link_url: cr.link_url ?? null,
         call_to_action_type: (cr.call_to_action as Record<string, unknown>)?.type ?? "LEARN_MORE",
         creative_id: cr.id ?? null,
+        spend, cpa, ctr, purchases,
       };
     });
     res.json({ ads: normalized });
