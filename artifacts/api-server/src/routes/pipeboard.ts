@@ -4152,7 +4152,7 @@ router.get(
       }));
 
       // جلب الـ Ads مع الـ creative (نصوص وعناوين)
-      let adsMap = new Map<string, { texts: string[]; headlines: string[]; videoId?: string }>();
+      const adsMap = new Map<string, { texts: string[]; headlines: string[]; videoId?: string }>();
       try {
         const adsResult = await client.callTool({
           name: "get_ads",
