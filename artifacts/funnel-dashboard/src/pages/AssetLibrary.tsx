@@ -786,9 +786,9 @@ function FlexScaleForm({
 
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
-type QuickCardType = "TEST" | "SCALE" | "FLEX" | "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS" | "BESTCOMBO" | "SCALEADSETS" | "SCALECREATIVE";
+type QuickCardType = "TEST" | "STANDARD" | "SCALEADSETS" | "SCALECREATIVE";
 
-interface Angle {
+interface QuickAngle {
   name: string;
   landing: string;
   texts: [string, string];
@@ -801,25 +801,18 @@ interface QuickForm {
   texts: string[]; headlines: string[];
   selText: number; selHeadline: number;
   textCount: number; headlineCount: number;
-  angles: Angle[];
+  angles: QuickAngle[];
   launchMode: "new" | "scale";
   flexAccountId: string;
   flexSrcId: string; flexSrcName: string;
   flexNewCampaignName: string; flexNewBudget: string;
   flexStep: number; flexCampaignId: string; flexAdsetId: string;
-  // Best Combo state
-  comboSrcCampaignId: string; comboSrcCampaignName: string;
-  comboAdsets: { id: string; name: string; hookRate: number; ctr: number; cpa: number; videoId: string; texts: string[]; headlines: string[] }[];
-  comboSelAdsets: string[];
-  comboStep: number;
-  comboSelVideoId: string; comboSelVideoAdset: string;
-  comboSelTexts: string[]; comboSelHeadlines: string[];
-  comboTargetCampaignId: string; comboTargetCampaignName: string;
-  comboNewAdsetName: string; comboNewBudget: string;
-  comboIsCBO: boolean;
-  comboLoading: boolean;
+  // Standard card state
+  stdIsCBO: boolean;
+  stdAdsetCount: number;
+  stdCreativesPerAdset: number;
 }
-const INIT_ANGLE: Angle = { name: "", landing: "", texts: ["", ""], headlines: ["", ""] };
+const INIT_ANGLE: QuickAngle = { name: "", landing: "", texts: ["", ""], headlines: ["", ""] };
 const INIT_FORM: QuickForm = {
   product: "", budget: "180", landingPage: "", driveLink: "",
   texts: [], headlines: [], selText: 0, selHeadline: 0,
@@ -830,13 +823,7 @@ const INIT_FORM: QuickForm = {
   flexSrcId: "", flexSrcName: "",
   flexNewCampaignName: "", flexNewBudget: "200",
   flexStep: 0, flexCampaignId: "", flexAdsetId: "",
-  comboSrcCampaignId: "", comboSrcCampaignName: "",
-  comboAdsets: [], comboSelAdsets: [], comboStep: 0,
-  comboSelVideoId: "", comboSelVideoAdset: "",
-  comboSelTexts: [], comboSelHeadlines: [],
-  comboTargetCampaignId: "", comboTargetCampaignName: "",
-  comboNewAdsetName: "", comboNewBudget: "200",
-  comboIsCBO: false, comboLoading: false,
+  stdIsCBO: false, stdAdsetCount: 2, stdCreativesPerAdset: 3,
 };
 
 function QuickLaunchSection() {
@@ -1119,22 +1106,46 @@ ${allHeadlines}
     if (form.flexStep === 3) return `استدعِ publish_winners_to_destination: destination_adset_id ${form.flexAdsetId} - source_ad_ids الـ winners - flex_mode true. ليس bulk_action.`;
     return "";
   }
+  function buildStandardCmd(): string {
+    const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const prod  = form.product.trim() || "منتج";
+    const drive = form.driveLink.trim() || "—";
+    const campName = `${prod} - Standard - ${today}`;
+    const isCBO = form.stdIsCBO;
+    const adsetCount = form.stdAdsetCount;
+    const creativesPerAdset = form.stdCreativesPerAdset;
+    const lp = addUtm(form.landingPage.trim() || form.angles[0]?.landing.trim() || "—", campName, "");
+    const allTexts = form.texts.length
+      ? form.texts.slice(0, creativesPerAdset).map((t, i) => `  ${i + 1}. ${t}`).join("\n")
+      : "  [أدخل النصوص أعلاه]";
+    const allHeadlines = form.headlines.length
+      ? form.headlines.slice(0, creativesPerAdset).map((h, i) => `  ${i + 1}. ${h}`).join("\n")
+      : "  [أدخل العناوين أعلاه]";
+    return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+قم ببناء حملة Standard فوراً — ${adsetCount} Adsets · ${creativesPerAdset} Creatives per Adset:
+# 1. Campaign Settings
+- Objective: OUTCOME_SALES · Event: PURCHASE
+- Campaign Name: ${campName}
+- Budget Optimization: ${isCBO ? "CBO (Campaign Level)" : "ABO (Adset Level)"}${isCBO ? `\n- Campaign Budget: ${form.budget} EGP daily` : ""}
+- Media Drive: ${drive}
+# 2. الـ Adsets (أنشئ ${adsetCount} Adset منفصل)
+- Targeting: Advantage+ Audience (Broad) — مصر فقط residents
+- Placements: Advantage+ Placements${!isCBO ? `\n- Budget per Adset: ${form.budget} EGP daily` : ""}
+# 3. الإعلانات (${creativesPerAdset} إعلان لكل Adset)
+- أنشئ ${creativesPerAdset} إعلان في كل Adset — Creative مختلف لكل واحد
+- NO Dynamic Creative — عطّل Advantage+ Creative Enhancements تماماً
+- Destination URL: ${lp}
+- Primary Texts (استخدم نص مختلف لكل إعلان):
+${allTexts}
+- Headlines (استخدم عنوان مختلف لكل إعلان):
+${allHeadlines}
+[END_COMMAND]`;
+  }
+
   async function sendToChat(cmd: string, type: "TEST" | "SCALE" | "FLEX") {
     try {
       sessionStorage.setItem("quick_chat_command", cmd);
-      if (type === "FLEX") {
-        const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-        sessionStorage.setItem("flex_state", JSON.stringify({
-          step: form.flexStep + 1,
-          campaignId: form.flexCampaignId,
-          adsetId: form.flexAdsetId,
-          srcId: form.flexSrcId,
-          newName: form.flexNewCampaignName.trim() || `Flex Scale - ${today}`,
-          budget: form.flexNewBudget.trim() || "200",
-        }));
-      } else {
-        sessionStorage.removeItem("flex_state");
-      }
+      sessionStorage.removeItem("flex_state");
     } catch { /* ignore */ }
     // Save to launch history
     try {
@@ -1144,7 +1155,7 @@ ${allHeadlines}
         credentials: "include",
         body: JSON.stringify({
           product_name: form.product.trim() || "منتج",
-          angle_name: `Quick Launch — ${type === "TEST" ? "Blueprint TESTING" : type === "SCALE" ? "Blueprint SCALING" : "Flex Scale"}`,
+          angle_name: `Quick Launch — ${type === "TEST" ? "Blueprint TESTING" : "Blueprint STANDARD"}`,
           generated_prompt: cmd,
         }),
       });
@@ -1153,16 +1164,10 @@ ${allHeadlines}
   }
 
   const CARDS: { id: QuickCardType; emoji: string; label: string; hint: string; color: string }[] = [
-    { id: "TEST",        emoji: "🧪", label: "Testing",             hint: "ABO · إعلان منفصل لكل نص",          color: "blue"    },
-    { id: "SCALE",       emoji: "🚀", label: "Scaling",             hint: "CBO · توسع بـ Advantage+",           color: "emerald" },
-    { id: "FLEX",        emoji: "⚡", label: "Flex Scale",          hint: "نقل الرابحين بـ Advantage+",         color: "violet"  },
-    { id: "COSTCAP",     emoji: "💰", label: "Cost Cap",            hint: "CPA مستهدف · تحكم في التكلفة",      color: "yellow"  },
-    { id: "RETARGETING", emoji: "🎯", label: "Retargeting",         hint: "زوار المنتج غير المشترين",           color: "orange"  },
-    { id: "LOOKALIKE",   emoji: "👥", label: "Lookalike",           hint: "جمهور مشابه للمشترين",               color: "pink"    },
-    { id: "INTERESTS",   emoji: "✨", label: "Interests Advantage+", hint: "اهتمامات مع Advantage+",            color: "teal"    },
-    { id: "BESTCOMBO",   emoji: "🏆", label: "تركيبة الوينر",        hint: "أفضل فيديو + نص + عنوان من حملاتك",  color: "amber"   },
-    { id: "SCALEADSETS", emoji: "📦", label: "Scale AdSets",         hint: "نسخ AdSets رابحة لحملة جديدة",      color: "rose"    },
-    { id: "SCALECREATIVE",emoji:"🎨", label: "Scale Creative",       hint: "نسخ Creative وينر لـ AdSet جديد",   color: "cyan"    },
+    { id: "TEST",         emoji: "🧪", label: "حملة اختبار dynamic creative", hint: "ABO • Adset per 1 creative • multi ad copy", color: "blue"    },
+    { id: "STANDARD",     emoji: "📋", label: "حملة Standard",                 hint: "ABO أو CBO • عدد Adsets قابل للتحديد",      color: "emerald" },
+    { id: "SCALEADSETS",  emoji: "📦", label: "Scale AdSets",                  hint: "نسخ AdSets رابحة لحملة جديدة",              color: "rose"    },
+    { id: "SCALECREATIVE",emoji: "🎨", label: "Scale Creative",                hint: "نسخ Creative وينر لـ AdSet جديد",            color: "cyan"    },
   ];
 
   const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {
@@ -1210,8 +1215,8 @@ ${allHeadlines}
         })}
       </div>
 
-      {/* ── Blueprint TEST / SCALE form ── */}
-      {(activeCard === "TEST" || activeCard === "SCALE" || activeCard === "COSTCAP" || activeCard === "RETARGETING" || activeCard === "LOOKALIKE" || activeCard === "INTERESTS") && (
+      {/* ── Blueprint TEST / STANDARD form ── */}
+      {(activeCard === "TEST" || activeCard === "STANDARD") && (
         <div className="rounded-xl border border-border bg-background p-4 space-y-3 animate-in fade-in duration-150">
           {/* Row 1: Product + Budget */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1237,41 +1242,81 @@ ${allHeadlines}
             </div>
           </div>
 
-          {/* Row 2: Landing Page + Drive — for TEST/SCALE */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <FolderOpen className="h-3 w-3" /> رابط الميديا (Drive)
-              </label>
-              <Input
-                placeholder="https://drive.google.com/..."
-                value={form.driveLink}
-                onChange={e => upd("driveLink", e.target.value)}
-                className="h-9 text-sm font-mono text-xs"
-                dir="ltr"
-              />
+          {/* STANDARD: Drive + Landing Page row */}
+          {activeCard === "STANDARD" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <FolderOpen className="h-3 w-3" /> رابط مجلد الميديا (Drive)
+                </label>
+                <Input
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  value={form.driveLink}
+                  onChange={e => upd("driveLink", e.target.value)}
+                  className="h-9 text-sm font-mono text-xs"
+                  dir="ltr"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Landing Page URL</label>
+                <Input
+                  placeholder="https://example.com/product"
+                  value={form.landingPage}
+                  onChange={e => upd("landingPage", e.target.value)}
+                  className="h-9 text-sm font-mono text-xs"
+                  dir="ltr"
+                />
+              </div>
             </div>
-          </div>
-
-          {/* Launch Mode Toggle — for non-TEST strategies */}
-          {activeCard !== "TEST" && (
-          <div className="flex gap-2">
-            <button type="button"
-              onClick={() => upd("launchMode", "new")}
-              className={`flex-1 h-9 text-xs rounded-lg border transition-all ${form.launchMode === "new" ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-              ✨ إنشاء جديد بميديا جديدة
-            </button>
-            <button type="button"
-              onClick={() => upd("launchMode", "scale")}
-              className={`flex-1 h-9 text-xs rounded-lg border transition-all ${form.launchMode === "scale" ? "border-violet-500 bg-violet-50/50 text-violet-600 font-medium" : "border-border text-muted-foreground hover:border-violet-400"}`}>
-              🚀 Scale من حملة موجودة
-            </button>
-          </div>
           )}
 
-          {/* Angles Section */}
-          {(form.launchMode === "new") && (
+          {/* STANDARD: ABO/CBO + Adset count + Creatives per adset */}
+          {activeCard === "STANDARD" && (
+            <div className="space-y-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/10 p-3">
+              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">إعدادات الحملة</div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">نوع الميزانية</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => upd("stdIsCBO", false)}
+                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${!form.stdIsCBO ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold" : "border-border text-muted-foreground hover:border-emerald-400"}`}>
+                    ABO (بالـ Adset)
+                  </button>
+                  <button type="button" onClick={() => upd("stdIsCBO", true)}
+                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${form.stdIsCBO ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold" : "border-border text-muted-foreground hover:border-emerald-400"}`}>
+                    CBO (بالحملة)
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">عدد الـ Adsets</label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => upd("stdAdsetCount", Math.max(1, form.stdAdsetCount - 1))}
+                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
+                    <span className="flex-1 text-center text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{form.stdAdsetCount}</span>
+                    <button type="button" onClick={() => upd("stdAdsetCount", Math.min(20, form.stdAdsetCount + 1))}
+                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Creatives في كل Adset</label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.max(1, form.stdCreativesPerAdset - 1))}
+                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
+                    <span className="flex-1 text-center text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{form.stdCreativesPerAdset}</span>
+                    <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.min(10, form.stdCreativesPerAdset + 1))}
+                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+                  </div>
+                </div>
+              </div>
+              <div className="text-[10px] text-muted-foreground pt-0.5">
+                إجمالي الإعلانات: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{form.stdAdsetCount * form.stdCreativesPerAdset}</span> إعلان · بدون Dynamic Creative
+              </div>
+            </div>
+          )}
+
+          {/* TEST: Angles Section */}
+          {activeCard === "TEST" && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -1421,19 +1466,15 @@ ${allHeadlines}
           <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
             <div className="flex-1 min-w-0 text-xs text-muted-foreground">
               {activeCard === "TEST"
-                ? `🧪 ${form.texts.length > 0 ? `${form.texts.length} نصوص × ${form.headlines.length} عناوين → إعلانات متعددة` : "سيُبنى أمر Blueprint TESTING"}`
-                : `🚀 ${form.texts.length > 0 ? `${form.texts.length} نصوص + ${form.headlines.length} عناوين → SCALE بـ Advantage+` : "سيُبنى أمر Blueprint SCALING"}`}
+                ? `🧪 ${form.angles.filter(a => a.name).length > 0 ? `${form.angles.length} زوايا → Dynamic Creative ABO` : "سيُبنى أمر Blueprint Testing"}`
+                : `📋 ${form.stdAdsetCount} Adsets × ${form.stdCreativesPerAdset} Creatives = ${form.stdAdsetCount * form.stdCreativesPerAdset} إعلان · ${form.stdIsCBO ? "CBO" : "ABO"}`}
             </div>
             <Button
               size="sm"
               className="gap-1.5 h-9 text-xs shrink-0 bg-primary hover:bg-primary/90"
               onClick={() => {
-                if (activeCard === "TEST" || activeCard === "SCALE") {
-                  sendToChat(buildBlueprintCmd(activeCard as "TEST" | "SCALE"), activeCard);
-                } else if (activeCard === "COSTCAP" || activeCard === "RETARGETING" || activeCard === "LOOKALIKE" || activeCard === "INTERESTS") {
-                  if (form.launchMode === "scale") return;
-                  sendToChat(buildStrategyCmd(activeCard as "COSTCAP" | "RETARGETING" | "LOOKALIKE" | "INTERESTS"), "SCALE" as "TEST" | "SCALE" | "FLEX");
-                }
+                if (activeCard === "TEST") sendToChat(buildBlueprintCmd("TEST"), "TEST");
+                else if (activeCard === "STANDARD") sendToChat(buildStandardCmd(), "TEST");
               }}
             >
               <Send className="h-3.5 w-3.5" />
@@ -1443,17 +1484,6 @@ ${allHeadlines}
         </div>
       )}
 
-      {/* ── Flex Scale form ── */}
-      {activeCard === "FLEX" && (
-        <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
-      )}
-      {activeCard !== "FLEX" && activeCard !== "TEST" && activeCard !== "BESTCOMBO" && activeCard !== "SCALEADSETS" && activeCard !== "SCALECREATIVE" && form.launchMode === "scale" && (
-        <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
-      )}
-      {/* ── Best Combo Form ── */}
-      {activeCard === "BESTCOMBO" && (
-        <BestComboForm form={form} upd={upd} />
-      )}
 
       {/* ── Scale AdSets Form ── */}
       {activeCard === "SCALEADSETS" && (
@@ -1469,228 +1499,7 @@ ${allHeadlines}
   );
 }
 
-// ── Best Combo Component ──────────────────────────────────────────────────────
-function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickForm, v: unknown) => void }) {
-  const { data: accountsData } = useAccounts();
-  const accounts = accountsData?.accounts ?? [];
-  const { toast } = useToast();
-  const [campaigns, setCampaigns] = useState<{ id: string; name: string; is_cbo: boolean }[]>([]);
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
-  const [loadingAdsets, setLoadingAdsets] = useState(false);
-  const [campaignSearch, setCampaignSearch] = useState("");
-  const [targetSearch, setTargetSearch] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!form.flexAccountId) return;
-    async function fetchCampaigns() {
-      setLoadingCampaigns(true);
-      try {
-        const data = await apiFetch<{ campaigns: { id: string; name: string; is_cbo: boolean }[] }>(`/pipeboard/campaigns?account_id=${form.flexAccountId}`);
-        setCampaigns(data.campaigns ?? []);
-      } catch { toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }); }
-      finally { setLoadingCampaigns(false); }
-    }
-    fetchCampaigns();
-  }, [form.flexAccountId]);
-
-  async function fetchAdsets(campaignId: string) {
-    setLoadingAdsets(true);
-    upd("comboAdsets", []); upd("comboSelAdsets", []); upd("comboStep", 1);
-    try {
-      const data = await apiFetch<{ adsets: unknown[]; is_cbo: boolean }>(`/pipeboard/campaigns/${campaignId}/adsets?account_id=${form.flexAccountId}`);
-      upd("comboAdsets", data.adsets ?? []);
-      upd("comboIsCBO", data.is_cbo ?? false);
-    } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
-    finally { setLoadingAdsets(false); }
-  }
-
-  function toggleAdset(id: string) {
-    const sel = form.comboSelAdsets as string[];
-    upd("comboSelAdsets", sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
-  }
-
-  async function handleSubmit() {
-    if (!form.comboTargetCampaignId || !form.comboNewAdsetName || !form.comboSelVideoId) {
-      toast({ title: "❌ يرجى اختيار فيديو وحملة هدف واسم AdSet", variant: "destructive" }); return;
-    }
-    setSubmitting(true);
-    try {
-      const data = await apiFetch<{ success: boolean; message?: string; error?: string }>("/pipeboard/best-combo", {
-        method: "POST",
-        body: JSON.stringify({
-          account_id: form.flexAccountId,
-          target_campaign_id: form.comboTargetCampaignId,
-          adset_name: form.comboNewAdsetName,
-          daily_budget: form.comboIsCBO ? undefined : Number(form.comboNewBudget),
-          landing_page_url: form.landingPage || "",
-          video_id: form.comboSelVideoId,
-          texts: form.comboSelTexts,
-          headlines: form.comboSelHeadlines,
-          is_cbo: form.comboIsCBO,
-        }),
-      });
-      if (data.success) { toast({ title: "✅ " + data.message }); upd("comboStep", 0); }
-      else { toast({ title: "❌ " + data.error, variant: "destructive" }); }
-    } catch (e) { toast({ title: "❌ خطأ: " + String(e), variant: "destructive" }); }
-    finally { setSubmitting(false); }
-  }
-
-  type AdsetRow = { id: string; name: string; hookRate: number; ctr: number; cpa: number; videoId: string; texts: string[]; headlines: string[] };
-  const allAdsets = form.comboAdsets as AdsetRow[];
-  const selAdsets = allAdsets.filter(a => (form.comboSelAdsets as string[]).includes(a.id));
-  const filtered = campaigns.filter(c => c.name.toLowerCase().includes(campaignSearch.toLowerCase()));
-  const filteredTarget = campaigns.filter(c => c.name.toLowerCase().includes(targetSearch.toLowerCase()));
-
-  return (
-    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-950/10 p-4 space-y-4 animate-in fade-in duration-150">
-      <div className="flex items-center gap-2">
-        <span className="text-base">🏆</span>
-        <span className="text-sm font-semibold">تركيبة الوينر</span>
-        <span className="text-[11px] text-muted-foreground mr-auto">أفضل فيديو + نص + عنوان من حملاتك</span>
-      </div>
-      {!form.flexAccountId && (
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">اختار الحساب</label>
-          <select className="w-full h-8 text-xs rounded-md border border-border bg-background px-2" onChange={e => { if (e.target.value) upd("flexAccountId", e.target.value); }}>
-            <option value="">— اختار الحساب —</option>
-            {accounts.map(acc => (<option key={acc.id} value={acc.id.replace(/^act_/, "")}>{acc.name ?? acc.id}</option>))}
-          </select>
-        </div>
-      )}
-
-      {/* Step 1: الحملة المصدر */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">① الحملة المصدر</label>
-        <Input placeholder="🔍 ابحث..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} className="h-8 text-xs" dir="rtl" />
-        <div className="max-h-32 overflow-y-auto space-y-0.5 rounded-lg border border-border bg-background p-1">
-          {loadingCampaigns && <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div>}
-          {filtered.map(c => (
-            <button key={c.id} onClick={() => { upd("comboSrcCampaignId", c.id); upd("comboSrcCampaignName", c.name); fetchAdsets(c.id); }}
-              className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between items-center ${form.comboSrcCampaignId === c.id ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 font-medium" : "hover:bg-muted"}`}>
-              <span>{c.name}</span>
-              <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Step 2: الـ AdSets */}
-      {form.comboStep >= 1 && (
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">② اختار الـ AdSets</label>
-          {loadingAdsets ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
-            <div className="space-y-0.5">
-              {allAdsets.map(a => (
-                <button key={a.id} onClick={() => toggleAdset(a.id)}
-                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors flex justify-between items-center ${(form.comboSelAdsets as string[]).includes(a.id) ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : "border-border hover:border-amber-300"}`}>
-                  <span className="font-medium">{a.name}</span>
-                  <span className="text-[10px] text-muted-foreground flex gap-2">
-                    <span>Hook: {a.hookRate ?? "—"}%</span>
-                    <span>CTR: {a.ctr ?? "—"}%</span>
-                    <span>CPA: {a.cpa ?? "—"}</span>
-                  </span>
-                </button>
-              ))}
-              {(form.comboSelAdsets as string[]).length > 0 && (
-                <Button size="sm" className="w-full h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white mt-1" onClick={() => upd("comboStep", 2)}>
-                  تحليل العناصر من {(form.comboSelAdsets as string[]).length} AdSet →
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 3: اختيار العناصر */}
-      {form.comboStep >= 2 && selAdsets.length > 0 && (
-        <div className="space-y-3">
-          <label className="text-xs font-medium text-muted-foreground">③ اختار العناصر</label>
-
-          {/* الفيديوهات - radio */}
-          <div className="space-y-0.5">
-            <div className="text-[11px] font-medium text-amber-600 mb-1">🎬 الفيديو (واحد فقط)</div>
-            {selAdsets.map(a => (
-              <button key={a.id} onClick={() => { upd("comboSelVideoId", a.videoId); upd("comboSelVideoAdset", a.name); }}
-                className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors flex justify-between ${form.comboSelVideoId === a.videoId ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 font-medium" : "border-border hover:border-amber-300"}`}>
-                <span>{a.name}</span>
-                <span className="text-[10px] text-muted-foreground">Hook: {a.hookRate}% {form.comboSelVideoId === a.videoId && "⭐"}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* النصوص - checkboxes */}
-          <div className="space-y-0.5">
-            <div className="text-[11px] font-medium text-amber-600 mb-1">📝 النصوص (max 2)</div>
-            {selAdsets.flatMap(a => (a.texts ?? []).map((t, i) => ({ text: t, adset: a.name, key: `${a.id}-t${i}` }))).map(item => {
-              const sel = form.comboSelTexts as string[];
-              const isSelected = sel.includes(item.text);
-              return (
-                <button key={item.key}
-                  onClick={() => { if (isSelected) upd("comboSelTexts", sel.filter(x => x !== item.text)); else if (sel.length < 2) upd("comboSelTexts", [...sel, item.text]); }}
-                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors ${isSelected ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : "border-border hover:border-amber-300"} ${!isSelected && sel.length >= 2 ? "opacity-40 cursor-not-allowed" : ""}`}>
-                  <div className="truncate">{item.text || "(فارغ)"}</div>
-                  <div className="text-[10px] text-muted-foreground">{item.adset} {isSelected && "✓"}</div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* العناوين - checkboxes */}
-          <div className="space-y-0.5">
-            <div className="text-[11px] font-medium text-amber-600 mb-1">📌 العناوين (max 2)</div>
-            {selAdsets.flatMap(a => (a.headlines ?? []).map((h, i) => ({ headline: h, adset: a.name, key: `${a.id}-h${i}` }))).map(item => {
-              const sel = form.comboSelHeadlines as string[];
-              const isSelected = sel.includes(item.headline);
-              return (
-                <button key={item.key}
-                  onClick={() => { if (isSelected) upd("comboSelHeadlines", sel.filter(x => x !== item.headline)); else if (sel.length < 2) upd("comboSelHeadlines", [...sel, item.headline]); }}
-                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors ${isSelected ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : "border-border hover:border-amber-300"} ${!isSelected && sel.length >= 2 ? "opacity-40 cursor-not-allowed" : ""}`}>
-                  <div className="truncate">{item.headline || "(فارغ)"}</div>
-                  <div className="text-[10px] text-muted-foreground">{item.adset} {isSelected && "✓"}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: الحملة الهدف */}
-      {form.comboStep >= 2 && (
-        <div className="space-y-2 border-t border-amber-200 dark:border-amber-800 pt-3">
-          <label className="text-xs font-medium text-muted-foreground">④ الحملة الهدف + الـ AdSet الجديد</label>
-          <Input placeholder="🔍 ابحث في الحملات الهدف..." value={targetSearch} onChange={e => setTargetSearch(e.target.value)} className="h-8 text-xs" dir="rtl" />
-          <div className="max-h-28 overflow-y-auto space-y-0.5 rounded-lg border border-border bg-background p-1">
-            {filteredTarget.map(c => (
-              <button key={c.id} onClick={() => { upd("comboTargetCampaignId", c.id); upd("comboTargetCampaignName", c.name); upd("comboIsCBO", c.is_cbo); }}
-                className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${form.comboTargetCampaignId === c.id ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 font-medium" : "hover:bg-muted"}`}>
-                <span>{c.name}</span>
-                <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">اسم الـ AdSet</label>
-              <Input placeholder="Best Combo — يوليو" value={form.comboNewAdsetName} onChange={e => upd("comboNewAdsetName", e.target.value)} className="h-8 text-xs" dir="rtl" />
-            </div>
-            {!form.comboIsCBO && (
-              <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">الميزانية (EGP/يوم)</label>
-                <Input type="number" value={form.comboNewBudget} onChange={e => upd("comboNewBudget", e.target.value)} className="h-8 text-xs" />
-              </div>
-            )}
-          </div>
-          <Button size="sm" className="w-full h-9 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1.5 mt-1"
-            onClick={handleSubmit}
-            disabled={submitting || !form.comboTargetCampaignId || !form.comboNewAdsetName || !form.comboSelVideoId}>
-            {submitting ? "جاري الإنشاء..." : "🏆 إنشاء AdSet بـ Best Combination Creative"}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Scale AdSets Component ────────────────────────────────────────────────────
 type AdsetRow = { id: string; name: string; ctr: number | null; cpa: number | null; spend: number | null };
