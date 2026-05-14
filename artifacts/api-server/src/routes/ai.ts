@@ -1031,6 +1031,41 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 
 ⚡ لا تقل أبداً "هذا النوع غير مدعوم في bulk_action" — كل الأنواع أعلاه مدعومة. إذا لم يكن لديك الـ ID → ابحث عنه بسلسلة البحث (get_campaigns → search_adsets → search_ads) ثم نفّذ.
 
+مثال rename_ad — الشكل الصحيح الوحيد (adId + name + newName إلزاميان):
+\`\`\`bulk_action
+{
+  "title": "تغيير أسماء الإعلانات — استبدال | بـ -",
+  "actions": [
+    {
+      "type": "rename_ad",
+      "adId": "120215671290270519",
+      "name": "Ice Cube Bottle | VID01 - Hook A",
+      "newName": "Ice Cube Bottle - VID01 - Hook A",
+      "label": "تغيير اسم",
+      "reason": "استبدال | بـ - لتوحيد التسمية"
+    },
+    {
+      "type": "rename_ad",
+      "adId": "120215671290270520",
+      "name": "Ice Cube Bottle | VID02 - Hook B",
+      "newName": "Ice Cube Bottle - VID02 - Hook B",
+      "label": "تغيير اسم",
+      "reason": "استبدال | بـ - لتوحيد التسمية"
+    }
+  ]
+}
+\`\`\`
+
+مثال rename_adset — (adsetId + name + newName):
+\`\`\`bulk_action
+{"title": "تغيير اسم المجموعة", "actions": [{"type": "rename_adset", "adsetId": "120215671000001", "name": "Broad | Old Name", "newName": "Broad - New Name", "label": "تغيير اسم"}]}
+\`\`\`
+
+مثال rename_campaign — (campaignId + name + newName):
+\`\`\`bulk_action
+{"title": "تغيير اسم الحملة", "actions": [{"type": "rename_campaign", "campaignId": "120215000000001", "name": "Campaign | Old", "newName": "Campaign - New", "label": "تغيير اسم"}]}
+\`\`\`
+
 ⚠️ مثال create_ad_from_existing_post — هذا الشكل الصحيح الوحيد (adId + accountId + destinationAdsetId إلزاميان):
 \`\`\`bulk_action
 {

@@ -131,16 +131,21 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
       const blockedType = (item as { type: string }).type;
       throw new Error(
         `❌ نوع إجراء غير مدعوم في Bulk Panel: "${blockedType}"\n` +
-        `هذا الإجراء يُنفَّذ كـ tool call مباشر وليس bulk_action. الأنواع المتاحة:\n` +
-        `update_campaign_budget | update_adset_budget | pause/enable_campaign | pause/enable_adset | pause/enable_ad | duplicate_ad | create_ad_from_existing_post`
+        `هذا الإجراء يُنفَّذ كـ tool call مباشر وليس bulk_action.\n` +
+        `الأنواع المتاحة في bulk_action:\n` +
+        `pause/enable_campaign | update_campaign_budget | rename_campaign | duplicate_campaign |\n` +
+        `pause/enable_adset | update_adset_budget | rename_adset | duplicate_adset |\n` +
+        `pause/enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post`
       );
     }
     default: {
       const unknownType = (item as { type: string }).type;
       throw new Error(
-        `❌ نوع إجراء غير مدعوم في Bulk Panel: "${unknownType}"\n` +
-        `هذا الإجراء يُنفَّذ كـ tool call مباشر وليس bulk_action. الأنواع المتاحة:\n` +
-        `update_campaign_budget | update_adset_budget | pause/enable_campaign | pause/enable_adset | pause/enable_ad | duplicate_ad | create_ad_from_existing_post`
+        `❌ نوع إجراء غير معروف: "${unknownType}"\n` +
+        `الأنواع المتاحة في bulk_action:\n` +
+        `pause/enable_campaign | update_campaign_budget | rename_campaign | duplicate_campaign |\n` +
+        `pause/enable_adset | update_adset_budget | rename_adset | duplicate_adset |\n` +
+        `pause/enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post`
       );
     }
   }
