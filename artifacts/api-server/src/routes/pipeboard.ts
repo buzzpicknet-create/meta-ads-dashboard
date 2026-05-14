@@ -2082,6 +2082,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const imageHash = String(
           c.image_hash ?? assetImages[0]?.hash ?? linkData.image_hash ?? "",
         );
+        const primaryText = String(c.body ?? "");
+        const headline = String(c.title ?? "");
+        let linkUrl = String(c.link_url ?? "");
         if (!linkUrl && videoData.call_to_action) {
           const vtaCta = videoData.call_to_action as Record<string, unknown>;
           if (vtaCta.value)
@@ -2089,9 +2092,6 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               (vtaCta.value as Record<string, unknown>).link ?? "",
             );
         }
-        const primaryText = String(c.body ?? "");
-        const headline = String(c.title ?? "");
-        let linkUrl = String(c.link_url ?? "");
         const ctaObj = (c.call_to_action ?? {}) as Record<string, unknown>;
         const callToAction = String(ctaObj.type ?? "SHOP_NOW");
         if (!linkUrl && ctaObj.value)
@@ -2888,16 +2888,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               messages:
                 Array.isArray(creative.texts) && creative.texts.length > 0
                   ? creative.texts
-                  : creative.primary_text
-                    ? [creative.primary_text as string]
-                    : undefined,
+                  : undefined,
               headlines:
                 Array.isArray(creative.headlines) &&
                 creative.headlines.length > 0
                   ? creative.headlines
-                  : creative.headline
-                    ? [creative.headline as string]
-                    : undefined,
+                  : undefined,
 
               call_to_action_type: callToAction,
             };
@@ -4027,7 +4023,7 @@ router.get("/pipeboard/campaigns", async (req: Request, res: Response) => {
   try {
     const client = await getPipeboardWriteClient();
     const accountId = String(req.query.account_id ?? "").replace(/^act_/, "");
-    if (!accountId) return res.status(400).json({ error: "account_id مطلوب" });
+    if (!accountId) { res.status(400).json({ error: "account_id مطلوب" }); return; }
 
     const result = await client.callTool({
       name: "get_campaigns",
@@ -4073,10 +4069,10 @@ router.get(
       const client = await getPipeboardWriteClient();
       const accountId = String(req.query.account_id ?? "").replace(/^act_/, "");
       const campaignId = String(req.params.id ?? "");
-      if (!accountId || !campaignId)
-        return res
-          .status(400)
-          .json({ error: "account_id و campaign_id مطلوبان" });
+      if (!accountId || !campaignId) {
+        res.status(400).json({ error: "account_id و campaign_id مطلوبان" });
+        return;
+      }
 
       // جلب الـ AdSets
       let adsetsResult;
@@ -4260,12 +4256,11 @@ router.post("/pipeboard/best-combo", async (req: Request, res: Response) => {
       !video_id ||
       !landing_page_url
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "account_id, target_campaign_id, adset_name, video_id, landing_page_url مطلوبة",
-        });
+      res.status(400).json({
+        error:
+          "account_id, target_campaign_id, adset_name, video_id, landing_page_url مطلوبة",
+      });
+      return;
     }
 
     const accountId = rawAccountId.replace(/^act_/, "");
