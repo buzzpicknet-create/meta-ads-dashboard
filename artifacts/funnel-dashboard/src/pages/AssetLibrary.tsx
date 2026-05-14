@@ -1469,7 +1469,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
     async function fetchCampaigns() {
       setLoadingCampaigns(true);
       try {
-        const data = await apiFetch<{ campaigns: { id: string; name: string; is_cbo: boolean }[] }>("/pipeboard/campaigns?account_id=auto");
+        const data = await apiFetch<{ campaigns: { id: string; name: string; is_cbo: boolean }[] }>(`/pipeboard/campaigns?account_id=${form.flexAccountId}`);
         setCampaigns(data.campaigns ?? []);
       } catch { toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }); }
       finally { setLoadingCampaigns(false); }
@@ -1481,7 +1481,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
     setLoadingAdsets(true);
     upd("comboAdsets", []); upd("comboSelAdsets", []); upd("comboStep", 1);
     try {
-      const data = await apiFetch<{ adsets: unknown[]; is_cbo: boolean }>(`/pipeboard/campaigns/${campaignId}/adsets?account_id=auto`);
+      const data = await apiFetch<{ adsets: unknown[]; is_cbo: boolean }>(`/pipeboard/campaigns/${campaignId}/adsets?account_id=${form.flexAccountId}`);
       upd("comboAdsets", data.adsets ?? []);
       upd("comboIsCBO", data.is_cbo ?? false);
     } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
@@ -1502,7 +1502,7 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
       const data = await apiFetch<{ success: boolean; message?: string; error?: string }>("/pipeboard/best-combo", {
         method: "POST",
         body: JSON.stringify({
-          account_id: "auto",
+          account_id: form.flexAccountId,
           target_campaign_id: form.comboTargetCampaignId,
           adset_name: form.comboNewAdsetName,
           daily_budget: form.comboIsCBO ? undefined : Number(form.comboNewBudget),
