@@ -2561,8 +2561,20 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       if (!campaignId)
         throw new Error(`فشل إنشاء الحملة — ${campText.slice(0, 300)}`);
 
-      // ── Step 2: Get page_id (auto-fetch if not provided) ─────────────────
+      // ── Step 2: Get page_id — domain map first, then auto-fetch ──────────
+      const PAGE_ID_MAP: Record<string, string> = {
+        "dealme-eg.com":   "1010704388784861",
+        "dealoop.net":     "1010704388784861",
+        "alsouqalhor.com": "108193615487446",
+        "buzzpick.net":    "878997831971062",
+      };
       let pageId = String(args?.page_id ?? "").trim();
+      if (!pageId) {
+        const landingUrl = String(args?.landing_page_url ?? "");
+        for (const [domain, pid] of Object.entries(PAGE_ID_MAP)) {
+          if (landingUrl.includes(domain)) { pageId = pid; break; }
+        }
+      }
       if (!pageId) {
         try {
           const pagesResult = await client.callTool({
