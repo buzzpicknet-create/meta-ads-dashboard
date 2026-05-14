@@ -1521,7 +1521,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   if (tool === "launch_pipeboard_campaign") {
     // ── Types ──────────────────────────────────────────────────────────────
     interface AdsetInput { name: string; budget: number; targeting?: string }
-    interface CreativeInput { media_url: string; media_type: string; primary_text: string; headline: string }
+    interface CreativeInput { media_url: string; media_type: string; texts: string[]; headlines: string[] }
     interface AdResult {
       adset_name: string;
       creative_index: number;
@@ -1551,8 +1551,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       : [{
           media_url: String(args?.media_url ?? "").trim(),
           media_type: String(args?.media_type ?? "image").toLowerCase(),
-          primary_text: String(args?.primary_text ?? ""),
-          headline: String(args?.headline ?? ""),
+          texts: [String(args?.primary_text ?? "")].filter(Boolean),
+          headlines: [String(args?.headline ?? "")].filter(Boolean),
         }];
 
     // ── Helpers ────────────────────────────────────────────────────────────
@@ -1804,8 +1804,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               // ("Ad Creative Invalid") at the ad-creation step.
               link_url: landingPageUrl,
               destination_url: landingPageUrl,
-              message: creative.primary_text,
-              headline: creative.headline,
+              messages: creative.texts.length > 0 ? creative.texts : undefined,
+              headlines: creative.headlines.length > 0 ? creative.headlines : undefined,
               call_to_action_type: callToAction,
             };
             if (pixelId) creativeArgs.pixel_id = pixelId;
