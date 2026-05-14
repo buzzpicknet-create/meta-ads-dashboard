@@ -4139,6 +4139,7 @@ router.get(
       } catch {
         insights = [];
       }
+      logger.info({ insightsText: insightsText.slice(0, 500) }, "get_insights raw response");
 
       // دمج الـ insights مع الـ AdSets
       const insightsArr = Array.isArray(insights) ? insights : [];
