@@ -4108,11 +4108,11 @@ router.get(
         adsets = [];
       }
 
-      // جلب الـ insights لكل AdSet
+      // جلب الـ insights لكل AdSet — account_id لازم يكون بـ act_ prefix
       const insightsResult = await client.callTool({
         name: "get_insights",
         arguments: {
-          account_id: accountId,
+          account_id: `act_${accountId}`,
           campaign_id: campaignId,
           level: "adset",
           fields: "adset_id,adset_name,spend,impressions,clicks,actions",
@@ -4419,7 +4419,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       client.callTool({
         name: "get_insights",
         arguments: {
-          account_id: accountId, campaign_id: campaignId,
+          account_id: `act_${accountId}`, campaign_id: campaignId,
           level: "ad",
           fields: "ad_id,spend,impressions,clicks,actions",
           date_preset: "last_7d",
