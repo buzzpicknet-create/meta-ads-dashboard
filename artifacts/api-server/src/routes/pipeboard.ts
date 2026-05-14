@@ -4077,16 +4077,20 @@ router.get(
           .json({ error: "account_id و campaign_id مطلوبان" });
 
       // جلب الـ AdSets
-      const adsetsResult = await client.callTool({
-        name: "get_adsets",
-        arguments: {
-          account_id: accountId,
-          campaign_id: campaignId,
-          fields:
-            "id,name,status,effective_status,daily_budget,campaign_budget_optimization",
-          limit: 50,
-        },
-      });
+      let adsetsResult;
+      try {
+        adsetsResult = await client.callTool({
+          name: "get_adsets",
+          arguments: {
+            account_id: accountId,
+            campaign_id: campaignId,
+            fields: "id,name,status,effective_status,daily_budget,campaign_budget_optimization",
+            limit: 50,
+          },
+        });
+      } catch (e) {
+        return res.status(500).json({ error: `get_adsets فشل: ${String(e)}` });
+      }
 
       const adsetsText = (
         (adsetsResult as { content?: Array<{ type: string; text?: string }> })
@@ -4166,6 +4170,7 @@ router.get(
 
       res.json({ adsets: enriched, is_cbo: isCBO });
     } catch (err) {
+      console.error("adsets endpoint error:", String(err));
       res.status(500).json({ error: String(err) });
     }
   },
