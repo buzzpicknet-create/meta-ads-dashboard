@@ -4171,13 +4171,27 @@ router.get(
         }
       } catch { /* ignore */ }
 
-      const enriched = adsets.map((a) => ({
-        ...a,
-        insights: insightsMap.get(String(a.id)) ?? null,
-        texts: adsMap.get(String(a.id))?.texts ?? [],
-        headlines: adsMap.get(String(a.id))?.headlines ?? [],
-        videoId: adsMap.get(String(a.id))?.videoId ?? null,
-      }));
+      const enriched = adsets.map((a) => {
+        const ins = insightsMap.get(String(a.id)) ?? {} as Record<string, unknown>;
+        const spend = Number(ins.spend ?? 0);
+        const clicks = Number(ins.clicks ?? 0);
+        const impressions = Number(ins.impressions ?? 0);
+        const actions = Array.isArray(ins.actions) ? ins.actions as Array<{action_type: string; value: string}> : [];
+        const purchases = actions.find(x => x.action_type === "offsite_conversion.fb_pixel_purchase")?.value;
+        const cpa = purchases && spend ? (spend / Number(purchases)).toFixed(2) : null;
+        const ctr = impressions ? ((clicks / impressions) * 100).toFixed(2) : null;
+        return {
+          ...a,
+          insights: ins,
+          spend: spend || null,
+          ctr,
+          cpa,
+          hookRate: null,
+          texts: adsMap.get(String(a.id))?.texts ?? [],
+          headlines: adsMap.get(String(a.id))?.headlines ?? [],
+          videoId: adsMap.get(String(a.id))?.videoId ?? null,
+        };
+      });
 
       // هل الحملة CBO أم ABO؟
       const campaignResult = await client.callTool({
