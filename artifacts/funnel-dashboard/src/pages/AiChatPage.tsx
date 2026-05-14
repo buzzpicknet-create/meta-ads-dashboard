@@ -1208,11 +1208,16 @@ export default function AiChatPage() {
                         <RenderMarkdown text={m.content} />
                         {m.tool_calls && m.tool_calls.length>0 && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {m.tool_calls.map((tc,ti)=>(
+                            {m.tool_calls.slice(0, 3).map((tc,ti)=>(
                               <span key={ti} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-[11px] text-muted-foreground border border-border/60">
                                 <CheckCircle2 className="h-3 w-3 text-emerald-500" />{tc}
                               </span>
                             ))}
+                            {m.tool_calls.length > 3 && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-[11px] text-muted-foreground border border-border/60">
+                                +{m.tool_calls.length - 3} عملية أخرى
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
