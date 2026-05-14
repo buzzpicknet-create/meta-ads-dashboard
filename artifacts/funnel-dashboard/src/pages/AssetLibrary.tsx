@@ -786,7 +786,7 @@ function FlexScaleForm({
 
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
-type QuickCardType = "TEST" | "SCALE" | "FLEX" | "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS";
+type QuickCardType = "TEST" | "SCALE" | "FLEX" | "RETARGETING" | "COSTCAP" | "LOOKALIKE" | "INTERESTS" | "BESTCOMBO";
 
 interface Angle {
   name: string;
@@ -807,6 +807,17 @@ interface QuickForm {
   flexSrcId: string; flexSrcName: string;
   flexNewCampaignName: string; flexNewBudget: string;
   flexStep: number; flexCampaignId: string; flexAdsetId: string;
+  // Best Combo state
+  comboSrcCampaignId: string; comboSrcCampaignName: string;
+  comboAdsets: { id: string; name: string; hookRate: number; ctr: number; cpa: number; videoId: string; texts: string[]; headlines: string[] }[];
+  comboSelAdsets: string[];
+  comboStep: number;
+  comboSelVideoId: string; comboSelVideoAdset: string;
+  comboSelTexts: string[]; comboSelHeadlines: string[];
+  comboTargetCampaignId: string; comboTargetCampaignName: string;
+  comboNewAdsetName: string; comboNewBudget: string;
+  comboIsCBO: boolean;
+  comboLoading: boolean;
 }
 const INIT_ANGLE: Angle = { name: "", landing: "", texts: ["", ""], headlines: ["", ""] };
 const INIT_FORM: QuickForm = {
@@ -819,6 +830,13 @@ const INIT_FORM: QuickForm = {
   flexSrcId: "", flexSrcName: "",
   flexNewCampaignName: "", flexNewBudget: "200",
   flexStep: 0, flexCampaignId: "", flexAdsetId: "",
+  comboSrcCampaignId: "", comboSrcCampaignName: "",
+  comboAdsets: [], comboSelAdsets: [], comboStep: 0,
+  comboSelVideoId: "", comboSelVideoAdset: "",
+  comboSelTexts: [], comboSelHeadlines: [],
+  comboTargetCampaignId: "", comboTargetCampaignName: "",
+  comboNewAdsetName: "", comboNewBudget: "200",
+  comboIsCBO: false, comboLoading: false,
 };
 
 function QuickLaunchSection() {
@@ -1142,6 +1160,7 @@ ${allHeadlines}
     { id: "RETARGETING", emoji: "🎯", label: "Retargeting",         hint: "زوار المنتج غير المشترين",           color: "orange"  },
     { id: "LOOKALIKE",   emoji: "👥", label: "Lookalike",           hint: "جمهور مشابه للمشترين",               color: "pink"    },
     { id: "INTERESTS",   emoji: "✨", label: "Interests Advantage+", hint: "اهتمامات مع Advantage+",            color: "teal"    },
+    { id: "BESTCOMBO",   emoji: "🏆", label: "تركيبة الوينر",        hint: "أفضل فيديو + نص + عنوان من حملاتك",  color: "amber"   },
   ];
 
   const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {
@@ -1152,6 +1171,7 @@ ${allHeadlines}
     orange:  { border:"border-orange-200 dark:border-orange-800",   bg:"bg-orange-50/50 dark:bg-orange-950/20",   activeBorder:"border-orange-500",  activeBg:"bg-orange-50 dark:bg-orange-950/30",  badge:"bg-orange-500",  btn:"bg-orange-600 hover:bg-orange-700 text-white" },
     pink:    { border:"border-pink-200 dark:border-pink-800",       bg:"bg-pink-50/50 dark:bg-pink-950/20",       activeBorder:"border-pink-500",    activeBg:"bg-pink-50 dark:bg-pink-950/30",    badge:"bg-pink-500",    btn:"bg-pink-600 hover:bg-pink-700 text-white" },
     teal:    { border:"border-teal-200 dark:border-teal-800",       bg:"bg-teal-50/50 dark:bg-teal-950/20",       activeBorder:"border-teal-500",    activeBg:"bg-teal-50 dark:bg-teal-950/30",    badge:"bg-teal-500",    btn:"bg-teal-600 hover:bg-teal-700 text-white" },
+    amber:   { border:"border-amber-200 dark:border-amber-800",     bg:"bg-amber-50/50 dark:bg-amber-950/20",     activeBorder:"border-amber-500",   activeBg:"bg-amber-50 dark:bg-amber-950/30",   badge:"bg-amber-500",   btn:"bg-amber-600 hover:bg-amber-700 text-white" },
   };
 
   return (
@@ -1480,7 +1500,225 @@ ${allHeadlines}
       {activeCard !== "FLEX" && activeCard !== "TEST" && form.launchMode === "scale" && (
         <FlexScaleForm form={form} upd={upd} onSend={() => { sendToChat(buildFlexCmd(), activeCard ?? "FLEX"); upd("flexStep", (form.flexStep + 1) as QuickForm["flexStep"]); }} />
       )}
+      {/* ── Best Combo Form ── */}
+      {activeCard === "BESTCOMBO" && (
+        <BestComboForm form={form} upd={upd} />
+      )}
 
+    </div>
+  );
+}
+
+// ── Best Combo Component ──────────────────────────────────────────────────────
+function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickForm, v: unknown) => void }) {
+  const { toast } = useToast();
+  const [campaigns, setCampaigns] = React.useState<{ id: string; name: string; is_cbo: boolean }[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = React.useState(false);
+  const [loadingAdsets, setLoadingAdsets] = React.useState(false);
+  const [campaignSearch, setCampaignSearch] = React.useState("");
+  const [targetSearch, setTargetSearch] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    async function fetchCampaigns() {
+      setLoadingCampaigns(true);
+      try {
+        const res = await apiFetch("/pipeboard/campaigns?account_id=auto");
+        const data = await res.json();
+        setCampaigns(data.campaigns ?? []);
+      } catch { toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }); }
+      finally { setLoadingCampaigns(false); }
+    }
+    fetchCampaigns();
+  }, []);
+
+  async function fetchAdsets(campaignId: string) {
+    setLoadingAdsets(true);
+    upd("comboAdsets", []); upd("comboSelAdsets", []); upd("comboStep", 1);
+    try {
+      const res = await apiFetch(`/pipeboard/campaigns/${campaignId}/adsets?account_id=auto`);
+      const data = await res.json();
+      upd("comboAdsets", data.adsets ?? []);
+      upd("comboIsCBO", data.is_cbo ?? false);
+    } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
+    finally { setLoadingAdsets(false); }
+  }
+
+  function toggleAdset(id: string) {
+    const sel = form.comboSelAdsets as string[];
+    upd("comboSelAdsets", sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
+  }
+
+  async function handleSubmit() {
+    if (!form.comboTargetCampaignId || !form.comboNewAdsetName || !form.comboSelVideoId) {
+      toast({ title: "❌ يرجى اختيار فيديو وحملة هدف واسم AdSet", variant: "destructive" }); return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await apiFetch("/pipeboard/best-combo", {
+        method: "POST",
+        body: JSON.stringify({
+          account_id: "auto",
+          target_campaign_id: form.comboTargetCampaignId,
+          adset_name: form.comboNewAdsetName,
+          daily_budget: form.comboIsCBO ? undefined : Number(form.comboNewBudget),
+          landing_page_url: form.landingPage || "",
+          video_id: form.comboSelVideoId,
+          texts: form.comboSelTexts,
+          headlines: form.comboSelHeadlines,
+          is_cbo: form.comboIsCBO,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) { toast({ title: "✅ " + data.message }); upd("comboStep", 0); }
+      else { toast({ title: "❌ " + data.error, variant: "destructive" }); }
+    } catch (e) { toast({ title: "❌ خطأ: " + String(e), variant: "destructive" }); }
+    finally { setSubmitting(false); }
+  }
+
+  type AdsetRow = { id: string; name: string; hookRate: number; ctr: number; cpa: number; videoId: string; texts: string[]; headlines: string[] };
+  const allAdsets = form.comboAdsets as AdsetRow[];
+  const selAdsets = allAdsets.filter(a => (form.comboSelAdsets as string[]).includes(a.id));
+  const filtered = campaigns.filter(c => c.name.toLowerCase().includes(campaignSearch.toLowerCase()));
+  const filteredTarget = campaigns.filter(c => c.name.toLowerCase().includes(targetSearch.toLowerCase()));
+
+  return (
+    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-950/10 p-4 space-y-4 animate-in fade-in duration-150">
+      <div className="flex items-center gap-2">
+        <span className="text-base">🏆</span>
+        <span className="text-sm font-semibold">تركيبة الوينر</span>
+        <span className="text-[11px] text-muted-foreground mr-auto">أفضل فيديو + نص + عنوان من حملاتك</span>
+      </div>
+
+      {/* Step 1: الحملة المصدر */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">① الحملة المصدر</label>
+        <Input placeholder="🔍 ابحث..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} className="h-8 text-xs" dir="rtl" />
+        <div className="max-h-32 overflow-y-auto space-y-0.5 rounded-lg border border-border bg-background p-1">
+          {loadingCampaigns && <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div>}
+          {filtered.map(c => (
+            <button key={c.id} onClick={() => { upd("comboSrcCampaignId", c.id); upd("comboSrcCampaignName", c.name); fetchAdsets(c.id); }}
+              className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between items-center ${form.comboSrcCampaignId === c.id ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 font-medium" : "hover:bg-muted"}`}>
+              <span>{c.name}</span>
+              <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Step 2: الـ AdSets */}
+      {form.comboStep >= 1 && (
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">② اختار الـ AdSets</label>
+          {loadingAdsets ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
+            <div className="space-y-0.5">
+              {allAdsets.map(a => (
+                <button key={a.id} onClick={() => toggleAdset(a.id)}
+                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors flex justify-between items-center ${(form.comboSelAdsets as string[]).includes(a.id) ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : "border-border hover:border-amber-300"}`}>
+                  <span className="font-medium">{a.name}</span>
+                  <span className="text-[10px] text-muted-foreground flex gap-2">
+                    <span>Hook: {a.hookRate ?? "—"}%</span>
+                    <span>CTR: {a.ctr ?? "—"}%</span>
+                    <span>CPA: {a.cpa ?? "—"}</span>
+                  </span>
+                </button>
+              ))}
+              {(form.comboSelAdsets as string[]).length > 0 && (
+                <Button size="sm" className="w-full h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white mt-1" onClick={() => upd("comboStep", 2)}>
+                  تحليل العناصر من {(form.comboSelAdsets as string[]).length} AdSet →
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: اختيار العناصر */}
+      {form.comboStep >= 2 && selAdsets.length > 0 && (
+        <div className="space-y-3">
+          <label className="text-xs font-medium text-muted-foreground">③ اختار العناصر</label>
+
+          {/* الفيديوهات - radio */}
+          <div className="space-y-0.5">
+            <div className="text-[11px] font-medium text-amber-600 mb-1">🎬 الفيديو (واحد فقط)</div>
+            {selAdsets.map(a => (
+              <button key={a.id} onClick={() => { upd("comboSelVideoId", a.videoId); upd("comboSelVideoAdset", a.name); }}
+                className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors flex justify-between ${form.comboSelVideoId === a.videoId ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 font-medium" : "border-border hover:border-amber-300"}`}>
+                <span>{a.name}</span>
+                <span className="text-[10px] text-muted-foreground">Hook: {a.hookRate}% {form.comboSelVideoId === a.videoId && "⭐"}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* النصوص - checkboxes */}
+          <div className="space-y-0.5">
+            <div className="text-[11px] font-medium text-amber-600 mb-1">📝 النصوص (max 2)</div>
+            {selAdsets.flatMap(a => (a.texts ?? []).map((t, i) => ({ text: t, adset: a.name, key: `${a.id}-t${i}` }))).map(item => {
+              const sel = form.comboSelTexts as string[];
+              const isSelected = sel.includes(item.text);
+              return (
+                <button key={item.key}
+                  onClick={() => { if (isSelected) upd("comboSelTexts", sel.filter(x => x !== item.text)); else if (sel.length < 2) upd("comboSelTexts", [...sel, item.text]); }}
+                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors ${isSelected ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : "border-border hover:border-amber-300"} ${!isSelected && sel.length >= 2 ? "opacity-40 cursor-not-allowed" : ""}`}>
+                  <div className="truncate">{item.text || "(فارغ)"}</div>
+                  <div className="text-[10px] text-muted-foreground">{item.adset} {isSelected && "✓"}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* العناوين - checkboxes */}
+          <div className="space-y-0.5">
+            <div className="text-[11px] font-medium text-amber-600 mb-1">📌 العناوين (max 2)</div>
+            {selAdsets.flatMap(a => (a.headlines ?? []).map((h, i) => ({ headline: h, adset: a.name, key: `${a.id}-h${i}` }))).map(item => {
+              const sel = form.comboSelHeadlines as string[];
+              const isSelected = sel.includes(item.headline);
+              return (
+                <button key={item.key}
+                  onClick={() => { if (isSelected) upd("comboSelHeadlines", sel.filter(x => x !== item.headline)); else if (sel.length < 2) upd("comboSelHeadlines", [...sel, item.headline]); }}
+                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md border transition-colors ${isSelected ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20" : "border-border hover:border-amber-300"} ${!isSelected && sel.length >= 2 ? "opacity-40 cursor-not-allowed" : ""}`}>
+                  <div className="truncate">{item.headline || "(فارغ)"}</div>
+                  <div className="text-[10px] text-muted-foreground">{item.adset} {isSelected && "✓"}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: الحملة الهدف */}
+      {form.comboStep >= 2 && (
+        <div className="space-y-2 border-t border-amber-200 dark:border-amber-800 pt-3">
+          <label className="text-xs font-medium text-muted-foreground">④ الحملة الهدف + الـ AdSet الجديد</label>
+          <Input placeholder="🔍 ابحث في الحملات الهدف..." value={targetSearch} onChange={e => setTargetSearch(e.target.value)} className="h-8 text-xs" dir="rtl" />
+          <div className="max-h-28 overflow-y-auto space-y-0.5 rounded-lg border border-border bg-background p-1">
+            {filteredTarget.map(c => (
+              <button key={c.id} onClick={() => { upd("comboTargetCampaignId", c.id); upd("comboTargetCampaignName", c.name); upd("comboIsCBO", c.is_cbo); }}
+                className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${form.comboTargetCampaignId === c.id ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 font-medium" : "hover:bg-muted"}`}>
+                <span>{c.name}</span>
+                <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-[11px] text-muted-foreground">اسم الـ AdSet</label>
+              <Input placeholder="Best Combo — يوليو" value={form.comboNewAdsetName} onChange={e => upd("comboNewAdsetName", e.target.value)} className="h-8 text-xs" dir="rtl" />
+            </div>
+            {!form.comboIsCBO && (
+              <div className="space-y-1">
+                <label className="text-[11px] text-muted-foreground">الميزانية (EGP/يوم)</label>
+                <Input type="number" value={form.comboNewBudget} onChange={e => upd("comboNewBudget", e.target.value)} className="h-8 text-xs" />
+              </div>
+            )}
+          </div>
+          <Button size="sm" className="w-full h-9 text-xs bg-amber-500 hover:bg-amber-600 text-white gap-1.5 mt-1"
+            onClick={handleSubmit}
+            disabled={submitting || !form.comboTargetCampaignId || !form.comboNewAdsetName || !form.comboSelVideoId}>
+            {submitting ? "جاري الإنشاء..." : "🏆 إنشاء AdSet بـ Best Combination Creative"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

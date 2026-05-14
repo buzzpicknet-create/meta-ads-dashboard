@@ -2618,4 +2618,251 @@ router.get("/pipeboard/history", async (req: Request, res: Response) => {
   }
 });
 
+
+// ── GET /pipeboard/campaigns — جلب الحملات مع ABO/CBO flag ─────────────────
+router.get("/pipeboard/campaigns", async (req: Request, res: Response) => {
+  try {
+    const client = await getPipeboardWriteClient();
+    const accountId = String(req.query.account_id ?? "").replace(/^act_/, "");
+    if (!accountId) return res.status(400).json({ error: "account_id مطلوب" });
+
+    const result = await client.callTool({
+      name: "get_campaigns",
+      arguments: {
+        account_id: accountId,
+        fields: "id,name,status,effective_status,daily_budget,campaign_budget_optimization,objective",
+        limit: 100,
+      },
+    });
+
+    const text = ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
+      .join("")
+      .trim();
+
+    let campaigns: unknown[] = [];
+    try {
+      const parsed = JSON.parse(text);
+      campaigns = Array.isArray(parsed) ? parsed : (parsed?.data ?? []);
+    } catch {
+      const matches = [...text.matchAll(/"id"\s*:\s*"(\d+)"[^}]*"name"\s*:\s*"([^"]+)"/g)];
+      campaigns = matches.map(m => ({ id: m[1], name: m[2] }));
+    }
+
+    res.json({ campaigns });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── GET /pipeboard/campaigns/:id/adsets — جلب AdSets مع أرقام الأداء ────────
+router.get("/pipeboard/campaigns/:id/adsets", async (req: Request, res: Response) => {
+  try {
+    const client = await getPipeboardWriteClient();
+    const accountId = String(req.query.account_id ?? "").replace(/^act_/, "");
+    const campaignId = String(req.params.id ?? "");
+    if (!accountId || !campaignId) return res.status(400).json({ error: "account_id و campaign_id مطلوبان" });
+
+    // جلب الـ AdSets
+    const adsetsResult = await client.callTool({
+      name: "get_adsets",
+      arguments: {
+        account_id: accountId,
+        campaign_id: campaignId,
+        fields: "id,name,status,effective_status,daily_budget,campaign_budget_optimization",
+        limit: 50,
+      },
+    });
+
+    const adsetsText = ((adsetsResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
+      .join("")
+      .trim();
+
+    let adsets: Record<string, unknown>[] = [];
+    try {
+      const parsed = JSON.parse(adsetsText);
+      adsets = Array.isArray(parsed) ? parsed : (parsed?.data ?? []);
+    } catch { adsets = []; }
+
+    // جلب الـ insights لكل AdSet
+    const insightsResult = await client.callTool({
+      name: "get_insights",
+      arguments: {
+        account_id: accountId,
+        campaign_id: campaignId,
+        level: "adset",
+        fields: "adset_id,adset_name,spend,cpa,ctr,hook_rate,impressions,actions",
+        date_preset: "last_7d",
+        limit: 50,
+      },
+    });
+
+    const insightsText = ((insightsResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
+      .join("")
+      .trim();
+
+    let insights: Record<string, unknown>[] = [];
+    try {
+      const parsed = JSON.parse(insightsText);
+      insights = Array.isArray(parsed) ? parsed : (parsed?.data ?? []);
+    } catch { insights = []; }
+
+    // دمج الـ insights مع الـ AdSets
+    const insightsMap = new Map(insights.map(i => [String(i.adset_id), i]));
+    const enriched = adsets.map(a => ({
+      ...a,
+      insights: insightsMap.get(String(a.id)) ?? null,
+    }));
+
+    // هل الحملة CBO أم ABO؟
+    const campaignResult = await client.callTool({
+      name: "get_campaigns",
+      arguments: { account_id: accountId, campaign_id: campaignId, fields: "id,campaign_budget_optimization" },
+    });
+    const campaignText = ((campaignResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
+      .join("")
+      .trim();
+    const isCBO = campaignText.includes('"campaign_budget_optimization": true') ||
+                  campaignText.includes('"campaign_budget_optimization":true');
+
+    res.json({ adsets: enriched, is_cbo: isCBO });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── POST /pipeboard/best-combo — إنشاء Best Combination Creative ────────────
+router.post("/pipeboard/best-combo", async (req: Request, res: Response) => {
+  try {
+    const client = await getPipeboardWriteClient();
+    const {
+      account_id: rawAccountId,
+      target_campaign_id,
+      adset_name,
+      daily_budget,
+      pixel_id,
+      landing_page_url,
+      video_id,
+      texts,
+      headlines,
+      call_to_action = "LEARN_MORE",
+      is_cbo = false,
+    } = req.body as {
+      account_id: string;
+      target_campaign_id: string;
+      adset_name: string;
+      daily_budget?: number;
+      pixel_id?: string;
+      landing_page_url: string;
+      video_id: string;
+      texts: string[];
+      headlines: string[];
+      call_to_action?: string;
+      is_cbo?: boolean;
+    };
+
+    if (!rawAccountId || !target_campaign_id || !adset_name || !video_id || !landing_page_url) {
+      return res.status(400).json({ error: "account_id, target_campaign_id, adset_name, video_id, landing_page_url مطلوبة" });
+    }
+
+    const accountId = rawAccountId.replace(/^act_/, "");
+    const accountIdWithAct = `act_${accountId}`;
+    const hasPixel = Boolean(pixel_id);
+
+    // Step 1: جلب الـ page_id
+    let pageId = "";
+    try {
+      const pagesResult = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
+      const pagesText = ((pagesResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+        .filter((c: { type: string }) => c.type === "text")
+        .map((c: { text?: string }) => c.text ?? "")
+        .join("").trim();
+      const pageMatch = pagesText.match(/"id"\s*:\s*"(\d+)"/) ?? pagesText.match(/(\d{10,})/);
+      pageId = pageMatch?.[1] ?? "";
+    } catch { /* ignore */ }
+
+    // Step 2: إنشاء الـ AdSet
+    const adsetArgs: Record<string, unknown> = {
+      account_id: accountId,
+      campaign_id: target_campaign_id,
+      name: adset_name,
+      optimization_goal: hasPixel ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS",
+      billing_event: "IMPRESSIONS",
+      status: "PAUSED",
+      targeting: { geo_locations: { countries: ["EG"] } },
+      targeting_automation: { advantage_audience: 1 },
+      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+    };
+    if (!is_cbo && daily_budget) adsetArgs.daily_budget = Math.round(daily_budget * 100);
+    if (hasPixel) adsetArgs.promoted_object = { pixel_id, custom_event_type: "PURCHASE" };
+
+    const adsetResult = await client.callTool({ name: "create_adset", arguments: adsetArgs });
+    const adsetText = ((adsetResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
+      .join("").trim();
+    const adsetIdMatch = adsetText.match(/"id"\s*:\s*"(\d+)"/) ?? adsetText.match(/(\d{10,})/);
+    const adsetId = adsetIdMatch?.[1] ?? "";
+    if (!adsetId) return res.status(500).json({ error: `فشل إنشاء AdSet — ${adsetText.slice(0, 200)}` });
+
+    // Step 3: إنشاء الـ creative بـ video + messages[] + headlines[]
+    const creativeArgs: Record<string, unknown> = {
+      account_id: accountIdWithAct,
+      name: `${adset_name} — Best Combo`,
+      page_id: pageId,
+      video_id,
+      link_url: landing_page_url,
+      destination_url: landing_page_url,
+      messages: texts.filter(Boolean),
+      headlines: headlines.filter(Boolean),
+      call_to_action_type: call_to_action,
+    };
+    if (pixel_id) creativeArgs.pixel_id = pixel_id;
+
+    const creativeResult = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
+    const creativeText = ((creativeResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
+      .join("").trim();
+    const creativeIdMatch = creativeText.match(/"id"\s*:\s*"(\d+)"/) ?? creativeText.match(/(\d{10,})/);
+    const creativeId = creativeIdMatch?.[1] ?? "";
+    if (!creativeId) return res.status(500).json({ error: `فشل إنشاء Creative — ${creativeText.slice(0, 200)}` });
+
+    // Step 4: إنشاء الـ Ad
+    const adResult = await client.callTool({
+      name: "create_ad",
+      arguments: {
+        account_id: accountIdWithAct,
+        name: `${adset_name} — Best Combo Ad`,
+        adset_id: adsetId,
+        creative_id: creativeId,
+        status: "PAUSED",
+      },
+    });
+    const adText = ((adResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+      .filter((c: { type: string }) => c.type === "text")
+      .map((c: { text?: string }) => c.text ?? "")
+      .join("").trim();
+    const adIdMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/(\d{10,})/);
+    const adId = adIdMatch?.[1] ?? "";
+
+    res.json({
+      success: true,
+      adset_id: adsetId,
+      creative_id: creativeId,
+      ad_id: adId,
+      message: `✅ تم إنشاء AdSet "${adset_name}" بـ Best Combination Creative — ${texts.length} نص + ${headlines.length} عنوان`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 export default router;
