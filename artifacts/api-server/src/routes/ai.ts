@@ -1003,20 +1003,33 @@ Raw API Response (للتشخيص التقني):
 }
 \`\`\`
 
-أنواع الإجراءات المتاحة في bulk_action (هذه فقط — لا غيرها): update_campaign_budget | update_adset_budget | pause_campaign | enable_campaign | pause_adset | enable_adset | pause_ad | enable_ad | duplicate_ad | create_ad_from_existing_post
+أنواع الإجراءات المتاحة في bulk_action — كلها مدعومة في الواجهة والـ backend:
+pause_campaign | enable_campaign | update_campaign_budget | rename_campaign | duplicate_campaign |
+pause_adset | enable_adset | update_adset_budget | rename_adset | duplicate_adset |
+pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
+
 🚫 ممنوع منعاً باتاً داخل bulk_action: create_adset | publish_winners_to_destination | create_ad_from_creative_spec — هذه tool calls مباشرة فقط. وضعها في bulk_action يُسبّب crash فوري في الواجهة.
-- لـ update_campaign_budget: campaignId + currentBudget + newBudget + budgetType ("daily" أو "lifetime") إلزامي
-- لـ update_adset_budget: adsetId + currentBudget + newBudget إلزامي — أضف campaignName (اسم الحملة الأم) دائماً للـ ABO ليظهر في الواجهة
-- لـ pause_adset / enable_adset: adsetId إلزامي — أضف campaignName لتوضيح الحملة الأم في الواجهة
-- لـ pause/enable campaign: campaignId حسب النوع
-- لـ pause_ad / enable_ad: adId (رقم الإعلان الفردي)
-- لـ duplicate_ad: adId (الإعلان المصدر) + destinationAdsetId (المجموعة الهدف) — إلزامي كلاهما
-- لـ create_ad_from_existing_post: adId (الإعلان المصدر) + destinationAdsetId (المجموعة الهدف) — إلزامي كلاهما. الـ backend يجلب object_story_id تلقائياً. يمكن بديلاً تمرير postId (=object_story_id مباشرةً)
-- label: وصف قصير للإجراء (زيادة 20%، إيقاف، تقليل 30%، نشر winner، إلخ)
+
+الحقول المطلوبة لكل نوع:
+- pause_campaign / enable_campaign:         campaignId + name إلزاميان
+- update_campaign_budget:                   campaignId + name + currentBudget + newBudget + budgetType ("daily"|"lifetime") إلزامي
+- rename_campaign:                          campaignId + name (الاسم الحالي) + newName (الاسم الجديد) إلزاميان
+- duplicate_campaign:                       campaignId + name + nameSuffix? + newBudget? + newStatus ("PAUSED" افتراضياً)
+- pause_adset / enable_adset:              adsetId + name إلزاميان — أضف campaignName لتوضيح الحملة الأم
+- update_adset_budget:                      adsetId + name + currentBudget + newBudget إلزامي — أضف campaignName للـ ABO
+- rename_adset:                             adsetId + name (الاسم الحالي) + newName (الاسم الجديد) إلزاميان
+- duplicate_adset:                          adsetId + name إلزاميان
+- pause_ad / enable_ad:                    adId + name إلزاميان
+- rename_ad:                                adId + name (الاسم الحالي) + newName (الاسم الجديد) إلزاميان
+- duplicate_ad:                             adId + name + destinationAdsetId إلزامي كلاهما
+- create_ad_from_existing_post:            adId + accountId + destinationAdsetId + name إلزاميان. الـ backend يجلب object_story_id تلقائياً.
+- label: وصف قصير للإجراء (زيادة 20%، إيقاف، تغيير اسم، نسخ، إلخ)
 - reason: السبب المبني على البيانات (اختياري لكن مفيد جداً)
 - الـ newBudget لازم يكون القيمة المطلقة المحسوبة، مش نسبة مئوية
 - بعد كود bulk_action لا تكتب "في انتظار موافقتك" — الواجهة تعالج الموافقة تلقائياً
 - لا تستدعي get_campaign_budget أو get_campaign_status أثناء التحليل الجماعي — استخدم بيانات الـ context الموجودة مباشرةً واحسب newBudget منها. لا تنتظر بيانات إضافية لتولّد الـ bulk_action
+
+⚡ لا تقل أبداً "هذا النوع غير مدعوم في bulk_action" — كل الأنواع أعلاه مدعومة. إذا لم يكن لديك الـ ID → ابحث عنه بسلسلة البحث (get_campaigns → search_adsets → search_ads) ثم نفّذ.
 
 ⚠️ مثال create_ad_from_existing_post — هذا الشكل الصحيح الوحيد (adId + accountId + destinationAdsetId إلزاميان):
 \`\`\`bulk_action
