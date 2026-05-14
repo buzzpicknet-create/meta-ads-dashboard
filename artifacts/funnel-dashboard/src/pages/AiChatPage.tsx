@@ -948,7 +948,7 @@ export default function AiChatPage() {
       <aside className={`
         fixed top-14 bottom-16 right-0 z-50 w-72 flex flex-col bg-background border-l border-border/60 transition-transform duration-300
         sm:top-14 sm:bottom-0
-        md:relative md:top-auto md:bottom-auto md:w-64 md:z-auto md:translate-x-0 md:bg-muted/20
+        md:relative md:top-auto md:bottom-auto md:w-[30%] md:min-w-[220px] md:max-w-[320px] md:z-auto md:translate-x-0 md:shrink-0 md:bg-muted/10
         ${sidebarOpen ? "translate-x-0" : "translate-x-full"}
       `}>
 
