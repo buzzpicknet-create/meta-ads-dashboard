@@ -798,7 +798,7 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - headlines → creatives[].headline (كل العناوين)
    - budget: الرقم المذكور (EGP)
 ٣. لـ TESTING (ABO):
-   - adsets: [{name: "Broad Test", budget: [Budget من Blueprint]}]
+   - adsets: كل الـ AdSets المذكورة في البرومبت — كل AdSet له name وbudget من البرومبت. لا تستخدم "Broad Test" كاسم افتراضي
    - creatives: كل الأصول — pixel_id إلزامي
    - Advantage+ Audience: مُضاف تلقائياً من الـ backend
 ٤. لـ SCALING (CBO):
