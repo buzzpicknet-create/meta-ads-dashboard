@@ -1457,6 +1457,8 @@ ${allHeadlines}
 
 // ── Best Combo Component ──────────────────────────────────────────────────────
 function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickForm, v: unknown) => void }) {
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
   const { toast } = useToast();
   const [campaigns, setCampaigns] = useState<{ id: string; name: string; is_cbo: boolean }[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
@@ -1534,9 +1536,11 @@ function BestComboForm({ form, upd }: { form: QuickForm; upd: (k: keyof QuickFor
       </div>
       {!form.flexAccountId && (
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">رقم حساب الإعلانات</label>
-          <Input placeholder="act_XXXXXXXXX" className="h-8 text-xs font-mono" dir="ltr"
-            onBlur={e => { const v = e.target.value.trim(); if (v) upd("flexAccountId", v.replace(/^act_/, "")); }} />
+          <label className="text-xs font-medium text-muted-foreground">اختار الحساب</label>
+          <select className="w-full h-8 text-xs rounded-md border border-border bg-background px-2" onChange={e => { if (e.target.value) upd("flexAccountId", e.target.value); }}>
+            <option value="">— اختار الحساب —</option>
+            {accounts.map(acc => (<option key={acc.id} value={acc.id.replace(/^act_/, "")}>{acc.name ?? acc.id}</option>))}
+          </select>
         </div>
       )}
 
