@@ -1804,8 +1804,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               // ("Ad Creative Invalid") at the ad-creation step.
               link_url: landingPageUrl,
               destination_url: landingPageUrl,
-              messages: creative.texts.length > 0 ? creative.texts : undefined,
-              headlines: creative.headlines.length > 0 ? creative.headlines : undefined,
+              // بعد (الحل)
+messages: Array.isArray(creative.texts) && creative.texts.length > 0 ? creative.texts : undefined,
+headlines: Array.isArray(creative.headlines) && creative.headlines.length > 0 ? creative.headlines : undefined,
               call_to_action_type: callToAction,
             };
             if (pixelId) creativeArgs.pixel_id = pixelId;
