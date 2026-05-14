@@ -4087,7 +4087,8 @@ router.get(
           },
         });
       } catch (e) {
-        return res.status(500).json({ error: `get_adsets فشل: ${String(e)}` });
+        res.status(500).json({ error: `get_adsets فشل: ${String(e)}` });
+        return;
       }
 
       const adsetsText = (
@@ -4321,10 +4322,10 @@ router.post("/pipeboard/best-combo", async (req: Request, res: Response) => {
     const adsetIdMatch =
       adsetText.match(/"id"\s*:\s*"(\d+)"/) ?? adsetText.match(/(\d{10,})/);
     const adsetId = adsetIdMatch?.[1] ?? "";
-    if (!adsetId)
-      return res
-        .status(500)
-        .json({ error: `فشل إنشاء AdSet — ${adsetText.slice(0, 200)}` });
+    if (!adsetId) {
+      res.status(500).json({ error: `فشل إنشاء AdSet — ${adsetText.slice(0, 200)}` });
+      return;
+    }
 
     // Step 3: إنشاء الـ creative بـ video + messages[] + headlines[]
     const creativeArgs: Record<string, unknown> = {
@@ -4356,10 +4357,10 @@ router.post("/pipeboard/best-combo", async (req: Request, res: Response) => {
       creativeText.match(/"id"\s*:\s*"(\d+)"/) ??
       creativeText.match(/(\d{10,})/);
     const creativeId = creativeIdMatch?.[1] ?? "";
-    if (!creativeId)
-      return res
-        .status(500)
-        .json({ error: `فشل إنشاء Creative — ${creativeText.slice(0, 200)}` });
+    if (!creativeId) {
+      res.status(500).json({ error: `فشل إنشاء Creative — ${creativeText.slice(0, 200)}` });
+      return;
+    }
 
     // Step 4: إنشاء الـ Ad
     const adResult = await client.callTool({
