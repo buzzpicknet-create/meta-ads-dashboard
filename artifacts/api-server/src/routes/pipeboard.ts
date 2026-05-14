@@ -4143,14 +4143,6 @@ router.get(
       // دمج الـ insights مع الـ AdSets
       const insightsArr = Array.isArray(insights) ? insights : [];
       const insightsMap = new Map(insightsArr.map((i) => [String(i.adset_id), i]));
-      const enriched = adsets.map((a) => ({
-        ...a,
-        insights: insightsMap.get(String(a.id)) ?? null,
-        texts: adsMap.get(String(a.id))?.texts ?? [],
-        headlines: adsMap.get(String(a.id))?.headlines ?? [],
-        videoId: adsMap.get(String(a.id))?.videoId ?? null,
-      }));
-
       // جلب الـ Ads مع الـ creative (نصوص وعناوين)
       const adsMap = new Map<string, { texts: string[]; headlines: string[]; videoId?: string }>();
       try {
@@ -4178,6 +4170,14 @@ router.get(
           adsMap.set(adsetId, existing);
         }
       } catch { /* ignore */ }
+
+      const enriched = adsets.map((a) => ({
+        ...a,
+        insights: insightsMap.get(String(a.id)) ?? null,
+        texts: adsMap.get(String(a.id))?.texts ?? [],
+        headlines: adsMap.get(String(a.id))?.headlines ?? [],
+        videoId: adsMap.get(String(a.id))?.videoId ?? null,
+      }));
 
       // هل الحملة CBO أم ABO؟
       const campaignResult = await client.callTool({
