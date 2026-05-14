@@ -727,7 +727,10 @@ CAMPAIGN CREATION PIPELINE (Pipeboard CMP) — Smart Builder
    - creatives: مصفوفة [{media_url, media_type, texts:[], headlines:[]}] — حتى لو creative واحد
      * إذا أرسل المستخدم رابط مجلد Google Drive (drive.google.com/drive/folders/...) → ضعه في creative واحد فقط في media_url، وضع كل النصوص في texts:[] وكل العناوين في headlines:[] — لا تكرر الـ folder في creatives متعددة
      * الـ backend سيستخرج كل الفيديوهات من الـ folder تلقائياً ويعمل إعلان لكل فيديو بنفس النصوص والعناوين
-     * إذا أرسل روابط ملفات مباشرة → ضعها في creatives كمصفوفة كالمعتاد
+          * إذا أرسل روابط ملفات مباشرة (فيديو أو صورة واحدة) → ضعها في creatives كمصفوفة — كل رابط = creative واحد
+     * 🚨 قاعدة حرجة: لو المستخدم أعطاك أكتر من نص أو عنوان لنفس الميديا — ضعهم كلهم في creative واحد في texts:[] وheadlines:[] — لا تعمل creative منفصل لكل نص. creative منفصل = ميديا مختلفة فقط، مش نص مختلف
+     * مثال صح: creatives: [{media_url: "vid1", texts: ["نص1","نص2"], headlines: ["عنوان1","عنوان2"]}]
+     * مثال غلط: creatives: [{media_url: "vid1", primary_text: "نص1"}, {media_url: "vid1", primary_text: "نص2"}]
    - page_id: **لا تضفه** إلا إذا أعطاك المستخدم page_id صراحةً — الـ backend يجلبه تلقائياً إذا لم يُرسَل
    - pixel_id: أرسله إذا وافق المستخدم
    - ⚠️ لا تفترض ميزانية افتراضية — اسأل المستخدم عن الميزانية إذا لم يذكرها
