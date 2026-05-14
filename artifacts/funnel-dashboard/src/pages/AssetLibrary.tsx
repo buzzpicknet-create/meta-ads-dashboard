@@ -1231,7 +1231,13 @@ ${allHeadlines}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">الميزانية (EGP/يوم)</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                {activeCard === "STANDARD"
+                  ? form.stdIsCBO
+                    ? "الميزانية الكلية للحملة (EGP/يوم)"
+                    : `الميزانية لكل Adset (EGP/يوم)`
+                  : "الميزانية (EGP/يوم)"}
+              </label>
               <Input
                 type="number"
                 min={1}
@@ -1239,6 +1245,11 @@ ${allHeadlines}
                 onChange={e => upd("budget", e.target.value)}
                 className="h-9 text-sm"
               />
+              {activeCard === "STANDARD" && !form.stdIsCBO && (
+                <p className="text-[10px] text-muted-foreground">
+                  إجمالي يومي: <span className="font-semibold text-foreground">{(Number(form.budget) || 0) * form.stdAdsetCount} EGP</span> ({form.stdAdsetCount} Adsets × {form.budget} EGP)
+                </p>
+              )}
             </div>
           </div>
 
