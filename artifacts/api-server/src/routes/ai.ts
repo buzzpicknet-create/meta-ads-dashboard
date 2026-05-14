@@ -3077,7 +3077,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
     return "فشل جلب بيانات Google Ads. تأكد من ربط الحساب مع Pipeboard.";
   }
 
-  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 14 : 14));
+  const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 7 : 14));
   // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
   const nowCairoExec = new Date(Date.now() + 2 * 60 * 60 * 1000);
   const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
@@ -3116,10 +3116,27 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
     if (hit && hitAgeMs < TOOL_CACHE_FRESH_MS) {
       return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
     }
-    // Rate-limit is active → serve stale cache rather than blocking 90s
-    if (isRateLimitActive() && hit) {
-      return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
+
+    // Helper: fall back to ANY cached period for this campaign (used when rate-limited
+    // and no exact-period match exists — e.g. warmup cached 7d but tool requests 14d).
+    async function anyPeriodFallback(): Promise<CacheResult<Awaited<ReturnType<typeof getCampaignInsights>>> | null> {
+      const rows = await query<{ data: unknown; fetched_at: string }>(
+        `SELECT data, fetched_at FROM meta_insights_cache
+         WHERE campaign_id=$1 ORDER BY fetched_at DESC LIMIT 1`,
+        [campaign_id]
+      ).catch(() => [] as { data: unknown; fetched_at: string }[]);
+      const r = rows[0];
+      if (!r) return null;
+      return { data: r.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: Date.now() - new Date(r.fetched_at).getTime() };
     }
+
+    // Rate-limit is active → serve exact stale cache or fall back to any period
+    if (isRateLimitActive()) {
+      if (hit) return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
+      const fallback = await anyPeriodFallback();
+      if (fallback) return fallback;
+    }
+
     // Fetch from Meta
     try {
       const data = await getCampaignInsights({ campaign_id, since: s, until: u });
@@ -3132,8 +3149,12 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       ).catch(() => null);
       return { data, fromCache: false, cacheAgeMs: 0 };
     } catch (err) {
-      // Rate-limited mid-request → return stale cache if available
-      if (isRateLimitErr(err) && hit) return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
+      // Rate-limited mid-request → exact cache, then any-period fallback
+      if (isRateLimitErr(err)) {
+        if (hit) return { data: hit.data as Awaited<ReturnType<typeof getCampaignInsights>>, fromCache: true, cacheAgeMs: hitAgeMs };
+        const fallback = await anyPeriodFallback();
+        if (fallback) return fallback;
+      }
       throw err;
     }
   }
