@@ -2775,6 +2775,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             status: "PAUSED",
             targeting: { geo_locations: { countries: ["EG"] } },
             targeting_automation: { advantage_audience: 1 },
+            is_dynamic_creative: true,
           };
           if (hasPixel) {
             adsetArgs.promoted_object = {
