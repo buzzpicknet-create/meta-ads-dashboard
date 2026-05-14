@@ -4146,7 +4146,38 @@ router.get(
       const enriched = adsets.map((a) => ({
         ...a,
         insights: insightsMap.get(String(a.id)) ?? null,
+        texts: adsMap.get(String(a.id))?.texts ?? [],
+        headlines: adsMap.get(String(a.id))?.headlines ?? [],
+        videoId: adsMap.get(String(a.id))?.videoId ?? null,
       }));
+
+      // جلب الـ Ads مع الـ creative (نصوص وعناوين)
+      let adsMap = new Map<string, { texts: string[]; headlines: string[]; videoId?: string }>();
+      try {
+        const adsResult = await client.callTool({
+          name: "get_ads",
+          arguments: {
+            account_id: accountId,
+            campaign_id: campaignId,
+            fields: "id,adset_id,creative{id,body,title,video_id}",
+            limit: 100,
+          },
+        });
+        const adsText = (
+          (adsResult as { content?: Array<{ type: string; text?: string }> })?.content ?? []
+        ).filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
+        const adsParsed = JSON.parse(adsText);
+        const adsArr: Record<string, unknown>[] = Array.isArray(adsParsed) ? adsParsed : (adsParsed?.data ?? []);
+        for (const ad of adsArr) {
+          const adsetId = String(ad.adset_id ?? "");
+          const creative = ad.creative as Record<string, unknown> ?? {};
+          const existing = adsMap.get(adsetId) ?? { texts: [], headlines: [], videoId: undefined };
+          if (creative.body && !existing.texts.includes(String(creative.body))) existing.texts.push(String(creative.body));
+          if (creative.title && !existing.headlines.includes(String(creative.title))) existing.headlines.push(String(creative.title));
+          if (creative.video_id) existing.videoId = String(creative.video_id);
+          adsMap.set(adsetId, existing);
+        }
+      } catch { /* ignore */ }
 
       // هل الحملة CBO أم ABO؟
       const campaignResult = await client.callTool({
