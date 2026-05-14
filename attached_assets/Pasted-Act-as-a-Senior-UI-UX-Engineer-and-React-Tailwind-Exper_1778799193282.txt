@@ -1,0 +1,49 @@
+Act as a Senior UI/UX Engineer and React/Tailwind Expert. The current Chat and Dashboard UI is cluttered, hard to read, and lacks professional visual hierarchy. We need to overhaul the entire interface to match the "Opus 4.7 / Claude 3.5" aesthetic.
+
+Please apply this "Elite SaaS" design system to the App:
+
+1. TYPOGRAPHY & READABILITY (The Foundation)
+
+Fonts: Use 'Readex Pro' for all Arabic text and 'Inter' or 'Roboto' for all English numbers and metrics.
+
+Sizes: Increase base font size for chat messages to 16px and table data to 15px.
+
+Spacing: Implement "Breathable Design"—increase padding in tables (py-4 px-6) and margins between sections.
+
+2. STRATEGIC INSIGHT CARDS (The Diagnostic UI)
+
+Instead of plain text, the AI must output diagnostics using styled components:
+
+Achievement Card: Green border, subtle emerald background, for positive results.
+
+Setback Card: Red border, subtle rose background, for bleeding campaigns.
+
+Thinking Block: Use a soft Indigo background (bg-indigo-50/50) for the "Opus Logic" reasoning section.
+
+3. THE "ELITE" DATA TABLE
+
+Redesign the analytics table with these rules:
+
+Zebra Striping: Use even:bg-slate-50/50.
+
+Hover Effects: Highlight rows on hover with hover:bg-indigo-50/40.
+
+Metric Heatmap: Color-code numeric cells based on performance (e.g., Emerald for low CPA, Rose for high CPA).
+
+Sticky Header: The table header must stay fixed at the top with a subtle blur effect (backdrop-blur-md).
+
+Mixed Content Fix: Force dir="ltr" text-right for campaign names and IDs to prevent layout breaks.
+
+4. COLOR PALETTE (Premium Dark/Light Mix)
+
+Use a clean #F8FAFC background for the app.
+
+Use Indigo-600 (#4f46e5) as the primary accent color for buttons and icons.
+
+Use Slate-900 for main headers to ensure high contrast.
+
+5. EXECUTION VERDICT
+
+At the end of each analysis, render a "Decision Box" with a solid dark background (bg-slate-900) and emerald text for the final actionable orders.
+
+Please refactor the frontend components (Chat, Table, and Layout) to implement this world-class professional look.

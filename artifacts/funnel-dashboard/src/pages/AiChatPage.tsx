@@ -335,6 +335,18 @@ function RenderMarkdown({ text }: { text: string }) {
     }
 
     // Blockquote > — Opus Logic card if strategic, else standard
+    // Decision Box — lines starting with "قرار" (Opus final verdict)
+    if (/^(?:\*\*)?(?:#{1,3}\s*)?(?:[🟠🟡🟢🔴⚠️💡⚡🎯]\s*)?قرار\s+ال/u.test(line)) {
+      const clean = line.replace(/^#{1,3}\s*/, "").replace(/^\*\*/, "").replace(/\*\*$/, "");
+      elems.push(
+        <div key={i} className="ai-decision-box">
+          <span className="ai-decision-label">⚡ قرار نهائي</span>
+          <div>{renderInline(clean)}</div>
+        </div>
+      );
+      i++; continue;
+    }
+
     if (/^>\s/.test(line)) {
       const bqLines: string[] = [];
       while (i < lines.length && /^>\s/.test(lines[i]!)) { bqLines.push(lines[i]!.replace(/^>\s/,"")); i++; }
@@ -342,7 +354,7 @@ function RenderMarkdown({ text }: { text: string }) {
       const isOpus = /المنطق الاستراتيجي|Opus Logic/i.test(bqText);
       elems.push(isOpus
         ? <div key={i} className="ai-opus-logic">{renderInline(bqText)}</div>
-        : <div key={i} className="my-2 border-r-4 border-primary/40 pr-3 py-1 bg-primary/5 rounded-sm text-[15px] text-foreground/80 leading-relaxed" dir="auto">{renderInline(bqText)}</div>
+        : <div key={i} className="my-2 border-r-4 border-primary/40 pr-3 py-1 bg-primary/5 rounded-sm text-[15px] text-foreground/80 leading-relaxed">{renderInline(bqText)}</div>
       );
       continue;
     }
@@ -1199,7 +1211,7 @@ export default function AiChatPage() {
                         </div>
                       </>
                     ) : (
-                      <div className="text-foreground">
+                      <div className="ai-msg-body text-foreground">
                         <RenderMarkdown text={m.content} />
                         {m.tool_calls && m.tool_calls.length>0 && (
                           <div className="mt-1.5">
@@ -1221,7 +1233,7 @@ export default function AiChatPage() {
                   <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="h-4 w-4 text-primary" />
                   </div>
-                  <div className="flex-1 min-w-0 text-foreground">
+                  <div className="flex-1 min-w-0 ai-msg-body text-foreground">
                     <RenderMarkdown text={streamTxt} />
                   </div>
                 </div>
