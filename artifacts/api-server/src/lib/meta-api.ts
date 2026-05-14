@@ -68,6 +68,35 @@ function isRateLimitCode(code: number): boolean {
   return RATE_LIMIT_CODES.has(code);
 }
 
+/**
+ * Returns true for Meta errors that mean "this object has no insights edge"
+ * (e.g. deleted campaign, draft with no spend, archived entity).
+ * These should be handled gracefully — return [] instead of throwing.
+ */
+function isInsightsUnavailableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message;
+  // (#100) Tried accessing nonexisting field (insights)
+  return msg.includes("nonexisting field") || msg.includes("(#100)");
+}
+
+/**
+ * Re-throws rate-limit errors (so callers can fall back to cache).
+ * Swallows "no insights" errors by returning an empty array.
+ */
+function insightsFallback(err: unknown): FbInsightRow[] {
+  if (isRateLimitCode(
+    // extract code from "Meta rate limit active, retry in Xs (17)" or "Meta API error (17): ..."
+    Number((err instanceof Error ? err.message : "").match(/\((\d+)\)/)?.[1] ?? "0")
+  ) || (err instanceof Error && err.message.includes("rate limit"))) {
+    throw err; // propagate so fetchInsightsCached can serve stale cache
+  }
+  if (isInsightsUnavailableError(err)) {
+    return []; // campaign has no insights edge — treat as zero data
+  }
+  throw err; // unexpected error — let it propagate
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -602,6 +631,9 @@ export async function getCampaignInsights(opts: {
 
   // Fire all 4 Meta API calls concurrently — reduces wall-clock time by ~3×
   // vs sequential execution and halves the number of rate-limit windows consumed.
+  // Insights calls use insightsFallback() so that (#100) "nonexisting field (insights)"
+  // errors (deleted/draft campaigns) degrade gracefully to empty arrays instead of
+  // crashing the whole Promise.all and blocking the AI from any data.
   const [metaJson, dailyRows, adRows, adDeliveryRaw] = await Promise.all([
     // 1) Campaign metadata — single object, no pagination
     fbGetSingle<{
@@ -620,7 +652,7 @@ export async function getCampaignInsights(opts: {
       fields: INSIGHT_FIELDS,
       action_attribution_windows: ATTRIBUTION_WINDOW,
       limit: "200",
-    }),
+    }).catch(insightsFallback),
 
     // 3) Ad-level rows with daily breakdown
     fbGet<FbInsightRow>(`/${opts.campaign_id}/insights`, {
@@ -630,13 +662,13 @@ export async function getCampaignInsights(opts: {
       fields: INSIGHT_FIELDS,
       action_attribution_windows: ATTRIBUTION_WINDOW,
       limit: "1000",
-    }),
+    }).catch(insightsFallback),
 
-    // 4) Ad delivery status & issues
+    // 4) Ad delivery status & issues — graceful fallback (campaign may have no ads)
     fbGet<{ id: string; effective_status?: string; issues_info?: AdIssue[] }>(
       `/${opts.campaign_id}/ads`,
       { fields: "id,effective_status,issues_info", limit: "500" },
-    ),
+    ).catch(() => [] as { id: string; effective_status?: string; issues_info?: AdIssue[] }[]),
   ]);
 
   const campaign = {
