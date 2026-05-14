@@ -123,6 +123,22 @@ Headline: [العنوان]`,
 ];
 
 
+// Google Ads quick actions
+const QA_GOOGLE = [
+  {
+    label: "📊 تقرير Google Ads",
+    prompt: "أعطني تقرير أداء حملات Google Ads النشطة — CPA، ROAS، Conversions. قارن بآخر 7 أيام وحدد الحملات التي تستحق Scale والتي تحتاج تدخل.",
+  },
+  {
+    label: "🎯 فرص Scale Google",
+    prompt: "حلل حملات Google Ads وحدد الـ Ad Groups التي تحقق CPA أقل من المستهدف. جهّز مقترحات زيادة ميزانية مع تبرير.",
+  },
+  {
+    label: "🔬 تشخيص Google Funnel",
+    prompt: "افحص مسار المبيعات في Google Ads: CTR → CVR → CPA. أين الخلل؟ هل المشكلة في الإعلان أم في الـ Landing Page؟",
+  },
+];
+
 // All for the bottom strip
 const QA_ALL = [...QA_DAY, ...QA];
 
