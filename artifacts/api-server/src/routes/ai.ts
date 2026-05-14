@@ -2863,15 +2863,13 @@ async function tryExecuteViaPipeboard(
       });
     }
 
-    if (name === "get_adsets") {
-      const campaign_id = String(args.campaign_id ?? "");
-      if (!campaign_id) return null;
-      return await callPipeboardRead("get_insights", {
-        object_id: campaign_id,
-        level: "adset",
-        time_range: timeRange,
-      });
-    }
+    // NOTE: get_adsets is intentionally NOT handled via Pipeboard.
+    // Pipeboard's get_insights returns raw Meta text without computing
+    // hookRate / holdRate / lpvRate (requires video_play_actions + video_p100_watched_actions).
+    // The native Meta API path below uses getCampaignInsights() which fetches those
+    // video action fields and computes Hook Rate%, Hold Rate%, LPR% correctly per adset.
+    // Returning raw Pipeboard data causes the AI to report "data errors" because the
+    // expected funnel metrics are absent from the tool result.
 
     if (name === "get_campaign_status") {
       const campaign_id = String(args.campaign_id ?? "");
