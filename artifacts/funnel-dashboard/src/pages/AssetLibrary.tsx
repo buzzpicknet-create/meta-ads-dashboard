@@ -950,7 +950,8 @@ function QuickLaunchSection() {
     if (type === "TEST") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
 قم ببناء حملة (TESTING) فوراً — أنشئ AdSet وإعلان منفصل لكل زاوية:
 # 1. Campaign Settings
-- Objective: SALES (Conversions) · Event: PURCHASE
+- Campaign Type: Advantage+ Sales Campaign
+- Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${campName}
 - Budget Optimization: ABO (Adset Level Budget)
 - Media Drive Folder: ${drive}
@@ -1124,6 +1125,7 @@ ${allHeadlines}
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
 قم ببناء حملة Standard فوراً — ${adsetCount} Adsets · ${creativesPerAdset} Creatives per Adset:
 # 1. Campaign Settings
+- Campaign Type: Advantage+ Sales Campaign
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${campName}
 - Budget Optimization: ${isCBO ? "CBO (Campaign Level)" : "ABO (Adset Level)"}${isCBO ? `\n- Campaign Budget: ${form.budget} EGP daily` : ""}
