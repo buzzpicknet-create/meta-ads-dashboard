@@ -4108,35 +4108,20 @@ router.get(
         adsets = [];
       }
 
-      // جلب الـ insights لكل AdSet — account_id لازم يكون بـ act_ prefix
-      const insightsResult = await client.callTool({
-        name: "get_insights",
-        arguments: {
-          account_id: `act_${accountId}`,
-          campaign_id: campaignId,
-          level: "adset",
-          fields: "adset_id,adset_name,spend,impressions,clicks,actions",
-          date_preset: "last_7d",
-        },
-      });
-
-      const insightsText = (
-        (insightsResult as { content?: Array<{ type: string; text?: string }> })
-          ?.content ?? []
-      )
-        .filter((c: { type: string }) => c.type === "text")
-        .map((c: { text?: string }) => c.text ?? "")
-        .join("")
-        .trim();
-
+      // جلب الـ insights مباشرة من Meta API بالـ campaign_id (أدق وأضمن من Pipeboard get_insights)
       let insights: Record<string, unknown>[] = [];
       try {
-        const parsed = JSON.parse(insightsText);
-        insights = Array.isArray(parsed) ? parsed : (parsed?.data ?? []);
-      } catch {
-        insights = [];
+        const metaToken = process.env.META_ACCESS_TOKEN ?? "";
+        const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
+          `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
+          `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        const insRes = await fetch(insUrl);
+        const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
+        insights = insJson.data ?? [];
+        logger.info({ campaign_id: campaignId, count: insights.length }, "adset insights fetched");
+      } catch (e) {
+        logger.warn({ err: String(e) }, "adset insights fetch failed");
       }
-      logger.info({ insightsText: insightsText.slice(0, 500) }, "get_insights raw response");
 
       // دمج الـ insights مع الـ AdSets
       const insightsArr = Array.isArray(insights) ? insights : [];
@@ -4410,34 +4395,24 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
         .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
     }
-    // جلب الـ ads والـ insights بالتوازي
-    const [adsResult, insightsResult] = await Promise.all([
-      client.callTool({
-        name: "get_ads",
-        arguments: { account_id: accountId, campaign_id: campaignId, fields: "id,name,adset_id,creative{id,body,title,video_id,image_hash,link_url,call_to_action{type}}", limit: 100 },
-      }),
-      client.callTool({
-        name: "get_insights",
-        arguments: {
-          account_id: `act_${accountId}`, campaign_id: campaignId,
-          level: "ad",
-          fields: "ad_id,spend,impressions,clicks,actions",
-          date_preset: "last_7d",
-        },
-      }).catch(() => null),
-    ]);
+    const adsResult = await client.callTool({
+      name: "get_ads",
+      arguments: { account_id: accountId, campaign_id: campaignId, fields: "id,name,adset_id,creative{id,body,title,video_id,image_hash,link_url,call_to_action{type}}", limit: 100 },
+    });
     const text = mcpTxtCa(adsResult);
     let ads: Record<string, unknown>[] = [];
     try { const p = JSON.parse(text); ads = Array.isArray(p) ? p : (p?.data ?? []); } catch { ads = []; }
-    // بناء map الـ insights
+    // جلب الـ insights مباشرة من Meta API مع فلتر الـ campaign_id
     let insightsMap = new Map<string, Record<string, unknown>>();
     try {
-      if (insightsResult) {
-        const insText = mcpTxtCa(insightsResult);
-        const insParsed = JSON.parse(insText);
-        const insArr: Record<string, unknown>[] = Array.isArray(insParsed) ? insParsed : (insParsed?.data ?? []);
-        insightsMap = new Map(insArr.map(i => [String(i.ad_id), i]));
-      }
+      const metaToken = process.env.META_ACCESS_TOKEN ?? "";
+      const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
+        `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
+        `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+      const insRes = await fetch(insUrl);
+      const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
+      const insArr = insJson.data ?? [];
+      insightsMap = new Map(insArr.map(i => [String(i.ad_id), i]));
     } catch { /* ignore */ }
     const normalized = ads.map(ad => {
       const cr = (ad.creative as Record<string, unknown>) ?? {};

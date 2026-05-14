@@ -1767,7 +1767,7 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
   const [srcCampaignId, setSrcCampaignId] = useState("");
   const [ads, setAds] = useState<AdCreativeRow[]>([]);
   const [loadingAds, setLoadingAds] = useState(false);
-  const [selectedAd, setSelectedAd] = useState<AdCreativeRow | null>(null);
+  const [selectedAds, setSelectedAds] = useState<AdCreativeRow[]>([]);
 
   const [destType, setDestType] = useState<"existing_adset" | "new_adset">("existing_adset");
   const [destCampaignId, setDestCampaignId] = useState("");
@@ -1782,20 +1782,26 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
   const [pixelId, setPixelId] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; message: string; campaign_id?: string; adset_id?: string; creative_id?: string; ad_id?: string } | null>(null);
+  const [results, setResults] = useState<Array<{ ad_name: string; success: boolean; message: string; ad_id?: string }>>([]);
 
   useEffect(() => {
     if (!accountId) return;
     setLoadingCampaigns(true);
-    setCampaigns([]); setSrcCampaignId(""); setAds([]); setSelectedAd(null);
+    setCampaigns([]); setSrcCampaignId(""); setAds([]); setSelectedAds([]);
     apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
       .then(d => setCampaigns(d.campaigns ?? []))
       .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
       .finally(() => setLoadingCampaigns(false));
   }, [accountId]);
 
+  function toggleAdSelection(ad: AdCreativeRow) {
+    setSelectedAds(prev =>
+      prev.some(a => a.id === ad.id) ? prev.filter(a => a.id !== ad.id) : [...prev, ad]
+    );
+  }
+
   async function fetchCampaignAds(campaignId: string) {
-    setSrcCampaignId(campaignId); setLoadingAds(true); setAds([]); setSelectedAd(null);
+    setSrcCampaignId(campaignId); setLoadingAds(true); setAds([]); setSelectedAds([]);
     try {
       const d = await apiFetch<{ ads: AdCreativeRow[] }>(`/pipeboard/campaigns/${campaignId}/ads?account_id=${accountId}`);
       setAds(d.ads ?? []);
@@ -1813,33 +1819,38 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
   }
 
   async function handleScale() {
-    if (!selectedAd) { toast({ title: "❌ اختار الإعلان المصدر", variant: "destructive" }); return; }
+    if (selectedAds.length === 0) { toast({ title: "❌ اختار إعلان واحد على الأقل", variant: "destructive" }); return; }
     if (destType === "existing_adset" && !destAdsetId) { toast({ title: "❌ اختار الـ AdSet الهدف", variant: "destructive" }); return; }
     if (destType === "new_adset" && !newAdsetName.trim()) { toast({ title: "❌ أدخل اسم الـ AdSet الجديد", variant: "destructive" }); return; }
     if (destType === "new_adset" && isNewCampaign && !newCampaignName.trim()) { toast({ title: "❌ أدخل اسم الحملة الجديدة", variant: "destructive" }); return; }
     if (destType === "new_adset" && !isNewCampaign && !destCampaignId) { toast({ title: "❌ اختار الحملة الهدف", variant: "destructive" }); return; }
-    setSubmitting(true); setResult(null);
-    try {
-      const data = await apiFetch<{ success: boolean; message: string; campaign_id?: string; adset_id?: string; creative_id?: string; ad_id?: string }>("/pipeboard/scale-creative", {
-        method: "POST",
-        body: JSON.stringify({
-          account_id: accountId, source_ad: selectedAd, dest_type: destType,
-          dest_adset_id: destType === "existing_adset" ? destAdsetId : undefined,
-          dest_campaign_id: destType === "new_adset" && !isNewCampaign ? destCampaignId : undefined,
-          new_adset_name: destType === "new_adset" ? newAdsetName.trim() : undefined,
-          new_campaign_name: destType === "new_adset" && isNewCampaign ? newCampaignName.trim() : undefined,
-          new_campaign_budget: destType === "new_adset" ? Number(newCampaignBudget) : undefined,
-          new_campaign_is_cbo: destType === "new_adset" ? newCampaignIsCBO : undefined,
-          pixel_id: pixelId || undefined,
-        }),
-      });
-      setResult(data);
-      if (data.success) toast({ title: "✅ " + data.message });
-      else toast({ title: "❌ فشل العملية", variant: "destructive" });
-    } catch (e) {
-      const msg = String(e); setResult({ success: false, message: msg });
-      toast({ title: "❌ " + msg, variant: "destructive" });
+    setSubmitting(true); setResults([]);
+    const allResults: Array<{ ad_name: string; success: boolean; message: string; ad_id?: string }> = [];
+    for (const ad of selectedAds) {
+      try {
+        const data = await apiFetch<{ success: boolean; message: string; campaign_id?: string; adset_id?: string; creative_id?: string; ad_id?: string }>("/pipeboard/scale-creative", {
+          method: "POST",
+          body: JSON.stringify({
+            account_id: accountId, source_ad: ad, dest_type: destType,
+            dest_adset_id: destType === "existing_adset" ? destAdsetId : undefined,
+            dest_campaign_id: destType === "new_adset" && !isNewCampaign ? destCampaignId : undefined,
+            new_adset_name: destType === "new_adset" ? newAdsetName.trim() : undefined,
+            new_campaign_name: destType === "new_adset" && isNewCampaign ? newCampaignName.trim() : undefined,
+            new_campaign_budget: destType === "new_adset" ? Number(newCampaignBudget) : undefined,
+            new_campaign_is_cbo: destType === "new_adset" ? newCampaignIsCBO : undefined,
+            pixel_id: pixelId || undefined,
+          }),
+        });
+        allResults.push({ ad_name: ad.name || ad.id, success: data.success, message: data.message, ad_id: data.ad_id });
+      } catch (e) {
+        allResults.push({ ad_name: ad.name || ad.id, success: false, message: String(e) });
+      }
     }
+    setResults(allResults);
+    const successCount = allResults.filter(r => r.success).length;
+    if (successCount === selectedAds.length) toast({ title: `✅ تم نسخ ${successCount} إعلان بنجاح` });
+    else if (successCount > 0) toast({ title: `⚠️ نجح ${successCount} من ${selectedAds.length}`, variant: "destructive" });
+    else toast({ title: "❌ فشلت جميع العمليات", variant: "destructive" });
     setSubmitting(false);
   }
 
@@ -1879,12 +1890,17 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
         </div>
       )}
 
-      {/* Source ad */}
-      {ads.length > 0 && (
+      {/* Source ad — multi-select */}
+      {(ads.length > 0 || (srcCampaignId && loadingAds)) && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold">② اختار الإعلان المصدر</label>
-            <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">آخر 7 أيام</span>
+            <label className="text-sm font-semibold">② اختار الإعلانات المصدر <span className="text-muted-foreground font-normal text-xs">(اختيار متعدد)</span></label>
+            <div className="flex items-center gap-2">
+              {selectedAds.length > 0 && (
+                <span className="text-xs bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400 px-2 py-0.5 rounded-full font-semibold">{selectedAds.length} محدد</span>
+              )}
+              <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">آخر 7 أيام</span>
+            </div>
           </div>
           {loadingAds ? <div className="text-sm text-center py-4 text-muted-foreground">جاري الجلب...</div> : (
             <div className="space-y-1 max-h-64 overflow-y-auto pr-0.5">
@@ -1892,14 +1908,14 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
                 const isWinner = ad.cpa !== null && ad.cpa <= 40;
                 const isWarning = ad.cpa !== null && ad.cpa > 40 && ad.cpa <= 100;
                 const isDanger = ad.cpa !== null && ad.cpa > 100;
-                const isSelected = selectedAd?.id === ad.id;
+                const isSelected = selectedAds.some(a => a.id === ad.id);
                 return (
-                  <button key={ad.id} onClick={() => setSelectedAd(ad)}
+                  <button key={ad.id} onClick={() => toggleAdSelection(ad)}
                     className={`w-full text-right text-sm px-3 py-2.5 rounded-lg border-2 transition-all ${isSelected ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 shadow-sm" : "border-border hover:border-cyan-300 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/10"}`}>
                     <div className="flex justify-between items-start gap-2">
                       <span className="font-medium flex items-center gap-2 flex-wrap min-w-0">
-                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? "border-cyan-500 bg-cyan-500" : "border-border"}`}>
-                          {isSelected && <span className="text-white text-[8px] font-bold">●</span>}
+                        <span className={`w-4 h-4 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? "border-cyan-500 bg-cyan-500" : "border-border bg-background"}`}>
+                          {isSelected && <span className="text-white text-[9px] font-bold leading-none">✓</span>}
                         </span>
                         <span className="truncate">{ad.name}</span>
                         {isWinner && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-bold shrink-0">🏆 وينر</span>}
@@ -1931,7 +1947,7 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
       )}
 
       {/* Destination */}
-      {selectedAd && (
+      {selectedAds.length > 0 && (
         <div className="space-y-3 border-t border-cyan-200 dark:border-cyan-800 pt-4">
           <label className="text-sm font-semibold">③ الوجهة</label>
           <div className="flex gap-2">
@@ -2007,25 +2023,25 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
       )}
 
       {/* Scale button */}
-      {selectedAd && (
+      {selectedAds.length > 0 && (
         <Button size="sm" onClick={handleScale} disabled={submitting}
           className="w-full h-11 text-sm bg-cyan-600 hover:bg-cyan-700 text-white gap-2 font-semibold">
-          {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> جاري النسخ...</> : `🎨 نسخ "${selectedAd.name.slice(0, 30)}"`}
+          {submitting
+            ? <><Loader2 className="h-4 w-4 animate-spin" /> جاري نسخ {selectedAds.length} إعلان...</>
+            : `🎨 نسخ ${selectedAds.length} إعلان`}
         </Button>
       )}
 
-      {/* Result */}
-      {result && (
-        <div className={`rounded-lg border p-3 text-xs space-y-1 ${result.success ? "border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400" : "border-red-200 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400"}`}>
-          <div className="font-semibold">{result.message}</div>
-          {result.success && (
-            <div className="space-y-0.5 text-[11px]">
-              {result.campaign_id && <div>🏷 Campaign ID: <span className="font-mono">{result.campaign_id}</span></div>}
-              {result.adset_id && <div>📦 AdSet ID: <span className="font-mono">{result.adset_id}</span></div>}
-              {result.creative_id && <div>🎨 Creative ID: <span className="font-mono">{result.creative_id}</span></div>}
-              {result.ad_id && <div>📢 Ad ID: <span className="font-mono">{result.ad_id}</span></div>}
+      {/* Results — one row per ad */}
+      {results.length > 0 && (
+        <div className="space-y-1.5">
+          {results.map((r, i) => (
+            <div key={i} className={`rounded-lg border p-3 text-xs ${r.success ? "border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400" : "border-red-200 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400"}`}>
+              <div className="font-semibold truncate">{r.success ? "✅" : "❌"} {r.ad_name}</div>
+              <div className="text-[11px] mt-0.5">{r.message}</div>
+              {r.success && r.ad_id && <div className="text-[11px] mt-0.5 font-mono">📢 Ad ID: {r.ad_id}</div>}
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>
