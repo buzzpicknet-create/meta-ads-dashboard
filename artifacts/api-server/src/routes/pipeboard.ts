@@ -4141,7 +4141,8 @@ router.get(
       }
 
       // دمج الـ insights مع الـ AdSets
-      const insightsMap = new Map(insights.map((i) => [String(i.adset_id), i]));
+      const insightsArr = Array.isArray(insights) ? insights : [];
+      const insightsMap = new Map(insightsArr.map((i) => [String(i.adset_id), i]));
       const enriched = adsets.map((a) => ({
         ...a,
         insights: insightsMap.get(String(a.id)) ?? null,
