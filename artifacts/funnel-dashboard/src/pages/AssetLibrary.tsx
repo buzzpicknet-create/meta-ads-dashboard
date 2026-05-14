@@ -1598,18 +1598,18 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
   }
 
   return (
-    <div className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/30 dark:bg-rose-950/10 p-4 space-y-4 animate-in fade-in duration-150">
+    <div className="rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50/30 dark:bg-rose-950/10 p-5 space-y-5 animate-in fade-in duration-150">
       <div className="flex items-center gap-2">
-        <span className="text-base">📦</span>
-        <span className="text-sm font-semibold">Scale AdSets</span>
-        <span className="text-[11px] text-muted-foreground mr-auto">نسخ AdSets رابحة بكامل إعلاناتها</span>
+        <span className="text-lg">📦</span>
+        <span className="font-semibold">Scale AdSets</span>
+        <span className="text-xs text-muted-foreground mr-auto">نسخ AdSets رابحة بكامل إعلاناتها</span>
       </div>
 
       {/* Account */}
       {!accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">اختار الحساب</label>
-          <select className="w-full h-8 text-xs rounded-md border border-border bg-background px-2" onChange={e => { if (e.target.value) onAccountChange(e.target.value.replace(/^act_/, "")); }}>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-muted-foreground">اختار الحساب</label>
+          <select className="w-full h-10 text-sm rounded-md border border-border bg-background px-3" onChange={e => { if (e.target.value) onAccountChange(e.target.value.replace(/^act_/, "")); }}>
             <option value="">— اختار —</option>
             {accounts.map(acc => <option key={acc.id} value={acc.id.replace(/^act_/, "")}>{acc.name ?? acc.id}</option>)}
           </select>
@@ -1618,15 +1618,15 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
 
       {/* Source campaign */}
       {accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">① الحملة المصدر</label>
-          <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
-            {loadingCampaigns && <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div>}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold">① الحملة المصدر</label>
+          <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
+            {loadingCampaigns && <div className="text-sm text-center py-3 text-muted-foreground">جاري الجلب...</div>}
             {campaigns.map(c => (
               <button key={c.id} onClick={() => fetchAdsets(c.id)}
-                className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${srcCampaignId === c.id ? "bg-rose-100 dark:bg-rose-900/30 text-rose-700 font-medium" : "hover:bg-muted"}`}>
+                className={`w-full text-right text-sm px-3 py-2.5 rounded-md transition-colors flex justify-between items-center ${srcCampaignId === c.id ? "bg-rose-100 dark:bg-rose-900/30 text-rose-700 font-semibold" : "hover:bg-muted"}`}>
                 <span>{c.name}</span>
-                <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${srcCampaignId === c.id ? "bg-rose-200 dark:bg-rose-800 text-rose-700 dark:text-rose-300" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
               </button>
             ))}
           </div>
@@ -1635,70 +1635,73 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
 
       {/* Multi-select adsets */}
       {adsets.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-muted-foreground">② اختار الـ AdSets المراد نسخها</label>
-            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">آخر 7 أيام</span>
+            <label className="text-sm font-semibold">② اختار الـ AdSets المراد نسخها</label>
+            <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">آخر 7 أيام</span>
           </div>
-          {loadingAdsets ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
-            <div className="space-y-0.5 max-h-52 overflow-y-auto">
+          {loadingAdsets ? <div className="text-sm text-center py-4 text-muted-foreground">جاري الجلب...</div> : (
+            <div className="space-y-1 max-h-64 overflow-y-auto pr-0.5">
               {adsets.map(a => {
                 const cpa = a.cpa;
                 const isWinner = cpa !== null && cpa <= 40;
                 const isWarning = cpa !== null && cpa > 40 && cpa <= 100;
                 const isDanger = cpa !== null && cpa > 100;
+                const isSelected = selectedAdsets.includes(a.id);
                 return (
                   <button key={a.id} onClick={() => toggleAdset(a.id)}
-                    className={`w-full text-right text-xs px-2 py-2 rounded-md border transition-colors ${selectedAdsets.includes(a.id) ? "border-rose-400 bg-rose-50 dark:bg-rose-900/20" : "border-border hover:border-rose-300"}`}>
+                    className={`w-full text-right text-sm px-3 py-2.5 rounded-lg border-2 transition-all ${isSelected ? "border-rose-400 bg-rose-50 dark:bg-rose-900/20 shadow-sm" : "border-border hover:border-rose-300 hover:bg-rose-50/40 dark:hover:bg-rose-950/10"}`}>
                     <div className="flex justify-between items-start gap-2">
-                      <span className="font-medium flex items-center gap-1.5 flex-wrap">
-                        {selectedAdsets.includes(a.id) && <span className="text-rose-500">✓</span>}
-                        {a.name}
-                        {isWinner && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-bold shrink-0">🏆 وينر</span>}
+                      <span className="font-medium flex items-center gap-2 flex-wrap min-w-0">
+                        <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? "border-rose-500 bg-rose-500" : "border-border"}`}>
+                          {isSelected && <span className="text-white text-[9px] font-bold">✓</span>}
+                        </span>
+                        <span className="truncate">{a.name}</span>
+                        {isWinner && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-bold shrink-0">🏆 وينر</span>}
                       </span>
-                      <div className="flex gap-1.5 items-center shrink-0 flex-wrap justify-end">
-                        {a.spend != null && <span className="text-[10px] text-muted-foreground">{Number(a.spend).toFixed(0)} EGP</span>}
-                        {a.ctr != null && <span className="text-[10px] text-muted-foreground">CTR {a.ctr}%</span>}
-                        {cpa != null ? (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                            isWinner ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" :
-                            isWarning ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400" :
-                            isDanger ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : ""
-                          }`}>CPA {cpa}</span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground/50 italic">لا بيانات</span>
-                        )}
-                      </div>
+                    </div>
+                    <div className="flex gap-2 items-center mt-1.5 flex-wrap mr-6">
+                      {a.spend != null && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{Number(a.spend).toFixed(0)} EGP</span>}
+                      {a.ctr != null && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">CTR {a.ctr}%</span>}
+                      {cpa != null ? (
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          isWinner ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" :
+                          isWarning ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400" :
+                          isDanger ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : ""
+                        }`}>CPA {cpa} EGP</span>
+                      ) : (
+                        <span className="text-xs bg-muted text-muted-foreground/60 px-2 py-0.5 rounded-full">لا بيانات (7 أيام)</span>
+                      )}
                     </div>
                   </button>
                 );
               })}
             </div>
           )}
-          {selectedAdsets.length > 0 && <div className="text-xs text-rose-600 font-medium">✓ {selectedAdsets.length} AdSet مختار</div>}
+          {selectedAdsets.length > 0 && <div className="text-sm text-rose-600 font-semibold bg-rose-50 dark:bg-rose-950/20 px-3 py-1.5 rounded-lg">✓ {selectedAdsets.length} AdSet مختار</div>}
         </div>
       )}
 
       {/* Destination */}
       {adsets.length > 0 && (
-        <div className="space-y-2 border-t border-rose-200 dark:border-rose-800 pt-3">
-          <label className="text-xs font-medium text-muted-foreground">③ الحملة الهدف</label>
+        <div className="space-y-3 border-t border-rose-200 dark:border-rose-800 pt-4">
+          <label className="text-sm font-semibold">③ الحملة الهدف</label>
           <div className="flex gap-2">
-            <button onClick={() => setDestType("existing")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "existing" ? "border-rose-500 bg-rose-50/60 text-rose-600 font-medium" : "border-border text-muted-foreground hover:border-rose-300"}`}>
+            <button onClick={() => setDestType("existing")} className={`flex-1 h-9 text-sm rounded-lg border-2 transition-all ${destType === "existing" ? "border-rose-500 bg-rose-50/60 text-rose-600 font-semibold" : "border-border text-muted-foreground hover:border-rose-300"}`}>
               حملة موجودة
             </button>
-            <button onClick={() => setDestType("new")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "new" ? "border-rose-500 bg-rose-50/60 text-rose-600 font-medium" : "border-border text-muted-foreground hover:border-rose-300"}`}>
+            <button onClick={() => setDestType("new")} className={`flex-1 h-9 text-sm rounded-lg border-2 transition-all ${destType === "new" ? "border-rose-500 bg-rose-50/60 text-rose-600 font-semibold" : "border-border text-muted-foreground hover:border-rose-300"}`}>
               ✨ حملة جديدة
             </button>
           </div>
 
           {destType === "existing" && (
-            <div className="max-h-32 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
               {campaigns.map(c => (
                 <button key={c.id} onClick={() => setDestCampaignId(c.id)}
-                  className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${destCampaignId === c.id ? "bg-rose-100 dark:bg-rose-900/30 text-rose-700 font-medium" : "hover:bg-muted"}`}>
+                  className={`w-full text-right text-sm px-3 py-2.5 rounded-md transition-colors flex justify-between items-center ${destCampaignId === c.id ? "bg-rose-100 dark:bg-rose-900/30 text-rose-700 font-semibold" : "hover:bg-muted"}`}>
                   <span>{c.name}</span>
-                  <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${destCampaignId === c.id ? "bg-rose-200 dark:bg-rose-800 text-rose-700 dark:text-rose-300" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
                 </button>
               ))}
             </div>
@@ -1706,10 +1709,10 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
 
           {destType === "new" && (
             <div className="space-y-2">
-              <Input placeholder="اسم الحملة الجديدة" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} className="h-8 text-xs" dir="rtl" />
+              <Input placeholder="اسم الحملة الجديدة" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} className="h-10 text-sm" dir="rtl" />
               <div className="flex gap-2 items-center">
-                <Input type="number" placeholder="الميزانية (EGP)" value={newCampaignBudget} onChange={e => setNewCampaignBudget(e.target.value)} className="h-8 text-xs flex-1" />
-                <button onClick={() => setNewCampaignIsCBO(!newCampaignIsCBO)} className={`h-8 px-3 text-xs rounded-lg border transition-all ${newCampaignIsCBO ? "border-rose-500 bg-rose-50/60 text-rose-600 font-medium" : "border-border text-muted-foreground"}`}>
+                <Input type="number" placeholder="الميزانية (EGP)" value={newCampaignBudget} onChange={e => setNewCampaignBudget(e.target.value)} className="h-10 text-sm flex-1" />
+                <button onClick={() => setNewCampaignIsCBO(!newCampaignIsCBO)} className={`h-10 px-4 text-sm rounded-lg border-2 font-medium transition-all ${newCampaignIsCBO ? "border-rose-500 bg-rose-50/60 text-rose-600 font-semibold" : "border-border text-muted-foreground"}`}>
                   {newCampaignIsCBO ? "CBO" : "ABO"}
                 </button>
               </div>
@@ -1721,8 +1724,8 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
       {/* Run button */}
       {selectedAdsets.length > 0 && (
         <Button size="sm" onClick={handleScale} disabled={running}
-          className="w-full h-9 text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5">
-          {running ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> جاري النسخ...</> : `📦 نسخ ${selectedAdsets.length} AdSet → ${destType === "new" ? "حملة جديدة" : "الحملة الهدف"}`}
+          className="w-full h-11 text-sm bg-rose-600 hover:bg-rose-700 text-white gap-2 font-semibold">
+          {running ? <><Loader2 className="h-4 w-4 animate-spin" /> جاري النسخ...</> : `📦 نسخ ${selectedAdsets.length} AdSet → ${destType === "new" ? "حملة جديدة" : "الحملة الهدف"}`}
         </Button>
       )}
 
@@ -1841,18 +1844,18 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
   }
 
   return (
-    <div className="rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50/30 dark:bg-cyan-950/10 p-4 space-y-4 animate-in fade-in duration-150">
+    <div className="rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50/30 dark:bg-cyan-950/10 p-5 space-y-5 animate-in fade-in duration-150">
       <div className="flex items-center gap-2">
-        <span className="text-base">🎨</span>
-        <span className="text-sm font-semibold">Scale Creative</span>
-        <span className="text-[11px] text-muted-foreground mr-auto">نسخ Creative وينر لـ AdSet جديد</span>
+        <span className="text-lg">🎨</span>
+        <span className="font-semibold">Scale Creative</span>
+        <span className="text-xs text-muted-foreground mr-auto">نسخ Creative وينر لـ AdSet جديد</span>
       </div>
 
       {/* Account */}
       {!accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">اختار الحساب</label>
-          <select className="w-full h-8 text-xs rounded-md border border-border bg-background px-2" onChange={e => { if (e.target.value) onAccountChange(e.target.value.replace(/^act_/, "")); }}>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-muted-foreground">اختار الحساب</label>
+          <select className="w-full h-10 text-sm rounded-md border border-border bg-background px-3" onChange={e => { if (e.target.value) onAccountChange(e.target.value.replace(/^act_/, "")); }}>
             <option value="">— اختار —</option>
             {accounts.map(acc => <option key={acc.id} value={acc.id.replace(/^act_/, "")}>{acc.name ?? acc.id}</option>)}
           </select>
@@ -1861,15 +1864,15 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
 
       {/* Source campaign */}
       {accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">① الحملة المصدر</label>
-          <div className="max-h-28 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
-            {loadingCampaigns && <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div>}
+        <div className="space-y-1.5">
+          <label className="text-sm font-semibold">① الحملة المصدر</label>
+          <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
+            {loadingCampaigns && <div className="text-sm text-center py-3 text-muted-foreground">جاري الجلب...</div>}
             {campaigns.map(c => (
               <button key={c.id} onClick={() => fetchCampaignAds(c.id)}
-                className={`w-full text-right text-xs px-2 py-1.5 rounded-md transition-colors flex justify-between ${srcCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
+                className={`w-full text-right text-sm px-3 py-2.5 rounded-md transition-colors flex justify-between items-center ${srcCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-semibold" : "hover:bg-muted"}`}>
                 <span>{c.name}</span>
-                <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${srcCampaignId === c.id ? "bg-cyan-200 dark:bg-cyan-800 text-cyan-700 dark:text-cyan-300" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
               </button>
             ))}
           </div>
@@ -1878,78 +1881,84 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
 
       {/* Source ad */}
       {ads.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-muted-foreground">② اختار الإعلان المصدر</label>
-            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">آخر 7 أيام</span>
+            <label className="text-sm font-semibold">② اختار الإعلان المصدر</label>
+            <span className="text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">آخر 7 أيام</span>
           </div>
-          {loadingAds ? <div className="text-xs text-center py-2 text-muted-foreground">جاري الجلب...</div> : (
-            <div className="space-y-0.5 max-h-52 overflow-y-auto">
+          {loadingAds ? <div className="text-sm text-center py-4 text-muted-foreground">جاري الجلب...</div> : (
+            <div className="space-y-1 max-h-64 overflow-y-auto pr-0.5">
               {ads.map(ad => {
                 const isWinner = ad.cpa !== null && ad.cpa <= 40;
                 const isWarning = ad.cpa !== null && ad.cpa > 40 && ad.cpa <= 100;
                 const isDanger = ad.cpa !== null && ad.cpa > 100;
+                const isSelected = selectedAd?.id === ad.id;
                 return (
                   <button key={ad.id} onClick={() => setSelectedAd(ad)}
-                    className={`w-full text-right text-xs px-2 py-2 rounded-md border transition-colors ${selectedAd?.id === ad.id ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 font-medium" : "border-border hover:border-cyan-300"}`}>
+                    className={`w-full text-right text-sm px-3 py-2.5 rounded-lg border-2 transition-all ${isSelected ? "border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 shadow-sm" : "border-border hover:border-cyan-300 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/10"}`}>
                     <div className="flex justify-between items-start gap-2">
-                      <span className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        {ad.name}
-                        {isWinner && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-bold shrink-0">🏆 وينر</span>}
+                      <span className="font-medium flex items-center gap-2 flex-wrap min-w-0">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? "border-cyan-500 bg-cyan-500" : "border-border"}`}>
+                          {isSelected && <span className="text-white text-[8px] font-bold">●</span>}
+                        </span>
+                        <span className="truncate">{ad.name}</span>
+                        {isWinner && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-bold shrink-0">🏆 وينر</span>}
                       </span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{ad.video_id ? "🎬 فيديو" : ad.image_hash ? "🖼 صورة" : "—"}</span>
+                      <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full shrink-0">{ad.video_id ? "🎬 فيديو" : ad.image_hash ? "🖼 صورة" : "—"}</span>
                     </div>
-                    <div className="flex gap-1.5 items-center mt-1 flex-wrap">
-                      {ad.spend != null && <span className="text-[10px] text-muted-foreground">{ad.spend.toFixed(0)} EGP</span>}
-                      {ad.ctr != null && <span className="text-[10px] text-muted-foreground">CTR {ad.ctr}%</span>}
-                      {ad.purchases != null && <span className="text-[10px] text-muted-foreground">{ad.purchases} مبيعة</span>}
+                    <div className="flex gap-2 items-center mt-1.5 flex-wrap mr-6">
+                      {ad.spend != null && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{ad.spend.toFixed(0)} EGP</span>}
+                      {ad.ctr != null && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">CTR {ad.ctr}%</span>}
+                      {ad.purchases != null && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{ad.purchases} مبيعة</span>}
                       {ad.cpa != null ? (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                           isWinner ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400" :
                           isWarning ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400" :
                           isDanger ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : ""
-                        }`}>CPA {ad.cpa}</span>
+                        }`}>CPA {ad.cpa} EGP</span>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground/50 italic">لا بيانات</span>
+                        <span className="text-xs bg-muted text-muted-foreground/60 px-2 py-0.5 rounded-full">لا بيانات (7 أيام)</span>
                       )}
                     </div>
-                    {ad.body && <div className="text-[10px] text-muted-foreground truncate mt-0.5">{ad.body}</div>}
+                    {ad.body && <div className="text-xs text-muted-foreground truncate mt-1 mr-6">{ad.body}</div>}
                   </button>
                 );
               })}
             </div>
           )}
-          {ads.length === 0 && srcCampaignId && !loadingAds && <div className="text-xs text-muted-foreground text-center py-2">لا توجد إعلانات في هذه الحملة</div>}
+          {ads.length === 0 && srcCampaignId && !loadingAds && <div className="text-sm text-muted-foreground text-center py-3">لا توجد إعلانات في هذه الحملة</div>}
         </div>
       )}
 
       {/* Destination */}
       {selectedAd && (
-        <div className="space-y-3 border-t border-cyan-200 dark:border-cyan-800 pt-3">
-          <label className="text-xs font-medium text-muted-foreground">③ الوجهة</label>
+        <div className="space-y-3 border-t border-cyan-200 dark:border-cyan-800 pt-4">
+          <label className="text-sm font-semibold">③ الوجهة</label>
           <div className="flex gap-2">
-            <button onClick={() => setDestType("existing_adset")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "existing_adset" ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground hover:border-cyan-300"}`}>AdSet موجود</button>
-            <button onClick={() => setDestType("new_adset")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${destType === "new_adset" ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground hover:border-cyan-300"}`}>✨ AdSet جديد</button>
+            <button onClick={() => setDestType("existing_adset")} className={`flex-1 h-9 text-sm rounded-lg border-2 transition-all ${destType === "existing_adset" ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-semibold" : "border-border text-muted-foreground hover:border-cyan-300"}`}>AdSet موجود</button>
+            <button onClick={() => setDestType("new_adset")} className={`flex-1 h-9 text-sm rounded-lg border-2 transition-all ${destType === "new_adset" ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-semibold" : "border-border text-muted-foreground hover:border-cyan-300"}`}>✨ AdSet جديد</button>
           </div>
 
           {destType === "existing_adset" && (
-            <div className="space-y-1.5">
-              <label className="text-[11px] text-muted-foreground">اختار الحملة ثم الـ AdSet</label>
-              <div className="max-h-24 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground font-medium">اختار الحملة ثم الـ AdSet</label>
+              <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
                 {campaigns.map(c => (
                   <button key={c.id} onClick={() => fetchDestAdsets(c.id)}
-                    className={`w-full text-right text-xs px-2 py-1 rounded-md transition-colors ${destCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
-                    {c.name}
+                    className={`w-full text-right text-sm px-3 py-2 rounded-md transition-colors flex justify-between items-center ${destCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-semibold" : "hover:bg-muted"}`}>
+                    <span>{c.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${destCampaignId === c.id ? "bg-cyan-200 dark:bg-cyan-800 text-cyan-700 dark:text-cyan-300" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
                   </button>
                 ))}
               </div>
-              {loadingDestAdsets && <div className="text-xs text-center py-1 text-muted-foreground">جاري جلب الـ AdSets...</div>}
+              {loadingDestAdsets && <div className="text-sm text-center py-2 text-muted-foreground">جاري جلب الـ AdSets...</div>}
               {destAdsets.length > 0 && (
-                <div className="max-h-24 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
                   {destAdsets.map(a => (
                     <button key={a.id} onClick={() => setDestAdsetId(a.id)}
-                      className={`w-full text-right text-xs px-2 py-1 rounded-md transition-colors ${destAdsetId === a.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
-                      {a.name}
+                      className={`w-full text-right text-sm px-3 py-2 rounded-md transition-colors flex justify-between items-center ${destAdsetId === a.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-semibold" : "hover:bg-muted"}`}>
+                      <span>{a.name}</span>
+                      {destAdsetId === a.id && <span className="text-cyan-500 shrink-0">✓</span>}
                     </button>
                   ))}
                 </div>
@@ -1960,39 +1969,39 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
           {destType === "new_adset" && (
             <div className="space-y-2">
               <div className="flex gap-2">
-                <button onClick={() => setIsNewCampaign(false)} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${!isNewCampaign ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground"}`}>حملة موجودة</button>
-                <button onClick={() => setIsNewCampaign(true)} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${isNewCampaign ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground"}`}>✨ حملة جديدة</button>
+                <button onClick={() => setIsNewCampaign(false)} className={`flex-1 h-9 text-sm rounded-lg border-2 transition-all ${!isNewCampaign ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-semibold" : "border-border text-muted-foreground"}`}>حملة موجودة</button>
+                <button onClick={() => setIsNewCampaign(true)} className={`flex-1 h-9 text-sm rounded-lg border-2 transition-all ${isNewCampaign ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-semibold" : "border-border text-muted-foreground"}`}>✨ حملة جديدة</button>
               </div>
               {!isNewCampaign && (
-                <div className="max-h-24 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+                <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
                   {campaigns.map(c => (
                     <button key={c.id} onClick={() => setDestCampaignId(c.id)}
-                      className={`w-full text-right text-xs px-2 py-1 rounded-md transition-colors flex justify-between ${destCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-medium" : "hover:bg-muted"}`}>
+                      className={`w-full text-right text-sm px-3 py-2 rounded-md transition-colors flex justify-between items-center ${destCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-semibold" : "hover:bg-muted"}`}>
                       <span>{c.name}</span>
-                      <span className="text-[10px] text-muted-foreground">{c.is_cbo ? "CBO" : "ABO"}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${destCampaignId === c.id ? "bg-cyan-200 dark:bg-cyan-800 text-cyan-700 dark:text-cyan-300" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
                     </button>
                   ))}
                 </div>
               )}
               {isNewCampaign && (
                 <div className="flex gap-2">
-                  <Input placeholder="اسم الحملة الجديدة" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} className="h-8 text-xs flex-1" dir="rtl" />
-                  <button onClick={() => setNewCampaignIsCBO(!newCampaignIsCBO)} className={`h-8 px-3 text-xs rounded-lg border transition-all shrink-0 ${newCampaignIsCBO ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-medium" : "border-border text-muted-foreground"}`}>
+                  <Input placeholder="اسم الحملة الجديدة" value={newCampaignName} onChange={e => setNewCampaignName(e.target.value)} className="h-10 text-sm flex-1" dir="rtl" />
+                  <button onClick={() => setNewCampaignIsCBO(!newCampaignIsCBO)} className={`h-10 px-4 text-sm rounded-lg border-2 font-medium transition-all shrink-0 ${newCampaignIsCBO ? "border-cyan-500 bg-cyan-50/60 text-cyan-600 font-semibold" : "border-border text-muted-foreground"}`}>
                     {newCampaignIsCBO ? "CBO" : "ABO"}
                   </button>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="اسم الـ AdSet الجديد" value={newAdsetName} onChange={e => setNewAdsetName(e.target.value)} className="h-8 text-xs" dir="rtl" />
-                <Input type="number" placeholder="الميزانية (EGP)" value={newCampaignBudget} onChange={e => setNewCampaignBudget(e.target.value)} className="h-8 text-xs" />
+                <Input placeholder="اسم الـ AdSet الجديد" value={newAdsetName} onChange={e => setNewAdsetName(e.target.value)} className="h-10 text-sm" dir="rtl" />
+                <Input type="number" placeholder="الميزانية (EGP)" value={newCampaignBudget} onChange={e => setNewCampaignBudget(e.target.value)} className="h-10 text-sm" />
               </div>
             </div>
           )}
 
           {/* Pixel ID */}
-          <div className="space-y-1">
-            <label className="text-[11px] text-muted-foreground">Pixel ID (اختياري)</label>
-            <Input placeholder="مثال: 1405391498274239" value={pixelId} onChange={e => setPixelId(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground font-medium">Pixel ID (اختياري)</label>
+            <Input placeholder="مثال: 1405391498274239" value={pixelId} onChange={e => setPixelId(e.target.value)} className="h-10 text-sm font-mono" dir="ltr" />
           </div>
         </div>
       )}
@@ -2000,8 +2009,8 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
       {/* Scale button */}
       {selectedAd && (
         <Button size="sm" onClick={handleScale} disabled={submitting}
-          className="w-full h-9 text-xs bg-cyan-600 hover:bg-cyan-700 text-white gap-1.5">
-          {submitting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> جاري النسخ...</> : `🎨 نسخ "${selectedAd.name.slice(0, 30)}"`}
+          className="w-full h-11 text-sm bg-cyan-600 hover:bg-cyan-700 text-white gap-2 font-semibold">
+          {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> جاري النسخ...</> : `🎨 نسخ "${selectedAd.name.slice(0, 30)}"`}
         </Button>
       )}
 
