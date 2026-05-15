@@ -14,6 +14,7 @@ import {
   searchCampaignsByName,
   searchAdsetsByCampaign,
   searchAdsByAdset,
+  getAdsetAdsInsights,
   fetchAccountMetadata,
   isRateLimitActive,
   type CampaignDetails,
@@ -3713,51 +3714,64 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return "adset_id مطلوب.";
 
-      // Search all accounts and campaigns for ads belonging to this adset
-      const matchedAds: Awaited<ReturnType<typeof getCampaignInsights>>["by_ad"] = [];
+      // ── Fast path: direct adset insights (1 API call instead of looping all campaigns) ──
+      let matchedAds: Awaited<ReturnType<typeof getCampaignInsights>>["by_ad"] = [];
       let foundCampaignName = "";
       let foundAdsetName = "";
-      let foundAccountId = "";
-      let maxCacheAgeMs = 0;
-      let anyFromCache = false;
-      let totalCampaignsChecked = 0;
-      const fetchErrors: string[] = [];
+      let foundAccountId = accounts[0]?.id ?? "";
+      let directSuccess = false;
 
-      for (const acc of accounts) {
-        let campaignsResult: Awaited<ReturnType<typeof fetchCampaignsCached>>;
-        try {
-          campaignsResult = await fetchCampaignsCached(acc.id);
-        } catch (err) {
-          fetchErrors.push(`حساب ${acc.id}: فشل جلب الحملات — ${err instanceof Error ? err.message : String(err)}`);
-          continue;
+      try {
+        const direct = await getAdsetAdsInsights({ adset_id, since: s, until: u });
+        if (direct.ads.length > 0) {
+          matchedAds = direct.ads;
+          foundCampaignName = direct.campaignName;
+          foundAdsetName = direct.adsetName;
+          directSuccess = true;
         }
-        if (campaignsResult.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, campaignsResult.cacheAgeMs); }
-        for (const campaign of campaignsResult.data) {
-          totalCampaignsChecked++;
+      } catch (directErr) {
+        const msg = directErr instanceof Error ? directErr.message : String(directErr);
+        logger.warn({ adset_id, err: msg }, "get_ads_in_adset direct path failed, falling back to cache loop");
+      }
+
+      // ── Fallback: loop through cached campaigns (no extra Meta calls if cache is warm) ──
+      if (!directSuccess) {
+        const fetchErrors: string[] = [];
+        let totalCampaignsChecked = 0;
+        for (const acc of accounts) {
+          let campaignsResult: Awaited<ReturnType<typeof fetchCampaignsCached>>;
           try {
-            const result = await fetchInsightsCached(campaign.id);
-            if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
-            const adsInAdset = result.data.by_ad.filter((ad) => ad.adset_id === adset_id);
-            if (adsInAdset.length > 0) {
-              matchedAds.push(...adsInAdset);
-              foundCampaignName = result.data.campaign.name;
-              foundAccountId = acc.id;
-              // Try to find adset name from by_adset
-              const adsetEntry = result.data.by_adset.find((as) => as.id === adset_id);
-              if (adsetEntry) foundAdsetName = adsetEntry.label;
-            }
+            campaignsResult = await fetchCampaignsCached(acc.id);
           } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            fetchErrors.push(`حملة ${campaign.id} (${campaign.name ?? ""}): ${errMsg}`);
+            fetchErrors.push(`حساب ${acc.id}: فشل جلب الحملات — ${err instanceof Error ? err.message : String(err)}`);
+            continue;
           }
+          for (const campaign of campaignsResult.data) {
+            totalCampaignsChecked++;
+            try {
+              const result = await fetchInsightsCached(campaign.id);
+              const adsInAdset = result.data.by_ad.filter((ad) => ad.adset_id === adset_id);
+              if (adsInAdset.length > 0) {
+                matchedAds.push(...adsInAdset);
+                foundCampaignName = result.data.campaign.name;
+                const adsetEntry = result.data.by_adset.find((as) => as.id === adset_id);
+                if (adsetEntry) foundAdsetName = adsetEntry.label;
+              }
+            } catch (err) {
+              fetchErrors.push(`حملة ${campaign.id}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        }
+        if (matchedAds.length === 0) {
+          const errDetail = fetchErrors.length > 0
+            ? `\n\nأخطاء (${fetchErrors.length} من ${totalCampaignsChecked} حملة):\n${fetchErrors.slice(0, 5).join("\n")}`
+            : `\n\nتم فحص ${totalCampaignsChecked} حملة — لا بيانات لهذا الـ adset_id في الفترة المحددة.`;
+          return `لم يتم العثور على إعلانات للمجموعة ${adset_id} (آخر ${days} يوم). جرّب days=30.${errDetail}`;
         }
       }
 
       if (matchedAds.length === 0) {
-        const errDetail = fetchErrors.length > 0
-          ? `\n\nأخطاء أثناء الجلب (${fetchErrors.length} من ${totalCampaignsChecked} حملة فشلت):\n${fetchErrors.slice(0, 5).join("\n")}`
-          : `\n\nتم التحقق من ${totalCampaignsChecked} حملة — لا يوجد بيانات إعلانات لهذا الـ adset_id في الفترة المحددة.`;
-        return `لم يتم العثور على إعلانات للمجموعة ${adset_id} في البيانات المتاحة (آخر ${days} يوم). تأكد من صحة الرقم أو جرّب days=30.${errDetail}`;
+        return `لم يتم العثور على إعلانات للمجموعة ${adset_id} في البيانات المتاحة (آخر ${days} يوم). تأكد من صحة الرقم أو جرّب days=30.`;
       }
 
       // Rank by CPA (ascending, lower is better); ads with no purchases go last
@@ -3835,7 +3849,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         rows.push(`🔴 adId و accountId أعلاه أرقام فعلية — لا تغيّرهما. غيّر destinationAdsetId فقط بعد معرفة المجموعة الهدف.`);
       }
 
-      return rows.join("\n") + buildCacheNote(anyFromCache, maxCacheAgeMs);
+      return rows.join("\n") + buildCacheNote(!directSuccess, 0);
     }
 
     if (name === "search_campaigns") {

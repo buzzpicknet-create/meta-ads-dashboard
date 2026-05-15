@@ -1934,6 +1934,89 @@ export interface AdSearchResult {
   updated_time: string;
 }
 
+// ── Direct adset-level ad insights (single Meta API call — avoids campaign loop) ──
+export interface AdsetAdsInsightsResult {
+  adsetName: string;
+  campaignId: string;
+  campaignName: string;
+  ads: SegmentEntry[];
+}
+
+export async function getAdsetAdsInsights(opts: {
+  adset_id: string;
+  since: string;
+  until: string;
+}): Promise<AdsetAdsInsightsResult> {
+  const { adset_id, since, until } = opts;
+  const time_range = JSON.stringify({ since, until });
+
+  // Three concurrent calls — single adset = far fewer requests than looping all campaigns
+  const [metaJson, adRows, adDeliveryRaw] = await Promise.all([
+    fbGetSingle<{ id?: string; name?: string; campaign_id?: string; campaign_name?: string }>(
+      `/${adset_id}`,
+      { fields: "id,name,campaign_id,campaign_name" },
+    ),
+    fbGet<FbInsightRow>(`/${adset_id}/insights`, {
+      level: "ad",
+      time_range,
+      time_increment: "1",
+      fields: INSIGHT_FIELDS,
+      action_attribution_windows: ATTRIBUTION_WINDOW,
+      limit: "1000",
+    }).catch(() => [] as FbInsightRow[]),
+    fbGet<{ id: string; effective_status?: string; issues_info?: AdIssue[] }>(
+      `/${adset_id}/ads`,
+      { fields: "id,effective_status,issues_info", limit: "500" },
+    ).catch(() => [] as { id: string; effective_status?: string; issues_info?: AdIssue[] }[]),
+  ]);
+
+  const adDeliveryMap = new Map<string, { effective_status?: string; issues?: AdIssue[] }>();
+  for (const ad of adDeliveryRaw) {
+    adDeliveryMap.set(ad.id, { effective_status: ad.effective_status, issues: ad.issues_info ?? [] });
+  }
+
+  const adMap = new Map<string, { name: string; metrics: AggregatedMetrics; adset_id: string }>();
+  for (const row of adRows) {
+    if (!row.ad_id) continue;
+    const cur = adMap.get(row.ad_id) ?? { name: row.ad_name || row.ad_id, metrics: emptyMetrics(), adset_id: row.adset_id ?? adset_id };
+    addRow(cur.metrics, row);
+    adMap.set(row.ad_id, cur);
+  }
+
+  const ads: SegmentEntry[] = [...adMap.entries()]
+    .map(([id, v]) => {
+      const d = derive(v.metrics);
+      const delivery = adDeliveryMap.get(id);
+      return {
+        key: id, id,
+        label: v.name,
+        spend: v.metrics.spend,
+        impressions: v.metrics.impressions,
+        reach: v.metrics.reach,
+        frequency: d.frequency,
+        link_clicks: v.metrics.link_clicks,
+        lpv: v.metrics.lpv,
+        purchases: v.metrics.purchases,
+        cpa: d.cpa, cpm: d.cpm, cpc: d.cpc, ctr: d.ctr,
+        cr: d.crLpv,
+        hookRate: d.hookRate,
+        holdRate: d.holdRate,
+        lpvRate: d.lpvRate,
+        effective_status: delivery?.effective_status,
+        issues: delivery?.issues ?? [],
+        adset_id: v.adset_id,
+      };
+    })
+    .sort((a, b) => b.spend - a.spend);
+
+  return {
+    adsetName: metaJson.name ?? adset_id,
+    campaignId: metaJson.campaign_id ?? "",
+    campaignName: metaJson.campaign_name ?? "",
+    ads,
+  };
+}
+
 export async function searchAdsByAdset(
   adsetId: string,
   query: string,
