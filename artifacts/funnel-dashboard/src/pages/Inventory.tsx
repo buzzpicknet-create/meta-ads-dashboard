@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 const INVENTORY_BASE = "https://inventory-flow-seomasr.replit.app";
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const LOW_STOCK_THRESHOLD = 10;
+const ALERT_WAREHOUSE = "مخزن السوق";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -127,10 +128,12 @@ export default function InventoryPage() {
     }
   }, []);
 
-  // Load movement data when filter is activated
+  // Load movement data when filter is activated + auto-select مخزن السوق
   useEffect(() => {
-    if (stockFilter === "no_movement" && noMovementIds === null) {
-      fetchNoMovement();
+    if (stockFilter === "no_movement") {
+      if (noMovementIds === null) fetchNoMovement();
+      // Auto-scope to the alert warehouse
+      setWarehouse(ALERT_WAREHOUSE);
     }
   }, [stockFilter, noMovementIds, fetchNoMovement]);
 
@@ -184,7 +187,10 @@ export default function InventoryPage() {
   const availableCount = products.filter(p => p.currentStock > 0).length;
   const zeroCount      = products.filter(p => p.currentStock === 0).length;
   const totalUnits     = products.reduce((s, p) => s + p.currentStock, 0);
-  const lowStockList   = products.filter(p => p.currentStock > 0 && p.currentStock <= LOW_STOCK_THRESHOLD);
+  // Low-stock banner only for مخزن السوق
+  const lowStockList   = products.filter(
+    p => p.warehouseLocation === ALERT_WAREHOUSE && p.currentStock > 0 && p.currentStock <= LOW_STOCK_THRESHOLD
+  );
 
   return (
     <div dir="rtl" className="min-h-screen bg-background">

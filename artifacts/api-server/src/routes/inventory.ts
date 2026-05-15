@@ -9,12 +9,14 @@ const INVENTORY_BASE = "https://inventory-flow-seomasr.replit.app";
 const LOW_STOCK_THRESHOLD = 10;
 const ALERT_DEDUP_HOURS = 24;
 const NO_MOVEMENT_DAYS = 10;
+const ALERT_WAREHOUSE = "مخزن السوق"; // alerts only apply to this warehouse
 
 interface InventoryProduct {
   id: number;
   name: string;
   sku: string;
   currentStock: number;
+  warehouseLocation: string;
 }
 
 interface InventoryMovement {
@@ -31,7 +33,9 @@ export async function checkInventoryAlerts(): Promise<void> {
       logger.warn({ status: res.status }, "Inventory alert check: API failed");
       return;
     }
-    const products: InventoryProduct[] = await res.json();
+    const allProducts: InventoryProduct[] = await res.json();
+    // Only monitor the target warehouse
+    const products = allProducts.filter(p => p.warehouseLocation === ALERT_WAREHOUSE);
 
     const stateRows = await query<{
       product_id: number;
