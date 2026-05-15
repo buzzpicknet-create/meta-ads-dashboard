@@ -3233,9 +3233,10 @@ export default function LandingPageGenerator() {
             {/* Add store form */}
             {addingStore ? (
               <div className="space-y-3 border border-white/10 rounded-xl p-4 bg-white/3">
-                <p className="text-xs font-bold text-gray-300">بيانات المتجر الجديد</p>
+                <p className="text-xs font-bold text-gray-300">بيانات التطبيق على Shopify Partners</p>
+
                 <div>
-                  <label className="text-[11px] text-gray-400 mb-1 block">نطاق المتجر (Domain)</label>
+                  <label className="text-[11px] text-gray-400 mb-1 block">نطاق المتجر (Store Domain)</label>
                   <input
                     value={newStoreDomain}
                     onChange={e => setNewStoreDomain(e.target.value)}
@@ -3244,29 +3245,43 @@ export default function LandingPageGenerator() {
                     className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50"
                   />
                 </div>
+
                 <div>
-                  <label className="text-[11px] text-gray-400 mb-1 block">Access Token (Admin API)</label>
+                  <label className="text-[11px] text-gray-400 mb-1 block">Client ID</label>
                   <input
-                    value={newStoreToken}
-                    onChange={e => setNewStoreToken(e.target.value)}
-                    placeholder="shpat_xxxxxxxxxxxx"
+                    value={newStoreClientId}
+                    onChange={e => setNewStoreClientId(e.target.value)}
+                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    dir="ltr"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-gray-400 mb-1 block">Client Secret</label>
+                  <input
+                    value={newStoreClientSecret}
+                    onChange={e => setNewStoreClientSecret(e.target.value)}
+                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                     type="password"
                     dir="ltr"
                     onKeyDown={e => e.key === "Enter" && void handleAddStore()}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50 font-mono"
                   />
-                  <p className="text-[10px] text-gray-600 mt-1">
-                    من متجرك: Settings → Apps → Develop apps → Admin API access token
+                  <p className="text-[10px] text-gray-500 mt-1.5 leading-relaxed">
+                    من Shopify Partners → Apps → اختر التطبيق → App setup → Client credentials
                   </p>
                 </div>
+
                 {addStoreError && (
                   <p className="text-xs text-red-400 flex items-center gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{addStoreError}
                   </p>
                 )}
+
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { setAddingStore(false); setAddStoreError(""); setNewStoreDomain(""); setNewStoreToken(""); }}
+                    onClick={() => { setAddingStore(false); setAddStoreError(""); setNewStoreDomain(""); setNewStoreClientId(""); setNewStoreClientSecret(""); }}
                     className="flex-1 py-2 rounded-lg text-xs text-gray-400 border border-white/10 hover:bg-white/5 transition-colors">
                     إلغاء
                   </button>
@@ -3276,9 +3291,13 @@ export default function LandingPageGenerator() {
                     className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-50 transition-opacity"
                     style={{ background: "linear-gradient(135deg,#f97316,#ea580c)" }}>
                     {addStoreLoading
-                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />جاري التحقق...</>
-                      : <><CheckCircle2 className="w-3.5 h-3.5" />ربط المتجر</>}
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />جاري التوجيه...</>
+                      : <><ShoppingBag className="w-3.5 h-3.5" />ربط عبر Shopify</>}
                   </button>
+                </div>
+
+                <div className="rounded-lg bg-blue-500/8 border border-blue-500/20 p-2.5 text-[11px] text-blue-300 leading-relaxed">
+                  سيتم تحويلك لـ Shopify للموافقة ثم العودة تلقائياً للتطبيق.
                 </div>
               </div>
             ) : (
@@ -3292,13 +3311,13 @@ export default function LandingPageGenerator() {
 
             {availableStores.length === 0 && !addingStore && (
               <div className="mt-3 text-center space-y-1">
-                <p className="text-xs text-gray-500">تحتاج لـ Shopify Custom App مع Admin API access token.</p>
+                <p className="text-xs text-gray-500">تحتاج لتطبيق Shopify مع Client ID + Secret من Shopify Partners.</p>
                 <a
-                  href="https://help.shopify.com/en/manual/apps/app-types/custom-apps"
+                  href="https://partners.shopify.com"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs text-orange-400 hover:underline inline-flex items-center gap-1">
-                  كيفية إنشاء Custom App والحصول على Token <ExternalLink className="w-3 h-3" />
+                  فتح Shopify Partners Dashboard <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
             )}
