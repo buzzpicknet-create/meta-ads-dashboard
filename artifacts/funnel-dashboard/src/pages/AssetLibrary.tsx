@@ -1204,20 +1204,28 @@ ${headlines}`;
       : `- Ad Account ID: [لم يتم اختيار حساب — اسأل المستخدم]`;
 
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
-Build Standard Campaign NOW — ${adsetCount} Adsets · ${creativesPerAdset} Creatives per Adset:
+Campaign Type: STANDARD
+Build Standard Campaign NOW — ${adsetCount} Adset(s) · ${creativesPerAdset} Individual Ads per Adset:
+
+⚠️ STANDARD RULES — لا تخالف هذه القواعد:
+- ZERO Dynamic Creative — asset_feed_spec ممنوع تماماً
+- ZERO Advantage+ Creative Enhancements — degrees_of_freedom_spec ممنوع
+- كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
+- ${creativesPerAdset} فيديو = ${creativesPerAdset} إعلانات منفصلة في نفس الـ Adset (ليس variants)
+- لا تستخدم launch_pipeboard_campaign — استخدم create_campaign ثم create_adset ثم create_ad لكل إعلان
 
 # 1. Campaign Settings
-- Type: Advantage+ Sales Campaign
+- Campaign Type: STANDARD (لا Dynamic Creative)
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${campName}
 ${accountLine}
 - Budget: ${isCBO ? `CBO · ${form.budget} EGP/day total` : `ABO · ${form.budget} EGP/day per Adset`}
-- Media Drive: ${drive}
-- Targeting: Advantage+ Audience (Broad) — Egypt residents only
+- Media Drive Folder: ${drive}
+- Targeting: Advantage+ Audience (Broad) — Egypt only
 - Placements: Advantage+ Placements
-- Dynamic Creative: DISABLED (No Advantage+ Creative Enhancements)
+- Dynamic Creative: DISABLED ⛔
 
-# 2. Adsets & Ads
+# 2. Adsets & Ads (كل نص = إعلان مستقل — مش Dynamic Creative)
 
 ${adsetBlocks}
 [END_COMMAND]`;

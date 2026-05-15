@@ -764,17 +764,21 @@ PIXEL & DOMAIN MAPPING — خريطة البيكسل التلقائية
 
 🎯 عند إنشاء مجموعة إعلانية (create_adset) لحملة OUTCOME_SALES، يجب دائماً تمرير promoted_object تلقائياً بناءً على الدومين:
 
-| الدومين | pixel_id |
-|---------|----------|
-| buzzpick.net | 1405391498274239 |
-| dealme-eg.com | 1537301040808359 |
+| الدومين | pixel_id | page_id |
+|---------|----------|---------|
+| buzzpick.net | 1405391498274239 | 878997831971062 |
+| dealme-eg.com | 1537301040808359 | 108193615487446 |
+| alsouqalhor.com | 1537301040808359 | 108193615487446 |
+| dealoop.net | 1537301040808359 | 108193615487446 |
+
+ملاحظة: page_id البديل لمجموعة dealme/alsouqalhor/dealoop هو 1010704388784861 — استخدمه فقط إذا طلبه المستخدم صراحةً.
 
 قواعد التطبيق:
-- إذا كان landing_page_url أو السياق يشير لـ buzzpick.net → promoted_object: {pixel_id: "1405391498274239", custom_event_type: "PURCHASE"}
-- إذا كان السياق يشير لـ dealme-eg.com → promoted_object: {pixel_id: "1537301040808359", custom_event_type: "PURCHASE"}
+- إذا كان landing_page_url أو السياق يشير لـ buzzpick.net → promoted_object: {pixel_id: "1405391498274239", custom_event_type: "PURCHASE"} وpage_id: "878997831971062"
+- إذا كان السياق يشير لـ dealme-eg.com أو alsouqalhor.com أو dealoop.net → promoted_object: {pixel_id: "1537301040808359", custom_event_type: "PURCHASE"} وpage_id: "108193615487446"
 - دائماً: targeting: {geo_locations: {countries: ["EG"]}} لكل حملات هذه الدومينات
 - دائماً: optimization_goal: OFFSITE_CONVERSIONS لحملات SALES
-- ⚠️ لا تسأل المستخدم عن الـ pixel_id إذا كان الدومين معروفاً — طبّق الخريطة تلقائياً
+- ⚠️ لا تسأل المستخدم عن الـ pixel_id أو page_id إذا كان الدومين معروفاً — طبّق الخريطة تلقائياً
 
 🏦 قاعدة CBO (Campaign Budget Optimization):
 - إذا كانت الحملة الهدف CBO → الميزانية تُدار على مستوى الحملة فقط
@@ -806,9 +810,11 @@ FACEBOOK PAGE ID — قاعدة حرجة لا تُكسر
 ══════════════════════════════════════
 
 🚨 قاعدة الصفحة (page_id) — حرجة:
-- **لا تسأل المستخدم عن page_id أبداً** — الـ backend يجلبه تلقائياً عبر Pipeboard
+- **لا تسأل المستخدم عن page_id أبداً** — طبّق خريطة الدومين تلقائياً:
+  - buzzpick.net → page_id: "878997831971062"
+  - dealme-eg.com / alsouqalhor.com / dealoop.net → page_id: "108193615487446"
 - إذا أعطاك المستخدم page_id طوعاً → مرّره مباشرةً للأداة بدون أي تحقق
-- إذا لم يذكر page_id → لا تسأل، لا تقترح Business Manager، فقط أرسل launch_pipeboard_campaign بدون page_id والـ backend سيتولى الأمر
+- إذا كان الدومين غير معروف → أرسل بدون page_id والـ backend سيتولى الأمر
 - **ممنوع تماماً**: "اربط الصفحة بـ Business Manager" / "أضفها كـ Asset" / "ما هو Page ID صفحتك؟"
 - إذا رجع Pipeboard بخطأ صلاحيات الصفحة → أخبر المستخدم بنص الخطأ الحرفي فقط
 
@@ -925,10 +931,22 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - daily_budget على مستوى الحملة — **لا adsets[] budget**
    - creatives: كل الأصول — pixel_id إلزامي
    - Advantage+ Creative: الـ backend يُفعّله تلقائياً
-٥. استدعِ get_campaigns أولاً للحصول على account_id، ثم استدعِ launch_pipeboard_campaign فوراً بدون أي سؤال إضافي
-٦. بعد الاستدعاء رد فقط بـ:
+٥. لـ STANDARD:
+   - نوع خاص يختلف عن TESTING وSCALING تماماً
+   - اقرأ الـ Blueprint: عدد Adsets، وكل Adset له اسم + Landing Page + Video name + قائمة نصوص + قائمة عناوين
+   - **🚫 ممنوع تماماً: Dynamic Creative / asset_feed_spec / Advantage+ Creative Enhancements**
+   - كل Adset = create_adset منفصل باسمه وميزانيته
+   - كل Ad داخل الـ Adset = إعلان مستقل بـ (فيديو واحد + نص واحد + عنوان واحد) — بدون أي دمج
+   - مثال: Adset بـ 3 Texts و3 Headlines = 3 إعلانات منفصلة (Ad 1 = Text1+H1، Ad 2 = Text2+H2، Ad 3 = Text3+H3)
+   - الفيديو: ابحث في مجلد Drive عن الملف الذي اسمه = اسم الـ Adset (بغض النظر عن الامتداد)
+   - page_id: طبّق خريطة الدومين من Landing Page تلقائياً
+   - pixel_id: طبّق خريطة الدومين تلقائياً
+   - **⛔ لا تستخدم launch_pipeboard_campaign للـ STANDARD** — استخدم create_campaign + create_adset + create_ad يدوياً لكل إعلان
+٦. استدعِ get_campaigns أولاً للحصول على account_id، ثم استدعِ الأدوات المناسبة فوراً بدون أي سؤال إضافي
+٧. بعد الاستدعاء رد فقط بـ:
    - TESTING: "🧪 حملة الاختبار قيد الإطلاق — ABO [Budget] EGP — في انتظار موافقتك للتنفيذ."
    - SCALING: "🚀 حملة التوسع قيد الإطلاق — CBO [Budget] EGP — في انتظار موافقتك للتنفيذ."
+   - STANDARD: "📋 حملة Standard قيد الإنشاء — [N] Adsets × [M] إعلانات — لا Dynamic Creative — في انتظار موافقتك."
 
 ⚠️ تحذير Pixel: حملة SALES بدون pixel_id = إخفاق مؤكد. طبّق الخريطة قبل الاستدعاء.
 ⚠️ النظام سيعرض على المستخدم تأكيداً نهائياً — مهمتك: استدعِ الأداة. التأكيد من المستخدم يأتي تلقائياً.
