@@ -3,7 +3,8 @@ import {
   Plus, CheckCircle2, Clock, AlertTriangle, Loader2, Trash2,
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
   ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
-  Image as ImageIcon, Video, Filter, ShieldAlert,
+  Image as ImageIcon, Video, Filter, ShieldAlert, Download,
+  FileText, Eye,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -492,12 +493,228 @@ function CompleteConfirmModal({ task, isAdmin, onConfirm, onClose }: {
 
 // ── Task Card ─────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: {
+// ── Task Detail Modal ──────────────────────────────────────────────────────────
+
+function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDelete, onReopen }: {
+  task: Task; isAdmin: boolean;
+  onClose: () => void;
+  onCheckin: (task: Task) => void;
+  onComplete: (id: number) => void;
+  onDelete: (id: number) => void;
+  onReopen: (id: number) => void;
+}) {
+  const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+  const isActive = task.status === "pending" || task.status === "in_progress";
+  const score = task.opus_score ?? 0;
+
+  const isImage = (m: TaskMedia) => m.mime_type.startsWith("image/");
+  const isVideo = (m: TaskMedia) => m.mime_type.startsWith("video/");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative z-10 w-full max-w-2xl max-h-[90vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className={`flex items-start justify-between gap-3 p-5 border-b border-slate-700/60
+          ${task.status === "completed" ? "bg-emerald-950/40"
+          : task.status === "in_progress" ? "bg-blue-950/40"
+          : task.status === "expired" ? "bg-red-950/30"
+          : "bg-slate-800/60"}`}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${STATUS_COLOR[task.status]}`}>
+                {STATUS_LABEL[task.status]}
+              </span>
+              {task.product_name && (
+                <span className="text-xs text-slate-400 bg-slate-700/60 px-2.5 py-1 rounded-full">
+                  {task.product_name}
+                </span>
+              )}
+              {task.status === "completed" && score > 0 && <ScoreBadge score={score} />}
+            </div>
+            <h2 className="text-white font-bold text-lg leading-snug">{task.title}</h2>
+          </div>
+          <button onClick={onClose}
+            className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/60 transition-all">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto">
+
+          {/* Media gallery */}
+          {task.media?.length > 0 && (
+            <div className="p-5 border-b border-slate-700/50">
+              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <ImageIcon size={12} /> الملفات المرفقة ({task.media.length})
+              </h3>
+              <div className="space-y-3">
+                {task.media.map(m => (
+                  <div key={m.id} className="bg-slate-800/60 border border-slate-700/60 rounded-xl overflow-hidden">
+                    {/* Preview */}
+                    {isImage(m) && (
+                      <img src={mediaUrl(m)} alt={m.original_name}
+                        className="w-full max-h-80 object-contain bg-slate-950" />
+                    )}
+                    {isVideo(m) && (
+                      <video src={mediaUrl(m)} controls
+                        className="w-full max-h-80 bg-slate-950" />
+                    )}
+                    {!isImage(m) && !isVideo(m) && (
+                      <div className="flex items-center justify-center h-20 bg-slate-800">
+                        <FileText size={28} className="text-slate-500" />
+                      </div>
+                    )}
+                    {/* File info + download */}
+                    <div className="flex items-center justify-between gap-2 px-3 py-2">
+                      <span className="text-xs text-slate-400 truncate" title={m.original_name}>
+                        {m.original_name}
+                        {m.is_primary && (
+                          <span className="mr-2 text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">رئيسي</span>
+                        )}
+                      </span>
+                      <a href={mediaUrl(m)} download={m.original_name}
+                        className="flex-shrink-0 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-all"
+                        onClick={e => e.stopPropagation()}>
+                        <Download size={11} /> تحميل
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Task details */}
+          <div className="p-5 space-y-3">
+            {/* Assignee + deadline row */}
+            <div className="grid grid-cols-2 gap-3">
+              {task.assigned_to_name && (
+                <div className="bg-slate-800/50 rounded-xl p-3">
+                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><User size={10} /> المسؤول</p>
+                  <p className="text-sm font-semibold text-blue-300">{task.assigned_to_name}</p>
+                </div>
+              )}
+              <div className="bg-slate-800/50 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><Clock size={10} /> الموعد النهائي</p>
+                <p className="text-sm font-semibold text-white">{formatDate(task.deadline)}</p>
+              </div>
+            </div>
+
+            {/* Countdown */}
+            <div className="flex justify-center">
+              <Countdown deadline={task.deadline} status={task.status} />
+            </div>
+
+            {/* Success metric */}
+            {task.success_metric && (
+              <div className="bg-purple-900/20 border border-purple-500/20 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><Target size={10} /> معيار النجاح</p>
+                <p className="text-sm text-purple-300">{task.success_metric}</p>
+              </div>
+            )}
+
+            {/* Notes */}
+            {task.notes && (
+              <div className="bg-slate-800/50 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><Eye size={10} /> ملاحظات</p>
+                <p className="text-sm text-slate-300 leading-relaxed">{task.notes}</p>
+              </div>
+            )}
+
+            {/* Check-ins */}
+            {task.checkin_count > 0 && (
+              <div className="bg-slate-800/50 rounded-xl p-3">
+                <p className="text-[11px] text-slate-500 mb-2 flex items-center gap-1"><LogIn size={10} /> المتابعات</p>
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1">
+                    {Array.from({ length: Math.min(task.checkin_count, 12) }).map((_, i) => (
+                      <div key={i} className="w-2 h-2 rounded-full bg-blue-400/60" />
+                    ))}
+                    {task.checkin_count > 12 && (
+                      <span className="text-[10px] text-slate-500">+{task.checkin_count - 12}</span>
+                    )}
+                  </div>
+                  <span className="text-sm text-blue-300 font-medium">{task.checkin_count} متابعة</span>
+                </div>
+                {task.last_checkin_at && (
+                  <p className="text-[11px] text-slate-500 mt-1">آخر متابعة: {formatDate(task.last_checkin_at)}</p>
+                )}
+              </div>
+            )}
+
+            {/* Created by + completed at */}
+            <div className="grid grid-cols-2 gap-3 text-[12px]">
+              {task.created_by_name && (
+                <div className="bg-slate-800/50 rounded-xl p-3">
+                  <p className="text-slate-500 mb-1">أُضيفت بواسطة</p>
+                  <p className="text-slate-300 font-medium">{task.created_by_name}</p>
+                </div>
+              )}
+              {task.completed_at && (
+                <div className="bg-emerald-900/20 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-slate-500 mb-1">اكتملت في</p>
+                  <p className="text-emerald-300 font-medium">{formatDate(task.completed_at)}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div className="flex items-center gap-2 p-4 border-t border-slate-700/60 bg-slate-900/80">
+          {isActive && (
+            <>
+              <button onClick={() => { onCheckin(task); onClose(); }}
+                className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-2 rounded-xl transition-all">
+                <LogIn size={13} /> متابعة
+              </button>
+              <button onClick={() => setShowCompleteConfirm(true)}
+                className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-2 rounded-xl transition-all">
+                <CheckCircle2 size={13} /> إتمام
+              </button>
+            </>
+          )}
+          {task.status === "completed" && isAdmin && (
+            <button onClick={() => { onReopen(task.id); onClose(); }}
+              className="flex items-center gap-1.5 text-sm text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-2 rounded-xl transition-all">
+              <RefreshCw size={13} /> إعادة فتح
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => { onDelete(task.id); onClose(); }}
+              className="mr-auto flex items-center gap-1.5 text-sm text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-2 rounded-xl transition-all">
+              <Trash2 size={13} /> حذف
+            </button>
+          )}
+          <button onClick={onClose}
+            className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white bg-slate-700/40 hover:bg-slate-700/80 px-3 py-2 rounded-xl transition-all">
+            إغلاق
+          </button>
+        </div>
+      </div>
+
+      {showCompleteConfirm && (
+        <CompleteConfirmModal task={task} isAdmin={isAdmin}
+          onConfirm={() => { onComplete(task.id); onClose(); }}
+          onClose={() => setShowCompleteConfirm(false)} />
+      )}
+    </div>
+  );
+}
+
+function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, onOpen }: {
   task: Task; isAdmin: boolean;
   onCheckin: (task: Task) => void;
   onComplete: (id: number) => void;
   onDelete: (id: number) => void;
   onReopen: (id: number) => void;
+  onOpen: (task: Task) => void;
 }) {
   const [expanded,        setExpanded]        = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
@@ -505,11 +722,12 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: 
   const isActive = task.status === "pending" || task.status === "in_progress";
 
   return (
-    <div className={`bg-slate-800/60 backdrop-blur-sm border rounded-xl overflow-hidden transition-all duration-300
-      ${task.status === "expired" ? "border-red-500/30 opacity-70"
-      : task.status === "completed" ? "border-emerald-500/30"
-      : task.status === "in_progress" ? "border-blue-500/40"
-      : "border-slate-700"}`}>
+    <div className={`bg-slate-800/60 backdrop-blur-sm border rounded-xl overflow-hidden transition-all duration-300 cursor-pointer group
+      ${task.status === "expired" ? "border-red-500/30 opacity-70 hover:opacity-90"
+      : task.status === "completed" ? "border-emerald-500/30 hover:border-emerald-400/50"
+      : task.status === "in_progress" ? "border-blue-500/40 hover:border-blue-400/60"
+      : "border-slate-700 hover:border-slate-500"}`}
+      onClick={() => onOpen(task)}>
 
       {/* Primary media banner */}
       {task.media?.length > 0 && (
@@ -600,34 +818,36 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: 
       )}
 
       {/* Actions */}
-      <div className="border-t border-slate-700/50 px-4 py-2.5 flex items-center gap-2">
+      <div className="border-t border-slate-700/50 px-4 py-2.5 flex items-center gap-2"
+        onClick={e => e.stopPropagation()}>
         {isActive && (
           <>
-            <button onClick={() => onCheckin(task)}
+            <button onClick={e => { e.stopPropagation(); onCheckin(task); }}
               className="flex items-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1.5 rounded-lg transition-all">
               <LogIn size={11} /> متابعة
             </button>
-            {/* Complete: always shows confirm modal */}
-            <button onClick={() => setShowCompleteConfirm(true)}
+            <button onClick={e => { e.stopPropagation(); setShowCompleteConfirm(true); }}
               className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg transition-all">
               <CheckCircle2 size={11} /> إتمام
             </button>
           </>
         )}
-        {/* Reopen: admin only */}
         {task.status === "completed" && isAdmin && (
-          <button onClick={() => onReopen(task.id)}
+          <button onClick={e => { e.stopPropagation(); onReopen(task.id); }}
             className="flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg transition-all">
             <RefreshCw size={11} /> إعادة فتح
           </button>
         )}
-        {/* Delete: admin only */}
         {isAdmin && (
-          <button onClick={() => onDelete(task.id)}
+          <button onClick={e => { e.stopPropagation(); onDelete(task.id); }}
             className="mr-auto flex items-center gap-1.5 text-[11px] text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 rounded-lg transition-all">
             <Trash2 size={11} /> حذف
           </button>
         )}
+        {/* Open detail hint */}
+        <span className="mr-auto flex items-center gap-1 text-[10px] text-slate-600 group-hover:text-slate-400 transition-colors pointer-events-none select-none">
+          <Eye size={10} /> تفاصيل
+        </span>
       </div>
 
       {/* Complete confirm modal — rendered inside card to keep state local */}
@@ -710,6 +930,7 @@ export default function TasksPage() {
   const [buyerFilter,  setBuyerFilter]  = useState<string>("all");
   const [showModal,    setShowModal]    = useState(false);
   const [checkinTask,  setCheckinTask]  = useState<Task | null>(null);
+  const [detailTask,   setDetailTask]   = useState<Task | null>(null);
   const [error,        setError]        = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -943,6 +1164,7 @@ export default function TasksPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {filtered.map(t => (
                 <TaskCard key={t.id} task={t} isAdmin={isAdmin}
+                  onOpen={setDetailTask}
                   onCheckin={setCheckinTask}
                   onComplete={id => patchTask(id, { action: "complete" })}
                   onDelete={deleteTask}
@@ -968,6 +1190,17 @@ export default function TasksPage() {
         <CheckinModal task={checkinTask}
           onSave={notes => patchTask(checkinTask.id, { action: "checkin", notes })}
           onClose={() => setCheckinTask(null)} />
+      )}
+      {detailTask && (
+        <TaskDetailModal
+          task={detailTask}
+          isAdmin={isAdmin}
+          onClose={() => setDetailTask(null)}
+          onCheckin={t => { setDetailTask(null); setCheckinTask(t); }}
+          onComplete={id => { patchTask(id, { action: "complete" }); setDetailTask(null); }}
+          onDelete={id => { deleteTask(id); setDetailTask(null); }}
+          onReopen={id => { patchTask(id, { action: "reopen" }); setDetailTask(null); }}
+        />
       )}
     </div>
   );
