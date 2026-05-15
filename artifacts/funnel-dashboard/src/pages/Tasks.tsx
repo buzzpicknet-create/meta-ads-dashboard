@@ -76,11 +76,10 @@ function formatDate(iso: string) {
   } catch { return iso; }
 }
 
-// "now + N hours" as datetime-local string
+// "now + N hours" as datetime-local string (Cairo local time, no UTC offset)
 function nowPlusHours(h: number): string {
   const d = new Date(Date.now() + h * 3600000);
-  // format YYYY-MM-DDTHH:MM
-  return d.toISOString().slice(0, 16);
+  return d.toLocaleString("sv-SE", { timeZone: "Africa/Cairo" }).slice(0, 16).replace(" ", "T");
 }
 
 function mediaUrl(m: TaskMedia): string {
