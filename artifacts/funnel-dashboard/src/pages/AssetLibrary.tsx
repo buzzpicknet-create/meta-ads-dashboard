@@ -850,6 +850,9 @@ function QuickLaunchSection() {
       toast({ title: "أضف رابط صفحة الهبوط أولاً", variant: "destructive" }); return;
     }
     setGenerating(true);
+    // For Standard: generate exactly stdCreativesPerAdset texts/headlines
+    const textCount     = activeCard === "STANDARD" ? form.stdCreativesPerAdset : form.textCount;
+    const headlineCount = activeCard === "STANDARD" ? form.stdCreativesPerAdset : form.headlineCount;
     try {
       const r = await fetch(`${API}/library/quick-generate`, {
         method: "POST",
@@ -858,8 +861,8 @@ function QuickLaunchSection() {
         body: JSON.stringify({
           productName:   form.product.trim() || "منتج",
           landingPageUrl: form.landingPage.trim(),
-          textCount:     form.textCount,
-          headlineCount: form.headlineCount,
+          textCount,
+          headlineCount,
         }),
       });
       const d = await r.json() as { texts?: {content:string}[]; headlines?: {content:string}[]; error?: string };
@@ -1328,6 +1331,25 @@ ${allHeadlines}
             </div>
           )}
 
+          {/* STANDARD: AI generate texts/headlines button */}
+          {activeCard === "STANDARD" && (
+            <div className="flex items-center justify-between rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/30 dark:bg-emerald-950/10 px-3 py-2">
+              <span className="text-xs text-muted-foreground">
+                {form.landingPage.trim()
+                  ? "جاهز للتوليد — عندك لينك صفحة الهبوط ✓"
+                  : "أضف رابط Landing Page أعلاه لتوليد النصوص بالـ AI"}
+              </span>
+              <button
+                type="button"
+                onClick={generateTexts}
+                disabled={generating || !form.landingPage.trim()}
+                className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1 disabled:opacity-40 font-medium"
+              >
+                {generating ? "جاري التوليد..." : "✨ توليد نصوص وعناوين"}
+              </button>
+            </div>
+          )}
+
           {/* TEST: Angles Section */}
           {activeCard === "TEST" && (
           <div className="space-y-2">
@@ -1424,7 +1446,8 @@ ${allHeadlines}
           {form.texts.length === 0 && (
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <FileText className="h-3 w-3" /> النص الإعلاني (أو ولّد بالـ AI أعلاه)
+                <FileText className="h-3 w-3" />
+                {activeCard === "STANDARD" ? "النص الإعلاني (أو ولّد بالـ AI أعلاه ↑)" : "النص الإعلاني (أو ولّد بالـ AI في الزاوية أعلاه)"}
               </label>
               <Textarea
                 dir="rtl"
