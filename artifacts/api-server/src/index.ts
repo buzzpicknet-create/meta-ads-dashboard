@@ -585,6 +585,19 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks (assigned_to_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline)`);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_media (
+      id SERIAL PRIMARY KEY,
+      task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      original_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+      is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_media_task_id ON task_media (task_id)`);
+
   logger.info("Database migrations complete");
 }
 

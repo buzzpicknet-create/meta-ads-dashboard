@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus, CheckCircle2, Clock, AlertTriangle, Loader2, Trash2,
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
-  ChevronDown, ChevronUp, BarChart3, Calendar, X,
+  ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
+  Image as ImageIcon, Video, Filter,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -13,6 +12,15 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type TaskStatus = "pending" | "in_progress" | "completed" | "expired";
+
+interface TaskMedia {
+  id: number;
+  task_id: number;
+  original_name: string;
+  file_path: string;
+  mime_type: string;
+  is_primary: boolean;
+}
 
 interface Task {
   id: number;
@@ -30,25 +38,16 @@ interface Task {
   notes: string | null;
   created_at: string;
   opus_score?: number;
+  media: TaskMedia[];
 }
 
 interface BuyerStat {
-  userId: number;
-  name: string;
-  total_tasks: number;
-  completed_on_time: number;
-  completed_late: number;
-  in_progress: number;
-  expired: number;
-  total_checkins: number;
-  avg_score: number;
+  userId: number; name: string; total_tasks: number;
+  completed_on_time: number; completed_late: number;
+  in_progress: number; expired: number; total_checkins: number; avg_score: number;
 }
 
-interface Assignee {
-  id: number;
-  username: string;
-  role: string;
-}
+interface Assignee { id: number; username: string; role: string; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -70,23 +69,25 @@ function calcCountdown(deadline: string): { text: string; urgent: boolean; overd
 function formatDate(iso: string) {
   try {
     return new Date(iso).toLocaleString("ar-EG", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
     });
   } catch { return iso; }
 }
 
-function deadlinePreset(hours: number): string {
-  return new Date(Date.now() + hours * 3600000).toISOString().slice(0, 16);
+// "now + N hours" as datetime-local string
+function nowPlusHours(h: number): string {
+  const d = new Date(Date.now() + h * 3600000);
+  // format YYYY-MM-DDTHH:MM
+  return d.toISOString().slice(0, 16);
+}
+
+function mediaUrl(m: TaskMedia): string {
+  return `${BASE}/task-uploads/${m.file_path}`;
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
-  pending:     "معلّقة",
-  in_progress: "جارية",
-  completed:   "مكتملة",
-  expired:     "منتهية",
+  pending: "معلّقة", in_progress: "جارية", completed: "مكتملة", expired: "منتهية",
 };
-
 const STATUS_COLOR: Record<TaskStatus, string> = {
   pending:     "bg-amber-500/20 text-amber-400 border-amber-500/30",
   in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -95,14 +96,11 @@ const STATUS_COLOR: Record<TaskStatus, string> = {
 };
 
 function scoreColor(s: number) {
-  if (s >= 75) return "text-emerald-400";
-  if (s >= 50) return "text-amber-400";
-  return "text-red-400";
+  return s >= 75 ? "text-emerald-400" : s >= 50 ? "text-amber-400" : "text-red-400";
 }
 
 function scoreRing(score: number) {
-  const r = 20, c = 2 * Math.PI * r;
-  const filled = (score / 100) * c;
+  const r = 20, c = 2 * Math.PI * r, filled = (score / 100) * c;
   const color = score >= 75 ? "#34d399" : score >= 50 ? "#fbbf24" : "#f87171";
   return (
     <svg width="52" height="52" viewBox="0 0 52 52" className="block -rotate-90">
@@ -113,7 +111,7 @@ function scoreRing(score: number) {
   );
 }
 
-// ── Live countdown ticker ─────────────────────────────────────────────────────
+// ── Live Countdown ────────────────────────────────────────────────────────────
 
 function Countdown({ deadline, status }: { deadline: string; status: TaskStatus }) {
   const [, tick] = useState(0);
@@ -127,42 +125,135 @@ function Countdown({ deadline, status }: { deadline: string; status: TaskStatus 
   return (
     <span className={`text-xs font-mono font-semibold flex items-center gap-1
       ${overdue ? "text-red-400" : urgent ? "text-orange-400 animate-pulse" : "text-slate-300"}`}>
-      <Clock size={11} />
-      {text}
+      <Clock size={11} />{text}
     </span>
   );
 }
-
-// ── Opus Score ring (displayed on cards for completed tasks) ──────────────────
 
 function ScoreBadge({ score }: { score: number }) {
   return (
     <div className="relative w-[52px] h-[52px] flex items-center justify-center flex-shrink-0">
       {scoreRing(score)}
-      <span className={`absolute text-[10px] font-bold ${scoreColor(score)}`}>
-        {score}%
-      </span>
+      <span className={`absolute text-[10px] font-bold ${scoreColor(score)}`}>{score}%</span>
+    </div>
+  );
+}
+
+// ── Media Preview ─────────────────────────────────────────────────────────────
+
+function MediaPreview({ media }: { media: TaskMedia[] }) {
+  if (!media.length) return null;
+  const primary = media.find(m => m.is_primary) ?? media[0];
+  const rest    = media.filter(m => m.id !== primary.id);
+  const isVideo = (m: TaskMedia) => m.mime_type.startsWith("video/");
+
+  return (
+    <div className="w-full">
+      {/* Primary */}
+      <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
+        {isVideo(primary) ? (
+          <video src={mediaUrl(primary)} className="w-full h-full object-cover" controls={false}
+            playsInline muted preload="metadata"
+            onMouseEnter={e => (e.currentTarget as HTMLVideoElement).play()}
+            onMouseLeave={e => { const v = e.currentTarget as HTMLVideoElement; v.pause(); v.currentTime = 0; }} />
+        ) : (
+          <img src={mediaUrl(primary)} alt={primary.original_name}
+            className="w-full h-full object-cover" loading="lazy" />
+        )}
+      </div>
+      {/* Thumbnails */}
+      {rest.length > 0 && (
+        <div className="flex gap-1.5 mt-1.5 overflow-x-auto pb-1">
+          {rest.map(m => (
+            <div key={m.id} className="w-14 h-14 flex-shrink-0 rounded-md overflow-hidden bg-black border border-slate-700">
+              {isVideo(m) ? (
+                <video src={mediaUrl(m)} className="w-full h-full object-cover" muted preload="metadata" />
+              ) : (
+                <img src={mediaUrl(m)} alt={m.original_name} className="w-full h-full object-cover" loading="lazy" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── File Upload Area ──────────────────────────────────────────────────────────
+
+function FileUploadArea({ files, onChange }: { files: File[]; onChange: (files: File[]) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const dropped = Array.from(e.dataTransfer.files).filter(f => /^(image|video)\//.test(f.type));
+    onChange([...files, ...dropped]);
+  }
+
+  function handleInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files ?? []);
+    onChange([...files, ...selected]);
+    e.target.value = "";
+  }
+
+  function remove(i: number) {
+    onChange(files.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="space-y-2">
+      <div
+        onDragOver={e => e.preventDefault()} onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className="w-full border-2 border-dashed border-slate-600 rounded-xl p-4 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all">
+        <Upload size={20} className="mx-auto mb-1 text-slate-500" />
+        <p className="text-xs text-slate-400">اسحب وأفلت أو اضغط لرفع صور/فيديوهات</p>
+        <p className="text-[10px] text-slate-600 mt-0.5">حتى 100 ميجا لكل ملف</p>
+        <input ref={inputRef} type="file" accept="image/*,video/*" multiple hidden onChange={handleInput} />
+      </div>
+
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {files.map((f, i) => (
+            <div key={i} className="relative group">
+              <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-700 border border-slate-600 flex items-center justify-center">
+                {f.type.startsWith("image/")
+                  ? <img src={URL.createObjectURL(f)} alt={f.name} className="w-full h-full object-cover" />
+                  : <Video size={24} className="text-slate-400" />
+                }
+                {i === 0 && <span className="absolute bottom-0 left-0 right-0 bg-blue-600/80 text-[9px] text-white text-center py-0.5">رئيسية</span>}
+              </div>
+              <button type="button" onClick={() => remove(i)}
+                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <X size={8} className="text-white" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Assignment Modal ──────────────────────────────────────────────────────────
 
-interface ModalProps {
+interface AssignModalProps {
   assignees: Assignee[];
-  onSave: (data: Partial<Task>) => Promise<void>;
+  onSave: (data: Partial<Task>, files: File[]) => Promise<void>;
   onClose: () => void;
 }
 
-function AssignModal({ assignees, onSave, onClose }: ModalProps) {
-  const [title, setTitle] = useState("");
-  const [product, setProduct] = useState("");
-  const [metric, setMetric] = useState("");
-  const [notes, setNotes] = useState("");
+function AssignModal({ assignees, onSave, onClose }: AssignModalProps) {
+  const [title,      setTitle]      = useState("");
+  const [product,    setProduct]    = useState("");
+  const [metric,     setMetric]     = useState("");
+  const [notes,      setNotes]      = useState("");
   const [assigneeId, setAssigneeId] = useState<number | "">("");
-  const [deadlineStr, setDeadlineStr] = useState(deadlinePreset(24));
+  const [deadlineStr, setDeadlineStr] = useState(nowPlusHours(24));
   const [presetHours, setPresetHours] = useState<number | null>(24);
-  const [saving, setSaving] = useState(false);
+  const [files,      setFiles]      = useState<File[]>([]);
+  const [saving,     setSaving]     = useState(false);
+  const [progress,   setProgress]   = useState("");
 
   const selectedAssignee = assignees.find(a => a.id === assigneeId);
 
@@ -171,6 +262,7 @@ function AssignModal({ assignees, onSave, onClose }: ModalProps) {
     if (!title.trim() || !deadlineStr) return;
     setSaving(true);
     try {
+      setProgress("جاري إنشاء المهمة...");
       await onSave({
         title: title.trim(),
         product_name: product.trim() || null,
@@ -179,60 +271,56 @@ function AssignModal({ assignees, onSave, onClose }: ModalProps) {
         assigned_to_id: assigneeId || null,
         assigned_to_name: selectedAssignee?.username || null,
         deadline: new Date(deadlineStr).toISOString(),
-      } as Partial<Task>);
+      } as Partial<Task>, files);
       onClose();
+    } catch {
+      setProgress("");
     } finally {
       setSaving(false);
     }
   }
 
   const presets = [
+    { h: 1,   label: "ساعة" },
+    { h: 3,   label: "٣ ساعات" },
     { h: 12,  label: "١٢ ساعة" },
-    { h: 24,  label: "٢٤ ساعة" },
-    { h: 48,  label: "٤٨ ساعة" },
+    { h: 24,  label: "يوم" },
+    { h: 48,  label: "يومان" },
     { h: 72,  label: "٣ أيام" },
     { h: 168, label: "أسبوع" },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-slate-700">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-700 sticky top-0 bg-slate-900 z-10">
           <h2 className="text-white font-bold text-lg flex items-center gap-2">
-            <Target size={18} className="text-blue-400" />
-            مهمة جديدة
+            <Target size={18} className="text-blue-400" /> مهمة جديدة
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
-            <X size={18} />
-          </button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Title */}
           <div>
             <label className="block text-xs text-slate-400 mb-1.5">عنوان المهمة *</label>
-            <input
-              value={title} onChange={e => setTitle(e.target.value)}
+            <input value={title} onChange={e => setTitle(e.target.value)} required
               placeholder="مثال: اختبار منتج Magic Mop"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              required
-            />
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
           </div>
 
+          {/* Product + Assignee */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-slate-400 mb-1.5">اسم المنتج</label>
-              <input
-                value={product} onChange={e => setProduct(e.target.value)}
+              <input value={product} onChange={e => setProduct(e.target.value)}
                 placeholder="اختياري"
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1.5">تعيين لـ</label>
-              <select
-                value={assigneeId} onChange={e => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
-              >
+              <select value={assigneeId} onChange={e => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500">
                 <option value="">— بدون تعيين —</option>
                 {assignees.map(a => (
                   <option key={a.id} value={a.id}>{a.username}</option>
@@ -241,22 +329,22 @@ function AssignModal({ assignees, onSave, onClose }: ModalProps) {
             </div>
           </div>
 
+          {/* Metric */}
           <div>
             <label className="block text-xs text-slate-400 mb-1.5">مقياس النجاح</label>
-            <input
-              value={metric} onChange={e => setMetric(e.target.value)}
+            <input value={metric} onChange={e => setMetric(e.target.value)}
               placeholder="مثال: CPA < 100 EGP"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
           </div>
 
+          {/* Deadline */}
           <div>
             <label className="block text-xs text-slate-400 mb-2">الموعد النهائي</label>
-            <div className="flex flex-wrap gap-2 mb-2">
+            <div className="flex flex-wrap gap-1.5 mb-2">
               {presets.map(p => (
                 <button key={p.h} type="button"
-                  onClick={() => { setDeadlineStr(deadlinePreset(p.h)); setPresetHours(p.h); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border
+                  onClick={() => { setDeadlineStr(nowPlusHours(p.h)); setPresetHours(p.h); }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border
                     ${presetHours === p.h
                       ? "bg-blue-600 border-blue-500 text-white"
                       : "bg-slate-800 border-slate-600 text-slate-300 hover:border-blue-500"}`}>
@@ -264,33 +352,37 @@ function AssignModal({ assignees, onSave, onClose }: ModalProps) {
                 </button>
               ))}
             </div>
-            <input
-              type="datetime-local" value={deadlineStr}
+            <input type="datetime-local" value={deadlineStr}
               onChange={e => { setDeadlineStr(e.target.value); setPresetHours(null); }}
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
-              required
-            />
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]"
+              required />
           </div>
 
+          {/* Notes */}
           <div>
             <label className="block text-xs text-slate-400 mb-1.5">ملاحظات</label>
-            <textarea
-              value={notes} onChange={e => setNotes(e.target.value)}
-              rows={2}
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               placeholder="تعليمات إضافية..."
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-            />
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" />
           </div>
 
+          {/* Media Upload */}
+          <div>
+            <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1.5">
+              <ImageIcon size={11} /> ميديا المنتج (صور + فيديوهات)
+            </label>
+            <FileUploadArea files={files} onChange={setFiles} />
+          </div>
+
+          {/* Buttons */}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose}
               className="flex-1 px-4 py-2.5 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800 transition-all">
               إلغاء
             </button>
             <button type="submit" disabled={saving}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-              إنشاء المهمة
+              className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60">
+              {saving ? <><Loader2 size={14} className="animate-spin" />{progress || "جاري الحفظ..."}</> : <><Plus size={14} />إنشاء المهمة</>}
             </button>
           </div>
         </form>
@@ -316,18 +408,15 @@ function CheckinModal({ task, onSave, onClose }: { task: Task; onSave: (notes: s
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-slate-700">
           <h2 className="text-white font-bold text-base flex items-center gap-2">
-            <LogIn size={16} className="text-blue-400" />
-            تسجيل متابعة
+            <LogIn size={16} className="text-blue-400" /> تسجيل متابعة
           </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={16} /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <p className="text-slate-300 text-sm">{task.title}</p>
-          <textarea
-            value={notes} onChange={e => setNotes(e.target.value)}
-            rows={3} placeholder="ملاحظة المتابعة (اختياري)..."
-            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
-          />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+            placeholder="ملاحظة المتابعة (اختياري)..."
+            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" />
           <div className="flex gap-3">
             <button type="button" onClick={onClose}
               className="flex-1 px-4 py-2 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800 transition-all">
@@ -335,8 +424,7 @@ function CheckinModal({ task, onSave, onClose }: { task: Task; onSave: (notes: s
             </button>
             <button type="submit" disabled={saving}
               className="flex-1 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : null}
-              تسجيل
+              {saving && <Loader2 size={14} className="animate-spin" />} تسجيل
             </button>
           </div>
         </form>
@@ -347,18 +435,15 @@ function CheckinModal({ task, onSave, onClose }: { task: Task; onSave: (notes: s
 
 // ── Task Card ─────────────────────────────────────────────────────────────────
 
-function TaskCard({
-  task, isAdmin, onCheckin, onComplete, onDelete, onReopen,
-}: {
-  task: Task;
-  isAdmin: boolean;
+function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: {
+  task: Task; isAdmin: boolean;
   onCheckin: (task: Task) => void;
   onComplete: (id: number) => void;
   onDelete: (id: number) => void;
   onReopen: (id: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const score = task.opus_score ?? 0;
+  const score    = task.opus_score ?? 0;
   const isActive = task.status === "pending" || task.status === "in_progress";
 
   return (
@@ -367,7 +452,15 @@ function TaskCard({
       : task.status === "completed" ? "border-emerald-500/30"
       : task.status === "in_progress" ? "border-blue-500/40"
       : "border-slate-700"}`}>
-      {/* Card header */}
+
+      {/* Primary media banner */}
+      {task.media?.length > 0 && (
+        <div className="w-full">
+          <MediaPreview media={task.media} />
+        </div>
+      )}
+
+      {/* Card body */}
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -381,23 +474,20 @@ function TaskCard({
                 </span>
               )}
             </div>
-            <h3 className="text-white font-semibold text-sm leading-snug mb-1.5 truncate" title={task.title}>
+            <h3 className="text-white font-semibold text-sm leading-snug mb-1.5" title={task.title}>
               {task.title}
             </h3>
             <div className="flex items-center gap-3 flex-wrap">
               {task.assigned_to_name && (
                 <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                  <User size={10} />
-                  {task.assigned_to_name}
+                  <User size={10} />{task.assigned_to_name}
                 </span>
               )}
               <Countdown deadline={task.deadline} status={task.status} />
             </div>
           </div>
 
-          {task.status === "completed" && score > 0 && (
-            <ScoreBadge score={score} />
-          )}
+          {task.status === "completed" && score > 0 && <ScoreBadge score={score} />}
           {task.status === "in_progress" && (
             <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center">
               <Flame size={14} className="text-blue-400" />
@@ -408,11 +498,10 @@ function TaskCard({
         {task.success_metric && (
           <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
             <Target size={10} className="text-purple-400 flex-shrink-0" />
-            <span>هدف: <span className="text-purple-300">{task.success_metric}</span></span>
+            هدف: <span className="text-purple-300">{task.success_metric}</span>
           </div>
         )}
 
-        {/* Checkin indicator */}
         {task.checkin_count > 0 && (
           <div className="mt-2 flex items-center gap-1.5">
             <div className="flex gap-1">
@@ -426,7 +515,7 @@ function TaskCard({
         )}
       </div>
 
-      {/* Expand section */}
+      {/* Expand / details */}
       {(task.notes || task.created_by_name) && (
         <div className="border-t border-slate-700/50">
           <button onClick={() => setExpanded(v => !v)}
@@ -451,28 +540,24 @@ function TaskCard({
           <>
             <button onClick={() => onCheckin(task)}
               className="flex items-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-              <LogIn size={11} />
-              متابعة
+              <LogIn size={11} /> متابعة
             </button>
             <button onClick={() => onComplete(task.id)}
               className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-              <CheckCircle2 size={11} />
-              إتمام
+              <CheckCircle2 size={11} /> إتمام
             </button>
           </>
         )}
         {task.status === "completed" && isAdmin && (
           <button onClick={() => onReopen(task.id)}
             className="flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-            <RefreshCw size={11} />
-            إعادة فتح
+            <RefreshCw size={11} /> إعادة فتح
           </button>
         )}
         {isAdmin && (
           <button onClick={() => onDelete(task.id)}
             className="mr-auto flex items-center gap-1.5 text-[11px] text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-            <Trash2 size={11} />
-            حذف
+            <Trash2 size={11} /> حذف
           </button>
         )}
       </div>
@@ -489,31 +574,21 @@ function Leaderboard({ stats }: { stats: BuyerStat[] }) {
       <p className="text-sm">لا توجد إحصائيات بعد</p>
     </div>
   );
-
   const medals = ["🥇", "🥈", "🥉"];
-
   return (
     <div className="space-y-3">
       {stats.map((s, i) => (
         <div key={s.userId}
           className={`bg-slate-800/60 border rounded-xl p-4 flex items-center gap-4
             ${i === 0 ? "border-yellow-500/40" : i === 1 ? "border-slate-500/40" : "border-slate-700/40"}`}>
-          {/* Rank */}
           <div className="w-8 text-center flex-shrink-0">
-            {i < 3
-              ? <span className="text-xl">{medals[i]}</span>
-              : <span className="text-slate-500 font-bold text-sm">#{i + 1}</span>}
+            {i < 3 ? <span className="text-xl">{medals[i]}</span>
+                    : <span className="text-slate-500 font-bold text-sm">#{i + 1}</span>}
           </div>
-
-          {/* Score ring */}
           <div className="relative w-[52px] h-[52px] flex items-center justify-center flex-shrink-0">
             {scoreRing(s.avg_score)}
-            <span className={`absolute text-[10px] font-bold ${scoreColor(s.avg_score)}`}>
-              {s.avg_score}%
-            </span>
+            <span className={`absolute text-[10px] font-bold ${scoreColor(s.avg_score)}`}>{s.avg_score}%</span>
           </div>
-
-          {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-white font-semibold text-sm truncate">{s.name}</span>
@@ -524,26 +599,12 @@ function Leaderboard({ stats }: { stats: BuyerStat[] }) {
               )}
             </div>
             <div className="flex items-center gap-3 flex-wrap text-[11px] text-slate-400">
-              <span className="flex items-center gap-1">
-                <CheckCircle2 size={10} className="text-emerald-400" />
-                {s.completed_on_time} في الوقت
-              </span>
-              <span className="flex items-center gap-1">
-                <Clock size={10} className="text-amber-400" />
-                {s.completed_late} متأخرة
-              </span>
-              <span className="flex items-center gap-1">
-                <AlertTriangle size={10} className="text-red-400" />
-                {s.expired} منتهية
-              </span>
-              <span className="flex items-center gap-1">
-                <Flame size={10} className="text-blue-400" />
-                {s.total_checkins} متابعة
-              </span>
+              <span className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-400" />{s.completed_on_time} في الوقت</span>
+              <span className="flex items-center gap-1"><Clock size={10} className="text-amber-400" />{s.completed_late} متأخرة</span>
+              <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-red-400" />{s.expired} منتهية</span>
+              <span className="flex items-center gap-1"><Flame size={10} className="text-blue-400" />{s.total_checkins} متابعة</span>
             </div>
           </div>
-
-          {/* Stars */}
           <div className="flex-shrink-0 flex gap-0.5">
             {[1, 2, 3, 4, 5].map(n => (
               <Star key={n} size={12}
@@ -556,25 +617,25 @@ function Leaderboard({ stats }: { stats: BuyerStat[] }) {
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function TasksPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin  = user?.role === "admin";
 
-  const [tasks, setTasks]   = useState<Task[]>([]);
-  const [stats, setStats]   = useState<BuyerStat[]>([]);
+  const [tasks,     setTasks]     = useState<Task[]>([]);
+  const [stats,     setStats]     = useState<BuyerStat[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"tasks" | "leaderboard">("tasks");
-  const [filter, setFilter] = useState<"all" | TaskStatus>("all");
-  const [showModal, setShowModal] = useState(false);
-  const [checkinTask, setCheckinTask] = useState<Task | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
+  const [loading,   setLoading]   = useState(true);
+  const [tab,       setTab]       = useState<"tasks" | "leaderboard">("tasks");
+  const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
+  const [buyerFilter,  setBuyerFilter]  = useState<string>("all");
+  const [showModal,    setShowModal]    = useState(false);
+  const [checkinTask,  setCheckinTask]  = useState<Task | null>(null);
+  const [error,        setError]        = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Fetch ───────────────────────────────────────────────────────────────────
+  // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchAll = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -583,19 +644,21 @@ export default function TasksPage() {
       const [tRes, sRes, aRes] = await Promise.all([
         fetch(`${BASE}/tasks`, { credentials: "include" }),
         fetch(`${BASE}/tasks/stats`, { credentials: "include" }),
-        isAdmin ? fetch(`${BASE}/tasks/assignees`, { credentials: "include" }) : Promise.resolve(null),
+        fetch(`${BASE}/tasks/assignees`, { credentials: "include" }),
       ]);
       if (!tRes.ok) throw new Error((await tRes.json()).error ?? "خطأ في جلب المهام");
-      const [tasksData, statsData] = await Promise.all([tRes.json(), sRes.json()]);
+      const [tasksData, statsData, assigneesData] = await Promise.all([
+        tRes.json(), sRes.json(), aRes.ok ? aRes.json() : Promise.resolve([]),
+      ]);
       setTasks(tasksData);
       setStats(statsData);
-      if (aRes?.ok) setAssignees(await aRes.json());
+      setAssignees(assigneesData);
     } catch (e) {
       setError(e instanceof Error ? e.message : "خطأ غير معروف");
     } finally {
       setLoading(false);
     }
-  }, [isAdmin]);
+  }, []);
 
   useEffect(() => {
     fetchAll();
@@ -603,15 +666,25 @@ export default function TasksPage() {
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, [fetchAll]);
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
+  // ── Actions ────────────────────────────────────────────────────────────────
 
-  async function createTask(data: Partial<Task>) {
+  async function createTask(data: Partial<Task>, files: File[]) {
     const res = await fetch(`${BASE}/tasks`, {
       method: "POST", credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error((await res.json()).error ?? "فشل الإنشاء");
+    const created: Task = await res.json();
+
+    // Upload files sequentially
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append("file", file);
+      await fetch(`${BASE}/tasks/${created.id}/media`, {
+        method: "POST", credentials: "include", body: fd,
+      });
+    }
     await fetchAll(true);
   }
 
@@ -631,22 +704,29 @@ export default function TasksPage() {
     await fetchAll(true);
   }
 
-  // ── Filtered tasks ──────────────────────────────────────────────────────────
+  // ── Filtered tasks ─────────────────────────────────────────────────────────
 
-  const filtered = filter === "all" ? tasks : tasks.filter(t => t.status === filter);
+  const filtered = tasks
+    .filter(t => statusFilter === "all" || t.status === statusFilter)
+    .filter(t => buyerFilter  === "all" || t.assigned_to_name === buyerFilter);
 
   const counts: Record<string, number> = { all: tasks.length };
   for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
 
+  // Unique buyer names from tasks (for filter dropdown)
+  const buyerNames = Array.from(
+    new Set(tasks.map(t => t.assigned_to_name).filter((n): n is string => Boolean(n)))
+  ).sort();
+
   const filterTabs: { key: "all" | TaskStatus; label: string }[] = [
-    { key: "all",        label: `الكل (${counts.all ?? 0})` },
-    { key: "in_progress",label: `جارية (${counts.in_progress ?? 0})` },
-    { key: "pending",    label: `معلّقة (${counts.pending ?? 0})` },
-    { key: "expired",    label: `منتهية (${counts.expired ?? 0})` },
-    { key: "completed",  label: `مكتملة (${counts.completed ?? 0})` },
+    { key: "all",         label: `الكل (${counts.all ?? 0})` },
+    { key: "in_progress", label: `جارية (${counts.in_progress ?? 0})` },
+    { key: "pending",     label: `معلّقة (${counts.pending ?? 0})` },
+    { key: "expired",     label: `منتهية (${counts.expired ?? 0})` },
+    { key: "completed",   label: `مكتملة (${counts.completed ?? 0})` },
   ];
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6" dir="rtl">
@@ -654,8 +734,7 @@ export default function TasksPage() {
       <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Calendar className="text-blue-400" size={22} />
-            المهام اليومية
+            <Calendar className="text-blue-400" size={22} /> المهام اليومية
           </h1>
           <p className="text-slate-400 text-sm mt-1">مركز إدارة مهام مشتري الميديا</p>
         </div>
@@ -667,8 +746,7 @@ export default function TasksPage() {
           {isAdmin && (
             <button onClick={() => setShowModal(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all">
-              <Plus size={16} />
-              مهمة جديدة
+              <Plus size={16} /> مهمة جديدة
             </button>
           )}
         </div>
@@ -678,10 +756,10 @@ export default function TasksPage() {
       {!loading && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           {[
-            { label: "جارية",   value: counts.in_progress ?? 0, color: "text-blue-400",    icon: <Flame size={16} className="text-blue-400" /> },
-            { label: "معلّقة",  value: counts.pending ?? 0,     color: "text-amber-400",   icon: <Clock size={16} className="text-amber-400" /> },
-            { label: "مكتملة",  value: counts.completed ?? 0,   color: "text-emerald-400", icon: <CheckCircle2 size={16} className="text-emerald-400" /> },
-            { label: "منتهية",  value: counts.expired ?? 0,     color: "text-red-400",     icon: <AlertTriangle size={16} className="text-red-400" /> },
+            { label: "جارية",  value: counts.in_progress ?? 0, color: "text-blue-400",    icon: <Flame size={16} className="text-blue-400" /> },
+            { label: "معلّقة", value: counts.pending ?? 0,     color: "text-amber-400",   icon: <Clock size={16} className="text-amber-400" /> },
+            { label: "مكتملة", value: counts.completed ?? 0,   color: "text-emerald-400", icon: <CheckCircle2 size={16} className="text-emerald-400" /> },
+            { label: "منتهية", value: counts.expired ?? 0,     color: "text-red-400",     icon: <AlertTriangle size={16} className="text-red-400" /> },
           ].map(s => (
             <div key={s.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 flex items-center gap-3">
               {s.icon}
@@ -694,18 +772,16 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 border-b border-slate-800">
+      {/* Main tabs */}
+      <div className="flex gap-2 mb-5 border-b border-slate-800">
         {[
-          { key: "tasks",       label: "مركز المهام",   icon: <Target size={14} /> },
-          { key: "leaderboard", label: "لوحة الإنجاز",  icon: <BarChart3 size={14} /> },
+          { key: "tasks",       label: "مركز المهام",  icon: <Target size={14} /> },
+          { key: "leaderboard", label: "لوحة الإنجاز", icon: <BarChart3 size={14} /> },
         ].map(t => (
           <button key={t.key}
             onClick={() => setTab(t.key as "tasks" | "leaderboard")}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-all border-b-2 -mb-px
-              ${tab === t.key
-                ? "text-blue-400 border-blue-400"
-                : "text-slate-400 border-transparent hover:text-slate-200"}`}>
+              ${tab === t.key ? "text-blue-400 border-blue-400" : "text-slate-400 border-transparent hover:text-slate-200"}`}>
             {t.icon} {t.label}
           </button>
         ))}
@@ -714,37 +790,52 @@ export default function TasksPage() {
       {/* Error */}
       {error && (
         <div className="mb-4 p-3 bg-red-900/30 border border-red-500/30 rounded-xl text-red-300 text-sm flex items-center gap-2">
-          <AlertTriangle size={14} />
-          {error}
+          <AlertTriangle size={14} />{error}
         </div>
       )}
 
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-20 text-slate-500">
-          <Loader2 size={28} className="animate-spin mr-3" />
-          <span>جاري التحميل...</span>
+          <Loader2 size={28} className="animate-spin mr-3" /><span>جاري التحميل...</span>
         </div>
       )}
 
       {/* Tasks tab */}
       {!loading && tab === "tasks" && (
         <>
-          {/* Filter tabs */}
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {filterTabs.map(f => (
-              <button key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border
-                  ${filter === f.key
-                    ? "bg-blue-600 border-blue-500 text-white"
-                    : "bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500"}`}>
-                {f.label}
-              </button>
-            ))}
+          {/* Filters row */}
+          <div className="flex flex-wrap gap-2 mb-4 items-center">
+            {/* Status filter */}
+            <div className="flex gap-1.5 flex-wrap">
+              {filterTabs.map(f => (
+                <button key={f.key}
+                  onClick={() => setStatusFilter(f.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border
+                    ${statusFilter === f.key
+                      ? "bg-blue-600 border-blue-500 text-white"
+                      : "bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500"}`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Buyer filter */}
+            {buyerNames.length > 0 && (
+              <div className="flex items-center gap-2 mr-auto">
+                <Filter size={12} className="text-slate-500" />
+                <select value={buyerFilter} onChange={e => setBuyerFilter(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500">
+                  <option value="all">كل المشترين</option>
+                  {buyerNames.map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* Task grid */}
+          {/* Grid */}
           {filtered.length === 0 ? (
             <div className="text-center py-20 text-slate-500">
               <Target size={40} className="mx-auto mb-4 opacity-20" />
@@ -757,17 +848,13 @@ export default function TasksPage() {
               )}
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {filtered.map(t => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                  isAdmin={isAdmin}
+                <TaskCard key={t.id} task={t} isAdmin={isAdmin}
                   onCheckin={setCheckinTask}
                   onComplete={id => patchTask(id, { action: "complete" })}
                   onDelete={deleteTask}
-                  onReopen={id => patchTask(id, { action: "reopen" })}
-                />
+                  onReopen={id => patchTask(id, { action: "reopen" })} />
               ))}
             </div>
           )}
@@ -783,18 +870,12 @@ export default function TasksPage() {
 
       {/* Modals */}
       {showModal && (
-        <AssignModal
-          assignees={assignees}
-          onSave={createTask}
-          onClose={() => setShowModal(false)}
-        />
+        <AssignModal assignees={assignees} onSave={createTask} onClose={() => setShowModal(false)} />
       )}
       {checkinTask && (
-        <CheckinModal
-          task={checkinTask}
+        <CheckinModal task={checkinTask}
           onSave={notes => patchTask(checkinTask.id, { action: "checkin", notes })}
-          onClose={() => setCheckinTask(null)}
-        />
+          onClose={() => setCheckinTask(null)} />
       )}
     </div>
   );

@@ -4,9 +4,14 @@ import cors from "cors";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
+import path from "path";
+import fs from "fs";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { pool } from "./lib/db";
+
+export const TASK_UPLOADS_DIR = path.join(process.cwd(), "uploads", "task-media");
+fs.mkdirSync(TASK_UPLOADS_DIR, { recursive: true });
 
 const PgSession = connectPgSimple(session);
 
@@ -73,6 +78,9 @@ app.use(
     },
   }),
 );
+
+// Serve uploaded task media files (public, no auth — URLs are unguessable UUIDs)
+app.use("/api/task-uploads", express.static(TASK_UPLOADS_DIR));
 
 app.use("/api", router);
 
