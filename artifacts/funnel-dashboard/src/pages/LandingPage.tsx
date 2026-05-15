@@ -3194,7 +3194,7 @@ export default function LandingPageGenerator() {
                 ربط متاجر Shopify
               </h3>
               <button
-                onClick={() => { setShowShopifyModal(false); setAddingStore(false); setAddStoreError(""); setNewStoreDomain(""); setNewStoreToken(""); }}
+                onClick={() => { setShowShopifyModal(false); setAddingStore(false); setAddStoreError(""); setNewStoreDomain(""); setNewStoreClientId(""); setNewStoreClientSecret(""); }}
                 className="text-gray-500 hover:text-gray-300 transition-colors p-1 rounded-lg hover:bg-white/5">
                 <X className="w-5 h-5" />
               </button>
