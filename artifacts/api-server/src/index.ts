@@ -8,6 +8,7 @@ import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
 import { runScheduledReportsCron } from "./routes/scheduled-reports";
 import { startWatchdogCron } from "./routes/watchdog";
+import { checkInventoryAlerts } from "./routes/inventory";
 import { initJobsTable } from "./lib/job-runner";
 import "./lib/job-handlers"; // registers all job handlers
 import bcrypt from "bcryptjs";
@@ -259,7 +260,9 @@ async function runMigrations() {
       ('request_completed', true, ARRAY['admin','media_buyer']),
       ('request_rejected', true, ARRAY['admin']),
       ('new_scan_request', true, ARRAY['admin','media_manager']),
-      ('no_op_spike', true, ARRAY['admin'])
+      ('no_op_spike', true, ARRAY['admin']),
+      ('inventory_low_stock', true, ARRAY['admin','media_buyer']),
+      ('inventory_restock', true, ARRAY['media_buyer'])
     ON CONFLICT (event_type) DO NOTHING
   `);
 
@@ -543,6 +546,17 @@ async function runMigrations() {
 
   await initJobsTable();
 
+  // Inventory stock state — tracks last-known stock per product for alert diffing
+  await query(`
+    CREATE TABLE IF NOT EXISTS inventory_stock_state (
+      product_id INTEGER PRIMARY KEY,
+      product_name TEXT,
+      last_stock INTEGER NOT NULL DEFAULT 0,
+      alert_sent_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   logger.info("Database migrations complete");
 }
 
@@ -766,6 +780,23 @@ function startScheduledReportsCron() {
   logger.info({ interval_min: 15 }, "Scheduled reports cron started");
 }
 
+const INVENTORY_ALERT_CRON_MS = 30 * 60 * 1000; // 30 minutes
+
+function startInventoryAlertCron() {
+  // First check: 7 minutes after startup
+  setTimeout(() => {
+    checkInventoryAlerts().catch((err) =>
+      logger.error({ err }, "Initial inventory alert check failed")
+    );
+    setInterval(() => {
+      checkInventoryAlerts().catch((err) =>
+        logger.error({ err }, "Inventory alert cron failed")
+      );
+    }, INVENTORY_ALERT_CRON_MS);
+  }, 7 * 60 * 1000);
+  logger.info({ interval_min: 30 }, "Inventory alert cron scheduled");
+}
+
 function startScanCron() {
   const runScan = () => {
     runMediaScan().catch((err) => logger.error({ err }, "Scheduled media scan failed"));
@@ -811,6 +842,7 @@ runMigrations()
       // Pre-warm creative cache in background (don't block server startup)
       startCreativeCacheWarmer();
       startWatchdogCron();
+      startInventoryAlertCron();
     });
     // 180s timeout — AI streaming with multi-tool flows (get_adsets × 15 + get_ads_in_adset × 17+)
     // can exceed 90s. Must be larger than the 120s runAiStream abort signal.

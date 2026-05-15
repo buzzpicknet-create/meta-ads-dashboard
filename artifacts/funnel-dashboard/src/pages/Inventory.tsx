@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCw, Search, Package, AlertTriangle, CheckCircle, Warehouse, Clock, X } from "lucide-react";
+import { RefreshCw, Search, Package, AlertTriangle, CheckCircle, Warehouse, Clock, X, TrendingDown, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
 const INVENTORY_BASE = "https://inventory-flow-seomasr.replit.app";
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const LOW_STOCK_THRESHOLD = 10;
+
+const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface Product {
   id: number;
@@ -29,7 +32,7 @@ interface Stats {
   totalInToday: number;
 }
 
-type StockFilter = "all" | "available" | "zero";
+type StockFilter = "all" | "available" | "zero" | "no_movement";
 type SortKey = "name" | "stock_asc" | "stock_desc" | "updated";
 
 function useCountdown(targetMs: number) {
@@ -58,6 +61,9 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
   if (stock === 0) {
     return <Badge variant="destructive" className="text-xs">نفذ</Badge>;
   }
+  if (stock <= LOW_STOCK_THRESHOLD) {
+    return <Badge className="text-xs bg-amber-500 hover:bg-amber-500">{stock} ⚠️</Badge>;
+  }
   if (minStock > 0 && stock <= minStock) {
     return <Badge className="text-xs bg-amber-500 hover:bg-amber-500">منخفض</Badge>;
   }
@@ -65,10 +71,10 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
 }
 
 export default function InventoryPage() {
-  const [products, setProducts]     = useState<Product[]>([]);
-  const [stats, setStats]           = useState<Stats | null>(null);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState<string | null>(null);
+  const [products, setProducts]       = useState<Product[]>([]);
+  const [stats, setStats]             = useState<Stats | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [nextRefresh, setNextRefresh] = useState<number>(Date.now() + REFRESH_INTERVAL_MS);
 
@@ -76,6 +82,11 @@ export default function InventoryPage() {
   const [warehouse, setWarehouse]         = useState<string>("all");
   const [stockFilter, setStockFilter]     = useState<StockFilter>("all");
   const [sort, setSort]                   = useState<SortKey>("stock_desc");
+
+  // "دون حركة مبيعات" filter data
+  const [noMovementIds, setNoMovementIds]     = useState<Set<number> | null>(null);
+  const [loadingMovement, setLoadingMovement] = useState(false);
+  const [movementSince, setMovementSince]     = useState<string | null>(null);
 
   const countdown = useCountdown(nextRefresh);
 
@@ -101,6 +112,28 @@ export default function InventoryPage() {
     }
   }, []);
 
+  const fetchNoMovement = useCallback(async () => {
+    setLoadingMovement(true);
+    try {
+      const res = await fetch(`${API}/inventory/no-movement`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data: { sinceDate: string; activeProductIds: number[] } = await res.json();
+      setNoMovementIds(new Set(data.activeProductIds));
+      setMovementSince(data.sinceDate);
+    } catch {
+      setNoMovementIds(new Set()); // empty set = show all as "no movement" on error
+    } finally {
+      setLoadingMovement(false);
+    }
+  }, []);
+
+  // Load movement data when filter is activated
+  useEffect(() => {
+    if (stockFilter === "no_movement" && noMovementIds === null) {
+      fetchNoMovement();
+    }
+  }, [stockFilter, noMovementIds, fetchNoMovement]);
+
   // Initial load
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -122,8 +155,11 @@ export default function InventoryPage() {
 
     if (warehouse !== "all") list = list.filter(p => p.warehouseLocation === warehouse);
 
-    if (stockFilter === "available") list = list.filter(p => p.currentStock > 0);
-    else if (stockFilter === "zero")  list = list.filter(p => p.currentStock === 0);
+    if (stockFilter === "available")    list = list.filter(p => p.currentStock > 0);
+    else if (stockFilter === "zero")    list = list.filter(p => p.currentStock === 0);
+    else if (stockFilter === "no_movement" && noMovementIds !== null) {
+      list = list.filter(p => !noMovementIds.has(p.id));
+    }
 
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -142,12 +178,13 @@ export default function InventoryPage() {
     });
 
     return list;
-  }, [products, warehouse, stockFilter, search, sort]);
+  }, [products, warehouse, stockFilter, search, sort, noMovementIds]);
 
-  // KPIs from live data
+  // KPIs
   const availableCount = products.filter(p => p.currentStock > 0).length;
   const zeroCount      = products.filter(p => p.currentStock === 0).length;
   const totalUnits     = products.reduce((s, p) => s + p.currentStock, 0);
+  const lowStockList   = products.filter(p => p.currentStock > 0 && p.currentStock <= LOW_STOCK_THRESHOLD);
 
   return (
     <div dir="rtl" className="min-h-screen bg-background">
@@ -183,6 +220,33 @@ export default function InventoryPage() {
           <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             {error}
+          </div>
+        )}
+
+        {/* Low-stock alert banner */}
+        {!loading && lowStockList.length > 0 && (
+          <div className="rounded-xl border border-amber-400/60 bg-amber-50 dark:bg-amber-950/20 px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <Bell className="h-4 w-4 shrink-0" />
+              <span className="font-semibold text-sm">
+                {lowStockList.length} صنف وصلت كميته لأقل من {LOW_STOCK_THRESHOLD} قطع — يلزم إعادة تعبئة
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {lowStockList.slice(0, 8).map(p => (
+                <span
+                  key={p.id}
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 font-medium"
+                >
+                  {p.name} — {p.currentStock}
+                </span>
+              ))}
+              {lowStockList.length > 8 && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200">
+                  +{lowStockList.length - 8} أصناف أخرى
+                </span>
+              )}
+            </div>
           </div>
         )}
 
@@ -261,19 +325,29 @@ export default function InventoryPage() {
 
           {/* Stock filter */}
           <div className="flex items-center gap-1">
-            {([ ["all", "الكل"], ["available", "متاح"], ["zero", "نفذ"] ] as const).map(([val, label]) => (
+            {([
+              ["all",         "الكل",              ""],
+              ["available",   "متاح",              ""],
+              ["zero",        "نفذ",               ""],
+              ["no_movement", "دون حركة مبيعات",   ""],
+            ] as const).map(([val, label]) => (
               <button
                 key={val}
                 onClick={() => setStockFilter(val)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
                   stockFilter === val
-                    ? val === "zero" ? "bg-red-600 text-white border-red-600"
-                    : val === "available" ? "bg-emerald-600 text-white border-emerald-600"
+                    ? val === "zero"        ? "bg-red-600 text-white border-red-600"
+                    : val === "available"   ? "bg-emerald-600 text-white border-emerald-600"
+                    : val === "no_movement" ? "bg-orange-500 text-white border-orange-500"
                     : "bg-primary text-primary-foreground border-primary"
                     : "bg-background border-border hover:border-primary/50"
                 }`}
               >
+                {val === "no_movement" && <TrendingDown className="h-3 w-3" />}
                 {label}
+                {val === "no_movement" && loadingMovement && (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                )}
               </button>
             ))}
           </div>
@@ -293,8 +367,19 @@ export default function InventoryPage() {
           {/* Result count */}
           <span className="text-xs text-muted-foreground mr-auto">
             {filtered.length.toLocaleString("ar-EG")} صنف
+            {stockFilter === "no_movement" && movementSince && (
+              <span className="mr-1 text-orange-500">· لا حركة منذ {movementSince}</span>
+            )}
           </span>
         </div>
+
+        {/* no_movement loading state */}
+        {stockFilter === "no_movement" && loadingMovement && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            جاري تحليل حركات المخزون خلال آخر 10 أيام...
+          </div>
+        )}
 
         {/* Table */}
         <div className="rounded-xl border border-border overflow-hidden">
@@ -324,7 +409,9 @@ export default function InventoryPage() {
                 ) : filtered.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="text-center py-16 text-muted-foreground">
-                      لا توجد أصناف مطابقة للبحث
+                      {stockFilter === "no_movement" && loadingMovement
+                        ? "جاري تحميل بيانات الحركة..."
+                        : "لا توجد أصناف مطابقة للبحث"}
                     </td>
                   </tr>
                 ) : (
@@ -332,7 +419,11 @@ export default function InventoryPage() {
                     <tr
                       key={p.id}
                       className={`border-b border-border/50 transition-colors hover:bg-muted/30 ${
-                        p.currentStock === 0 ? "bg-red-50/30 dark:bg-red-950/10" : ""
+                        p.currentStock === 0
+                          ? "bg-red-50/30 dark:bg-red-950/10"
+                          : p.currentStock <= LOW_STOCK_THRESHOLD
+                          ? "bg-amber-50/30 dark:bg-amber-950/10"
+                          : ""
                       }`}
                     >
                       <td className="px-4 py-3 text-muted-foreground tabular-nums text-xs">{idx + 1}</td>
@@ -340,6 +431,8 @@ export default function InventoryPage() {
                         <div className="flex items-center gap-2">
                           {p.currentStock === 0
                             ? <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                            : p.currentStock <= LOW_STOCK_THRESHOLD
+                            ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                             : <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                           }
                           <span className={p.currentStock === 0 ? "text-muted-foreground" : ""}>{p.name}</span>
@@ -366,7 +459,7 @@ export default function InventoryPage() {
         {lastUpdated && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground pb-4">
             <Clock className="h-3.5 w-3.5" />
-            <span>البيانات من نظام InventoryFlow — تتحدث تلقائياً كل 30 دقيقة</span>
+            <span>البيانات من نظام InventoryFlow — تتحدث تلقائياً كل 30 دقيقة · تنبيهات المخزون تُرسل كل 30 دقيقة</span>
           </div>
         )}
       </div>

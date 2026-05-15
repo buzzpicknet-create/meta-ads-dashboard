@@ -15,6 +15,7 @@ import scheduledReportsRouter from "./scheduled-reports";
 import libraryRouter from "./library";
 import watchdogRouter from "./watchdog";
 import jobsRouter from "./jobs";
+import inventoryRouter from "./inventory";
 const router = Router();
 
 // Pre-warm Pipeboard MCP connection so the first chat request doesn't
@@ -48,5 +49,6 @@ router.use(scheduledReportsRouter);
 router.use(libraryRouter);
 router.use(watchdogRouter);
 router.use(jobsRouter);
+router.use(inventoryRouter);
 
 export default router;
