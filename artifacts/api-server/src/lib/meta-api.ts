@@ -2053,6 +2053,210 @@ export interface NameScanEntry {
   type: "campaign" | "adset" | "ad";
 }
 
+// ── Unified Budget Rows (CBO / ABO aware) ─────────────────────────────────────
+
+export interface UnifiedBudgetRow {
+  level: "campaign" | "adset";
+  entity_id: string;
+  parent_campaign_id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  budget_type: "cbo" | "abo";
+  daily_budget: number | null;
+  lifetime_budget: number | null;
+  spend: number;
+  purchases: number;
+  cpa: number;
+  impressions: number;
+  link_clicks: number;
+  ctr: number;
+  hookRate: number;
+  pct_of_budget: number | null;
+  eod_spend_forecast: number | null;
+}
+
+const BUDGET_ADSET_INSIGHT_FIELDS = [
+  "adset_id",
+  "campaign_id",
+  "impressions",
+  "spend",
+  "inline_link_clicks",
+  "actions",
+  "video_play_actions",
+  "video_p100_watched_actions",
+].join(",");
+
+/**
+ * Returns unified budget rows for all active campaigns in an account.
+ * - CBO campaigns (campaign has daily_budget > 0): one row per campaign.
+ * - ABO campaigns (no campaign budget): one row per active adset.
+ * Spend < 2× targetCpa rows are flagged LOW_SPEND in the result.
+ */
+export async function getUnifiedBudgetRows(opts: {
+  adAccountId: string;
+  since: string;
+  until: string;
+}): Promise<UnifiedBudgetRow[]> {
+  const rawAccount = opts.adAccountId.startsWith("act_")
+    ? opts.adAccountId.slice(4)
+    : opts.adAccountId;
+
+  // 1) Fetch campaigns with structure fields (budget lives here for CBO)
+  const campaigns = await fbGet<{
+    id: string;
+    name: string;
+    status: string;
+    effective_status: string;
+    daily_budget?: string;
+    lifetime_budget?: string;
+  }>(`/act_${rawAccount}/campaigns`, {
+    fields: "id,name,status,effective_status,daily_budget,lifetime_budget",
+    filtering: JSON.stringify([{
+      field: "effective_status",
+      operator: "IN",
+      value: ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED"],
+    }]),
+    limit: "500",
+  });
+
+  // 2) Campaign-level insights
+  const time_range = JSON.stringify({ since: opts.since, until: opts.until });
+  const campaignInsights = await fbGet<FbInsightRow>(`/act_${rawAccount}/insights`, {
+    level: "campaign",
+    time_range,
+    fields: LEAN_CAMPAIGN_FIELDS,
+    action_attribution_windows: ATTRIBUTION_WINDOW,
+    limit: "200",
+  }).catch(() => [] as FbInsightRow[]);
+
+  const campaignInsightMap = new Map<string, AggregatedMetrics>();
+  for (const row of campaignInsights) {
+    if (!row.campaign_id) continue;
+    const cur = campaignInsightMap.get(row.campaign_id) ?? emptyMetrics();
+    addRow(cur, row);
+    campaignInsightMap.set(row.campaign_id, cur);
+  }
+
+  // 3) Separate CBO vs ABO
+  const cboCampaigns: typeof campaigns = [];
+  const aboCampaignIds: string[] = [];
+  for (const c of campaigns) {
+    const db = Number(c.daily_budget ?? 0);
+    const lb = Number(c.lifetime_budget ?? 0);
+    if (db > 0 || lb > 0) {
+      cboCampaigns.push(c);
+    } else {
+      aboCampaignIds.push(c.id);
+    }
+  }
+
+  const rows: UnifiedBudgetRow[] = [];
+
+  // 4) CBO rows — one row per campaign
+  for (const c of cboCampaigns) {
+    const m = campaignInsightMap.get(c.id) ?? emptyMetrics();
+    const d = derive(m);
+    const dailyBudget  = Number(c.daily_budget   ?? 0) > 0 ? Number(c.daily_budget)   / 100 : null;
+    const lifetimeBudget = Number(c.lifetime_budget ?? 0) > 0 ? Number(c.lifetime_budget) / 100 : null;
+    const activeBudget = dailyBudget ?? lifetimeBudget;
+    rows.push({
+      level: "campaign",
+      entity_id: c.id,
+      parent_campaign_id: c.id,
+      name: c.name,
+      status: c.status,
+      effective_status: c.effective_status,
+      budget_type: "cbo",
+      daily_budget: dailyBudget,
+      lifetime_budget: lifetimeBudget,
+      spend: m.spend,
+      purchases: m.purchases,
+      cpa: d.cpa,
+      impressions: m.impressions,
+      link_clicks: m.link_clicks,
+      ctr: d.ctr,
+      hookRate: d.hookRate,
+      pct_of_budget: activeBudget && activeBudget > 0 ? (m.spend / activeBudget) * 100 : null,
+      eod_spend_forecast: activeBudget,
+    });
+  }
+
+  // 5) ABO: fetch adsets + adset-level insights for all ABO campaigns
+  if (aboCampaignIds.length > 0) {
+    const adsetArrays = await Promise.all(
+      aboCampaignIds.map((cid) =>
+        fbGet<{
+          id: string;
+          name: string;
+          status: string;
+          effective_status: string;
+          campaign_id: string;
+          daily_budget?: string;
+          lifetime_budget?: string;
+        }>(`/${cid}/adsets`, {
+          fields: "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget",
+          filtering: JSON.stringify([{
+            field: "effective_status",
+            operator: "IN",
+            value: ["ACTIVE", "PAUSED"],
+          }]),
+          limit: "200",
+        }).catch(() => [] as never[])
+      )
+    );
+    const aboAdsets = adsetArrays.flat();
+
+    const adsetInsights = aboAdsets.length > 0
+      ? await fbGet<FbInsightRow>(`/act_${rawAccount}/insights`, {
+          level: "adset",
+          time_range,
+          fields: BUDGET_ADSET_INSIGHT_FIELDS,
+          action_attribution_windows: ATTRIBUTION_WINDOW,
+          limit: "500",
+        }).catch(() => [] as FbInsightRow[])
+      : [];
+
+    const adsetInsightMap = new Map<string, AggregatedMetrics>();
+    for (const row of adsetInsights) {
+      if (!row.adset_id) continue;
+      const cur = adsetInsightMap.get(row.adset_id) ?? emptyMetrics();
+      addRow(cur, row);
+      adsetInsightMap.set(row.adset_id, cur);
+    }
+
+    for (const a of aboAdsets) {
+      const m = adsetInsightMap.get(a.id) ?? emptyMetrics();
+      const d = derive(m);
+      const dailyBudget    = Number(a.daily_budget    ?? 0) > 0 ? Number(a.daily_budget)    / 100 : null;
+      const lifetimeBudget = Number(a.lifetime_budget ?? 0) > 0 ? Number(a.lifetime_budget) / 100 : null;
+      const activeBudget   = dailyBudget ?? lifetimeBudget;
+      rows.push({
+        level: "adset",
+        entity_id: a.id,
+        parent_campaign_id: a.campaign_id,
+        name: a.name,
+        status: a.status,
+        effective_status: a.effective_status,
+        budget_type: "abo",
+        daily_budget: dailyBudget,
+        lifetime_budget: lifetimeBudget,
+        spend: m.spend,
+        purchases: m.purchases,
+        cpa: d.cpa,
+        impressions: m.impressions,
+        link_clicks: m.link_clicks,
+        ctr: d.ctr,
+        hookRate: d.hookRate,
+        pct_of_budget: activeBudget && activeBudget > 0 ? (m.spend / activeBudget) * 100 : null,
+        eod_spend_forecast: activeBudget,
+      });
+    }
+  }
+
+  return rows.sort((a, b) => b.spend - a.spend);
+}
+
 export async function scanAccountNames(adAccountId: string): Promise<NameScanEntry[]> {
   const cleanId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
   const accountPath = `/act_${cleanId}`;

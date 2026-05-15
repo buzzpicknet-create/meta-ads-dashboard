@@ -1,0 +1,63 @@
+أنت بتبني سكربت تقرير Meta Ads يشتغل على أي حساب إعلاني.
+
+الهدف: في الجدول وكمان في bulk_action لو الميزانية معمولة على مستوى Ad Set (ABO) اعرض/استخدم ميزانية الـ Ad Set بدل ميزانية الحملة. ولو الحملة CBO اعرض/استخدم ميزانية الحملة.
+
+نفّذ الآتي:
+
+1) تحديد مصدر الميزانية (Budget Source)
+
+لكل Campaign:
+- لو campaign.daily_budget أو campaign.lifetime_budget موجودة و > 0 → اعتبرها CBO (الميزانية على مستوى الحملة).
+
+- غير كده → اعتبرها ABO (الميزانية على مستوى Ad Set). ساعتها هات Ad Sets الخاصة بالحملة واستخدم adset.daily_budget (أو lifetime_budget لو موجودة).
+
+2) توحيد شكل الـ Rows (للعرض + للـ bulk_action)
+
+ارجّع قائمة Rows موحّدة تصلح للـ UI table ولـ bulk actions:
+
+شكل الـ Row (الأرقام بعملة الحساب لكن تُعرض بأرقام إنجليزية):
+
+json
+{
+  "level": "campaign" | "adset",
+  "entity_id": "string",
+  "parent_campaign_id": "string",
+  "name": "string",
+  "status": "ACTIVE|PAUSED|...",
+  "spend": number,
+  "purchases": number,
+  "cpa": number,
+  "daily_budget": number|null,
+  "pct_of_budget": number|null,
+  "eod_spend_forecast": number|null
+}
+pct_of_budget = (spend / daily_budget) * 100 لو في budget، غير كده null.
+eod_spend_forecast:
+- لو في budget: خلي التوقع = daily_budget (تقدير pacing بسيط).
+
+- لو مفيش budget: null.
+
+3) توليد توصيات الـ Bulk Actions
+
+خلي القيم قابلة للتعديل:
+
+TARGET_CPA (افتراضي 50)
+MIN_SPEND_TO_JUDGE = 2 * TARGET_CPA (افتراضي 100)
+القواعد:
+
+رابح (Winner): cpa < TARGET_CPA و spend >= MIN_SPEND_TO_JUDGE → زود الميزانية +20%
+خسران (Loser): cpa > TARGET_CPA و pct_of_budget > 50 و spend >= MIN_SPEND_TO_JUDGE → قلل الميزانية -30%
+لو row.level == "campaign" → action يكون update_campaign_budget (وحافظ على نوع الميزانية daily vs lifetime لو تقدر تحدده؛ غير كده خليه daily).
+لو row.level == "adset" → action يكون update_adset_budget.
+أمثلة bulk action:
+
+json
+{ "action": "update_campaign_budget", "campaign_id": "...", "budget_type": "daily", "budget_amount": 420 }
+{ "action": "update_adset_budget", "adset_id": "...", "budget_amount": 126 }
+4) الإخراج
+
+الجدول يعرض الـ Active campaigns.
+لو الحملة ABO: اعمل expand/flatten لصفوف Ad Sets (الـ Active adsets فقط).
+كل الأرقام في الإخراج تكون English digits.
+لو الحملة ABO وفيها أكتر من Ad Set: اعرض كل Ad Set كسطر مستقل، وخلي الـ bulk actions تتطبق على كل Ad Set لوحده.
+نفّذ ده End-to-End (جلب campaigns + adsets + تحويل البيانات + توليد bulk actions) واطلعلي الكود النهائي.

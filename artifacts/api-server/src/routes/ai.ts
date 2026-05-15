@@ -18,6 +18,7 @@ import {
   scanAccountNames,
   getLastUsageHeaders,
   fetchAccountMetadata,
+  getUnifiedBudgetRows,
 } from "../lib/meta-api.js";
 import {
   createJob,
@@ -166,6 +167,26 @@ ECONOMIC CONTEXT — السياق الاقتصادي (مصر)
 ══════════════════════════════════════
 COMMAND PROTOCOL — اختصارات القرار الفوري
 ══════════════════════════════════════
+
+══════════════════════════════════════
+CBO vs ABO — وعي مصدر الميزانية
+══════════════════════════════════════
+
+🏗️ قبل أي قرار ميزانية — حدد النوع أولاً:
+- **CBO (Campaign Budget Optimization)**: الحملة تحتوي daily_budget أو lifetime_budget > 0 → الميزانية على مستوى **الحملة** — يُعدَّل campaign_id.
+- **ABO (Ad Set Budget Optimization)**: الحملة بدون budget → الميزانية على مستوى **المجموعة الإعلانية** — يُعدَّل adset_id.
+لو خلطت بين المستويين → الإجراء يفشل أو يُطبَّق على الجهة الخطأ.
+
+🔑 كيف تعرف النوع؟
+1. من بيانات الحملة: لو رجع daily_budget: null أو 0 → ABO.
+2. من أداة analyze_budgets → يكشف النوع تلقائياً لكل حملة ويُرسله في العمود budget_type.
+3. من أداة get_campaign_budget → يُعيد daily_budget للحملة؛ لو null → ABO → اجلب adsets وشوف الميزانية هناك.
+
+📊 Tool الموصى به للتقارير الشاملة:
+استخدم أداة analyze_budgets عندما يطلب المستخدم مراجعة كل الميزانيات أو "مين يستاهل scale؟":
+- يجلب CBO + ABO معاً في call واحدة
+- يُفصّل AdSets لكل ABO campaign (سطر لكل مجموعة)
+- يُولّد bulk_action جاهزة (SCALE +20% / REDUCE -30%) بناءً على target_cpa
 
 ⚠️ BUDGET CHANGE AWARENESS — تنبيه تغييرات الميزانية (غير حاجب للإجراء):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2254,6 +2275,29 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "analyze_budgets",
+      description: `تحليل الميزانيات بوعي CBO/ABO: يجلب كافة الحملات النشطة ويحدد تلقائياً مصدر الميزانية — حملة CBO (واحدة per campaign) أو ABO (يُفصّل كل Ad Set كسطر مستقل). يُعيد جدولاً موحداً مع Spend / CPA / pct_of_budget ويولّد توصيات bulk_action (SCALE +20% للرابحين / REDUCE -30% للخاسرين).
+
+استخدمه عندما يطلب المستخدم:
+- "راجع الميزانيات"، "كمية الإنفاق اليومي"، "أعطني القرار على الميزانيات"
+- "مين يستاهل scale ومين يتوقف؟"
+- تقرير شامل CPA × Budget بدون تحديد حملة معينة
+
+الناتج يتضمن: جدول الكيانات (مع budget_type: cbo/abo) + توصيات SCALE/REDUCE/WAIT + bulk_action جاهزة.`,
+      parameters: {
+        type: "object",
+        properties: {
+          account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXX أو الرقم فقط) — مطلوب" },
+          days:       { type: "number", description: "عدد الأيام للفترة الزمنية (افتراضي: 7)" },
+          target_cpa: { type: "number", description: "هدف CPA بعملة الحساب (EGP) — افتراضي 50. يُستخدم لتصنيف رابح/خاسر وحساب MIN_SPEND" },
+        },
+        required: ["account_id"],
+      },
+    },
+  },
 ];
 
 // ── Arabic label for each read tool (used in tool_call_label SSE events) ─────
@@ -2276,6 +2320,7 @@ function getToolLabel(name: string, args: Record<string, unknown>): string {
     case "ga_get_search_terms":       return "جلب تقرير مصطلحات البحث Google Ads…";
     case "fetch_account_metadata":          return "🔍 جاري فحص الحساب الإعلاني واستخراج البيكسلات المتاحة…";
     case "research_latest_meta_strategies": return `🌐 جاري البحث في أحدث استراتيجيات Meta Ads: "${String(args.query ?? "")}"…`;
+    case "analyze_budgets":                 return `📊 جاري تحليل ميزانيات الحساب (CBO/ABO) وتوليد التوصيات…`;
     default:                                return `جلب البيانات (${name})…`;
   }
 }
@@ -4114,6 +4159,110 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         return rows.join("\n");
       } catch (err) {
         return `خطأ في البحث عن الإعلانات: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "analyze_budgets") {
+      const rawAccId    = String(args.account_id ?? "").replace(/^act_/, "").trim();
+      const targetCpa   = Number(args.target_cpa ?? 50);
+      const minSpend    = targetCpa * 2;
+      const days2       = Number(args.days ?? 7);
+      if (!rawAccId) return "account_id مطلوب.";
+
+      const today2      = new Date();
+      const since2      = new Date(today2); since2.setDate(since2.getDate() - days2);
+      const fmt2 = (d: Date) => d.toISOString().slice(0, 10);
+
+      try {
+        const budgetRows = await getUnifiedBudgetRows({
+          adAccountId: rawAccId,
+          since: fmt2(since2),
+          until: fmt2(today2),
+        });
+
+        if (budgetRows.length === 0) {
+          return `لا توجد حملات نشطة بإنفاق خلال آخر ${days2} يوم في الحساب ${rawAccId}.`;
+        }
+
+        const fmtN = (n: number | null | undefined, dec = 0) =>
+          n == null ? "—" : n.toFixed(dec);
+
+        const rows: string[] = [
+          `## تحليل الميزانيات — حساب act_${rawAccId} (آخر ${days2} يوم)\n`,
+          `> هدف CPA: **${targetCpa} EGP** | MIN_SPEND للحكم: **${minSpend} EGP**\n`,
+          "| الكيان | النوع | الحالة | Spend (EGP) | Purchases | CPA (EGP) | Budget (EGP) | % of Budget | Flags | القرار |",
+          "|--------|-------|--------|-------------|-----------|-----------|-------------|-------------|-------|--------|",
+        ];
+
+        const winnerActions: Record<string, unknown>[] = [];
+        const loserActions:  Record<string, unknown>[] = [];
+
+        for (const r of budgetRows) {
+          const statusIcon = r.effective_status === "ACTIVE" ? "✅" : "⏸";
+          const budgetType = r.budget_type === "cbo" ? "CBO" : "ABO";
+          const activeBudget = r.daily_budget ?? r.lifetime_budget ?? null;
+
+          // Flags
+          const flags: string[] = [];
+          if (r.spend < minSpend)          flags.push("LOW_SPEND");
+          if (r.cpa > targetCpa && r.cpa > 0) flags.push("HIGH_CPA");
+          if (r.ctr > 0 && r.ctr < 1.5)   flags.push("LOW_CTR");
+          if (r.hookRate > 0 && r.hookRate < 15) flags.push("LOW_HOOK");
+          if (r.pct_of_budget != null && r.pct_of_budget < 50 && r.spend < minSpend) flags.push("LOW_SPEND");
+
+          // Decision
+          let decision = "WAIT";
+          if (r.spend >= minSpend) {
+            if (r.cpa > 0 && r.cpa < targetCpa) decision = "SCALE +20%";
+            else if (r.cpa > targetCpa && r.pct_of_budget != null && r.pct_of_budget > 50) decision = "REDUCE -30%";
+            else if (r.purchases === 0) decision = "STOP";
+          }
+
+          const shortName = r.name.length > 40 ? r.name.slice(0, 37) + "…" : r.name;
+          rows.push(
+            `| \`${shortName}\` (${r.level === "adset" ? "adset:" : "camp:"}${r.entity_id}) | ${budgetType} | ${statusIcon} | ${fmtN(r.spend, 0)} | ${r.purchases} | ${r.cpa > 0 ? fmtN(r.cpa, 0) : "—"} | ${activeBudget != null ? fmtN(activeBudget, 0) : "—"} | ${r.pct_of_budget != null ? fmtN(r.pct_of_budget, 0) + "%" : "—"} | ${flags.join(" ") || "—"} | **${decision}** |`
+          );
+
+          // Collect bulk_action recommendations
+          if (decision === "SCALE +20%" && activeBudget) {
+            const newBudget = Math.round(activeBudget * 1.2);
+            if (r.level === "campaign") {
+              winnerActions.push({ action: "update_campaign_budget", campaign_id: r.entity_id, budget_type: "daily", budget_amount: newBudget, label: `SCALE +20% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP < هدف ${targetCpa} EGP` });
+            } else {
+              winnerActions.push({ action: "update_adset_budget", adset_id: r.entity_id, budget_amount: newBudget, label: `SCALE +20% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP < هدف ${targetCpa} EGP` });
+            }
+          }
+          if (decision === "REDUCE -30%" && activeBudget) {
+            const newBudget = Math.round(activeBudget * 0.7);
+            if (r.level === "campaign") {
+              loserActions.push({ action: "update_campaign_budget", campaign_id: r.entity_id, budget_type: "daily", budget_amount: newBudget, label: `REDUCE -30% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP > هدف ${targetCpa} EGP` });
+            } else {
+              loserActions.push({ action: "update_adset_budget", adset_id: r.entity_id, budget_amount: newBudget, label: `REDUCE -30% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP > هدف ${targetCpa} EGP` });
+            }
+          }
+        }
+
+        const cboCount = budgetRows.filter(r => r.budget_type === "cbo").length;
+        const aboCount = budgetRows.filter(r => r.budget_type === "abo").length;
+        rows.push(`\n> إجمالي الكيانات: ${budgetRows.length} (CBO حملات: ${cboCount} | ABO مجموعات: ${aboCount})`);
+
+        const allActions = [...winnerActions, ...loserActions];
+        if (allActions.length > 0) {
+          rows.push(`\n---\n### توصيات Bulk Action (${allActions.length} إجراء):\n`);
+          rows.push("```bulk_action");
+          rows.push(JSON.stringify({
+            title: `تعديلات ميزانية — حساب act_${rawAccId}`,
+            actions: allActions,
+          }, null, 2));
+          rows.push("```");
+          rows.push(`\n> الرابحون (SCALE): ${winnerActions.length} | الخاسرون (REDUCE): ${loserActions.length} | يحتاج تأكيد قبل التنفيذ`);
+        } else {
+          rows.push(`\n> لا توجد إجراءات موصى بها — معظم الكيانات في حالة WAIT (إنفاق < ${minSpend} EGP أو CPA في النطاق المقبول).`);
+        }
+
+        return rows.join("\n");
+      } catch (err) {
+        return `خطأ في تحليل الميزانيات: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
 
