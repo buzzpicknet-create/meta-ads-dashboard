@@ -4,7 +4,7 @@ import {
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
   ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
   Image as ImageIcon, Video, Filter, ShieldAlert, Download,
-  FileText, Eye,
+  FileText, Eye, Pencil,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -437,6 +437,139 @@ function CheckinModal({ task, onSave, onClose }: { task: Task; onSave: (notes: s
   );
 }
 
+// ── Edit Task Modal ───────────────────────────────────────────────────────────
+
+function EditTaskModal({ task, assignees, onSave, onClose }: {
+  task: Task; assignees: Assignee[];
+  onSave: (id: number, data: Partial<Task>) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [title,       setTitle]       = useState(task.title);
+  const [product,     setProduct]     = useState(task.product_name ?? "");
+  const [metric,      setMetric]      = useState(task.success_metric ?? "");
+  const [notes,       setNotes]       = useState(task.notes ?? "");
+  const [assigneeId,  setAssigneeId]  = useState<number | "">(task.assigned_to_id ?? "");
+  const [deadlineStr, setDeadlineStr] = useState(() => {
+    // Convert stored ISO to Cairo local for datetime-local input
+    const d = new Date(task.deadline);
+    return d.toLocaleString("sv-SE", { timeZone: "Africa/Cairo" }).slice(0, 16).replace(" ", "T");
+  });
+  const [saving, setSaving] = useState(false);
+
+  const selectedAssignee = assignees.find(a => a.id === assigneeId);
+
+  const presets = [
+    { h: 1, label: "ساعة" }, { h: 3, label: "٣ ساعات" }, { h: 12, label: "١٢ ساعة" },
+    { h: 24, label: "يوم" }, { h: 48, label: "يومان" }, { h: 72, label: "٣ أيام" }, { h: 168, label: "أسبوع" },
+  ];
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !deadlineStr) return;
+    setSaving(true);
+    try {
+      await onSave(task.id, {
+        title: title.trim(),
+        product_name: product.trim() || null,
+        success_metric: metric.trim() || null,
+        notes: notes.trim() || null,
+        assigned_to_id: assigneeId || null,
+        assigned_to_name: selectedAssignee?.username || null,
+        deadline: new Date(deadlineStr).toISOString(),
+      } as Partial<Task>);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-700 sticky top-0 bg-slate-900 z-10">
+          <h2 className="text-white font-bold text-lg flex items-center gap-2">
+            <Pencil size={16} className="text-amber-400" /> تعديل المهمة
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-5 space-y-4" dir="rtl">
+          {/* Title */}
+          <div>
+            <label className="block text-xs text-slate-400 mb-1.5">عنوان المهمة *</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} required
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500" />
+          </div>
+
+          {/* Product + Assignee */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">اسم المنتج</label>
+              <input value={product} onChange={e => setProduct(e.target.value)}
+                placeholder="اختياري"
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">تعيين لـ</label>
+              <select value={assigneeId} onChange={e => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500">
+                <option value="">— بدون تعيين —</option>
+                {assignees.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Metric */}
+          <div>
+            <label className="block text-xs text-slate-400 mb-1.5">مقياس النجاح</label>
+            <input value={metric} onChange={e => setMetric(e.target.value)}
+              placeholder="مثال: CPA < 100 EGP"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+          </div>
+
+          {/* Deadline presets + picker */}
+          <div>
+            <label className="block text-xs text-slate-400 mb-2">الموعد النهائي</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {presets.map(p => (
+                <button key={p.h} type="button"
+                  onClick={() => setDeadlineStr(nowPlusHours(p.h))}
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border bg-slate-800 border-slate-600 text-slate-300 hover:border-amber-500 hover:text-amber-300">
+                  +{p.label}
+                </button>
+              ))}
+            </div>
+            <input type="datetime-local" value={deadlineStr}
+              onChange={e => setDeadlineStr(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]"
+              required />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs text-slate-400 mb-1.5">ملاحظات</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+              placeholder="تعليمات إضافية..."
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" />
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800 transition-all">
+              إلغاء
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-60">
+              {saving ? <><Loader2 size={14} className="animate-spin" />جاري الحفظ...</> : <><Pencil size={14} />حفظ التعديلات</>}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Complete Confirm Modal ────────────────────────────────────────────────────
 
 function CompleteConfirmModal({ task, isAdmin, onConfirm, onClose }: {
@@ -497,13 +630,14 @@ function CompleteConfirmModal({ task, isAdmin, onConfirm, onClose }: {
 
 // ── Task Detail Modal ──────────────────────────────────────────────────────────
 
-function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDelete, onReopen }: {
+function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit }: {
   task: Task; isAdmin: boolean;
   onClose: () => void;
   onCheckin: (task: Task) => void;
   onComplete: (id: number) => void;
   onDelete: (id: number) => void;
   onReopen: (id: number) => void;
+  onEdit: (task: Task) => void;
 }) {
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const isActive = task.status === "pending" || task.status === "in_progress";
@@ -669,7 +803,7 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
         </div>
 
         {/* Footer actions */}
-        <div className="flex items-center gap-2 p-4 border-t border-slate-700/60 bg-slate-900/80">
+        <div className="flex items-center gap-2 p-4 border-t border-slate-700/60 bg-slate-900/80 flex-wrap">
           {isActive && (
             <>
               <button onClick={() => { onCheckin(task); onClose(); }}
@@ -688,14 +822,21 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
               <RefreshCw size={13} /> إعادة فتح
             </button>
           )}
+          {/* Edit button — admin only */}
+          {isAdmin && (
+            <button onClick={() => onEdit(task)}
+              className="flex items-center gap-1.5 text-sm text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-2 rounded-xl transition-all border border-amber-500/20">
+              <Pencil size={13} /> تعديل
+            </button>
+          )}
           {isAdmin && (
             <button onClick={() => { onDelete(task.id); onClose(); }}
-              className="mr-auto flex items-center gap-1.5 text-sm text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-2 rounded-xl transition-all">
+              className="flex items-center gap-1.5 text-sm text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-3 py-2 rounded-xl transition-all">
               <Trash2 size={13} /> حذف
             </button>
           )}
           <button onClick={onClose}
-            className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white bg-slate-700/40 hover:bg-slate-700/80 px-3 py-2 rounded-xl transition-all">
+            className="mr-auto flex items-center gap-1.5 text-sm text-slate-400 hover:text-white bg-slate-700/40 hover:bg-slate-700/80 px-3 py-2 rounded-xl transition-all">
             إغلاق
           </button>
         </div>
@@ -933,6 +1074,7 @@ export default function TasksPage() {
   const [showModal,    setShowModal]    = useState(false);
   const [checkinTask,  setCheckinTask]  = useState<Task | null>(null);
   const [detailTask,   setDetailTask]   = useState<Task | null>(null);
+  const [editTask,     setEditTask]     = useState<Task | null>(null);
   const [error,        setError]        = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1037,6 +1179,11 @@ export default function TasksPage() {
     if (!confirm("حذف هذه المهمة؟")) return;
     await fetch(`${BASE}/tasks/${id}`, { method: "DELETE", credentials: "include" });
     await fetchAll(true);
+  }
+
+  async function updateTask(id: number, data: Partial<Task>) {
+    await patchTask(id, data as Record<string, unknown>);
+    setEditTask(null);
   }
 
   // ── Filtered tasks ─────────────────────────────────────────────────────────
@@ -1222,6 +1369,15 @@ export default function TasksPage() {
           onComplete={id => { patchTask(id, { action: "complete" }); setDetailTask(null); }}
           onDelete={id => { deleteTask(id); setDetailTask(null); }}
           onReopen={id => { patchTask(id, { action: "reopen" }); setDetailTask(null); }}
+          onEdit={t => { setDetailTask(null); setEditTask(t); }}
+        />
+      )}
+      {editTask && (
+        <EditTaskModal
+          task={editTask}
+          assignees={assignees}
+          onSave={updateTask}
+          onClose={() => setEditTask(null)}
         />
       )}
     </div>
