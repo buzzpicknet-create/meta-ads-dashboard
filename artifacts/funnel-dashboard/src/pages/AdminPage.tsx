@@ -609,6 +609,16 @@ const EVENT_META: Record<string, { label: string; icon: string; desc: string }> 
     icon: "🔴",
     desc: "عندما يُحذف/يُرفض طلب ميديا",
   },
+  inventory_low_stock: {
+    label: "مخزون منخفض (مخزن السوق)",
+    icon: "⚠️",
+    desc: "عندما تصل كمية منتج في مخزن السوق إلى 10 قطع أو أقل",
+  },
+  inventory_restock: {
+    label: "إعادة تعبئة المخزون (مخزن السوق)",
+    icon: "✅",
+    desc: "عندما تُضاف كمية لمنتج كان مخزونه منخفضاً في مخزن السوق",
+  },
 };
 
 const ALL_ROLES = [
