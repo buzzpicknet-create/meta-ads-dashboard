@@ -59,10 +59,31 @@ let _rateLimitBackoffUntil = 0; // epoch ms — Meta API paused until this time
 export function isRateLimitActive(): boolean {
   return _rateLimitBackoffUntil > Date.now();
 }
-const RATE_LIMIT_BACKOFF_MS = 90_000; // 90 seconds global backoff after retries exhausted
+const RATE_LIMIT_BACKOFF_MS = 180_000; // 3 minutes global backoff after retries exhausted
 const RATE_LIMIT_CODES = new Set([80004, 17, 32]);
-// Exponential backoff delays before setting the global window (5s, 10s)
-const RATE_LIMIT_RETRY_DELAYS_MS = [5_000, 10_000];
+// Exponential backoff delays before setting global backoff (30s, 60s, 120s with jitter)
+const RATE_LIMIT_RETRY_DELAYS_MS = [30_000, 60_000, 120_000];
+
+// ── Usage header tracking (updated on every Meta response) ────────────────
+interface UsageHeaders {
+  appUsage: string | null;
+  bizUsage: string | null;
+  adAccUsage: string | null;
+  capturedAt: number;
+}
+let _lastUsageHeaders: UsageHeaders = { appUsage: null, bizUsage: null, adAccUsage: null, capturedAt: 0 };
+
+/** Returns the last known Meta API usage headers — useful for diagnosing throttle level. */
+export function getLastUsageHeaders(): UsageHeaders { return _lastUsageHeaders; }
+
+function captureUsageHeaders(res: Response): void {
+  const appUsage = res.headers.get("x-app-usage");
+  const bizUsage = res.headers.get("x-business-use-case-usage");
+  const adAccUsage = res.headers.get("x-ad-account-usage");
+  if (appUsage || bizUsage || adAccUsage) {
+    _lastUsageHeaders = { appUsage, bizUsage, adAccUsage, capturedAt: Date.now() };
+  }
+}
 
 function isRateLimitCode(code: number): boolean {
   return RATE_LIMIT_CODES.has(code);
@@ -118,18 +139,21 @@ async function fbGetSingle<T>(path: string, params: Record<string, string> = {},
     url.searchParams.set(k, v);
   }
   const res = await fetch(url.toString(), { signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS) });
+  captureUsageHeaders(res);
   const json = (await res.json()) as T & { error?: FbApiError };
   if (json.error) {
     const code = (json.error as FbApiError).code;
     if (isRateLimitCode(code)) {
+      const usage = _lastUsageHeaders;
       if (_retryCount < RATE_LIMIT_RETRY_DELAYS_MS.length) {
-        const delay = RATE_LIMIT_RETRY_DELAYS_MS[_retryCount];
-        logger.warn({ code, retryCount: _retryCount, delay_ms: delay }, "Meta rate-limit — retrying single fetch with backoff");
+        const jitter = Math.floor(Math.random() * 5_000);
+        const delay = RATE_LIMIT_RETRY_DELAYS_MS[_retryCount]! + jitter;
+        logger.warn({ code, retryCount: _retryCount, delay_ms: delay, appUsage: usage.appUsage, bizUsage: usage.bizUsage, adAccUsage: usage.adAccUsage }, "Meta rate-limit — retrying single fetch with backoff");
         await sleep(delay);
         return fbGetSingle<T>(path, params, _retryCount + 1);
       }
       _rateLimitBackoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
-      logger.warn({ code, backoff_s: RATE_LIMIT_BACKOFF_MS / 1000 }, "Meta rate-limit exhausted retries — global backoff set");
+      logger.warn({ code, backoff_s: RATE_LIMIT_BACKOFF_MS / 1000, appUsage: usage.appUsage, bizUsage: usage.bizUsage, adAccUsage: usage.adAccUsage }, "Meta rate-limit exhausted retries — global backoff set");
     }
     throw new Error(`Meta API error (${code}): ${(json.error as FbApiError).message}`);
   }
@@ -253,22 +277,24 @@ async function fbGet<T>(
       }
       throw fetchErr;
     }
+    captureUsageHeaders(res);
     const json = (await res.json()) as FbApiResponse<T>;
     if (json.error) {
       if (isRateLimitCode(json.error.code)) {
+        const usage = _lastUsageHeaders;
         if (_retryCount < RATE_LIMIT_RETRY_DELAYS_MS.length) {
-          const delay = RATE_LIMIT_RETRY_DELAYS_MS[_retryCount];
+          const jitter = Math.floor(Math.random() * 5_000);
+          const delay = RATE_LIMIT_RETRY_DELAYS_MS[_retryCount]! + jitter;
           logger.warn(
-            { code: json.error.code, retryCount: _retryCount, delay_ms: delay },
+            { code: json.error.code, retryCount: _retryCount, delay_ms: delay, appUsage: usage.appUsage, bizUsage: usage.bizUsage, adAccUsage: usage.adAccUsage },
             "Meta rate-limit — retrying fbGet with backoff"
           );
           await sleep(delay);
           return fbGet<T>(pathOrUrl, params, _retryCount + 1);
         }
-        // Retries exhausted — record global backoff so all concurrent callers back off
         _rateLimitBackoffUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
         logger.warn(
-          { code: json.error.code, backoff_s: RATE_LIMIT_BACKOFF_MS / 1000 },
+          { code: json.error.code, backoff_s: RATE_LIMIT_BACKOFF_MS / 1000, appUsage: usage.appUsage, bizUsage: usage.bizUsage, adAccUsage: usage.adAccUsage },
           "Meta rate-limit exhausted retries — global backoff set"
         );
       }
@@ -2015,6 +2041,45 @@ export async function getAdsetAdsInsights(opts: {
     campaignName: metaJson.campaign_name ?? "",
     ads,
   };
+}
+
+// ── Account-wide name scan (fields-only — 3 calls total, no insights) ────────
+export interface NameScanEntry {
+  id: string;
+  name: string;
+  effective_status: string;
+  parent_id?: string;   // campaign_id for adsets/ads, adset_id for ads
+  campaign_id?: string;
+  type: "campaign" | "adset" | "ad";
+}
+
+export async function scanAccountNames(adAccountId: string): Promise<NameScanEntry[]> {
+  const cleanId = adAccountId.startsWith("act_") ? adAccountId.slice(4) : adAccountId;
+  const accountPath = `/act_${cleanId}`;
+
+  const [campaigns, adsets, ads] = await Promise.all([
+    fbGet<{ id: string; name: string; effective_status: string }>(
+      `${accountPath}/campaigns`,
+      { fields: "id,name,effective_status", limit: "500" },
+    ).catch(() => [] as { id: string; name: string; effective_status: string }[]),
+
+    fbGet<{ id: string; name: string; effective_status: string; campaign_id: string }>(
+      `${accountPath}/adsets`,
+      { fields: "id,name,effective_status,campaign_id", limit: "500" },
+    ).catch(() => [] as { id: string; name: string; effective_status: string; campaign_id: string }[]),
+
+    fbGet<{ id: string; name: string; effective_status: string; adset_id: string; campaign_id: string }>(
+      `${accountPath}/ads`,
+      { fields: "id,name,effective_status,adset_id,campaign_id", limit: "1000" },
+    ).catch(() => [] as { id: string; name: string; effective_status: string; adset_id: string; campaign_id: string }[]),
+  ]);
+
+  const result: NameScanEntry[] = [
+    ...campaigns.map(c => ({ id: c.id, name: c.name, effective_status: c.effective_status, type: "campaign" as const })),
+    ...adsets.map(a  => ({ id: a.id, name: a.name, effective_status: a.effective_status, parent_id: a.campaign_id, campaign_id: a.campaign_id, type: "adset" as const })),
+    ...ads.map(a     => ({ id: a.id, name: a.name, effective_status: a.effective_status, parent_id: a.adset_id, campaign_id: a.campaign_id, type: "ad" as const })),
+  ];
+  return result;
 }
 
 export async function searchAdsByAdset(

@@ -15,6 +15,8 @@ import {
   searchAdsetsByCampaign,
   searchAdsByAdset,
   getAdsetAdsInsights,
+  scanAccountNames,
+  getLastUsageHeaders,
   fetchAccountMetadata,
   isRateLimitActive,
   type CampaignDetails,
@@ -1610,6 +1612,20 @@ const TOOLS = [
           query:    { type: "string", description: "جزء من اسم الإعلان — اتركه فارغاً لإظهار كل الإعلانات" },
         },
         required: ["adset_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "scan_account_names",
+      description: "فحص شامل للحساب — يجلب أسماء وIDs كل الحملات والمجموعات والإعلانات بـ 3 API calls فقط (بدون insights). مثالي لمهام التنظيف الجماعي: اكتشاف أسماء تحتوي على رموز غريبة (|، backtick، RTL marks)، إعداد bulk_action للـ rename. يعرض فقط: id, name, effective_status, parent_id.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_id: { type: "string", description: "رقم الحساب الإعلاني (بدون act_)" },
+        },
+        required: ["account_id"],
       },
     },
   },
@@ -3954,6 +3970,64 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         return rows.join("\n");
       } catch (err) {
         return `خطأ في البحث عن الإعلانات: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "scan_account_names") {
+      const rawAccId = String(args.account_id ?? "").replace(/^act_/, "");
+      if (!rawAccId) return "account_id مطلوب.";
+      try {
+        const entries = await scanAccountNames(rawAccId);
+        const campaigns = entries.filter(e => e.type === "campaign");
+        const adsets    = entries.filter(e => e.type === "adset");
+        const ads       = entries.filter(e => e.type === "ad");
+        const usage = getLastUsageHeaders();
+        const usageNote = usage.appUsage
+          ? `\n> 📊 Meta App Usage: ${usage.appUsage}${usage.bizUsage ? ` | Biz: ${usage.bizUsage}` : ""}${usage.adAccUsage ? ` | Account: ${usage.adAccUsage}` : ""}`
+          : "";
+
+        const SPECIAL = /[|`\u200f\u200e\u202a-\u202e\u2066-\u2069\u0000-\u001f]/;
+        const flagged = entries.filter(e => SPECIAL.test(e.name));
+
+        const rows: string[] = [
+          `## فحص الحساب ${rawAccId} — أسماء كل الكيانات (3 API calls فقط)`,
+          `- حملات: ${campaigns.length} | مجموعات: ${adsets.length} | إعلانات: ${ads.length} | **🚨 أسماء تحتاج تنظيف: ${flagged.length}**${usageNote}\n`,
+        ];
+
+        if (flagged.length > 0) {
+          rows.push(`### 🚨 كيانات تحتوي على رموز غريبة (${flagged.length}):`);
+          rows.push("| النوع | الاسم | id | parent_id | الحالة |");
+          rows.push("|-------|-------|-----|-----------|--------|");
+          for (const e of flagged.slice(0, 100)) {
+            const safeN = e.name.replace(/[\u200f\u200e\u202a-\u202e\u2066-\u2069]/g, "↯").replace(/\|/g, "¦").replace(/`/g, "ʻ");
+            rows.push(`| ${e.type} | ${safeN} | ${e.id} | ${e.parent_id ?? "—"} | ${e.effective_status} |`);
+          }
+          if (flagged.length > 100) rows.push(`\n> عُرض أول 100 — إجمالي ${flagged.length}`);
+
+          rows.push(`\n---\n⬇️ لإعداد bulk_action rename لكل الكيانات المُشار إليها بالترتيب:`);
+          rows.push("```bulk_action");
+          const bulkActions = flagged.slice(0, 15).map(e => {
+            const cleanName = e.name
+              .replace(/[\u200f\u200e\u202a-\u202e\u2066-\u2069]/g, "")
+              .replace(/\|/g, "-")
+              .replace(/`/g, "'")
+              .trim();
+            const renameType = e.type === "campaign" ? "rename_campaign" : e.type === "adset" ? "rename_adset" : "rename_ad";
+            return { type: renameType, ...(e.type === "campaign" ? { campaignId: e.id } : e.type === "adset" ? { adsetId: e.id } : { adId: e.id }), name: e.name, newName: cleanName, label: `تنظيف اسم ${e.type}`, reason: "رموز خاصة في الاسم" };
+          });
+          rows.push(JSON.stringify({ title: `تنظيف أسماء الحساب ${rawAccId}`, actions: bulkActions }, null, 2));
+          rows.push("```");
+          if (flagged.length > 15) rows.push(`\n> عُرضت الدفعة الأولى (15) — الكيانات المتبقية: ${flagged.length - 15}`);
+        } else {
+          rows.push("✅ لا توجد أسماء تحتوي على رموز غريبة في هذا الحساب.");
+        }
+
+        return rows.join("\n");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const usage = getLastUsageHeaders();
+        return `خطأ في فحص الحساب: ${msg}` +
+          (usage.appUsage ? `\n\n📊 معلومات throttle:\n- App Usage: ${usage.appUsage}\n- Biz Usage: ${usage.bizUsage ?? "—"}\n- Account Usage: ${usage.adAccUsage ?? "—"}` : "");
       }
     }
 

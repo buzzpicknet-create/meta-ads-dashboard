@@ -1,0 +1,67 @@
+
+We’re hitting Meta Graph API rate limiting (error code 17) during MCP workflows (especially when enumerating many objects مثل: campaigns → adsets → ads).
+
+This blocks “cleanup” tasks and any bulk analysis that requires traversing a lot of objects.
+
+Context
+
+We are on a paid Pipeboard MCP plan and Pipeboard is using an official Meta API integration.
+Use-case: scan account for names containing special chars (|, backticks, newline/RTL marks) and rename them.
+Current approach triggers too many calls (search_adsets/search_ads per campaign/adset) → rate limit.
+What we need you to implement in MCP (solutions)
+
+1) Server-side batching + backoff
+
+- Implement exponential backoff on code 17: e.g. wait 30s → 60s → 120s with jitter.
+
+- Persist progress cursor so the job resumes where it stopped (no restarting).
+
+2) Reduce API calls using bulk endpoints
+
+- Use Graph API batch requests (up to 50 per batch) OR implement an internal batch aggregator.
+
+- Prefer pulling objects via fewer calls:
+
+- Fetch all adsets in one insights/object query when possible instead of per-campaign search_adsets.
+
+- Fetch ads per-adset in batched queries.
+
+3) Caching layer
+
+- Cache campaign/adset/ad lists + names for at least 15–60 minutes (or per run) to avoid refetching same trees.
+
+4) Async “jobs” mode
+
+- Add an endpoint like start_scan_cleanup(account_id, since, until) returning job_id.
+
+- Let it run async and stream progress logs + final JSON with rename actions.
+
+5) Use “fields only” requests for ID resolution
+
+- For scanning names, we only need {id,name,effective_status} (not insights).
+
+- Ensure calls request minimal fields to lower cost and reduce throttling.
+
+6) Separate tokens / app-level throttling
+
+- If you’re proxying multiple customers through one app/token, we may be getting app-level throttling.
+
+- Confirm whether throttling is user-level, app-level, or business-level.
+
+- If app-level, you need per-customer app or better request distribution.
+
+Evidence to log
+
+Please log and return in MCP errors:
+
+HTTP headers: x-app-usage, x-business-use-case-usage, x-ad-account-usage
+Full error payload for code 17
+So we can pinpoint whether it’s app, business, or account throttling.
+
+Expected behavior
+
+When user asks “scan last 30 days and clean everything”, MCP should:
+
+run automatically in background,
+handle throttling gracefully,
+complete without the user needing to manually “continue”.
