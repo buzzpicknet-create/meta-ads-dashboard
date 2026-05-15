@@ -3,7 +3,7 @@ import {
   Plus, CheckCircle2, Clock, AlertTriangle, Loader2, Trash2,
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
   ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
-  Image as ImageIcon, Video, Filter,
+  Image as ImageIcon, Video, Filter, ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -433,6 +433,62 @@ function CheckinModal({ task, onSave, onClose }: { task: Task; onSave: (notes: s
   );
 }
 
+// ── Complete Confirm Modal ────────────────────────────────────────────────────
+
+function CompleteConfirmModal({ task, isAdmin, onConfirm, onClose }: {
+  task: Task; isAdmin: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-900 border border-amber-500/40 rounded-2xl w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center gap-3 p-5 border-b border-slate-700">
+          <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+            <ShieldAlert size={20} className="text-amber-400" />
+          </div>
+          <div>
+            <h2 className="text-white font-bold text-base">تأكيد إتمام المهمة</h2>
+            <p className="text-slate-400 text-xs mt-0.5 line-clamp-1">{task.title}</p>
+          </div>
+        </div>
+
+        {/* Warning body */}
+        <div className="p-5 space-y-4">
+          {!isAdmin && (
+            <div className="bg-red-900/30 border border-red-500/40 rounded-xl p-3.5 flex gap-3">
+              <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="text-sm space-y-1">
+                <p className="text-red-300 font-semibold">إجراء لا يمكن التراجع عنه</p>
+                <p className="text-red-400/80 text-xs leading-relaxed">
+                  بمجرد تأكيد الإتمام <span className="text-red-300 font-medium">لن تستطيع تغيير حالة المهمة</span> مرة أخرى.
+                  التراجع عن هذا القرار متاح للمشرف فقط.
+                </p>
+              </div>
+            </div>
+          )}
+          <p className="text-slate-300 text-sm">
+            هل أنت متأكد من إتمام هذه المهمة وتسجيلها كمكتملة؟
+          </p>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-3 px-5 pb-5">
+          <button onClick={onClose}
+            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800 transition-all">
+            إلغاء
+          </button>
+          <button onClick={() => { onConfirm(); onClose(); }}
+            className="flex-1 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2">
+            <CheckCircle2 size={15} /> تأكيد الإتمام
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Task Card ─────────────────────────────────────────────────────────────────
 
 function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: {
@@ -442,7 +498,8 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: 
   onDelete: (id: number) => void;
   onReopen: (id: number) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded,        setExpanded]        = useState(false);
+  const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const score    = task.opus_score ?? 0;
   const isActive = task.status === "pending" || task.status === "in_progress";
 
@@ -542,18 +599,21 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: 
               className="flex items-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1.5 rounded-lg transition-all">
               <LogIn size={11} /> متابعة
             </button>
-            <button onClick={() => onComplete(task.id)}
+            {/* Complete: always shows confirm modal */}
+            <button onClick={() => setShowCompleteConfirm(true)}
               className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg transition-all">
               <CheckCircle2 size={11} /> إتمام
             </button>
           </>
         )}
+        {/* Reopen: admin only */}
         {task.status === "completed" && isAdmin && (
           <button onClick={() => onReopen(task.id)}
             className="flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg transition-all">
             <RefreshCw size={11} /> إعادة فتح
           </button>
         )}
+        {/* Delete: admin only */}
         {isAdmin && (
           <button onClick={() => onDelete(task.id)}
             className="mr-auto flex items-center gap-1.5 text-[11px] text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 rounded-lg transition-all">
@@ -561,6 +621,16 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: 
           </button>
         )}
       </div>
+
+      {/* Complete confirm modal — rendered inside card to keep state local */}
+      {showCompleteConfirm && (
+        <CompleteConfirmModal
+          task={task}
+          isAdmin={isAdmin}
+          onConfirm={() => onComplete(task.id)}
+          onClose={() => setShowCompleteConfirm(false)}
+        />
+      )}
     </div>
   );
 }
