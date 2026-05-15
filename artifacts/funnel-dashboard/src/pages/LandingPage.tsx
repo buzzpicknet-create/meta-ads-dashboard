@@ -7,6 +7,7 @@ import {
   BookOpen, Trash2, Settings2, Search, ChevronDown, ChevronUp,
   RotateCcw, Eye, Users, TrendingUp, Maximize2, Pin, Upload, Pencil,
   Smartphone, Tablet, Monitor, Megaphone, GripVertical,
+  ShoppingBag, Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -2048,6 +2049,64 @@ export default function LandingPageGenerator() {
       .catch(() => {});
   }, []);
 
+  const [showShopifyModal, setShowShopifyModal] = useState(false);
+  const [addingStore, setAddingStore] = useState(false);
+  const [newStoreDomain, setNewStoreDomain] = useState("");
+  const [newStoreToken, setNewStoreToken] = useState("");
+  const [addStoreLoading, setAddStoreLoading] = useState(false);
+  const [addStoreError, setAddStoreError] = useState("");
+
+  const handleAddStore = async () => {
+    if (!newStoreDomain.trim() || !newStoreToken.trim()) {
+      setAddStoreError("أدخل Domain و Access Token");
+      return;
+    }
+    setAddStoreLoading(true);
+    setAddStoreError("");
+    try {
+      const res = await fetch("/api/shopify/stores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domain: newStoreDomain.trim(),
+          accessToken: newStoreToken.trim(),
+          isDefault: availableStores.length === 0,
+        }),
+      });
+      const data = await res.json() as { success?: boolean; store?: ShopifyStorePickerInfo; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "فشل إضافة المتجر");
+      const store = data.store!;
+      setAvailableStores(prev => {
+        const base = store.isDefault ? prev.map(s => ({ ...s, isDefault: false })) : prev;
+        return [...base, store];
+      });
+      if (store.isDefault) setSelectedStoreId(store.id);
+      setNewStoreDomain("");
+      setNewStoreToken("");
+      setAddingStore(false);
+      toast({ title: "✅ تم ربط المتجر بنجاح", description: store.shopName ?? store.domain });
+    } catch (err) {
+      setAddStoreError(err instanceof Error ? err.message : "خطأ غير معروف");
+    } finally {
+      setAddStoreLoading(false);
+    }
+  };
+
+  const handleDeleteStore = async (id: number) => {
+    await fetch(`/api/shopify/stores/${id}`, { method: "DELETE" }).catch(() => {});
+    setAvailableStores(prev => prev.filter(s => s.id !== id));
+    if (selectedStoreId === id) {
+      const remaining = availableStores.filter(s => s.id !== id);
+      setSelectedStoreId(remaining[0]?.id ?? null);
+    }
+  };
+
+  const handleSetDefaultStore = async (id: number) => {
+    await fetch(`/api/shopify/stores/${id}/default`, { method: "PATCH" }).catch(() => {});
+    setAvailableStores(prev => prev.map(s => ({ ...s, isDefault: s.id === id })));
+    setSelectedStoreId(id);
+  };
+
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
   const [comparePrice, setComparePrice] = useState("");
@@ -3114,6 +3173,129 @@ export default function LandingPageGenerator() {
         />
       )}
 
+      {/* ── Shopify Settings Modal ── */}
+      {showShopifyModal && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) { setShowShopifyModal(false); setAddingStore(false); setAddStoreError(""); } }}>
+          <div className="bg-[#0d1425] border border-white/10 rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-orange-400" />
+                ربط متاجر Shopify
+              </h3>
+              <button
+                onClick={() => { setShowShopifyModal(false); setAddingStore(false); setAddStoreError(""); setNewStoreDomain(""); setNewStoreToken(""); }}
+                className="text-gray-500 hover:text-gray-300 transition-colors p-1 rounded-lg hover:bg-white/5">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Connected stores list */}
+            {availableStores.length > 0 && (
+              <div className="mb-4 space-y-2">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">المتاجر المرتبطة</p>
+                {availableStores.map(s => (
+                  <div key={s.id} className="flex items-center gap-2.5 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
+                    <span className={cn("w-2 h-2 rounded-full flex-shrink-0", s.isDefault ? "bg-green-400" : "bg-gray-600")} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate font-medium">{s.shopName ?? s.domain}</p>
+                      <p className="text-[10px] text-gray-500 truncate" dir="ltr">{s.domain}</p>
+                    </div>
+                    {s.isDefault ? (
+                      <span className="text-[10px] text-green-400 font-bold px-1.5 py-0.5 bg-green-500/10 rounded border border-green-500/20 whitespace-nowrap">★ افتراضي</span>
+                    ) : (
+                      <button
+                        onClick={() => void handleSetDefaultStore(s.id)}
+                        className="text-[10px] text-gray-500 hover:text-orange-400 transition-colors px-1.5 py-0.5 border border-white/10 rounded hover:border-orange-500/30 whitespace-nowrap">
+                        تعيين افتراضي
+                      </button>
+                    )}
+                    <button
+                      onClick={() => void handleDeleteStore(s.id)}
+                      className="text-gray-600 hover:text-red-400 transition-colors p-1 rounded hover:bg-red-500/10 flex-shrink-0">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add store form */}
+            {addingStore ? (
+              <div className="space-y-3 border border-white/10 rounded-xl p-4 bg-white/3">
+                <p className="text-xs font-bold text-gray-300">بيانات المتجر الجديد</p>
+                <div>
+                  <label className="text-[11px] text-gray-400 mb-1 block">نطاق المتجر (Domain)</label>
+                  <input
+                    value={newStoreDomain}
+                    onChange={e => setNewStoreDomain(e.target.value)}
+                    placeholder="my-store.myshopify.com"
+                    dir="ltr"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-gray-400 mb-1 block">Access Token (Admin API)</label>
+                  <input
+                    value={newStoreToken}
+                    onChange={e => setNewStoreToken(e.target.value)}
+                    placeholder="shpat_xxxxxxxxxxxx"
+                    type="password"
+                    dir="ltr"
+                    onKeyDown={e => e.key === "Enter" && void handleAddStore()}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-orange-500/50"
+                  />
+                  <p className="text-[10px] text-gray-600 mt-1">
+                    من متجرك: Settings → Apps → Develop apps → Admin API access token
+                  </p>
+                </div>
+                {addStoreError && (
+                  <p className="text-xs text-red-400 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />{addStoreError}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setAddingStore(false); setAddStoreError(""); setNewStoreDomain(""); setNewStoreToken(""); }}
+                    className="flex-1 py-2 rounded-lg text-xs text-gray-400 border border-white/10 hover:bg-white/5 transition-colors">
+                    إلغاء
+                  </button>
+                  <button
+                    onClick={() => void handleAddStore()}
+                    disabled={addStoreLoading}
+                    className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-50 transition-opacity"
+                    style={{ background: "linear-gradient(135deg,#f97316,#ea580c)" }}>
+                    {addStoreLoading
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />جاري التحقق...</>
+                      : <><CheckCircle2 className="w-3.5 h-3.5" />ربط المتجر</>}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setAddingStore(true)}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold text-orange-400 flex items-center justify-center gap-2 border border-dashed border-orange-500/30 hover:bg-orange-500/8 transition-colors">
+                <Plus className="w-4 h-4" />
+                {availableStores.length === 0 ? "ربط متجر Shopify الآن" : "إضافة متجر آخر"}
+              </button>
+            )}
+
+            {availableStores.length === 0 && !addingStore && (
+              <div className="mt-3 text-center space-y-1">
+                <p className="text-xs text-gray-500">تحتاج لـ Shopify Custom App مع Admin API access token.</p>
+                <a
+                  href="https://help.shopify.com/en/manual/apps/app-types/custom-apps"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-orange-400 hover:underline inline-flex items-center gap-1">
+                  كيفية إنشاء Custom App والحصول على Token <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+
       {/* ── Header ── */}
       <div className="border-b border-white/10 px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-5">
@@ -3122,36 +3304,56 @@ export default function LandingPageGenerator() {
             <p className="text-xs text-gray-400 mt-0.5">توليد صفحات هبوط بـ AI جاهزة للنشر على Shopify</p>
           </div>
 
-          <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-1">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-1">
+              <button
+                onClick={() => setActiveTab("generate")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                  activeTab === "generate"
+                    ? "bg-orange-500 text-white shadow-sm"
+                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                )}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                توليد
+              </button>
+              <button
+                onClick={() => setActiveTab("library")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all relative",
+                  activeTab === "library"
+                    ? "bg-orange-500 text-white shadow-sm"
+                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                )}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                المكتبة
+                {ga4Available && (
+                  <span className="flex items-center gap-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                    GA4
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Shopify connect button */}
             <button
-              onClick={() => setActiveTab("generate")}
+              onClick={() => { setShowShopifyModal(true); setAddingStore(availableStores.length === 0); }}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
-                activeTab === "generate"
-                  ? "bg-orange-500 text-white shadow-sm"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all",
+                availableStores.length > 0
+                  ? "border-green-500/30 text-green-400 bg-green-500/8 hover:bg-green-500/15"
+                  : "border-orange-500/40 text-orange-400 bg-orange-500/10 hover:bg-orange-500/20"
               )}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              توليد
-            </button>
-            <button
-              onClick={() => setActiveTab("library")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all relative",
-                activeTab === "library"
-                  ? "bg-orange-500 text-white shadow-sm"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"
-              )}
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              المكتبة
-              {ga4Available && (
-                <span className="flex items-center gap-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                  GA4
-                </span>
-              )}
+              <ShoppingBag className="w-3.5 h-3.5" />
+              Shopify
+              <span className={cn(
+                "w-2 h-2 rounded-full flex-shrink-0",
+                availableStores.length > 0 ? "bg-green-400" : "bg-orange-400 animate-pulse"
+              )} />
             </button>
           </div>
         </div>
