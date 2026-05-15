@@ -1,0 +1,1763 @@
+import { Router, type IRouter } from "express";
+import fs from "fs";
+import path from "path";
+
+import { db, shopifyConfig, landingPageRecords, shopifyStores, realReviewsStore } from "@workspace/db";
+import { eq, lt } from "drizzle-orm";
+import { logger } from "../lib/logger";
+import {
+  callGeminiJson,
+  LP_SYSTEM_INSTRUCTION,
+} from "./gemini-helpers";
+import { getAiModels } from "./ai-models";
+
+const router: IRouter = Router();
+
+// ─── Real Reviews ─────────────────────────────────────────────────────────────
+export interface RealReview {
+  text: string;
+  customerName: string;
+  imageUrl: string;
+  rating: number;
+}
+
+/** Read reviews from DB by token. Returns undefined if not found or expired. */
+async function getReviewsByToken(token: string): Promise<RealReview[] | undefined> {
+  if (!token) return undefined;
+  const rows = await db
+    .select()
+    .from(realReviewsStore)
+    .where(eq(realReviewsStore.token, token))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return undefined;
+  if (new Date(row.expiresAt) < new Date()) return undefined;
+  return row.reviews as RealReview[];
+}
+
+const ARABIC_NAMES = ["أحمد م.", "محمود ع.", "سارة ط.", "دينا ح.", "يوسف ر.", "نور ب.", "هدى س.", "كريم ف.", "رنا م.", "عمر ز."];
+function randomArabicName() { return ARABIC_NAMES[Math.floor(Math.random() * ARABIC_NAMES.length)]; }
+
+/** Returns true if the customer name is a generic placeholder (not a real name). */
+function isGenericName(name: string): boolean {
+  if (!name.trim()) return true;
+  return /^(aliexpress|ipress|amazon|ebay|customer|buyer|user|reviewer|shopper|anonymous|verified|member|guest)\s*(customer|buyer|user|reviewer|shopper)?$/i.test(name.trim());
+}
+
+/**
+ * Clean an AliExpress CDN image URL for browser display.
+ */
+function cleanReviewImageUrl(url: string): string {
+  if (!url) return "";
+  return url
+    .replace(/_\.\w+$/, "")
+    .replace(/_\d+x\d+\.\w+$/, "")
+    .replace(/\.avif$/i, ".jpg")
+    .replace(/\.webp$/i, ".jpg");
+}
+
+// ─── Shopify constants ────────────────────────────────────────────────────────
+const SHOPIFY_STORE_DOMAIN =
+  process.env.SHOPIFY_STORE_DOMAIN || "dealme-121109.myshopify.com";
+const _SHOPIFY_PRIMARY_DOMAIN =
+  process.env.SHOPIFY_PRIMARY_DOMAIN || "dealme-eg.com";
+const SHOPIFY_API_VERSION = "2024-01";
+const GOOGLE_FONTS_URL = `https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Cairo:wght@400;600;700;900&family=Tajawal:wght@400;700;900&family=Readex+Pro:wght@300;400;600;700&display=swap`;
+const GOOGLE_FONTS_IMPORT = `@import url('${GOOGLE_FONTS_URL}');`;
+const TOKEN_FILE = path.resolve(process.cwd(), ".shopify-token.json");
+
+let _cachedToken: string | null = null;
+
+async function loadTokenFromDb(): Promise<string | null> {
+  try {
+    const rows = await db
+      .select()
+      .from(shopifyConfig)
+      .where(eq(shopifyConfig.key, "access_token"))
+      .limit(1);
+    return rows[0]?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+loadTokenFromDb()
+  .then((t) => {
+    if (t) _cachedToken = t;
+  })
+  .catch(() => {});
+
+function getAccessToken(): string | null {
+  if (_cachedToken) return _cachedToken;
+  try {
+    if (fs.existsSync(TOKEN_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf-8")) as {
+        access_token?: string;
+      };
+      if (data.access_token) {
+        _cachedToken = data.access_token;
+        return _cachedToken;
+      }
+    }
+  } catch { }
+  return process.env.SHOPIFY_ACCESS_TOKEN || null;
+}
+
+// ─── Multi-store resolver ─────────────────────────────────────────────────────
+async function resolvePublishStore(
+  storeId?: number | null,
+): Promise<{ domain: string; token: string } | null> {
+  try {
+    if (storeId) {
+      const rows = await db
+        .select()
+        .from(shopifyStores)
+        .where(eq(shopifyStores.id, storeId))
+        .limit(1);
+      if (rows[0]) return { domain: rows[0].domain, token: rows[0].accessToken };
+    }
+    const rows = await db.select().from(shopifyStores).limit(10);
+    const def = rows.find((r) => r.isDefault) ?? rows[0];
+    if (def) return { domain: def.domain, token: def.accessToken };
+  } catch { /* fall through */ }
+  const token = getAccessToken();
+  if (!token) return null;
+  return { domain: SHOPIFY_STORE_DOMAIN, token };
+}
+
+async function fetchStorePrimaryDomain(myshopifyDomain: string, token: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://${myshopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/shop.json`,
+      { headers: { "X-Shopify-Access-Token": token }, signal: AbortSignal.timeout(5000) },
+    );
+    if (!res.ok) return myshopifyDomain;
+    const data = await res.json() as { shop?: { domain?: string } };
+    return data.shop?.domain ?? myshopifyDomain;
+  } catch {
+    return myshopifyDomain;
+  }
+}
+
+// ─── Frameworks dictionary ────────────────────────────────────────────────────
+const FRAMEWORKS: Record<string, { label: string; sections: string }> = {
+  Auto: {
+    label: "Auto",
+    sections:
+      "Gemini يختار الموديل الأنسب تلقائياً بناءً على المنتج وفئته السعرية.",
+  },
+  PAS: {
+    label: "PAS (Problem → Agitate → Solution)",
+    sections:
+      "Announcement → Problem Hook ('تعبت من...؟') → Agitate (عواقب المشكلة بصرياً) → Trust Bar → Solution + How It Works (3 خطوات) → Reviews (3 آراء بنجوم) → Guarantee Badge → CTA + Urgency Scarcity → Order Form",
+  },
+  AIDA: {
+    label: "AIDA (Attention → Interest → Desire → Action)",
+    sections:
+      "Announcement → Hero (صورة + عنوان صادم + badge 'الأكثر مبيعاً' + CTA) → Trust Bar (شحن|ضمان|COD|آلاف المبيعات) → Features Grid (4 مميزات كبطاقات) → Reviews (3 آراء بنجوم + أسماء مصرية) → Before/After → Guarantee Badge + Urgency Scarcity → Countdown Timer + CTA → Order Form",
+  },
+  FAB: {
+    label: "FAB (Features → Advantages → Benefits)",
+    sections:
+      "Announcement → Hero + Specs واضحة → Trust Bar → How It Works (3 خطوات) → Comparison Table (منتجنا vs المنافسين) → Features Grid → Reviews بنجوم → Guarantee Badge → CTA → Order Form",
+  },
+  BAB: {
+    label: "BAB (Before → After → Bridge)",
+    sections:
+      "Announcement → Before (الألم — لون رمادي) → After (الحياة المثالية — لون أخضر) → Bridge + Features Grid → Trust Bar → Reviews → Guarantee → Countdown + CTA 'ابدأ رحلتك' → Order Form",
+  },
+  ProblemSolutionStack: {
+    label: "Problem/Solution Stack",
+    sections:
+      "Announcement → المشكلة الكبيرة → 3 مشاكل فرعية (كل مشكلة + حلها كـ card) → Trust Bar → Offer Stack → Comparison Table → Reviews → Countdown + Urgency → Order Form",
+  },
+  VSL: {
+    label: "VSL (Video Sales Letter Structure)",
+    sections:
+      "Announcement → Hook (جملة صادمة) → Story (قصة عميل) → Trust Bar → Proof (نتائج + Reviews) → How It Works → Offer Stack (كل اللي هياخده) → Countdown Timer + Urgency Scarcity → Guarantee Badge → CTA → Order Form",
+  },
+  Storytelling: {
+    label: "Storytelling / Founder Story",
+    sections:
+      "Announcement → The Struggle (قصة بضمير المتكلم) → The Discovery → Trust Bar → The Product + Features Grid → Reviews + Social Proof → Guarantee Badge → Join Us CTA → FAQ (4 أسئلة accordion) → Order Form",
+  },
+  OfferStack: {
+    label: "Offer Stack (Flash Sale / Bundle)",
+    sections:
+      "Announcement → Hero + Countdown Timer → Offer Stack (المنتج + قيمته + هدايا) → Trust Bar → Comparison (الأسعار قبل/بعد) → Reviews → Guarantee Badge 30 يوم → Urgency Scarcity → CTA → Order Form",
+  },
+};
+
+// ─── Styles dictionary ────────────────────────────────────────────────────────
+const STYLES: Record<string, { label: string; desc: string; cssHints: string }> = {
+  Auto: {
+    label: "Auto",
+    desc: "Gemini يختار الأنسب للمنتج",
+    cssHints: "",
+  },
+  Aurora: {
+    label: "Aurora",
+    desc: "تدرجات حيوية وتأثيرات توهج بصري — مناسب للتقنية والجمال",
+    cssHints:
+      "خلفية داكنة عميقة (#030712)، تدرجات Aurora (بنفسجي → أزرق → وردي فيروزي)، توهج Glow على CTA، بطاقات glass-morphism بـ backdrop-blur",
+  },
+  Minimalism: {
+    label: "Minimalism",
+    desc: "فخامة وأناقة، مساحات بيضاء — مناسب للـ Luxury",
+    cssHints:
+      "خلفية بيضاء نقية (#FFFFFF)، نصوص رمادية داكنة (#1a1a1a)، CTA أسود (#000) أو ذهبي (#B8860B)، border-radius صغير (8px)، بدون ظلال مبالغ فيها",
+  },
+  Brutalism: {
+    label: "Brutalism",
+    desc: "جريء وصارخ، حدود قوية وتباين عالي — مناسب للشباب والموضة",
+    cssHints:
+      "خلفية صفراء أو بيضاء (#FFFF00 أو #FFF)، border سوداء سميكة (3-4px solid #000)، box-shadow بـ offset كبير (4px 4px 0 #000)، خطوط sans-serif bold جداً، لا border-radius",
+  },
+  Flat2: {
+    label: "Flat 2.0",
+    desc: "وضوح وسرعة، ألوان نابضة ونظيفة — مناسب للـ E-commerce",
+    cssHints:
+      "ألوان نابضة مسطحة (أزرق #2563EB أو أخضر #16A34A)، خلفية رمادية فاتحة (#F9FAFB)، أيقونات SVG بسيطة، border-radius 8px، لا تدرجات مبالغ فيها",
+  },
+  Neumorphism: {
+    label: "Neumorphism",
+    desc: "أزرار بارزة ثلاثية الأبعاد وظلال ناعمة — مناسب للتطبيقات",
+    cssHints:
+      "خلفية رمادية فاتحة (#E0E5EC)، ظلال مزدوجة (shadow light: #FFFFFF، shadow dark: #A3B1C6)، عناصر تبدو بارزة أو منخفضة، ألوان باستيل هادئة",
+  },
+};
+
+// ─── A/B contrasting variant helper ──────────────────────────────────────────
+function getContrastingVariantB(
+  frameworkKeyA: string,
+  styleKeyA: string,
+): { frameworkKey: string; styleKey: string } {
+  const frameworkMap: Record<string, string> = {
+    PAS: "FAB",
+    Storytelling: "ProblemSolutionStack",
+    AIDA: "OfferStack",
+    FAB: "PAS",
+    ProblemSolutionStack: "PAS",
+    OfferStack: "AIDA",
+    VSL: "ProblemSolutionStack",
+    BAB: "FAB",
+  };
+  const styleMap: Record<string, string> = {
+    Flat2: "Neumorphism",
+    Minimalism: "Brutalism",
+    Aurora: "Flat2",
+    Neumorphism: "Minimalism",
+    Brutalism: "Minimalism",
+  };
+  return {
+    frameworkKey:
+      frameworkKeyA === "Auto"
+        ? "Auto"
+        : (frameworkMap[frameworkKeyA] ?? "PAS"),
+    styleKey:
+      styleKeyA === "Auto" ? "Auto" : (styleMap[styleKeyA] ?? "Flat2"),
+  };
+}
+
+// ─── LP HTML post-processors ──────────────────────────────────────────────────
+function ensureFontImport(html: string): string {
+  const FONT_LINK = `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="${GOOGLE_FONTS_URL}" rel="stylesheet">`;
+  let result = html;
+  if (!result.includes("fonts.googleapis.com")) {
+    if (result.includes("<style")) {
+      result = result.replace(/<style([^>]*)>/i, `<style$1>\n${GOOGLE_FONTS_IMPORT}`);
+    } else {
+      const tag = `<style>\n${GOOGLE_FONTS_IMPORT}\nbody,*{font-family:'Cairo',sans-serif;}\nh1,h2,h3{font-family:'Almarai',sans-serif;}\n</style>`;
+      if (result.includes("</head>")) result = result.replace("</head>", `${tag}\n</head>`);
+      else if (result.includes("<body")) result = result.replace(/<body([^>]*)>/i, `${tag}\n<body$1>`);
+      else result = tag + result;
+    }
+  }
+  if (!result.includes('rel="stylesheet"') || !result.includes("fonts.googleapis")) {
+    if (result.includes("</head>")) result = result.replace("</head>", `${FONT_LINK}\n</head>`);
+    else if (result.includes("<head>")) result = result.replace("<head>", `<head>\n${FONT_LINK}`);
+  }
+  return result;
+}
+
+function injectAnimationFix(html: string): string {
+  if (!html.includes("opacity: 0") && !html.includes("opacity:0")) return html;
+  if (html.includes("IntersectionObserver") || html.includes("lp-animate")) return html;
+
+  const script = `<script>
+(function(){
+  function revealEl(el) {
+    el.style.transition = el.style.transition || 'opacity .6s ease, transform .6s ease';
+    el.style.opacity = '1';
+    el.style.transform = 'translateY(0) scale(1)';
+  }
+  function init() {
+    var els = [];
+    var codForm = document.getElementById('cod-form');
+    document.querySelectorAll('*').forEach(function(el) {
+      if (codForm && (el === codForm || codForm.contains(el))) return;
+      var s = window.getComputedStyle(el);
+      if (s.opacity === '0' && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+        els.push(el);
+      }
+    });
+    if (!els.length) return;
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(e) { if (e.isIntersecting) { revealEl(e.target); io.unobserve(e.target); } });
+      }, { threshold: 0.05 });
+      els.forEach(function(el) { io.observe(el); });
+      setTimeout(function() { els.forEach(revealEl); }, 2000);
+    } else {
+      els.forEach(revealEl);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>`;
+
+  if (html.includes("</body>")) return html.replace("</body>", script + "\n</body>");
+  return html + script;
+}
+
+function injectMobileOverflowFix(html: string): string {
+  if (html.includes("lp-overflow-fix")) return html;
+  const style = `<style id="lp-overflow-fix">
+html,body{overflow-x:hidden!important;max-width:100vw!important;width:100%!important}
+*,*::before,*::after{box-sizing:border-box!important}
+img{max-width:100%!important;width:100%!important;height:auto!important;max-height:480px!important;display:block!important;object-fit:contain!important}
+[class*="hero"] img,[class*="banner"] img{object-fit:cover!important;max-height:420px!important}
+[class*="gallery"] img,[class*="before"] img,[class*="after"] img{max-height:280px!important;object-fit:cover!important}
+img[width][height]{max-height:none!important;width:auto!important;max-width:none!important}
+svg,video,canvas{max-width:100%!important;height:auto!important}
+section,div,header,footer,nav,main,article{max-width:100%!important}
+table{display:block;overflow-x:auto;max-width:100%!important}
+a[href="#cod-form"],button[type="submit"],.lp-add-btn,.lp-cta{color:#fff!important}
+@media(min-width:768px){
+  img:not(.offer-image):not([class*="icon"]):not([class*="logo"]):not([class*="badge"]):not([class*="avatar"]){max-height:460px!important;width:auto!important;max-width:100%!important;margin-left:auto!important;margin-right:auto!important}
+  [class*="hero"] img,[class*="banner"] img{width:100%!important;max-height:480px!important;object-fit:cover!important}
+}
+</style>`;
+  if (html.includes("</head>")) return html.replace("</head>", style + "\n</head>");
+  if (html.includes("<body")) return html.replace("<body", style + "\n<body");
+  return style + html;
+}
+
+function injectPriceScript(html: string, handle: string): string {
+  if (!handle) return html;
+  const script = `<script>
+(function(){
+  try {
+    fetch('/products/${handle}.js')
+      .then(function(r){ return r.json(); })
+      .then(function(p){
+        var cents = p.price;
+        if (!cents) return;
+        var formatted = Math.round(cents / 100).toLocaleString('ar-EG') + ' جنيه';
+        document.querySelectorAll('.lp-price').forEach(function(el){ el.textContent = formatted; });
+        var compare = p.compare_at_price;
+        if (compare && compare > cents) {
+          var fmtC = Math.round(compare / 100).toLocaleString('ar-EG') + ' جنيه';
+          document.querySelectorAll('.lp-compare-price').forEach(function(el){ el.textContent = fmtC; });
+        }
+      });
+  } catch(e){}
+})();
+</script>`;
+  if (html.includes("</body>")) return html.replace("</body>", script + "\n</body>");
+  return html + script;
+}
+
+function ensureDoctype(html: string): string {
+  const trimmed = html.trimStart();
+  if (/^<!DOCTYPE\s+html>/i.test(trimmed)) return html;
+  return `<!DOCTYPE html>\n${trimmed}`;
+}
+
+function postProcess(html: string): string {
+  return ensureDoctype(injectMobileOverflowFix(injectAnimationFix(ensureFontImport(html))));
+}
+
+function getAppDomain(): string {
+  const domains = (process.env.REPLIT_DOMAINS ?? "")
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean);
+  const prod = domains.find((d) => !d.includes(".worf.replit.dev"));
+  if (prod) return prod;
+  return domains[0] ?? (process.env.REPLIT_DEV_DOMAIN ?? "").trim();
+}
+
+function toAbsoluteImageUrls(urls: string[]): string[] {
+  const domain = getAppDomain();
+  if (!domain) return urls;
+  return urls.map((u) => {
+    const t = u.trim();
+    if (t.startsWith("/api/storage/")) return `https://${domain}${t}`;
+    return t;
+  });
+}
+
+// ─── Master Prompt builder ────────────────────────────────────────────────────
+function isValidUrl(url: string): boolean {
+  try {
+    const u = new URL(url.trim());
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function buildMasterPrompt(params: {
+  productTitle: string;
+  productPrice: string;
+  comparePrice: string;
+  productDesc: string;
+  imageUrls: string[];
+  frameworkKey: string;
+  styleKey: string;
+  referenceUrl?: string;
+  hasFreeShipping?: boolean;
+  realReviews?: RealReview[];
+  customFocusPoints?: string;
+}): string {
+  const { productTitle, productPrice, comparePrice, productDesc, imageUrls, frameworkKey, styleKey, referenceUrl, hasFreeShipping, realReviews, customFocusPoints } = params;
+
+  const stripDecimals = (p: string) =>
+    p ? String(Math.floor(parseFloat(p)) || p) : p;
+  const priceClean = stripDecimals(productPrice);
+  const comparePriceClean = stripDecimals(comparePrice);
+
+  const framework = FRAMEWORKS[frameworkKey] ?? FRAMEWORKS.Auto;
+  const style = STYLES[styleKey] ?? STYLES.Auto;
+
+  const frameworkBlock = frameworkKey === "Auto"
+    ? `## 📐 هيكل الصفحة
+اختر الموديل الأنسب تلقائياً من: AIDA / PAS / BAB / FAB / VSL / ProblemSolutionStack / OfferStack / Storytelling
+اذكر الموديل المختار في الـ JSON.`
+    : `## 📐 هيكل الصفحة — موديل **${framework.label}** (إلزامي)
+استخدم هذا الموديل حصراً. Sections بالترتيب:
+${framework.sections}
+في الـ JSON ارجع: "model": "${framework.label}"`;
+
+  const refUrl = referenceUrl?.trim();
+  const hasValidRef = refUrl && isValidUrl(refUrl);
+
+  const styleBlock = hasValidRef
+    ? `## 🎨 أسلوب التصميم — استنساخ مرجعي (إلزامي)
+CRITICAL DESIGN INSTRUCTION: I am providing you with a reference URL: ${refUrl}
+You must analyze or infer the visual aesthetic, layout structure, color palette, typography, and section arrangement of this URL.
+Replicate its UI/UX and CSS styling as closely as possible for our product. Mimic the look and feel completely.
+⚠️ This overrides any other style preference. The copywriting framework above still applies — only the visual aesthetic is cloned.`
+    : styleKey === "Auto"
+    ? `## 🎨 أسلوب التصميم
+اختر الأنسب للمنتج تلقائياً.`
+    : `## 🎨 أسلوب التصميم — **${style.label}** (إلزامي)
+${style.desc}
+تلميحات CSS: ${style.cssHints}`;
+
+  const img0 = imageUrls[0] || "";
+  const img1 = imageUrls[1] || img0;
+  const img2 = imageUrls[2] || img0;
+
+  const imagesBlock = img0
+    ? `## الصور المتاحة — استخدمها بذكاء في الـ sections المناسبة
+- الصورة الرئيسية (Hero): ${img0}
+- الصورة الثانية (Gallery / Features): ${img1}
+- الصورة الثالثة (Before-After / Reviews): ${img2}
+⚠️ استخدم دائماً <img src="URL" style="width:100%;height:auto;display:block;max-height:480px;object-fit:contain;border-radius:16px"> — لا background-image لصور المنتج.`
+    : `## الصور: لا توجد صور — استخدم Icon Showcases بـ CSS كبديل أنيق.`;
+
+  const cartFormHtml = `<!-- LP_COD_START --><div id="cod-form" style="margin:24px 0">
+  <span id="es-form-hook"></span>
+</div><!-- LP_COD_END -->`;
+
+  const focusBlock = customFocusPoints?.trim()
+    ? `\n## 🎯 نقاط تركيز إضافية — يجب دمجها في النص بشكل طبيعي
+CRITICAL FOCUS POINTS FROM THE USER:
+"${customFocusPoints.trim()}"
+
+INSTRUCTION: You MUST seamlessly weave these specific focus points heavily into the ad copy and landing page text. Adapt these points so they fit perfectly inside the logic of the chosen ${frameworkKey} structure.\n`
+    : "";
+
+  return `أنت مطور ويب محترف ومسوّق رقمي خبير في صفحات البيع العربية للموبايل.
+
+## بيانات المنتج
+- الاسم: ${productTitle}
+- السعر الحالي: ${priceClean ? priceClean + " جنيه" : "غير محدد"}
+${comparePriceClean ? `- السعر القديم (مشطوب): ${comparePriceClean} جنيه` : ""}
+- الوصف والمزايا: ${productDesc || "اكتب محتوى بيعي قوي بناءً على اسم المنتج"}
+
+${imagesBlock}
+
+${frameworkBlock}
+${focusBlock}
+${styleBlock}
+
+## 📢 قواعد CTA — إلزامية
+- ضع زر CTA (anchor → #cod-form) في 3 sections على الأقل موزّعة بالصفحة
+- مثال: <a href="#cod-form" style="display:block;width:90%;max-width:400px;margin:16px auto;padding:18px;text-align:center;font-size:1.1em;font-weight:900;border-radius:14px;text-decoration:none;background:linear-gradient(135deg,#FF6B35,#FF4500);color:#fff">🛒 اطلب الآن</a>
+- لا تضيف زر WhatsApp أو رقم هاتف أو رابط خارجي
+- ⚠️ لا تولّد <form> أو <input> أو <button type="submit"> لنموذج الطلب — فقط ضع الكود التالي بالضبط:
+${cartFormHtml}
+- احتفظ بالتعليقات <!-- LP_COD_START --> و <!-- LP_COD_END --> — EasySell سيضع فورم الطلب داخل <span id="es-form-hook"> تلقائياً عند النشر على Shopify
+
+${hasFreeShipping === false
+  ? `## ⚠️ تعليمة إلزامية — الشحن
+لا تذكر "شحن مجاني" أو "توصيل مجاني" أو ما يشابهها في أي مكان في الصفحة (لا Announcement Bar، لا Trust Bar، لا نصوص بيعية، لا CTA). هذا المنتج لا يتضمن شحناً مجانياً.
+
+## 🛡️ Announcement Bar (شريط إعلانات — أول الصفحة)
+شريط ضيق عرض 100%: "🔥 عرض محدود — ادفع عند الاستلام (COD)" — خلفية داكنة أو لون CTA. لا تذكر الشحن المجاني.`
+  : `## 🛡️ Announcement Bar (شريط إعلانات — أول الصفحة)
+شريط ضيق عرض 100%: "🔥 عرض محدود — توصيل مجاني + ادفع عند الاستلام" — خلفية داكنة أو لون CTA.`}
+
+## ⏰ Countdown Timer (عداد تنازلي)
+ضع عداد JS يعد تنازلياً (hours:minutes:seconds) في section قبل Order Form — "ينتهي العرض خلال:"
+
+${realReviews && realReviews.length > 0
+  ? `## ⭐ Reviews Section (آراء العملاء) — تقييمات حقيقية — إلزامي
+⚠️ CRITICAL: استخدم هذه التقييمات الحقيقية حصراً. لا تخترع أي تقييم إضافي ولا تعدّل النصوص.
+لكل تقييم يوجد imageUrl غير فارغ: ضعه كـ <img> دائري (border-radius:50%, width:48px, height:48px, object-fit:cover).
+إذا كان imageUrl فارغاً: ضع avatar CSS ملون بدلاً منه.
+
+التقييمات الحقيقية (استخدمها بالترتيب):
+${JSON.stringify(realReviews, null, 2)}`
+  : `## ⭐ Reviews Section (آراء العملاء)
+3-4 review cards: نجوم ⭐⭐⭐⭐⭐ + اقتباس واقعي ومقنع + اسم مصري (سارة م.، محمود ع.، دينا ط.) + avatar CSS دائري ملون.`}
+
+## 📱 Sticky Mobile CTA
+زر ثابت في أسفل الشاشة على الموبايل فقط (position:fixed;bottom:0) — ظاهر فقط عند التمرير بعد الـ Hero.
+
+## متطلبات تقنية إلزامية
+- HTML كامل standalone يبدأ بـ <!DOCTYPE html>
+- أول سطر في <style>: @import url('${GOOGLE_FONTS_URL}');
+- direction:rtl على body + lang="ar" على <html>
+- font-family:'Almarai' للعناوين h1,h2,h3 — font-family:'Cairo' للنصوص
+- FontAwesome: <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+- html,body{overflow-x:hidden;max-width:100%;width:100%} — منع التمرير الأفقي
+- @keyframes: fadeInUp, pulse على CTA, float على صورة Hero
+- id="cod-form" على الـ order section
+- Trust Bar بعد الـ Hero: شحن سريع | COD | ضمان | آلاف المبيعات
+
+أرجع JSON فقط — لا نص خارجه:
+{
+  "html": "<!DOCTYPE html>...",
+  "headline": "العنوان الرئيسي",
+  "model": "اسم الموديل المستخدم"
+}`;
+}
+
+// ─── POST /landing-page/generate (non-SSE JSON) ──────────────────────────────
+router.post("/landing-page/generate", async (req, res): Promise<void> => {
+  const {
+    productTitle = "",
+    productPrice = "",
+    comparePrice = "",
+    productDesc = "",
+    frameworkKey = "Auto",
+    styleKey = "Auto",
+    referenceUrl = "",
+    reviewsToken = "",
+  } = req.body as Record<string, string>;
+  const hasFreeShipping: boolean = req.body.hasFreeShipping === true;
+  const selectedReviewIndices: number[] | undefined = Array.isArray(req.body.selectedReviewIndices)
+    ? (req.body.selectedReviewIndices as unknown[]).filter((x): x is number => typeof x === "number")
+    : undefined;
+
+  const imageUrlsRaw: string[] = Array.isArray(req.body.imageUrls)
+    ? (req.body.imageUrls as unknown[]).filter(
+        (u): u is string => typeof u === "string" && (u.trim().startsWith("http") || u.trim().startsWith("/api/storage/")),
+      )
+    : [];
+  const imageUrls = toAbsoluteImageUrls(imageUrlsRaw);
+
+  const allRealReviews = await getReviewsByToken(reviewsToken);
+  const inlineReviews: RealReview[] | undefined = Array.isArray(req.body.inlineReviews)
+    ? (req.body.inlineReviews as unknown[]).filter(
+        (r): r is RealReview =>
+          typeof r === "object" && r !== null &&
+          typeof (r as RealReview).text === "string" &&
+          (r as RealReview).text.trim().length > 0
+      )
+    : undefined;
+  const realReviews = allRealReviews
+    ? (selectedReviewIndices?.length
+        ? selectedReviewIndices.map(i => allRealReviews[i]).filter((r): r is RealReview => !!r)
+        : allRealReviews)
+    : inlineReviews;
+
+  if (!productTitle.trim()) {
+    res.status(400).json({ error: "productTitle is required" });
+    return;
+  }
+
+  try {
+    const prompt = buildMasterPrompt({
+      productTitle, productPrice, comparePrice, productDesc,
+      imageUrls, frameworkKey, styleKey, referenceUrl, hasFreeShipping, realReviews,
+    });
+
+    const raw = await callGeminiJson(prompt, {
+      systemInstruction: LP_SYSTEM_INSTRUCTION,
+      lpMode: true,
+      imageUrls,
+    });
+
+    const rawHtml = typeof raw.html === "string" ? raw.html : "";
+    if (rawHtml.length < 200) {
+      res.status(422).json({ error: "Gemini لم يُرجع HTML كافياً — حاول مجدداً" });
+      return;
+    }
+
+    const finalHtml = postProcess(rawHtml);
+    const headline = typeof raw.headline === "string" ? raw.headline : productTitle;
+    const model = typeof raw.model === "string" ? raw.model : frameworkKey;
+
+    logger.info({ htmlLen: finalHtml.length, headline, model }, "lp_gen_json_success");
+    res.json({ html: finalHtml, headline, model });
+  } catch (e: unknown) {
+    const msg = String(e);
+    const isRateLimit = msg.includes("rate_limit") || msg.includes("429");
+    logger.error({ err: msg }, "lp_gen_json_error");
+    res.status(isRateLimit ? 429 : 500).json({
+      error: isRateLimit
+        ? "Gemini مشغول حالياً — انتظر لحظة وأعد المحاولة"
+        : "خطأ في التوليد — حاول مجدداً",
+      retryable: isRateLimit,
+    });
+  }
+});
+
+// ─── POST /landing-page/inject-reviews ───────────────────────────────────────
+router.post("/landing-page/inject-reviews", async (req, res): Promise<void> => {
+  const rawReviews = Array.isArray(req.body.reviews) ? req.body.reviews as Array<{
+    originalText?: string; customerName?: string; imageUrl?: string; rating?: number;
+  }> : [];
+
+  const serverPromoPatterns = [
+    /saved?\s+(an?\s*)?(average|avg|up\s*to|\$|€|£|\d)/i,
+    /buyers?\s+saved?|people\s+saved?|customers?\s+saved?/i,
+    /\d+\s*(buyer|customer|person|people)\s+(chose|saved?|bought|ordered)/i,
+    /average\s+(saving|discount|off)/i,
+    /\$[\d.,]+|€[\d.,]+/,
+    /most\s*(chosen|ordered|bought|popular)/i,
+    /first\s*order|new\s*user/i,
+    /coupon|discount\s*code|promo\s*code/i,
+  ];
+
+  const valid = rawReviews
+    .filter(r => {
+      if (typeof r.originalText !== "string") return false;
+      const text = r.originalText.trim();
+      if (text.length < 10) return false;
+      if ((r.rating ?? 5) < 4) return false;
+      if (serverPromoPatterns.some(p => p.test(text))) return false;
+      return true;
+    })
+    .slice(0, 10);
+
+  if (!valid.length) {
+    res.status(400).json({ success: false, error: "لم يُعثر على تقييمات بالمواصفات المطلوبة (4-5 نجوم، نص غير فارغ)" });
+    return;
+  }
+
+  const translationPrompt = `ترجم كل تقييم من التقييمات التالية إلى العامية المصرية بدقة. 
+قواعد صارمة:
+- ترجم المعنى الأصلي فقط — لا تضف كلمات جديدة أو مبالغة
+- حافظ على نفس درجة الحماس الموجودة في النص الأصلي
+- إذا كان النص يتحدث عن جودة المنتج، اترجمه بنفس المعنى
+- لا تبدأ بـ "يا بخت" أو عبارات ترويجية لم تكن في الأصل
+- استخدم لغة طبيعية كما يكتبها المصريون في التعليقات
+
+التقييمات:
+${valid.map((r, i) => `${i + 1}. "${r.originalText}"`).join("\n")}
+
+أرجع JSON فقط: {"translations": ["...", "...", ...]}
+عدد العناصر = ${valid.length}. لا تكتب أي شيء خارج الـ JSON.`;
+
+  let translated: string[] = valid.map(r => r.originalText!);
+  try {
+    const raw = await callGeminiJson(translationPrompt, {
+      systemInstruction: "أنت مترجم محترف للعامية المصرية. أرجع JSON فقط.",
+    });
+    if (Array.isArray(raw?.translations)) {
+      translated = (raw.translations as unknown[])
+        .filter((t): t is string => typeof t === "string")
+        .slice(0, valid.length);
+    }
+  } catch (e) {
+    logger.warn({ err: String(e) }, "reviews_translation_failed — using originals");
+  }
+
+  const realReviews: RealReview[] = valid.map((r, i) => ({
+    text: translated[i] || r.originalText!,
+    customerName: isGenericName(r.customerName || "") ? randomArabicName() : (r.customerName || "").trim(),
+    imageUrl: cleanReviewImageUrl(r.imageUrl || ""),
+    rating: Math.min(5, Math.round(r.rating ?? 5)),
+  }));
+
+  const token = `rev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const expiresAt = new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000);
+
+  await db.insert(realReviewsStore).values({ token, reviews: realReviews, expiresAt });
+
+  db.delete(realReviewsStore)
+    .where(lt(realReviewsStore.expiresAt, new Date()))
+    .catch(() => {});
+
+  logger.info({ count: realReviews.length, token }, "reviews_injected");
+  res.json({ success: true, reviewsToken: token, translated: realReviews });
+});
+
+// ─── GET /landing-page/reviews/:token ─────────────────────────────────────────
+router.get("/landing-page/reviews/:token", async (req, res): Promise<void> => {
+  const { token } = req.params;
+  const reviews = await getReviewsByToken(token);
+  if (!reviews) {
+    res.status(404).json({ success: false, error: "Token not found or expired" });
+    return;
+  }
+  res.json({ success: true, reviews, count: reviews.length });
+});
+
+// ─── Ad Creatives Generation ─────────────────────────────────────────────────
+const ADS_SYSTEM_INSTRUCTION = `You are an Elite Media Buyer and Copywriter who strictly adheres to Meta, Google, and TikTok Advertising Policies. Your priority is High Conversion AND 100% Policy Compliance (Zero Bans). أرجع JSON فقط وفق الهيكل المطلوب، لا تكتب أي نص خارج JSON.`;
+
+function buildAdsPrompt(
+  productName: string,
+  currentPrice: string,
+  selectedFramework: string,
+  isRefresh = false,
+  headline?: string,
+  pageContext?: string,
+): string {
+  const refreshNote = isRefresh
+    ? "\n\n⚠️ REFRESH REQUEST: Generate COMPLETELY NEW and UNIQUE ideas. Use totally different emotional angles, scenarios, and hooks — nothing similar to what was generated before."
+    : "";
+  const headlineNote = headline ? `\nLanding Page Headline: "${headline}"` : "";
+  const contextNote = pageContext
+    ? `\n\nLanding Page Content (mirror this exact angle, tone, and USPs in every ad):\n"""\n${pageContext.slice(0, 2500)}\n"""`
+    : "";
+
+  return `You are an Elite Egyptian Media Buyer and Direct-Response Copywriter for Meta (Facebook/Instagram) and TikTok. You write ads that feel native, emotional, and human — not corporate.
+
+Product: ${productName}
+Price: ${currentPrice}
+Marketing Framework: ${selectedFramework}${headlineNote}${contextNote}${refreshNote}
+
+═══════════════════════════════════════════
+MANDATORY FORMAT REFERENCE — COPY THIS STYLE EXACTLY
+═══════════════════════════════════════════
+The following is a PERFECT example of the quality and format required for Meta primary_texts and TikTok captions. Study every element:
+
+"""
+كل مرة حد كبير في البيت يدخل الحمام… قلبك بيفضل قلقان؟ 😥
+خصوصًا مع الأرض المبلولة واحتمال التزحلق في أي لحظة!
+
+علشان كده مقبض الأمان والمساعدة بيوفر سند وثبات أثناء الحركة 👌
+يساعد كبار السن والحوامل وأي حد محتاج دعم إضافي إنه يتحرك بأمان وراحة أكتر ✨
+
+✅ ثابت وقوي
+✅ سهل التركيب
+✅ يقلل خطر التزحلق
+✅ مناسب للحمام والأماكن الزلقة
+
+خلي الأمان جزء أساسي في بيتك 💙
+اطلبه دلوقتي قبل نفاد الكمية.
+"""
+
+WHAT MAKES THIS PERFECT (replicate all of these):
+① Opens with a vivid, relatable daily-life SCENARIO (not a direct question about the reader)
+② Amplifies the FEAR or PAIN behind that scenario with one sharp sentence
+③ Introduces the PRODUCT naturally as "علشان كده..." — the obvious solution
+④ One sentence on WHO BENEFITS and HOW (social proof angle)
+⑤ 3–5 ✅ benefit bullets — short, punchy, specific
+⑥ Warm closing emotion (💙 or similar) + urgent CTA ("اطلبه دلوقتي")
+⑦ Egyptian dialect throughout — حد / بيفضل / علشان كده / دلوقتي / بيتك
+⑧ Emojis placed at natural pause points, NOT overloaded
+⑨ Total length: 220–420 characters per text (use \\n for line breaks within the JSON string)
+
+═══════════════════════════════════════════
+COMPLIANCE RULES (NON-NEGOTIABLE)
+═══════════════════════════════════════════
+META: No direct personal attributes ("هل عندك ألم؟" → BANNED). Focus on the product experience. No guaranteed results. Use "يساعد / يدعم / قد يحسّن".
+GOOGLE: No exclamation marks in Headlines. No emojis in Google text. Max 30 chars short headlines, 90 chars long headlines & descriptions.
+TIKTOK: Native conversational tone. No medical claims. No "before/after" body comparisons.
+
+═══════════════════════════════════════════
+EXACT JSON OUTPUT FORMAT — COPY THIS STRUCTURE PRECISELY
+═══════════════════════════════════════════
+{
+  "scripts": [
+    {
+      "title": "اللحظة اللي كلنا بنخافها",
+      "hook_first_3_seconds": "صوت سقوط في الحمام… أكتر حاجة بنخاف منها على اللي بنحبهم 😨",
+      "body_script": "كل يوم آلاف الحوادث بتحصل في الحمام بسبب الأرض الزلقة. مقبض الأمان ده بيتركب في دقيقتين ويفضل ثابت 100%. بيحمي كبار السن والحوامل وكل حد محتاج دعم. خلي بيتك أكتر أمان دلوقتي.",
+      "visual_idea": "مشهد لكبير سن بيمسك المقبض بثقة، ابتسامة راحة على وشه، والعيلة مبسوطة في الخلفية"
+    }
+  ],
+  "meta_ads": {
+    "primary_texts": [
+      "كل مرة حد كبير في البيت يدخل الحمام… قلبك بيفضل قلقان؟ 😥\\nخصوصًا مع الأرض المبلولة واحتمال التزحلق في أي لحظة!\\n\\nعلشان كده مقبض الأمان بيوفر سند وثبات أثناء الحركة 👌\\nيساعد كبار السن والحوامل وأي حد محتاج دعم إضافي إنه يتحرك بأمان وراحة أكتر ✨\\n\\n✅ ثابت وقوي\\n✅ سهل التركيب\\n✅ يقلل خطر التزحلق\\n✅ مناسب للحمام والأماكن الزلقة\\n\\nخلي الأمان جزء أساسي في بيتك 💙\\nاطلبه دلوقتي قبل نفاد الكمية."
+    ],
+    "headlines": ["أمان حمامك في يدك", "توقف عن القلق على أهلك"]
+  },
+  "google_ads": {
+    "short_headlines": ["Grab Bar for Safety", "Install in Minutes"],
+    "long_headlines": ["مقبض الأمان للحمام - ثابت وسهل التركيب"],
+    "descriptions": ["يوفر دعماً قوياً أثناء الحركة، مناسب لكبار السن والحوامل. اطلبه الآن."]
+  },
+  "tiktok_ads": {
+    "captions": [
+      "كل مرة تدخل الحمام قلبك بيدق أسرع؟ 😨\\nده مش طبيعي — خصوصًا لو في بيتك كبار في السن أو حوامل!\\n\\nجرب مقبض الأمان اللي بيتركب في دقيقتين بس 🔧\\n\\n✅ ثابت 100%\\n✅ بيقلل الحوادث\\n✅ راحة بال لكل العيلة\\n\\n#أمان_البيت #حوادث_الحمام #كبار_السن"
+    ]
+  }
+}
+
+NOW GENERATE: Write 5 primary_texts, 5 headlines, 10 short_headlines, 10 long_headlines, 10 descriptions, 5 captions, and 3 scripts for the product: ${productName} at price ${currentPrice}.
+
+REMEMBER:
+- primary_texts: 5 DIFFERENT texts, each 220-420 chars, MUST use \\n between paragraphs and \\n before each ✅ bullet
+- tiktok_ads.captions: 5 DIFFERENT captions, each 180-350 chars, MUST include ✅ bullets with \\n and 3-5 hashtags at end
+- google_ads.short_headlines: STRICTLY max 30 chars each, NO emojis, NO exclamation marks
+- google_ads.long_headlines: STRICTLY max 90 chars each, NO emojis
+- google_ads.descriptions: STRICTLY max 90 chars each, NO emojis
+- Egyptian Arabic dialect throughout: حد / بيفضل / علشان كده / دلوقتي / بيتك / بنحب
+- Return ONLY the JSON object, nothing else`;
+}
+
+async function callGeminiAds(
+  productName: string,
+  currentPrice: string,
+  selectedFramework: string,
+  isRefresh = false,
+  headline?: string,
+  pageContext?: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const prompt = buildAdsPrompt(productName, currentPrice, selectedFramework, isRefresh, headline, pageContext);
+    const cfg = getAiModels();
+    return await callGeminiJson(prompt, {
+      systemInstruction: ADS_SYSTEM_INSTRUCTION,
+      lpMode: false,
+      model: cfg.ads,
+    });
+  } catch (e) {
+    logger.warn({ err: String(e) }, "ads_gen_failed_silently");
+    return null;
+  }
+}
+
+// ─── POST /landing-page/generate-stream (SSE) ────────────────────────────────
+router.post("/landing-page/generate-stream", async (req, res): Promise<void> => {
+  const {
+    productTitle = "",
+    productPrice = "",
+    comparePrice = "",
+    productDesc = "",
+    frameworkKey = "Auto",
+    styleKey = "Auto",
+    referenceUrl = "",
+    reviewsToken = "",
+    customFocusPoints = "",
+  } = req.body as Record<string, string>;
+  const hasFreeShipping: boolean = req.body.hasFreeShipping === true;
+  const selectedReviewIndices: number[] | undefined = Array.isArray(req.body.selectedReviewIndices)
+    ? (req.body.selectedReviewIndices as unknown[]).filter((x): x is number => typeof x === "number")
+    : undefined;
+
+  const imageUrlsRaw: string[] = Array.isArray(req.body.imageUrls)
+    ? (req.body.imageUrls as unknown[]).filter(
+        (u): u is string => typeof u === "string" && (u.trim().startsWith("http") || u.trim().startsWith("/api/storage/")),
+      )
+    : [];
+  const imageUrls = toAbsoluteImageUrls(imageUrlsRaw);
+
+  const allRealReviews = await getReviewsByToken(reviewsToken);
+  const inlineReviewsStream: RealReview[] | undefined = Array.isArray(req.body.inlineReviews)
+    ? (req.body.inlineReviews as unknown[]).filter(
+        (r): r is RealReview =>
+          typeof r === "object" && r !== null &&
+          typeof (r as RealReview).text === "string" &&
+          (r as RealReview).text.trim().length > 0
+      )
+    : undefined;
+  const realReviews = allRealReviews
+    ? (selectedReviewIndices?.length
+        ? selectedReviewIndices.map(i => allRealReviews[i]).filter((r): r is RealReview => !!r)
+        : allRealReviews)
+    : inlineReviewsStream;
+
+  req.log.info({
+    reviewsToken: reviewsToken || "(empty)",
+    dbHit: !!allRealReviews,
+    inlineCount: inlineReviewsStream?.length ?? 0,
+    resolvedCount: realReviews?.length ?? 0,
+  }, "stream_reviews_resolved");
+
+  if (!productTitle.trim()) {
+    res.status(400).json({ error: "productTitle is required" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (type: string, data: Record<string, unknown>) => {
+    res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+  };
+
+  try {
+    if (realReviews?.length) {
+      send("status", { message: `⭐ ${realReviews.length} تقييم حقيقي سيُضمَّن في الصفحة...` });
+    }
+    send("status", { message: "جاري إعداد المحتوى..." });
+
+    const prompt = buildMasterPrompt({
+      productTitle, productPrice, comparePrice, productDesc,
+      imageUrls, frameworkKey, styleKey, referenceUrl, hasFreeShipping,
+      realReviews,
+      customFocusPoints: customFocusPoints.trim() || undefined,
+    });
+
+    if (imageUrls.length > 0) {
+      send("status", { message: `جاري تحميل ${imageUrls.length} صورة لإرسالها لـ Gemini...` });
+    }
+
+    send("status", { message: "Gemini يكتب الصفحة... (قد يستغرق 30-90 ثانية)" });
+
+    const adsPromise = callGeminiAds(productTitle, productPrice, frameworkKey);
+
+    const keepalive = setInterval(() => {
+      res.write(": keepalive\n\n");
+    }, 15000);
+
+    let raw: Record<string, unknown>;
+    try {
+      raw = await callGeminiJson(prompt, {
+        systemInstruction: LP_SYSTEM_INSTRUCTION,
+        lpMode: true,
+        imageUrls,
+      });
+    } finally {
+      clearInterval(keepalive);
+    }
+
+    const rawHtml = typeof raw.html === "string" ? raw.html : "";
+    if (rawHtml.length < 200) {
+      send("error", { message: "Gemini لم يُرجع HTML كافياً — حاول مجدداً" });
+      res.end();
+      return;
+    }
+
+    send("status", { message: "جاري المعالجة النهائية..." });
+
+    const finalHtml = postProcess(rawHtml);
+    const headline = typeof raw.headline === "string" ? raw.headline : productTitle;
+    const model = typeof raw.model === "string" ? raw.model : frameworkKey;
+
+    const adCreatives = await Promise.race([
+      adsPromise,
+      new Promise<null>(r => setTimeout(() => r(null), 40000)),
+    ]);
+
+    logger.info({ htmlLen: finalHtml.length, headline, model, hasAds: Boolean(adCreatives) }, "lp_gen_success");
+
+    send("done", { html: finalHtml, headline, model, adCreatives });
+    res.end();
+  } catch (e: unknown) {
+    const msg = String(e);
+    const isRateLimit = msg.includes("rate_limit") || msg.includes("429");
+    logger.error({ err: msg }, "lp_gen_error");
+    send("error", {
+      message: isRateLimit
+        ? "Gemini مشغول حالياً — انتظر لحظة واضغط مجدداً"
+        : "خطأ في التوليد — حاول مجدداً",
+      retryable: isRateLimit,
+    });
+    res.end();
+  }
+});
+
+// ─── POST /landing-page/generate-ab (Multi-variant concurrent generation) ────
+router.post("/landing-page/generate-ab", async (req, res): Promise<void> => {
+  const {
+    productTitle = "",
+    productPrice = "",
+    comparePrice = "",
+    productDesc = "",
+    referenceUrl = "",
+  } = req.body as Record<string, string>;
+  const hasFreeShipping: boolean = req.body.hasFreeShipping === true;
+
+  const imageUrlsRaw: string[] = Array.isArray(req.body.imageUrls)
+    ? (req.body.imageUrls as unknown[]).filter(
+        (u): u is string =>
+          typeof u === "string" &&
+          (u.trim().startsWith("http") || u.trim().startsWith("/api/storage/")),
+      )
+    : [];
+  const imageUrls = toAbsoluteImageUrls(imageUrlsRaw);
+
+  if (!productTitle.trim()) {
+    res.status(400).json({ success: false, error: "productTitle is required" });
+    return;
+  }
+
+  type VariantCfg = { frameworkKey: string; styleKey: string };
+  let variantCfgs: VariantCfg[];
+
+  const rawVariants = req.body.variants as unknown;
+  if (Array.isArray(rawVariants) && rawVariants.length >= 2) {
+    variantCfgs = (rawVariants as VariantCfg[]).slice(0, 3).map(v => ({
+      frameworkKey: typeof v.frameworkKey === "string" ? v.frameworkKey : "Auto",
+      styleKey: typeof v.styleKey === "string" ? v.styleKey : "Auto",
+    }));
+  } else {
+    const frameworkKey = (req.body as Record<string, string>).frameworkKey ?? "Auto";
+    const styleKey = (req.body as Record<string, string>).styleKey ?? "Auto";
+    const variantB = getContrastingVariantB(frameworkKey, styleKey);
+    variantCfgs = [
+      { frameworkKey, styleKey },
+      { frameworkKey: variantB.frameworkKey, styleKey: variantB.styleKey },
+    ];
+  }
+
+  const prompts = variantCfgs.map((cfg, i) => {
+    const base = buildMasterPrompt({
+      productTitle, productPrice, comparePrice, productDesc,
+      imageUrls, frameworkKey: cfg.frameworkKey, styleKey: cfg.styleKey,
+      referenceUrl, hasFreeShipping,
+    });
+    const contrastNote =
+      i > 0 && cfg.frameworkKey === "Auto"
+        ? `\n\n⚠️ VARIANT ${["B","C"][i - 1] ?? i} INSTRUCTION: Use a completely opposite psychological angle than variant A. If variant A uses emotional storytelling, use logical proof. If variant A leads with scarcity/urgency, lead with social proof instead.`
+        : "";
+    return base + contrastNote;
+  });
+
+  try {
+    logger.info(
+      { variants: variantCfgs.map(v => `${v.frameworkKey}/${v.styleKey}`) },
+      "lp_ab_gen_start",
+    );
+
+    const cfg = getAiModels();
+    const [raws, adCreatives] = await Promise.all([
+      Promise.all(
+        prompts.map(async prompt =>
+          callGeminiJson(prompt, {
+            systemInstruction: LP_SYSTEM_INSTRUCTION,
+            lpMode: true,
+            imageUrls,
+            model: cfg.lp,
+          }),
+        ),
+      ),
+      callGeminiAds(productTitle, productPrice, variantCfgs[0]?.frameworkKey ?? "Auto"),
+    ]);
+
+    const variants = raws.map((raw, i) => {
+      const htmlRaw = typeof raw.html === "string" ? raw.html : "";
+      return {
+        html: postProcess(htmlRaw),
+        htmlLen: htmlRaw.length,
+        headline: typeof raw.headline === "string" ? raw.headline : productTitle,
+        model: typeof raw.model === "string" ? raw.model : variantCfgs[i]?.frameworkKey ?? "Auto",
+      };
+    });
+
+    if (variants.some(v => v.htmlLen < 200)) {
+      res.status(422).json({ success: false, error: "Gemini لم يُرجع HTML كافياً لبعض النسخ — حاول مجدداً" });
+      return;
+    }
+
+    logger.info(
+      { counts: variants.map(v => v.htmlLen), models: variants.map(v => v.model), hasAds: Boolean(adCreatives) },
+      "lp_ab_gen_success",
+    );
+
+    res.json({
+      success: true,
+      variants: variants.map(({ html, headline, model }) => ({ html, headline, model })),
+      adCreatives,
+    });
+  } catch (e: unknown) {
+    const msg = String(e);
+    const isRateLimit = msg.includes("rate_limit") || msg.includes("429");
+    logger.error({ err: msg }, "lp_ab_gen_error");
+    res.status(isRateLimit ? 429 : 500).json({
+      success: false,
+      error: isRateLimit
+        ? "Gemini مشغول حالياً — انتظر لحظة وأعد المحاولة"
+        : "خطأ في التوليد — حاول مجدداً",
+    });
+  }
+});
+
+// ─── POST /landing-page/regenerate-ads ───────────────────────────────────────
+router.post("/landing-page/regenerate-ads", async (req, res): Promise<void> => {
+  const {
+    productName: rawProductName = "",
+    currentPrice = "",
+    selectedFramework = "Auto",
+    isRefresh = false,
+    recordId,
+    pageUrl,
+  } = req.body as {
+    productName?: string;
+    currentPrice?: string;
+    selectedFramework?: string;
+    isRefresh?: boolean;
+    recordId?: number;
+    pageUrl?: string;
+  };
+
+  let productName = rawProductName;
+  let headline: string | undefined;
+  let pageContext: string | undefined;
+  let framework = selectedFramework;
+
+  if (recordId) {
+    try {
+      const rows = await db
+        .select()
+        .from(landingPageRecords)
+        .where(eq(landingPageRecords.id, recordId))
+        .limit(1);
+      const rec = rows[0];
+      if (rec) {
+        productName = productName || rec.productName || rawProductName;
+        headline = rec.headline || undefined;
+        framework = framework === "Auto" ? (rec.lpModel || "Auto") : framework;
+        if (rec.htmlBody && rec.htmlBody.length > 100) {
+          const text = rec.htmlBody
+            .replace(/<style[\s\S]*?<\/style>/gi, "")
+            .replace(/<script[\s\S]*?<\/script>/gi, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 3000);
+          if (text.length > 80) pageContext = text;
+        }
+      }
+    } catch (dbErr) {
+      logger.warn({ dbErr, recordId }, "ads_regen_db_fetch_failed (non-fatal)");
+    }
+  }
+
+  if (pageUrl && !pageContext) {
+    try {
+      const urlObj = new URL(pageUrl);
+      const fetchRes = await fetch(urlObj.toString(), {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; AdBot/1.0)" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (fetchRes.ok) {
+        const html = await fetchRes.text();
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (titleMatch && !productName.trim()) {
+          productName = titleMatch[1].replace(/\s*[|\-–—]\s*.+$/, "").trim().slice(0, 80);
+        }
+        const text = html
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 4000);
+        if (text.length > 80) pageContext = text;
+      }
+    } catch (urlErr) {
+      logger.warn({ urlErr, pageUrl }, "ads_regen_url_fetch_failed (non-fatal)");
+    }
+  }
+
+  if (!productName.trim()) {
+    res.status(400).json({ error: "productName is required" });
+    return;
+  }
+
+  try {
+    const adCreatives = await callGeminiAds(productName, currentPrice, framework, Boolean(isRefresh), headline, pageContext);
+    if (!adCreatives) {
+      res.status(503).json({ error: "فشل توليد الإعلانات — حاول مجدداً" });
+      return;
+    }
+    logger.info({ productName, framework, hasContext: Boolean(pageContext), recordId }, "ads_regenerated");
+
+    if (recordId) {
+      try {
+        await db
+          .update(landingPageRecords)
+          .set({ adCreatives })
+          .where(eq(landingPageRecords.id, recordId));
+      } catch (saveErr) {
+        logger.warn({ saveErr, recordId }, "ads_save_failed (non-fatal)");
+      }
+    }
+
+    res.json({ success: true, adCreatives });
+  } catch (e: unknown) {
+    const msg = String(e);
+    logger.error({ err: msg }, "ads_regen_error");
+    res.status(500).json({ error: "خطأ في توليد الإعلانات" });
+  }
+});
+
+// ─── POST /landing-page/publish-shopify ──────────────────────────────────────
+router.post("/landing-page/publish-shopify", async (req, res): Promise<void> => {
+  const {
+    html: rawHtml,
+    title,
+    productHandle,
+    productName,
+    productImage,
+    productId,
+    headline,
+    lpModel,
+    customSlug,
+    existingPageId,
+    existingAssetKey,
+    existingSuffix,
+    adCreatives: incomingAdCreatives,
+    storeId: incomingStoreId,
+  } = req.body as {
+    html?: string;
+    title?: string;
+    productHandle?: string;
+    productName?: string;
+    productPrice?: string;
+    comparePrice?: string | null;
+    productImage?: string | null;
+    productId?: string;
+    headline?: string;
+    lpModel?: string;
+    customSlug?: string;
+    existingPageId?: number;
+    existingAssetKey?: string;
+    existingSuffix?: string;
+    adCreatives?: Record<string, unknown> | null;
+    storeId?: number | null;
+  };
+
+  if (!rawHtml || rawHtml.trim().length < 100) {
+    res.status(400).json({ success: false, error: "كود HTML ناقص" });
+    return;
+  }
+
+  const isUpdateMode = !!existingPageId;
+  let resolvedStore = await resolvePublishStore(incomingStoreId);
+  let resolvedAssetKey = existingAssetKey;
+  let resolvedSuffix = existingSuffix;
+  let shopifyPageIdFromRecord: number | null = null;
+  let dbRecordIdToUpdate: number | null = null;
+  let crossStorePublish = false;
+
+  if (existingPageId) {
+    try {
+      const originalRows = await db
+        .select()
+        .from(landingPageRecords)
+        .where(eq(landingPageRecords.id, existingPageId))
+        .limit(1);
+      const originalRecord = originalRows[0];
+      if (originalRecord) {
+        dbRecordIdToUpdate = originalRecord.id;
+        if (!resolvedAssetKey && originalRecord.assetKey) resolvedAssetKey = originalRecord.assetKey;
+        if (!resolvedSuffix && originalRecord.suffix) resolvedSuffix = originalRecord.suffix;
+        if (originalRecord.adminUrl) {
+          let recordDomain: string | null = null;
+          const adminStoreMatch = originalRecord.adminUrl.match(/admin\.shopify\.com\/store\/([^/?#]+)/);
+          if (adminStoreMatch) {
+            recordDomain = `${adminStoreMatch[1]}.myshopify.com`;
+          } else {
+            const legacyMatch = originalRecord.adminUrl.match(/https?:\/\/([^/]+\.myshopify\.com)/);
+            if (legacyMatch) recordDomain = legacyMatch[1];
+          }
+
+          if (recordDomain) {
+            if (!incomingStoreId) {
+              const storeRows = await db
+                .select()
+                .from(shopifyStores)
+                .where(eq(shopifyStores.domain, recordDomain))
+                .limit(1);
+              if (storeRows[0]) {
+                resolvedStore = { domain: storeRows[0].domain, token: storeRows[0].accessToken };
+                logger.info({ existingPageId, recordDomain, storeId: storeRows[0].id }, "publish_update_store_resolved_from_record");
+              }
+            } else if (resolvedStore && resolvedStore.domain !== recordDomain) {
+              crossStorePublish = true;
+              logger.info({ existingPageId, recordDomain, targetDomain: resolvedStore.domain }, "publish_cross_store_switching");
+            }
+          }
+
+          if (!crossStorePublish) {
+            const shopifyPageMatch = originalRecord.adminUrl.match(/\/pages\/(\d+)/);
+            if (shopifyPageMatch) shopifyPageIdFromRecord = parseInt(shopifyPageMatch[1], 10);
+          }
+        }
+      }
+    } catch (lookupErr) {
+      logger.warn({ lookupErr, existingPageId }, "publish_update_store_lookup_failed (non-fatal, using incomingStoreId)");
+    }
+  }
+
+  if (!resolvedStore) {
+    res.status(401).json({ success: false, error: "لم يتم ربط Shopify بعد" });
+    return;
+  }
+  const { domain: shopifyDomain, token } = resolvedStore;
+
+  const lpHandle = productHandle || "product";
+
+  let finalBody = rawHtml;
+
+  const allDomains = (process.env.REPLIT_DOMAINS ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+  const appDomain =
+    allDomains.find((d) => !d.includes(".worf.replit.dev")) ??
+    allDomains[0] ??
+    (process.env.REPLIT_DEV_DOMAIN ?? "").trim();
+
+  if (appDomain) {
+    finalBody = finalBody.replaceAll(
+      '="/api/storage/ai-images/',
+      `="https://${appDomain}/api/storage/ai-images/`,
+    );
+    finalBody = finalBody.replaceAll(
+      '="/api/storage/user-images/',
+      `="https://${appDomain}/api/storage/user-images/`,
+    );
+    if (!appDomain.includes(".worf.replit.dev")) {
+      finalBody = finalBody.replace(
+        /https:\/\/[^"'\s]+\.worf\.replit\.dev\/api\/storage\//g,
+        `https://${appDomain}/api/storage/`,
+      );
+    }
+  }
+
+  const DEFAULT_COD_BTN_STYLE =
+    "display:block;width:100%;background:linear-gradient(135deg,#FF6B35,#FF4500);color:#fff;border:none;padding:18px;font-size:1.2em;font-weight:900;border-radius:14px;cursor:pointer;font-family:inherit;box-shadow:0 5px 18px rgba(255,107,53,.45)";
+  const DEFAULT_COD_BTN_INNER = "🛒 اطلب الآن — ادفع عند الاستلام";
+  let codBtnStyle = DEFAULT_COD_BTN_STYLE;
+  let codBtnInner = DEFAULT_COD_BTN_INNER;
+
+  const codSectionMatch = finalBody.match(/<!-- LP_COD_START -->([\s\S]*?)<!-- LP_COD_END -->/);
+  if (codSectionMatch) {
+    const codHtml = codSectionMatch[1];
+    const btnStyleMatch = codHtml.match(/<button[^>]*\bstyle="([^"]+)"[^>]*>/i);
+    if (btnStyleMatch?.[1]) codBtnStyle = btnStyleMatch[1];
+    const btnInnerMatch = codHtml.match(/<button[^>]*>([\s\S]*?)<\/button>/i);
+    if (btnInnerMatch?.[1]?.trim()) codBtnInner = btnInnerMatch[1].trim();
+  }
+
+  const shopifyCartLiquid =
+    `<div id="cod-form"\n` +
+    `  data-product-id="{{ lp_product.id }}"\n` +
+    `  data-product-handle="{{ lp_product.handle }}"\n` +
+    `  data-section-type="product-template"\n` +
+    `  style="margin:16px 0">\n` +
+    `  <script type="application/json" id="ProductJson-lp">{{ lp_product | json }}</script>\n` +
+    `  {% form 'product', lp_product %}\n` +
+    `    <input type="hidden" name="id" value="{{ lp_product.selected_or_first_available_variant.id }}">\n` +
+    `    <span id="es-form-hook"></span>\n` +
+    `    <button type="submit" name="add"\n` +
+    `      style="${codBtnStyle}">\n` +
+    `      ${codBtnInner}\n` +
+    `    </button>\n` +
+    `  {% endform %}\n` +
+    `</div>`;
+
+  const r1 = finalBody.replace(/<!-- LP_COD_START -->[\s\S]*?<!-- LP_COD_END -->/, shopifyCartLiquid);
+  if (r1 !== finalBody) {
+    finalBody = r1;
+  } else {
+    const r2 = finalBody.replace(/<span\s+id="es-form-hook"[^>]*>\s*<\/span>/, shopifyCartLiquid);
+    finalBody = r2 !== finalBody ? r2 : finalBody + shopifyCartLiquid;
+  }
+
+  if (lpHandle !== "product") finalBody = injectPriceScript(finalBody, lpHandle);
+
+  const themesRes = await fetch(
+    `https://${shopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/themes.json?role=main`,
+    { headers: { "X-Shopify-Access-Token": token }, signal: AbortSignal.timeout(10000) },
+  );
+  if (!themesRes.ok) {
+    const errBody = await themesRes.text().catch(() => "");
+    res.status(502).json({ success: false, error: `تعذّر جلب الثيم (${themesRes.status})`, details: errBody.slice(0, 200) });
+    return;
+  }
+  const themesData = (await themesRes.json()) as { themes?: { id: number; role: string }[] };
+  const activeTheme = themesData.themes?.find((t) => t.role === "main");
+  if (!activeTheme) {
+    res.status(404).json({ success: false, error: "لم يُعثر على ثيم نشط" });
+    return;
+  }
+
+  let suffix: string;
+  let assetKey: string;
+
+  if (isUpdateMode && !crossStorePublish && (resolvedSuffix || existingSuffix) && (resolvedAssetKey || existingAssetKey)) {
+    suffix = resolvedSuffix || existingSuffix!;
+    assetKey = resolvedAssetKey || existingAssetKey!;
+  } else if (customSlug && customSlug.trim()) {
+    const sanitized = customSlug
+      .trim()
+      .toLowerCase()
+      .replace(/[\u0600-\u06FF\u0750-\u077F]/g, "")
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 50) || "product";
+    suffix = `lp-${sanitized}`;
+    assetKey = `templates/page.${suffix}.liquid`;
+  } else {
+    const baseSlug = (lpHandle !== "product" ? lpHandle : title || "")
+      .toLowerCase()
+      .replace(/[\u0600-\u06FF\u0750-\u077F]/g, "")
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 35) || "product";
+    const shortId = Date.now().toString(36).slice(-6);
+    suffix = `lp-${baseSlug}-${shortId}`;
+    assetKey = `templates/page.${suffix}.liquid`;
+  }
+
+  const liquidContent = `{% layout none %}
+{% assign lp_product = all_products['${lpHandle}'] %}
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ page.title }} | {{ shop.name }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="${GOOGLE_FONTS_URL}" rel="stylesheet">
+<style>html,body{margin:0!important;padding:0!important}</style>
+<script>
+window.Shopify = window.Shopify || {};
+window.Shopify.template  = "product";
+window.Shopify.page_type = "product";
+var _lpProduct = {{ lp_product | json }};
+window.ShopifyAnalytics = window.ShopifyAnalytics || {};
+window.ShopifyAnalytics.meta = {
+  page: { pageType: "product", resourceType: "product", resourceId: _lpProduct.id },
+  product: _lpProduct
+};
+window.meta = window.ShopifyAnalytics.meta;
+window.ES_INITIAL_PRODUCT     = {{ lp_product | json }};
+window.ES_CURRENT_PAGE        = "product";
+window.ES_PRODUCT_COLLECTIONS = [];
+</script>
+{{ content_for_header }}
+</head>
+<body>
+${finalBody}
+</body>
+</html>`;
+
+  const assetRes = await fetch(
+    `https://${shopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/themes/${activeTheme.id}/assets.json`,
+    {
+      method: "PUT",
+      headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+      body: JSON.stringify({ asset: { key: assetKey, value: liquidContent } }),
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!assetRes.ok) {
+    const errText = await assetRes.text().catch(() => "");
+    res.status(502).json({ success: false, error: "فشل رفع ملف الثيم", details: errText.slice(0, 200) });
+    return;
+  }
+
+  const pageTitle = title || "صفحة بيع";
+  const storePrefix = shopifyDomain.split(".")[0];
+
+  try {
+    let pageId: number;
+    let finalHandle: string;
+
+    if (isUpdateMode && !crossStorePublish) {
+      const realShopifyPageId = shopifyPageIdFromRecord ?? existingPageId!;
+      const putRes = await fetch(
+        `https://${shopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/pages/${realShopifyPageId}.json`,
+        {
+          method: "PUT",
+          headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+          body: JSON.stringify({ page: { title: pageTitle, published: true } }),
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      if (putRes.ok) {
+        pageId = realShopifyPageId;
+        finalHandle = suffix;
+      } else {
+        req.log.warn({ realShopifyPageId, status: putRes.status }, "lp_page_put_failed_recreating");
+        const pageRes = await fetch(
+          `https://${shopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/pages.json`,
+          {
+            method: "POST",
+            headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              page: { title: pageTitle, handle: suffix, body_html: "", template_suffix: suffix, published: true },
+            }),
+            signal: AbortSignal.timeout(10000),
+          },
+        );
+        const pageData = (await pageRes.json()) as { page?: { id: number; handle: string }; errors?: unknown };
+        if (!pageRes.ok || !pageData.page) {
+          res.status(502).json({ success: false, error: "فشل إعادة إنشاء الصفحة على Shopify", details: pageData.errors });
+          return;
+        }
+        pageId = pageData.page.id;
+        finalHandle = pageData.page.handle;
+      }
+    } else {
+      const pageHandle = suffix;
+      const pageRes = await fetch(
+        `https://${shopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/pages.json`,
+        {
+          method: "POST",
+          headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            page: { title: pageTitle, handle: pageHandle, body_html: "", template_suffix: suffix, published: true },
+          }),
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      const pageData = (await pageRes.json()) as {
+        page?: { id: number; handle: string };
+        errors?: unknown;
+      };
+      if (!pageRes.ok || !pageData.page) {
+        res.status(502).json({ success: false, error: "فشل إنشاء الصفحة على Shopify", details: pageData.errors });
+        return;
+      }
+      pageId = pageData.page.id;
+      finalHandle = pageData.page.handle;
+    }
+
+    const primaryDomain = await fetchStorePrimaryDomain(shopifyDomain, token);
+    const pageUrl = `https://${primaryDomain}/pages/${finalHandle}`;
+    const adminUrl = `https://admin.shopify.com/store/${storePrefix}/pages/${pageId}`;
+
+    req.log.info({ assetKey, pageUrl, suffix, isUpdateMode }, "lp_page_published");
+
+    try {
+      const userId = String(req.session?.userId ?? "anonymous");
+      if (dbRecordIdToUpdate) {
+        await db
+          .update(landingPageRecords)
+          .set({
+            pageUrl,
+            adminUrl,
+            suffix,
+            assetKey,
+            headline: headline || "",
+            lpModel: lpModel || "edited",
+            htmlBody: rawHtml,
+            publishedAt: new Date(),
+          })
+          .where(eq(landingPageRecords.id, dbRecordIdToUpdate));
+      } else {
+        await db.insert(landingPageRecords).values({
+          productId: productId || lpHandle,
+          productName: productName || title || "منتج",
+          productHandle: productHandle || lpHandle || "",
+          productImage: productImage || "",
+          pageUrl,
+          adminUrl,
+          suffix,
+          assetKey,
+          headline: headline || "",
+          lpModel: lpModel || "",
+          userId,
+          htmlBody: rawHtml,
+          adCreatives: incomingAdCreatives ?? null,
+        });
+      }
+    } catch (dbErr) {
+      req.log.warn({ dbErr }, "lp_record_insert_or_update_failed (non-fatal)");
+    }
+
+    res.json({ success: true, pageId, handle: finalHandle, pageUrl, adminUrl, suffix, assetKey });
+  } catch (err) {
+    req.log.error({ err }, "publish-shopify error");
+    res.status(500).json({ success: false, error: "خطأ في الاتصال بـ Shopify" });
+  }
+});
+
+// ─── POST /landing-page/publish-theme-template ───────────────────────────────
+router.post("/landing-page/publish-theme-template", async (req, res): Promise<void> => {
+  const {
+    html: rawHtml,
+    title,
+    productHandle,
+    productName,
+    productId,
+    productImage,
+    headline,
+    lpModel,
+    adCreatives: incomingAdCreatives,
+    storeId: incomingStoreId,
+  } = req.body as {
+    html?: string;
+    title?: string;
+    productHandle?: string;
+    productName?: string;
+    productId?: string;
+    productImage?: string | null;
+    headline?: string;
+    lpModel?: string;
+    adCreatives?: Record<string, unknown> | null;
+    storeId?: number | null;
+  };
+
+  const resolvedStore = await resolvePublishStore(incomingStoreId);
+  if (!resolvedStore) {
+    res.status(401).json({ success: false, error: "لم يتم ربط Shopify بعد" });
+    return;
+  }
+  const { domain: shopifyDomain, token } = resolvedStore;
+
+  if (!rawHtml || rawHtml.trim().length < 100) {
+    res.status(400).json({ success: false, error: "كود HTML ناقص" });
+    return;
+  }
+
+  let finalHtml = rawHtml;
+
+  const shopifyCart = `<div id="cod-form"
+  data-product-id="{{ product.id }}"
+  data-product-handle="{{ product.handle }}"
+  data-section-type="product-template"
+  style="margin:24px 0">
+  <script type="application/json" id="ProductJson-lp">{{ product | json }}</script>
+  {% form 'product', product %}
+    <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
+    <span id="es-form-hook"></span>
+  {% endform %}
+</div>`;
+
+  const r1 = finalHtml.replace(/<!-- LP_COD_START -->[\s\S]*?<!-- LP_COD_END -->/, shopifyCart);
+  if (r1 !== finalHtml) {
+    finalHtml = r1;
+  } else {
+    const r2 = finalHtml.replace(/<span\s+id="es-form-hook"[^>]*>\s*<\/span>/, shopifyCart);
+    finalHtml = r2 !== finalHtml ? r2 : finalHtml.replace(/<\/body>/i, `${shopifyCart}\n</body>`);
+  }
+
+  if (productHandle) finalHtml = injectPriceScript(finalHtml, productHandle);
+
+  const themesRes = await fetch(
+    `https://${shopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/themes.json?role=main`,
+    { headers: { "X-Shopify-Access-Token": token }, signal: AbortSignal.timeout(10000) },
+  );
+  if (!themesRes.ok) {
+    const errBody = await themesRes.text().catch(() => "");
+    const isAuthErr = themesRes.status === 403 || themesRes.status === 401;
+    res.status(502).json({
+      success: false,
+      error: isAuthErr
+        ? "صلاحيات الربط لا تشمل الثيمات — افصل Shopify وأعد الربط مجدداً"
+        : `تعذّر جلب الثيم (${themesRes.status})`,
+      details: errBody.slice(0, 300),
+    });
+    return;
+  }
+  const themesData = (await themesRes.json()) as { themes?: { id: number; role: string }[] };
+  const activeTheme = themesData.themes?.find((t) => t.role === "main");
+  if (!activeTheme) {
+    res.status(404).json({ success: false, error: "لم يُعثر على ثيم نشط" });
+    return;
+  }
+
+  const baseSlug = (productHandle || title || "product")
+    .toLowerCase()
+    .replace(/[\u0600-\u06FF\u0750-\u077F]/g, "")
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 35) || "product";
+  const shortId = Date.now().toString(36).slice(-6);
+  const suffix = `lp-${baseSlug}-${shortId}`;
+
+  const liquidContent = `{% layout none %}
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ product.title }} | {{ shop.name }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="${GOOGLE_FONTS_URL}" rel="stylesheet">
+<style>html,body{margin:0!important;padding:0!important}</style>
+{{ content_for_header }}
+<script>
+window.Shopify = window.Shopify || {};
+window.Shopify.template = "product";
+</script>
+</head>
+<body>
+${finalHtml}
+</body>
+</html>`;
+
+  const assetKey = `templates/product.${suffix}.liquid`;
+  const assetRes = await fetch(
+    `https://${shopifyDomain}/admin/api/${SHOPIFY_API_VERSION}/themes/${activeTheme.id}/assets.json`,
+    {
+      method: "PUT",
+      headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+      body: JSON.stringify({ asset: { key: assetKey, value: liquidContent } }),
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+  if (!assetRes.ok) {
+    const errText = await assetRes.text().catch(() => "");
+    res.status(502).json({ success: false, error: "فشل رفع ملف الثيم", details: errText.slice(0, 200) });
+    return;
+  }
+
+  const resolvedHandle = productHandle || "product";
+  const storePrefix = shopifyDomain.split(".")[0];
+  const primaryDomain = await fetchStorePrimaryDomain(shopifyDomain, token);
+  const pageUrl = `https://${primaryDomain}/products/${resolvedHandle}?view=${suffix}`;
+  const adminUrl = `https://admin.shopify.com/store/${storePrefix}/themes/${activeTheme.id}/editor?template=product.${suffix}&type=product`;
+
+  req.log.info({ assetKey, pageUrl, productHandle: resolvedHandle, suffix }, "lp_product_template_published");
+
+  try {
+    const userId = String(req.session?.userId ?? "anonymous");
+    await db.insert(landingPageRecords).values({
+      productId: productId || resolvedHandle,
+      productName: productName || title || "منتج",
+      productHandle: productHandle || resolvedHandle,
+      productImage: productImage || "",
+      pageUrl,
+      adminUrl,
+      suffix,
+      assetKey,
+      headline: headline || "",
+      lpModel: lpModel || "",
+      userId,
+      htmlBody: rawHtml,
+      adCreatives: incomingAdCreatives ?? null,
+    });
+  } catch (dbErr) {
+    req.log.warn({ dbErr }, "lp_record_insert_failed (non-fatal)");
+  }
+
+  res.json({ success: true, pageUrl, adminUrl, suffix, assetKey });
+});
+
+export default router;

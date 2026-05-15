@@ -353,9 +353,12 @@ async function runMigrations() {
       ('/decisions', 'admin',         true),
       ('/decisions', 'media_buyer',   false),
       ('/decisions', 'media_manager', false),
-      ('/tasks',     'admin',         true),
-      ('/tasks',     'media_buyer',   true),
-      ('/tasks',     'media_manager', false)
+      ('/tasks',         'admin',         true),
+      ('/tasks',         'media_buyer',   true),
+      ('/tasks',         'media_manager', false),
+      ('/landing-page',  'admin',         true),
+      ('/landing-page',  'media_buyer',   true),
+      ('/landing-page',  'media_manager', false)
     ON CONFLICT (page_path, role) DO NOTHING
   `);
   // AI assistant action log — every write action executed via pipeboard
@@ -597,6 +600,55 @@ async function runMigrations() {
     )
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_task_media_task_id ON task_media (task_id)`);
+
+  // Landing Page Generator tables
+  await query(`
+    CREATE TABLE IF NOT EXISTS shopify_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS shopify_stores (
+      id SERIAL PRIMARY KEY,
+      domain TEXT NOT NULL UNIQUE,
+      access_token TEXT NOT NULL,
+      shop_name TEXT,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS landing_page_records (
+      id SERIAL PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      product_handle TEXT NOT NULL DEFAULT '',
+      product_image TEXT NOT NULL DEFAULT '',
+      page_url TEXT NOT NULL,
+      admin_url TEXT NOT NULL DEFAULT '',
+      suffix TEXT NOT NULL DEFAULT '',
+      asset_key TEXT NOT NULL DEFAULT '',
+      headline TEXT NOT NULL DEFAULT '',
+      lp_model TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL DEFAULT '',
+      html_body TEXT,
+      ad_creatives JSONB,
+      published_at TIMESTAMPTZ DEFAULT NOW(),
+      store_id INTEGER
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS real_reviews_store (
+      id SERIAL PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      reviews JSONB NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_real_reviews_token ON real_reviews_store (token)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_lp_records_published ON landing_page_records (published_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_lp_records_product ON landing_page_records (product_id)`);
 
   logger.info("Database migrations complete");
 }

@@ -1,0 +1,397 @@
+import { Router, type IRouter, type Request, type Response } from "express";
+import fs from "fs";
+import path from "path";
+import { db, landingPageRecords, shopifyConfig } from "@workspace/db";
+import { desc, eq, inArray } from "drizzle-orm";
+
+const PRIMARY_DOMAIN   = process.env.SHOPIFY_PRIMARY_DOMAIN || "dealme-eg.com";
+const MYSHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN   || "dealme-121109.myshopify.com";
+const SHOPIFY_API_VERSION = "2024-01";
+const TOKEN_FILE = path.resolve(process.cwd(), ".shopify-token.json");
+
+let _cachedToken: string | null = null;
+
+async function getShopifyToken(): Promise<string | null> {
+  if (_cachedToken) return _cachedToken;
+  try {
+    const rows = await db.select().from(shopifyConfig).where(eq(shopifyConfig.key, "access_token")).limit(1);
+    if (rows[0]?.value) { _cachedToken = rows[0].value; return _cachedToken; }
+  } catch { /* ignore */ }
+  try {
+    if (fs.existsSync(TOKEN_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf-8")) as { access_token?: string };
+      if (data.access_token) { _cachedToken = data.access_token; return _cachedToken; }
+    }
+  } catch { /* ignore */ }
+  return process.env.SHOPIFY_ACCESS_TOKEN || null;
+}
+
+function normalizePageUrl(url: string): string {
+  return url.replace(`https://${MYSHOPIFY_DOMAIN}`, `https://${PRIMARY_DOMAIN}`);
+}
+
+function rewriteStorageUrls(html: string): string {
+  const domains = (process.env.REPLIT_DOMAINS ?? "")
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean);
+  const prod = domains.find((d) => !d.includes(".worf.replit.dev"));
+  if (!prod) return html;
+  return html.replace(
+    /https:\/\/[^"'\s]+\.worf\.replit\.dev\/api\/storage\//g,
+    `https://${prod}/api/storage/`,
+  );
+}
+
+const router: IRouter = Router();
+
+// ── GET /landing-page-records ─────────────────────────────────────────────────
+router.get("/landing-page-records", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rows = await db
+      .select()
+      .from(landingPageRecords)
+      .orderBy(desc(landingPageRecords.publishedAt));
+
+    const byProduct: Record<string, {
+      productId: string;
+      productName: string;
+      productHandle: string;
+      productImage: string;
+      pages: typeof rows;
+    }> = {};
+
+    for (const row of rows) {
+      if (!row.assetKey) row.pageUrl = normalizePageUrl(row.pageUrl);
+      if (!byProduct[row.productId]) {
+        byProduct[row.productId] = {
+          productId:     row.productId,
+          productName:   row.productName,
+          productHandle: row.productHandle,
+          productImage:  row.productImage,
+          pages: [],
+        };
+      }
+      if (!byProduct[row.productId].productImage && row.productImage) {
+        byProduct[row.productId].productImage = row.productImage;
+      }
+      if (row.htmlBody) row.htmlBody = rewriteStorageUrls(row.htmlBody);
+      byProduct[row.productId].pages.push(row);
+    }
+
+    const products = Object.values(byProduct).sort(
+      (a, b) => b.pages[0].publishedAt!.getTime() - a.pages[0].publishedAt!.getTime()
+    );
+
+    res.json({ products, total: rows.length });
+  } catch (err) {
+    req.log.error({ err }, "landing-page-records list error");
+    res.status(500).json({ error: "خطأ في جلب السجلات" });
+  }
+});
+
+// ── GET /landing-page-records/analytics ──────────────────────────────────────
+router.get("/landing-page-records/analytics", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rows = await db
+      .select({ pageUrl: landingPageRecords.pageUrl })
+      .from(landingPageRecords);
+
+    if (rows.length === 0) {
+      res.json({ analytics: {}, ga4Available: false });
+      return;
+    }
+
+    const credsFile = (await import("path")).resolve(process.cwd(), ".google-analytics-creds.json");
+    type GA4CredsShape = { propertyId?: string; refreshToken?: string; clientId?: string; clientSecret?: string };
+    let creds: GA4CredsShape | null = null;
+    try {
+      const fsm = await import("fs");
+      if (fsm.existsSync(credsFile)) {
+        creds = JSON.parse(fsm.readFileSync(credsFile, "utf-8")) as GA4CredsShape;
+      }
+    } catch { /* ignore */ }
+
+    if (!creds?.refreshToken) {
+      if (process.env.GA4_PROPERTY_ID && process.env.GA4_REFRESH_TOKEN) {
+        creds = {
+          propertyId:   process.env.GA4_PROPERTY_ID,
+          clientId:     process.env.GA4_CLIENT_ID,
+          clientSecret: process.env.GA4_CLIENT_SECRET,
+          refreshToken: process.env.GA4_REFRESH_TOKEN,
+        };
+      }
+    }
+
+    if (!creds?.refreshToken || !creds.propertyId) {
+      res.json({ analytics: {}, ga4Available: false });
+      return;
+    }
+
+    const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id:     creds.clientId ?? "",
+        client_secret: creds.clientSecret ?? "",
+        refresh_token: creds.refreshToken,
+        grant_type:    "refresh_token",
+      }),
+    });
+    const tokenData = await tokenResp.json() as { access_token?: string };
+    if (!tokenData.access_token) {
+      res.json({ analytics: {}, ga4Available: false });
+      return;
+    }
+
+    const pagePaths = rows.map(r => {
+      try { return new URL(r.pageUrl).pathname; } catch { return r.pageUrl; }
+    });
+
+    const sub = (days: number) => { const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().slice(0, 10); };
+
+    const ga4Resp = await fetch(
+      `https://analyticsdata.googleapis.com/v1beta/properties/${creds.propertyId}:runReport`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokenData.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateRanges: [{ startDate: sub(30), endDate: sub(0) }],
+          dimensions:  [{ name: "pagePath" }],
+          metrics:     [{ name: "sessions" }, { name: "conversions" }],
+          dimensionFilter: {
+            filter: {
+              fieldName: "pagePath",
+              inListFilter: { values: pagePaths },
+            },
+          },
+          limit: 500,
+        }),
+      }
+    );
+
+    type GA4Row = { dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> };
+    const ga4Data = await ga4Resp.json() as { rows?: GA4Row[] };
+
+    const pathMap: Record<string, { sessions: number; conversions: number }> = {};
+    for (const row of ga4Data.rows ?? []) {
+      const p          = row.dimensionValues?.[0]?.value ?? "";
+      const sessions    = Number(row.metricValues?.[0]?.value ?? 0);
+      const conversions = Number(row.metricValues?.[1]?.value ?? 0);
+      pathMap[p] = { sessions, conversions };
+    }
+
+    const analytics: Record<string, { sessions: number; conversions: number; conversionRate: number }> = {};
+    for (const row of rows) {
+      const normalized = normalizePageUrl(row.pageUrl);
+      let p = normalized;
+      try { p = new URL(normalized).pathname; } catch { /* keep as-is */ }
+      const m = pathMap[p] ?? { sessions: 0, conversions: 0 };
+      analytics[normalized] = {
+        sessions:       m.sessions,
+        conversions:    m.conversions,
+        conversionRate: m.sessions > 0 ? parseFloat(((m.conversions / m.sessions) * 100).toFixed(1)) : 0,
+      };
+    }
+
+    res.json({ analytics, ga4Available: true });
+  } catch (err) {
+    req.log.error({ err }, "landing-page-analytics error");
+    res.json({ analytics: {}, ga4Available: false });
+  }
+});
+
+// ── GET /landing-page-records/preview-batch ──────────────────────────────────
+router.get("/landing-page-records/preview-batch", async (req: Request, res: Response): Promise<void> => {
+  const raw = typeof req.query.ids === "string" ? req.query.ids : "";
+  if (!raw) {
+    res.status(400).json({ error: "ids query param required" });
+    return;
+  }
+
+  const ids = raw
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isFinite(n))
+    .slice(0, 20);
+
+  if (ids.length === 0) {
+    res.status(400).json({ error: "no valid ids provided" });
+    return;
+  }
+
+  try {
+    const rows = await db
+      .select()
+      .from(landingPageRecords)
+      .where(
+        ids.length === 1
+          ? eq(landingPageRecords.id, ids[0])
+          : inArray(landingPageRecords.id, ids)
+      );
+
+    const result: Record<number, string> = {};
+    for (const record of rows) {
+      if (record.htmlBody && record.htmlBody.trim().length > 0) {
+        result[record.id] = record.htmlBody;
+      }
+    }
+
+    res.json({ html: result });
+  } catch (err) {
+    req.log.error({ err }, "landing-page-records preview-batch error");
+    res.status(500).json({ error: "خطأ في جلب HTML" });
+  }
+});
+
+// ── GET /landing-page-records/:id/html ───────────────────────────────────────
+router.get("/landing-page-records/:id/html", async (req: Request, res: Response): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "معرّف غير صالح" });
+    return;
+  }
+  try {
+    const rows = await db
+      .select()
+      .from(landingPageRecords)
+      .where(eq(landingPageRecords.id, id))
+      .limit(1);
+    const record = rows[0];
+    if (!record) {
+      res.status(404).json({ error: "السجل غير موجود" });
+      return;
+    }
+
+    if (record.htmlBody && record.htmlBody.trim().length > 0) {
+      res.json({ html: rewriteStorageUrls(record.htmlBody), headline: record.headline, model: record.lpModel });
+      return;
+    }
+
+    const match = record.adminUrl?.match(/\/pages\/(\d+)/);
+    if (!match) {
+      res.status(422).json({ error: "لا يمكن تحديد معرف الصفحة على Shopify" });
+      return;
+    }
+    const shopifyPageId = match[1];
+    const token = await getShopifyToken();
+    if (!token) {
+      res.status(503).json({ error: "لم يتم ربط Shopify بعد" });
+      return;
+    }
+
+    const shopifyRes = await fetch(
+      `https://${MYSHOPIFY_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/pages/${shopifyPageId}.json`,
+      { headers: { "X-Shopify-Access-Token": token } }
+    );
+    if (!shopifyRes.ok) {
+      req.log.warn({ status: shopifyRes.status, shopifyPageId }, "Shopify page fetch failed");
+      res.status(shopifyRes.status).json({ error: "فشل جلب الصفحة من Shopify" });
+      return;
+    }
+
+    const shopifyData = await shopifyRes.json() as { page?: { body_html?: string; title?: string } };
+    const bodyHtml = shopifyData.page?.body_html ?? "";
+
+    const fullHtml = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${shopifyData.page?.title ?? record.headline ?? ""}</title>
+</head>
+<body style="margin:0;padding:0;">
+${bodyHtml}
+</body>
+</html>`;
+
+    res.json({ html: fullHtml, headline: record.headline, model: record.lpModel });
+  } catch (err) {
+    req.log.error({ err }, "landing-page-records html fetch error");
+    res.status(500).json({ error: "خطأ في جلب HTML" });
+  }
+});
+
+// ── DELETE /landing-page-records/:id ─────────────────────────────────────────
+router.delete("/landing-page-records/:id", async (req: Request, res: Response): Promise<void> => {
+  const id = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "معرّف غير صالح" });
+    return;
+  }
+  try {
+    const rows = await db
+      .select()
+      .from(landingPageRecords)
+      .where(eq(landingPageRecords.id, id))
+      .limit(1);
+    const record = rows[0];
+
+    let shopifyDeleted = false;
+    if (record?.adminUrl) {
+      const match = record.adminUrl.match(/\/pages\/(\d+)/);
+      if (match) {
+        const shopifyPageId = match[1];
+        const token = await getShopifyToken();
+        if (token) {
+          try {
+            const shopifyRes = await fetch(
+              `https://${MYSHOPIFY_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/pages/${shopifyPageId}.json`,
+              { method: "DELETE", headers: { "X-Shopify-Access-Token": token } }
+            );
+            if (shopifyRes.ok || shopifyRes.status === 404) {
+              shopifyDeleted = true;
+            } else {
+              req.log.warn({ status: shopifyRes.status, shopifyPageId }, "Shopify page deletion returned non-OK");
+            }
+          } catch (shopifyErr) {
+            req.log.warn({ shopifyErr }, "Shopify page deletion failed (non-fatal)");
+          }
+        }
+      }
+    }
+
+    if (record?.assetKey) {
+      const token = await getShopifyToken();
+      if (token) {
+        try {
+          let themeId: string | null = null;
+          if (record.adminUrl) {
+            const themeMatch = record.adminUrl.match(/\/themes\/(\d+)/);
+            if (themeMatch) themeId = themeMatch[1];
+          }
+
+          if (!themeId) {
+            const themesRes = await fetch(
+              `https://${MYSHOPIFY_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/themes.json?role=main`,
+              { headers: { "X-Shopify-Access-Token": token } }
+            );
+            if (themesRes.ok) {
+              const themesData = await themesRes.json() as { themes?: Array<{ id: number; role: string }> };
+              const active = themesData.themes?.find((t) => t.role === "main");
+              if (active) themeId = String(active.id);
+            }
+          }
+
+          if (themeId) {
+            const assetDeleteUrl = `https://${MYSHOPIFY_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/themes/${themeId}/assets.json?asset[key]=${encodeURIComponent(record.assetKey)}`;
+            await fetch(assetDeleteUrl, {
+              method: "DELETE",
+              headers: { "X-Shopify-Access-Token": token },
+            });
+          }
+        } catch (assetErr) {
+          req.log.warn({ assetErr, assetKey: record.assetKey }, "Shopify theme asset deletion failed (non-fatal)");
+        }
+      }
+    }
+
+    await db.delete(landingPageRecords).where(eq(landingPageRecords.id, id));
+    res.json({ success: true, shopifyDeleted });
+  } catch (err) {
+    req.log.error({ err }, "landing-page-records delete error");
+    res.status(500).json({ error: "خطأ في الحذف" });
+  }
+});
+
+export default router;

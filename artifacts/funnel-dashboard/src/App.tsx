@@ -12,10 +12,11 @@ import CreativePage from "@/pages/Creative";
 import LoginPage from "@/pages/Login";
 import AdminPage from "@/pages/AdminPage";
 import DecisionsPage from "@/pages/Decisions";
+import LandingPageGenerator from "@/pages/LandingPage";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library, Package, ShieldAlert, AlertTriangle, Pause, X, CalendarDays } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library, Package, ShieldAlert, AlertTriangle, Pause, X, CalendarDays, Globe } from "lucide-react";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
@@ -45,6 +46,7 @@ const ALL_NAV_ITEMS = [
   { href: "/library",    label: "مركز العمليات",    Icon: Library,         useRoute: "/library",    roles: ["admin", "media_buyer"] },
   { href: "/inventory",  label: "المخزون",           Icon: Package,         useRoute: "/inventory",  roles: ["admin", "media_buyer"] },
   { href: "/tasks",      label: "المهام اليومية",   Icon: CalendarDays,    useRoute: "/tasks",      roles: ["admin", "media_buyer"] },
+  { href: "/landing-page", label: "صفحات البيع",    Icon: Globe,           useRoute: "/landing-page", roles: ["admin", "media_buyer"] },
   { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
 ];
 
@@ -527,6 +529,7 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
         <Route path="/library"    component={canAccess("/library")    ? AssetLibrary       : NotFound} />
         <Route path="/inventory"  component={canAccess("/inventory")  ? InventoryPage      : NotFound} />
         <Route path="/tasks"      component={canAccess("/tasks")      ? TasksPage          : NotFound} />
+        <Route path="/landing-page" component={canAccess("/landing-page") ? LandingPageGenerator : NotFound} />
         <Route path="/admin"      component={isAdmin                  ? AdminPage          : NotFound} />
         <Route path="/"           component={ChatRedirect} />
         <Route component={NotFound} />

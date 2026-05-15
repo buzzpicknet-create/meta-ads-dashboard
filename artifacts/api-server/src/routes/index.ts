@@ -18,6 +18,9 @@ import jobsRouter from "./jobs";
 import inventoryRouter from "./inventory";
 import tasksRouter from "./tasks";
 import storageRouter from "./storage";
+import landingPageGenRouter from "./landing-page-gen";
+import landingPageRecordsRouter from "./landing-page-records";
+import shopifyStoresRouter from "./shopify-stores";
 const router = Router();
 
 // Pre-warm Pipeboard MCP connection so the first chat request doesn't
@@ -54,5 +57,8 @@ router.use(jobsRouter);
 router.use(inventoryRouter);
 router.use(tasksRouter);
 router.use(storageRouter);
+router.use(landingPageGenRouter);
+router.use(landingPageRecordsRouter);
+router.use(shopifyStoresRouter);
 
 export default router;
