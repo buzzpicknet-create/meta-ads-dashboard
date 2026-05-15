@@ -2052,42 +2052,53 @@ export default function LandingPageGenerator() {
   const [showShopifyModal, setShowShopifyModal] = useState(false);
   const [addingStore, setAddingStore] = useState(false);
   const [newStoreDomain, setNewStoreDomain] = useState("");
-  const [newStoreToken, setNewStoreToken] = useState("");
+  const [newStoreClientId, setNewStoreClientId] = useState("");
+  const [newStoreClientSecret, setNewStoreClientSecret] = useState("");
   const [addStoreLoading, setAddStoreLoading] = useState(false);
   const [addStoreError, setAddStoreError] = useState("");
 
+  // ── Detect return from Shopify OAuth ──────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("shopify_connected")) {
+      const shopName = params.get("shop") ?? "Shopify";
+      window.history.replaceState({}, "", "/landing-page");
+      fetch("/api/shopify/stores")
+        .then(r => r.json() as Promise<{ stores?: ShopifyStorePickerInfo[] }>)
+        .then(data => {
+          const list = data.stores ?? [];
+          setAvailableStores(list);
+          const def = list.find(s => s.isDefault) ?? list[0];
+          if (def) setSelectedStoreId(def.id);
+          toast({ title: "✅ تم ربط Shopify بنجاح!", description: shopName });
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   const handleAddStore = async () => {
-    if (!newStoreDomain.trim() || !newStoreToken.trim()) {
-      setAddStoreError("أدخل Domain و Access Token");
+    if (!newStoreDomain.trim() || !newStoreClientId.trim() || !newStoreClientSecret.trim()) {
+      setAddStoreError("أدخل Domain و Client ID و Client Secret");
       return;
     }
     setAddStoreLoading(true);
     setAddStoreError("");
     try {
-      const res = await fetch("/api/shopify/stores", {
+      const res = await fetch("/api/shopify/oauth/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           domain: newStoreDomain.trim(),
-          accessToken: newStoreToken.trim(),
+          clientId: newStoreClientId.trim(),
+          clientSecret: newStoreClientSecret.trim(),
           isDefault: availableStores.length === 0,
         }),
       });
-      const data = await res.json() as { success?: boolean; store?: ShopifyStorePickerInfo; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "فشل إضافة المتجر");
-      const store = data.store!;
-      setAvailableStores(prev => {
-        const base = store.isDefault ? prev.map(s => ({ ...s, isDefault: false })) : prev;
-        return [...base, store];
-      });
-      if (store.isDefault) setSelectedStoreId(store.id);
-      setNewStoreDomain("");
-      setNewStoreToken("");
-      setAddingStore(false);
-      toast({ title: "✅ تم ربط المتجر بنجاح", description: store.shopName ?? store.domain });
+      const data = await res.json() as { authUrl?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "فشل بدء OAuth");
+      window.location.href = data.authUrl!;
     } catch (err) {
       setAddStoreError(err instanceof Error ? err.message : "خطأ غير معروف");
-    } finally {
       setAddStoreLoading(false);
     }
   };

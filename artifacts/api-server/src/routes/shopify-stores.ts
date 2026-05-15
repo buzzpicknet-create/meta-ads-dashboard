@@ -1,3 +1,4 @@
+import { createHmac, randomUUID } from "crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, shopifyStores, shopifyConfig } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -5,6 +6,148 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const SHOPIFY_API_VERSION = "2024-01";
+const SHOPIFY_SCOPES = "read_products,write_products,read_content,write_content,write_themes,read_themes";
+
+// ─── In-memory OAuth state store (TTL 10 min) ─────────────────────────────────
+interface PendingOAuth {
+  domain: string;
+  clientId: string;
+  clientSecret: string;
+  isDefault: boolean;
+  createdAt: number;
+}
+const pendingOAuth = new Map<string, PendingOAuth>();
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [k, v] of pendingOAuth) {
+    if (v.createdAt < cutoff) pendingOAuth.delete(k);
+  }
+}, 60_000);
+
+function getAppBaseUrl(req: Request): string {
+  const domains = (process.env.REPLIT_DOMAINS ?? "").split(",").map(d => d.trim()).filter(Boolean);
+  const domain = domains.find(d => !d.includes(".worf.replit.dev")) ?? domains[0] ?? process.env.REPLIT_DEV_DOMAIN ?? "";
+  if (domain) return `https://${domain}`;
+  const host = req.headers.host ?? "localhost";
+  const proto = req.headers["x-forwarded-proto"] ?? "http";
+  return `${String(proto)}://${host}`;
+}
+
+// ─── POST /shopify/oauth/start ─────────────────────────────────────────────────
+router.post("/shopify/oauth/start", async (req: Request, res: Response): Promise<void> => {
+  const { domain, clientId, clientSecret, isDefault } = req.body as {
+    domain?: string;
+    clientId?: string;
+    clientSecret?: string;
+    isDefault?: boolean;
+  };
+
+  if (!domain?.trim() || !clientId?.trim() || !clientSecret?.trim()) {
+    res.status(400).json({ error: "domain و clientId و clientSecret مطلوبة" });
+    return;
+  }
+
+  const cleanDomain = domain.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const state = randomUUID();
+
+  pendingOAuth.set(state, {
+    domain: cleanDomain,
+    clientId: clientId.trim(),
+    clientSecret: clientSecret.trim(),
+    isDefault: !!isDefault,
+    createdAt: Date.now(),
+  });
+
+  const redirectUri = `${getAppBaseUrl(req)}/api/shopify/oauth/callback`;
+  const authUrl =
+    `https://${cleanDomain}/admin/oauth/authorize` +
+    `?client_id=${encodeURIComponent(clientId.trim())}` +
+    `&scope=${encodeURIComponent(SHOPIFY_SCOPES)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&state=${encodeURIComponent(state)}`;
+
+  logger.info({ domain: cleanDomain }, "shopify_oauth_start");
+  res.json({ authUrl, redirectUri });
+});
+
+// ─── GET /shopify/oauth/callback ───────────────────────────────────────────────
+router.get("/shopify/oauth/callback", async (req: Request, res: Response): Promise<void> => {
+  const { code, shop, state, hmac } = req.query as Record<string, string>;
+
+  const pending = pendingOAuth.get(state ?? "");
+  if (!pending) {
+    res.status(400).send("انتهت صلاحية طلب OAuth أو غير صالح. أعد المحاولة من التطبيق.");
+    return;
+  }
+  pendingOAuth.delete(state);
+
+  // ── Validate HMAC ────────────────────────────────────────────────────────────
+  const params = { ...req.query } as Record<string, string>;
+  delete params.hmac;
+  const message = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&");
+  const expected = createHmac("sha256", pending.clientSecret).update(message).digest("hex");
+  if (hmac !== expected) {
+    res.status(400).send("فشل التحقق من HMAC. أعد المحاولة.");
+    return;
+  }
+
+  try {
+    // ── Exchange code → access_token ─────────────────────────────────────────
+    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: pending.clientId, client_secret: pending.clientSecret, code }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!tokenRes.ok) {
+      const body = await tokenRes.text();
+      logger.error({ status: tokenRes.status, body }, "shopify_token_exchange_failed");
+      res.status(400).send(`فشل استبدال الكود بـ Access Token (${tokenRes.status}). أعد المحاولة.`);
+      return;
+    }
+
+    const tokenData = await tokenRes.json() as { access_token?: string };
+    const accessToken = tokenData.access_token;
+    if (!accessToken) {
+      res.status(400).send("لم يتم إرجاع access_token. أعد المحاولة.");
+      return;
+    }
+
+    // ── Fetch shop name ───────────────────────────────────────────────────────
+    let shopName = shop;
+    try {
+      const shopRes = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`, {
+        headers: { "X-Shopify-Access-Token": accessToken },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (shopRes.ok) {
+        const shopData = await shopRes.json() as { shop?: { name?: string } };
+        shopName = shopData.shop?.name ?? shop;
+      }
+    } catch { /* use domain as fallback */ }
+
+    // ── Save to DB (upsert by domain) ─────────────────────────────────────────
+    if (pending.isDefault) {
+      await db.update(shopifyStores).set({ isDefault: false });
+    }
+    await db
+      .insert(shopifyStores)
+      .values({ domain: shop, accessToken, shopName, isDefault: pending.isDefault })
+      .onConflictDoUpdate({
+        target: shopifyStores.domain,
+        set: { accessToken, shopName, isDefault: pending.isDefault },
+      });
+
+    logger.info({ shop, shopName }, "shopify_oauth_complete");
+
+    // ── Redirect back to frontend ─────────────────────────────────────────────
+    res.redirect(`/landing-page?shopify_connected=1&shop=${encodeURIComponent(shopName)}`);
+  } catch (err) {
+    logger.error({ err }, "shopify_oauth_callback_error");
+    res.status(500).send("خطأ داخلي أثناء إتمام OAuth. أعد المحاولة.");
+  }
+});
 
 // ─── GET /shopify/stores ──────────────────────────────────────────────────────
 router.get("/shopify/stores", async (req: Request, res: Response): Promise<void> => {
