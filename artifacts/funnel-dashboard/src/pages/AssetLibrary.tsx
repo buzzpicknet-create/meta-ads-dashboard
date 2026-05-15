@@ -818,6 +818,8 @@ interface QuickForm {
   stdIsCBO: boolean;
   stdCreativesPerAdset: number;
   stdAngles: StdAngle[];
+  // Shared account selector (TEST + STANDARD)
+  quickAccountId: string;
 }
 const INIT_ANGLE: QuickAngle = { name: "", landing: "", texts: ["", ""], headlines: ["", ""] };
 const INIT_STD_ANGLE: StdAngle = { name: "", landing: "", texts: [], headlines: [] };
@@ -833,6 +835,7 @@ const INIT_FORM: QuickForm = {
   flexStep: 0, flexCampaignId: "", flexAdsetId: "",
   stdIsCBO: false, stdCreativesPerAdset: 3,
   stdAngles: [{ ...INIT_STD_ANGLE, name: "Angle 1" }],
+  quickAccountId: "",
 };
 
 function QuickLaunchSection() {
@@ -841,6 +844,8 @@ function QuickLaunchSection() {
   const [activeCard, setActiveCard] = useState<QuickCardType | null>(null);
   const [generating, setGenerating] = useState(false);
   const [form, setForm] = useState<QuickForm>(INIT_FORM);
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
 
   function toggleCard(card: QuickCardType) {
     setActiveCard(prev => {
@@ -995,12 +1000,17 @@ function QuickLaunchSection() {
   2. ${a.headlines[1] || "[عنوان 2]"}`;
     }).join("\n\n");
 
+    const accountLine = form.quickAccountId
+      ? `- Ad Account ID: ${form.quickAccountId}`
+      : `- Ad Account ID: [لم يتم اختيار حساب — اسأل المستخدم]`;
+
     if (type === "TEST") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
 قم ببناء حملة (TESTING) فوراً — أنشئ AdSet وإعلان منفصل لكل زاوية:
 # 1. Campaign Settings
 - Campaign Type: Advantage+ Sales Campaign
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${campName}
+${accountLine}
 - Budget Optimization: ABO (Adset Level Budget)
 - Media Drive Folder: ${drive}
 # 2. الزوايا الإعلانية (كل زاوية = AdSet + إعلان منفصل)
@@ -1016,6 +1026,7 @@ ${anglesSection}
 # 1. Campaign Settings
 - Objective: SALES (Conversions) · Event: PURCHASE
 - Campaign Name: ${campName}
+${accountLine}
 - Budget Optimization: CBO (Campaign Budget Optimization)
 - Campaign Budget: ${form.budget} EGP daily
 - Media Drive Folder: ${drive}
@@ -1188,6 +1199,10 @@ ${headlines}`;
 - Landing Page: [add landing page]
 - Ads: ${creativesPerAdset} ads`;
 
+    const accountLine = form.quickAccountId
+      ? `- Ad Account ID: ${form.quickAccountId}`
+      : `- Ad Account ID: [لم يتم اختيار حساب — اسأل المستخدم]`;
+
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
 Build Standard Campaign NOW — ${adsetCount} Adsets · ${creativesPerAdset} Creatives per Adset:
 
@@ -1195,6 +1210,7 @@ Build Standard Campaign NOW — ${adsetCount} Adsets · ${creativesPerAdset} Cre
 - Type: Advantage+ Sales Campaign
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${campName}
+${accountLine}
 - Budget: ${isCBO ? `CBO · ${form.budget} EGP/day total` : `ABO · ${form.budget} EGP/day per Adset`}
 - Media Drive: ${drive}
 - Targeting: Advantage+ Audience (Broad) — Egypt residents only
@@ -1283,6 +1299,26 @@ ${adsetBlocks}
       {/* ── Blueprint TEST / STANDARD form ── */}
       {(activeCard === "TEST" || activeCard === "STANDARD") && (
         <div className="rounded-xl border border-border bg-background p-4 space-y-3 animate-in fade-in duration-150">
+          {/* Row 0: Ad Account selector */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Ad Account</label>
+            <select
+              value={form.quickAccountId}
+              onChange={e => upd("quickAccountId", e.target.value)}
+              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              dir="ltr"
+            >
+              <option value="">— اختر الحساب الإعلاني —</option>
+              {accounts.map(acc => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name ?? acc.id}
+                </option>
+              ))}
+            </select>
+            {!form.quickAccountId && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400">اختر الحساب عشان الـ AI يعرف ينشر على الحساب الصح</p>
+            )}
+          </div>
           {/* Row 1: Product + Budget */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
