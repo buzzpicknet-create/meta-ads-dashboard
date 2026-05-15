@@ -8,6 +8,8 @@ import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
 import { runScheduledReportsCron } from "./routes/scheduled-reports";
 import { startWatchdogCron } from "./routes/watchdog";
+import { initJobsTable } from "./lib/job-runner";
+import "./lib/job-handlers"; // registers all job handlers
 import bcrypt from "bcryptjs";
 
 async function runMigrations() {
@@ -538,6 +540,8 @@ async function runMigrations() {
     )
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_uap_user_id ON user_account_permissions (user_id)`);
+
+  await initJobsTable();
 
   logger.info("Database migrations complete");
 }

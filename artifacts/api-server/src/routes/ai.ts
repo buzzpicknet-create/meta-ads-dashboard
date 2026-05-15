@@ -18,6 +18,16 @@ import {
   scanAccountNames,
   getLastUsageHeaders,
   fetchAccountMetadata,
+} from "../lib/meta-api.js";
+import {
+  createJob,
+  getJob,
+  approveJob,
+  startJob,
+  formatJobSummary,
+  cancelJob,
+} from "../lib/job-runner.js";
+import {
   isRateLimitActive,
   type CampaignDetails,
   type AdsetDetails,
@@ -1230,7 +1240,29 @@ THE INFORMED CMO — بروتوكول البحث الاستراتيجي
 
 3. **البيانات المقطوعة (has_more)**: لو ظهر has_more: true في نتيجة الأداة → اذكر للمستخدم: "يوجد حملات إضافية — ضيّق الفترة الزمنية أو حدد حساباً معيناً لرؤية المزيد."
 
-4. **الردود القصيرة محظورة بعد بيانات الأدوات**: لو استدعيت أداة ورجعت بيانات → يجب أن يكون ردك جدول + تحليل (لا تكتفي بجملة واحدة).`;
+4. **الردود القصيرة محظورة بعد بيانات الأدوات**: لو استدعيت أداة ورجعت بيانات → يجب أن يكون ردك جدول + تحليل (لا تكتفي بجملة واحدة).
+
+══════════════════════════════════════
+JOB RUNNER — العمليات الكبيرة بدون انقطاع
+══════════════════════════════════════
+
+🔄 **start_job**: للعمليات الكبيرة التي تشمل عشرات/مئات الكيانات أو قد تواجه rate limit:
+- cleanup_names(account_id) — مسح وتنظيف جميع الأسماء ذات الرموز الغريبة
+- bulk_write(account_id, actions[]) — تنفيذ قائمة تعديلات (rename/pause/budget)
+- scale_budgets(account_id, actions[]) — scale ميزانيات متعددة
+- pause_ads(account_id, actions[]) — إيقاف إعلانات متعددة
+
+⚡ **السلوك الإلزامي بعد start_job:**
+١. استدعِ check_job(job_id) فوراً بعد البداية
+٢. كرر check_job كل 10–15 ثانية حتى يصبح status = succeeded/failed/pending_confirmation
+٣. **لا تطلب من المستخدم "قل لي لما ينتهي"** — تابع بنفسك عبر check_job
+٤. إذا status = pending_confirmation → اعرض actions_diff للمستخدم واطلب موافقته، ثم استدعِ approve_job
+٥. إذا status = waiting_rate_limit → أخبر المستخدم بوقت الانتظار وكرر check_job بعد انتهائه
+
+🔀 **متى تستخدم start_job بدلاً من bulk_action:**
+- start_job: عمليات تشمل أكثر من 15 كياناً، أو عمليات قد تستغرق دقائق (scan + rename)
+- bulk_action: عمليات صغيرة فورية (rename واحد، pause مجموعة، إنشاء حملة)`;
+
 
 // ── Tool definitions ────────────────────────────────────────────────────────
 const TOOLS = [
@@ -2107,6 +2139,51 @@ const TOOLS = [
           },
         },
         required: ["query"],
+      },
+    },
+  },
+  // ── Job Runner tools ────────────────────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "start_job",
+      description: "يُنشئ job أسنكروني resumable ويبدأ تنفيذه فوراً — مناسب للعمليات الكبيرة (أكثر من 15 كياناً) أو التي تتطلب rate-limit recovery. الأنواع المدعومة: cleanup_names (مسح وتنظيف أسماء الحساب) | bulk_write (تنفيذ قائمة rename/pause/budget) | scale_budgets (زيادة ميزانيات) | pause_ads (إيقاف إعلانات). بعد start_job استدعِ check_job مباشرةً ثم كرره حتى اكتمال الـ job — لا تطلب من المستخدم المتابعة.",
+      parameters: {
+        type: "object",
+        properties: {
+          type:       { type: "string", enum: ["cleanup_names", "bulk_write", "scale_budgets", "pause_ads", "creative_audit"], description: "نوع الـ job" },
+          account_id: { type: "string", description: "رقم الحساب الإعلاني (بدون act_)" },
+          params:     { type: "object", description: "معاملات إضافية خاصة بنوع الـ job — مثال لـ bulk_write: {actions:[...], title:\"...\"}" },
+        },
+        required: ["type", "account_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "check_job",
+      description: "يجلب حالة job وتقدمه. استدعِه مباشرةً بعد start_job وكرر كل 10–15 ث حتى status = succeeded أو failed أو pending_confirmation. إذا كان status=pending_confirmation → اعرض actions_diff وأخذ موافقة المستخدم ثم استدعِ approve_job. إذا كان waiting_rate_limit → انتظر retry_after ثم كرر check_job.",
+      parameters: {
+        type: "object",
+        properties: {
+          job_id: { type: "string", description: "UUID الـ job المُرجَع من start_job" },
+        },
+        required: ["job_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "approve_job",
+      description: "يوافق على الإجراءات المعلّقة في job بحالة pending_confirmation ويستأنف التنفيذ تلقائياً. استخدمه بعد حصولك على موافقة المستخدم على actions_diff.",
+      parameters: {
+        type: "object",
+        properties: {
+          job_id: { type: "string", description: "UUID الـ job" },
+        },
+        required: ["job_id"],
       },
     },
   },
@@ -4028,6 +4105,56 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         const usage = getLastUsageHeaders();
         return `خطأ في فحص الحساب: ${msg}` +
           (usage.appUsage ? `\n\n📊 معلومات throttle:\n- App Usage: ${usage.appUsage}\n- Biz Usage: ${usage.bizUsage ?? "—"}\n- Account Usage: ${usage.adAccUsage ?? "—"}` : "");
+      }
+    }
+
+    if (name === "start_job") {
+      const jobType   = String(args.type ?? "").trim();
+      const accountId = String(args.account_id ?? "").replace(/^act_/, "").trim();
+      const params    = (args.params ?? {}) as Record<string, unknown>;
+      if (!jobType)   return "type مطلوب.";
+      if (!accountId) return "account_id مطلوب.";
+      try {
+        const jobId = await createJob(jobType, accountId, params);
+        startJob(jobId);
+        return [
+          `✅ تم إنشاء الـ job بنجاح وبدأ التنفيذ.`,
+          `- **job_id**: \`${jobId}\``,
+          `- **النوع**: ${jobType}`,
+          `- **الحساب**: ${accountId}`,
+          ``,
+          `⚡ جاري التحقق من التقدم الآن...`,
+        ].join("\n");
+      } catch (err) {
+        return `خطأ في إنشاء الـ job: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "check_job") {
+      const jobId = String(args.job_id ?? "").trim();
+      if (!jobId) return "job_id مطلوب.";
+      try {
+        const job = await getJob(jobId);
+        if (!job) return `لم يُعثر على job بهذا الـ id: ${jobId}`;
+        return formatJobSummary(job);
+      } catch (err) {
+        return `خطأ في جلب حالة الـ job: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    if (name === "approve_job") {
+      const jobId = String(args.job_id ?? "").trim();
+      if (!jobId) return "job_id مطلوب.";
+      try {
+        const ok = await approveJob(jobId);
+        if (!ok) {
+          const job = await getJob(jobId);
+          const status = job?.status ?? "غير معروف";
+          return `لا يمكن الموافقة — الـ job حالته الحالية: ${status} (يجب أن تكون pending_confirmation).`;
+        }
+        return `✅ تمت الموافقة — الـ job استأنف التنفيذ تلقائياً.\n\nاستدعِ check_job("${jobId}") لمتابعة التقدم.`;
+      } catch (err) {
+        return `خطأ في الموافقة على الـ job: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
 
