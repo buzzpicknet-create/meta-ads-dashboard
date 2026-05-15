@@ -352,7 +352,10 @@ async function runMigrations() {
       ('/media',     'media_manager', true),
       ('/decisions', 'admin',         true),
       ('/decisions', 'media_buyer',   false),
-      ('/decisions', 'media_manager', false)
+      ('/decisions', 'media_manager', false),
+      ('/tasks',     'admin',         true),
+      ('/tasks',     'media_buyer',   true),
+      ('/tasks',     'media_manager', false)
     ON CONFLICT (page_path, role) DO NOTHING
   `);
   // AI assistant action log — every write action executed via pipeboard
@@ -556,6 +559,31 @@ async function runMigrations() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+
+  // Daily tasks system — media buyer task management with gamified scoring
+  await query(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      product_name TEXT,
+      assigned_to_id INT REFERENCES users(id) ON DELETE SET NULL,
+      assigned_to_name TEXT,
+      deadline TIMESTAMPTZ NOT NULL,
+      success_metric TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_by_id INT REFERENCES users(id) ON DELETE SET NULL,
+      created_by_name TEXT,
+      completed_at TIMESTAMPTZ,
+      checkin_count INT NOT NULL DEFAULT 0,
+      last_checkin_at TIMESTAMPTZ,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks (assigned_to_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline)`);
 
   logger.info("Database migrations complete");
 }
