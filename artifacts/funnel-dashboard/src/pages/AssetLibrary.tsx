@@ -795,6 +795,13 @@ interface QuickAngle {
   headlines: [string, string];
   generating?: boolean;
 }
+interface StdAngle {
+  name: string;
+  landing: string;
+  texts: string[];
+  headlines: string[];
+  generating?: boolean;
+}
 interface QuickForm {
   product: string; budget: string;
   landingPage: string; driveLink: string;
@@ -809,10 +816,11 @@ interface QuickForm {
   flexStep: number; flexCampaignId: string; flexAdsetId: string;
   // Standard card state
   stdIsCBO: boolean;
-  stdAdsetCount: number;
   stdCreativesPerAdset: number;
+  stdAngles: StdAngle[];
 }
 const INIT_ANGLE: QuickAngle = { name: "", landing: "", texts: ["", ""], headlines: ["", ""] };
+const INIT_STD_ANGLE: StdAngle = { name: "", landing: "", texts: [], headlines: [] };
 const INIT_FORM: QuickForm = {
   product: "", budget: "180", landingPage: "", driveLink: "",
   texts: [], headlines: [], selText: 0, selHeadline: 0,
@@ -823,7 +831,8 @@ const INIT_FORM: QuickForm = {
   flexSrcId: "", flexSrcName: "",
   flexNewCampaignName: "", flexNewBudget: "200",
   flexStep: 0, flexCampaignId: "", flexAdsetId: "",
-  stdIsCBO: false, stdAdsetCount: 2, stdCreativesPerAdset: 3,
+  stdIsCBO: false, stdCreativesPerAdset: 3,
+  stdAngles: [{ ...INIT_STD_ANGLE, name: "Angle 1" }],
 };
 
 function QuickLaunchSection() {
@@ -845,14 +854,50 @@ function QuickLaunchSection() {
     setForm(prev => ({ ...prev, [k]: v }));
   }
 
+  async function generateStdAngle(idx: number) {
+    const angle = form.stdAngles[idx];
+    if (!angle.landing.trim()) {
+      toast({ title: "Add a Landing Page URL for this angle first", variant: "destructive" }); return;
+    }
+    const updated = [...form.stdAngles];
+    updated[idx] = { ...updated[idx], generating: true };
+    upd("stdAngles", updated);
+    try {
+      const r = await fetch(`${API}/library/quick-generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          productName: form.product.trim() || "Product",
+          landingPageUrl: angle.landing.trim(),
+          textCount: form.stdCreativesPerAdset,
+          headlineCount: form.stdCreativesPerAdset,
+          angleName: angle.name.trim() || `Angle ${idx + 1}`,
+        }),
+      });
+      const d = await r.json() as { texts?: {content:string}[]; headlines?: {content:string}[]; error?: string };
+      if (!r.ok) throw new Error(d.error ?? "Error");
+      const texts     = (d.texts     ?? []).map(t => t.content).filter(Boolean);
+      const headlines = (d.headlines ?? []).map(h => h.content).filter(Boolean);
+      const upd2 = [...form.stdAngles];
+      upd2[idx] = { ...upd2[idx], texts, headlines, generating: false };
+      upd("stdAngles", upd2);
+      toast({ title: `✅ Generated!`, description: `${texts.length} texts · ${headlines.length} headlines` });
+    } catch (err) {
+      const upd2 = [...form.stdAngles];
+      upd2[idx] = { ...upd2[idx], generating: false };
+      upd("stdAngles", upd2);
+      toast({ title: "Generation failed", description: String(err), variant: "destructive" });
+    }
+  }
+
   async function generateTexts() {
     if (!form.landingPage.trim()) {
       toast({ title: "أضف رابط صفحة الهبوط أولاً", variant: "destructive" }); return;
     }
     setGenerating(true);
-    // For Standard: generate exactly stdCreativesPerAdset texts/headlines
-    const textCount     = activeCard === "STANDARD" ? form.stdCreativesPerAdset : form.textCount;
-    const headlineCount = activeCard === "STANDARD" ? form.stdCreativesPerAdset : form.headlineCount;
+    const textCount     = form.textCount;
+    const headlineCount = form.headlineCount;
     try {
       const r = await fetch(`${API}/library/quick-generate`, {
         method: "POST",
@@ -1112,38 +1157,51 @@ ${allHeadlines}
   }
   function buildStandardCmd(): string {
     const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
-    const prod  = form.product.trim() || "منتج";
+    const prod  = form.product.trim() || "Product";
     const drive = form.driveLink.trim() || "—";
     const campName = `${prod} - Standard - ${today}`;
     const isCBO = form.stdIsCBO;
-    const adsetCount = form.stdAdsetCount;
     const creativesPerAdset = form.stdCreativesPerAdset;
-    const lp = addUtm(form.landingPage.trim() || form.angles[0]?.landing.trim() || "—", campName, "");
-    const allTexts = form.texts.length
-      ? form.texts.slice(0, creativesPerAdset).map((t, i) => `  ${i + 1}. ${t}`).join("\n")
-      : "  [أدخل النصوص أعلاه]";
-    const allHeadlines = form.headlines.length
-      ? form.headlines.slice(0, creativesPerAdset).map((h, i) => `  ${i + 1}. ${h}`).join("\n")
-      : "  [أدخل العناوين أعلاه]";
+    const angles = form.stdAngles.filter(a => a.name.trim() || a.landing.trim());
+    const adsetCount = angles.length || 1;
+
+    const adsetBlocks = angles.length > 0
+      ? angles.map((a, i) => {
+          const lp = addUtm(a.landing.trim() || "—", campName, a.name || `angle-${i+1}`);
+          const texts = a.texts.length
+            ? a.texts.slice(0, creativesPerAdset).map((t, ti) => `    ${ti + 1}. ${t}`).join("\n")
+            : `    [enter texts for Angle ${i + 1}]`;
+          const headlines = a.headlines.length
+            ? a.headlines.slice(0, creativesPerAdset).map((h, hi) => `    ${hi + 1}. ${h}`).join("\n")
+            : `    [enter headlines for Angle ${i + 1}]`;
+          return `## Adset ${i + 1} — "${a.name || `Angle ${i + 1}`}"
+- Landing Page: ${lp}${!isCBO ? `\n- Budget: ${form.budget} EGP/day (ABO)` : ""}
+- Ads (${creativesPerAdset} ads, NO Dynamic Creative):
+  Primary Texts:
+${texts}
+  Headlines:
+${headlines}`;
+        }).join("\n\n")
+      : `## Adset 1 — Default
+- Landing Page: [add landing page]
+- Ads: ${creativesPerAdset} ads`;
+
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
-قم ببناء حملة Standard فوراً — ${adsetCount} Adsets · ${creativesPerAdset} Creatives per Adset:
+Build Standard Campaign NOW — ${adsetCount} Adsets · ${creativesPerAdset} Creatives per Adset:
+
 # 1. Campaign Settings
-- Campaign Type: Advantage+ Sales Campaign
+- Type: Advantage+ Sales Campaign
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${campName}
-- Budget Optimization: ${isCBO ? "CBO (Campaign Level)" : "ABO (Adset Level)"}${isCBO ? `\n- Campaign Budget: ${form.budget} EGP daily` : ""}
+- Budget: ${isCBO ? `CBO · ${form.budget} EGP/day total` : `ABO · ${form.budget} EGP/day per Adset`}
 - Media Drive: ${drive}
-# 2. الـ Adsets (أنشئ ${adsetCount} Adset منفصل)
-- Targeting: Advantage+ Audience (Broad) — مصر فقط residents
-- Placements: Advantage+ Placements${!isCBO ? `\n- Budget per Adset: ${form.budget} EGP daily` : ""}
-# 3. الإعلانات (${creativesPerAdset} إعلان لكل Adset)
-- أنشئ ${creativesPerAdset} إعلان في كل Adset — Creative مختلف لكل واحد
-- NO Dynamic Creative — عطّل Advantage+ Creative Enhancements تماماً
-- Destination URL: ${lp}
-- Primary Texts (استخدم نص مختلف لكل إعلان):
-${allTexts}
-- Headlines (استخدم عنوان مختلف لكل إعلان):
-${allHeadlines}
+- Targeting: Advantage+ Audience (Broad) — Egypt residents only
+- Placements: Advantage+ Placements
+- Dynamic Creative: DISABLED (No Advantage+ Creative Enhancements)
+
+# 2. Adsets & Ads
+
+${adsetBlocks}
 [END_COMMAND]`;
   }
 
@@ -1251,8 +1309,8 @@ ${allHeadlines}
                 className="h-9 text-sm"
               />
               {activeCard === "STANDARD" && !form.stdIsCBO && (
-                <p className="text-[10px] text-muted-foreground" dir="rtl">
-                  إجمالي يومي:&rlm; <span className="font-semibold text-foreground" dir="ltr">{(Number(form.budget) || 0) * form.stdAdsetCount} EGP</span>&rlm; ({form.stdAdsetCount} Adsets × {form.budget} EGP)
+                <p className="text-[10px] text-muted-foreground">
+                  Total daily: <span className="font-semibold text-foreground">{(Number(form.budget) || 0) * form.stdAngles.length} EGP</span> ({form.stdAngles.length} Adsets × {form.budget} EGP)
                 </p>
               )}
             </div>
@@ -1286,67 +1344,142 @@ ${allHeadlines}
             </div>
           )}
 
-          {/* STANDARD: ABO/CBO + Adset count + Creatives per adset */}
+          {/* STANDARD: Settings + Angles */}
           {activeCard === "STANDARD" && (
-            <div className="space-y-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/10 p-3">
-              <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">إعدادات الحملة</div>
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">نوع الميزانية</label>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => upd("stdIsCBO", false)}
-                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${!form.stdIsCBO ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold" : "border-border text-muted-foreground hover:border-emerald-400"}`}>
-                    ABO (بالـ Adset)
-                  </button>
-                  <button type="button" onClick={() => upd("stdIsCBO", true)}
-                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${form.stdIsCBO ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold" : "border-border text-muted-foreground hover:border-emerald-400"}`}>
-                    CBO (بالحملة)
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">عدد الـ Adsets</label>
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => upd("stdAdsetCount", Math.max(1, form.stdAdsetCount - 1))}
-                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
-                    <span className="flex-1 text-center text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{form.stdAdsetCount}</span>
-                    <button type="button" onClick={() => upd("stdAdsetCount", Math.min(20, form.stdAdsetCount + 1))}
-                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+            <div className="space-y-3">
+              {/* Budget type + Creatives per adset row */}
+              <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/10 p-3 space-y-2.5">
+                <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Campaign Settings</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Budget Type</label>
+                    <div className="flex gap-1.5">
+                      <button type="button" onClick={() => upd("stdIsCBO", false)}
+                        className={`flex-1 h-8 text-xs rounded-lg border transition-all ${!form.stdIsCBO ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold" : "border-border text-muted-foreground hover:border-emerald-400"}`}>
+                        ABO
+                      </button>
+                      <button type="button" onClick={() => upd("stdIsCBO", true)}
+                        className={`flex-1 h-8 text-xs rounded-lg border transition-all ${form.stdIsCBO ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold" : "border-border text-muted-foreground hover:border-emerald-400"}`}>
+                        CBO
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Creatives / Adset</label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.max(1, form.stdCreativesPerAdset - 1))}
+                        className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
+                      <span className="flex-1 text-center text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{form.stdCreativesPerAdset}</span>
+                      <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.min(10, form.stdCreativesPerAdset + 1))}
+                        className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">Creatives في كل Adset</label>
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.max(1, form.stdCreativesPerAdset - 1))}
-                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
-                    <span className="flex-1 text-center text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">{form.stdCreativesPerAdset}</span>
-                    <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.min(10, form.stdCreativesPerAdset + 1))}
-                      className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
-                  </div>
+                <div className="text-[10px] text-muted-foreground">
+                  Total: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{form.stdAngles.length} Adsets × {form.stdCreativesPerAdset} Creatives = {form.stdAngles.length * form.stdCreativesPerAdset} Ads</span> · No Dynamic Creative · {form.stdIsCBO ? "CBO" : "ABO"}
                 </div>
               </div>
-              <div className="text-[10px] text-muted-foreground pt-0.5" dir="rtl">
-                إجمالي الإعلانات:&rlm; <span className="font-semibold text-emerald-600 dark:text-emerald-400">{form.stdAdsetCount * form.stdCreativesPerAdset}</span> إعلان · بدون Dynamic Creative
-              </div>
-            </div>
-          )}
 
-          {/* STANDARD: AI generate texts/headlines button */}
-          {activeCard === "STANDARD" && (
-            <div className="flex items-center justify-between rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/30 dark:bg-emerald-950/10 px-3 py-2">
-              <span className="text-xs text-muted-foreground">
-                {form.landingPage.trim()
-                  ? "جاهز للتوليد — عندك لينك صفحة الهبوط ✓"
-                  : "أضف رابط Landing Page أعلاه لتوليد النصوص بالـ AI"}
-              </span>
-              <button
-                type="button"
-                onClick={generateTexts}
-                disabled={generating || !form.landingPage.trim()}
-                className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-1 disabled:opacity-40 font-medium"
-              >
-                {generating ? "جاري التوليد..." : "✨ توليد نصوص وعناوين"}
-              </button>
+              {/* Angles list */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground">Angles (1 Angle = 1 Adset)</span>
+                  <button
+                    type="button"
+                    onClick={() => upd("stdAngles", [...form.stdAngles, { ...INIT_STD_ANGLE, name: `Angle ${form.stdAngles.length + 1}` }])}
+                    className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline font-medium"
+                  >
+                    + Add Angle
+                  </button>
+                </div>
+
+                {form.stdAngles.map((angle, idx) => (
+                  <div key={idx} className="rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/20 dark:bg-emerald-950/10 p-3 space-y-2">
+                    {/* Angle header */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                        Adset {idx + 1}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => generateStdAngle(idx)}
+                          disabled={angle.generating || !angle.landing.trim()}
+                          className="text-[11px] text-emerald-700 dark:text-emerald-400 hover:underline disabled:opacity-40 font-medium"
+                        >
+                          {angle.generating ? "Generating..." : "✨ Generate Copy"}
+                        </button>
+                        {form.stdAngles.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => upd("stdAngles", form.stdAngles.filter((_, i) => i !== idx))}
+                            className="text-[11px] text-destructive hover:underline"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Name + Landing */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        placeholder="Angle name (= video name in Drive)"
+                        value={angle.name}
+                        onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], name: e.target.value}; upd("stdAngles", a); }}
+                        className="h-8 text-xs"
+                        dir="ltr"
+                      />
+                      <Input
+                        placeholder="https://landing-page.com/..."
+                        value={angle.landing}
+                        onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], landing: e.target.value}; upd("stdAngles", a); }}
+                        className="h-8 text-xs font-mono"
+                        dir="ltr"
+                      />
+                    </div>
+
+                    {/* Generated copy display */}
+                    {(angle.texts.length > 0 || angle.headlines.length > 0) && (
+                      <div className="space-y-1.5">
+                        {angle.texts.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-muted-foreground font-medium">Texts ({angle.texts.length})</span>
+                            {angle.texts.slice(0, form.stdCreativesPerAdset).map((t, ti) => (
+                              <div key={ti} className="text-xs rounded border border-emerald-200/40 dark:border-emerald-800/30 bg-background/60 px-2 py-1.5 leading-relaxed" dir="rtl">
+                                <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-emerald-500 text-white text-[8px] font-bold ml-1.5 shrink-0 align-middle">{ti + 1}</span>
+                                {t}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {angle.headlines.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            <span className="text-[10px] text-muted-foreground font-medium w-full">Headlines ({angle.headlines.length})</span>
+                            {angle.headlines.slice(0, form.stdCreativesPerAdset).map((h, hi) => (
+                              <span key={hi} className="text-[11px] rounded-full px-2 py-0.5 border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300 font-medium">
+                                {hi + 1}. {h}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Manual entry when no generated copy */}
+                    {angle.texts.length === 0 && (
+                      <textarea
+                        dir="rtl"
+                        placeholder="Ad text (or click ✨ Generate Copy above)"
+                        value=""
+                        onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], texts: [e.target.value]}; upd("stdAngles", a); }}
+                        rows={2}
+                        className="w-full text-xs rounded-md border border-border bg-background p-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1420,8 +1553,8 @@ ${allHeadlines}
 
          
 
-          {/* Texts — all included, numbered list */}
-          {form.texts.length > 0 && (
+          {/* Texts — shown for TEST only (STANDARD uses per-angle texts) */}
+          {activeCard === "TEST" && form.texts.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                 <FileText className="h-3 w-3" />
@@ -1432,10 +1565,7 @@ ${allHeadlines}
               </label>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {form.texts.map((t, i) => (
-                  <div
-                    key={i}
-                    className="w-full text-right text-xs rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/10 p-2.5 leading-relaxed"
-                  >
+                  <div key={i} className="w-full text-right text-xs rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/10 p-2.5 leading-relaxed">
                     <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold ml-1.5 shrink-0 align-middle">{i + 1}</span>
                     {t}
                   </div>
@@ -1443,11 +1573,10 @@ ${allHeadlines}
               </div>
             </div>
           )}
-          {form.texts.length === 0 && (
+          {activeCard === "TEST" && form.texts.length === 0 && (
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                {activeCard === "STANDARD" ? "النص الإعلاني (أو ولّد بالـ AI أعلاه ↑)" : "النص الإعلاني (أو ولّد بالـ AI في الزاوية أعلاه)"}
+                <FileText className="h-3 w-3" /> النص الإعلاني (أو ولّد بالـ AI في الزاوية أعلاه)
               </label>
               <Textarea
                 dir="rtl"
@@ -1460,8 +1589,8 @@ ${allHeadlines}
             </div>
           )}
 
-          {/* Headlines — all included as pills */}
-          {form.headlines.length > 0 && (
+          {/* Headlines — shown for TEST only (STANDARD uses per-angle headlines) */}
+          {activeCard === "TEST" && form.headlines.length > 0 && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                 <Heading1 className="h-3 w-3" />
@@ -1472,10 +1601,7 @@ ${allHeadlines}
               </label>
               <div className="flex flex-wrap gap-1.5">
                 {form.headlines.map((h, i) => (
-                  <div
-                    key={i}
-                    className="text-xs rounded-full px-2.5 py-1 border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-1"
-                  >
+                  <div key={i} className="text-xs rounded-full px-2.5 py-1 border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-1">
                     <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-emerald-500 text-white text-[8px] font-bold shrink-0">{i + 1}</span>
                     {h}
                   </div>
@@ -1483,7 +1609,7 @@ ${allHeadlines}
               </div>
             </div>
           )}
-          {form.headlines.length === 0 && (
+          {activeCard === "TEST" && form.headlines.length === 0 && (
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                 <Heading1 className="h-3 w-3" /> العنوان
@@ -1500,17 +1626,13 @@ ${allHeadlines}
 
           {/* Send button */}
           <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
-            <div className="flex-1 min-w-0 text-xs text-muted-foreground" dir="rtl">
+            <div className="flex-1 min-w-0 text-xs text-muted-foreground">
               {activeCard === "TEST" ? (
                 form.angles.filter(a => a.name).length > 0
-                  ? `🧪 ${form.angles.length} زوايا ← Dynamic Creative ABO`
-                  : "🧪 سيُبنى أمر Blueprint Testing"
+                  ? `🧪 ${form.angles.length} Angles → Dynamic Creative ABO`
+                  : "🧪 Blueprint Testing command will be built"
               ) : (
-                <span>
-                  📋{" "}
-                  <span dir="ltr" className="inline-block">{form.stdAdsetCount} Adsets × {form.stdCreativesPerAdset} Creatives = {form.stdAdsetCount * form.stdCreativesPerAdset}</span>
-                  {" "}إعلان · {form.stdIsCBO ? "CBO" : "ABO"}
-                </span>
+                `📋 ${form.stdAngles.length} Adsets × ${form.stdCreativesPerAdset} Creatives = ${form.stdAngles.length * form.stdCreativesPerAdset} Ads · ${form.stdIsCBO ? "CBO" : "ABO"}`
               )}
             </div>
             <Button
