@@ -91,14 +91,30 @@ function isRateLimitCode(code: number): boolean {
 
 /**
  * Returns true for Meta errors that mean "this object has no insights edge"
- * (e.g. deleted campaign, draft with no spend, archived entity).
+ * or the object doesn't exist / has been deleted / has no permissions edge.
  * These should be handled gracefully — return [] instead of throwing.
+ *
+ * Covered cases:
+ *  - (#100) Tried accessing nonexisting field (insights)
+ *  - (#803) Unsupported get request / Object does not exist
+ *  - (#200) Permissions error on an archived/deleted object
+ *  - "missing permissions" on a non-existent entity
+ *  - "does not exist" generic object-not-found
  */
 function isInsightsUnavailableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message;
-  // (#100) Tried accessing nonexisting field (insights)
-  return msg.includes("nonexisting field") || msg.includes("(#100)");
+  return (
+    msg.includes("nonexisting field") ||
+    msg.includes("(#100)") ||
+    msg.includes("(#803)") ||
+    msg.includes("Unsupported get request") ||
+    msg.includes("Object does not exist") ||
+    msg.includes("does not exist or missing permissions") ||
+    msg.includes("missing permissions") ||
+    // generic "object not found" from Graph API
+    (msg.includes("(#200)") && msg.includes("insight"))
+  );
 }
 
 /**
