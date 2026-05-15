@@ -4,7 +4,11 @@ import path from "path";
 import fs from "fs";
 import { query } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth-middleware.js";
-import { TASK_UPLOADS_DIR } from "../app.js";
+
+// Avoid circular import (app.ts → router → tasks.ts → app.ts)
+// by computing the path independently here.
+export const TASK_UPLOADS_DIR = path.join(process.cwd(), "uploads", "task-media");
+fs.mkdirSync(TASK_UPLOADS_DIR, { recursive: true });
 
 const router = Router();
 

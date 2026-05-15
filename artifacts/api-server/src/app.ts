@@ -4,14 +4,10 @@ import cors from "cors";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
-import path from "path";
-import fs from "fs";
 import router from "./routes";
+import { TASK_UPLOADS_DIR } from "./routes/tasks.js";
 import { logger } from "./lib/logger";
 import { pool } from "./lib/db";
-
-export const TASK_UPLOADS_DIR = path.join(process.cwd(), "uploads", "task-media");
-fs.mkdirSync(TASK_UPLOADS_DIR, { recursive: true });
 
 const PgSession = connectPgSimple(session);
 

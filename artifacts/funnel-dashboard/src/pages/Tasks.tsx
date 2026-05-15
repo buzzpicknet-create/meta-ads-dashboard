@@ -712,17 +712,31 @@ export default function TasksPage() {
     setError(null);
     try {
       const [tRes, sRes, aRes] = await Promise.all([
-        fetch(`${BASE}/tasks`, { credentials: "include" }),
-        fetch(`${BASE}/tasks/stats`, { credentials: "include" }),
+        fetch(`${BASE}/tasks`,           { credentials: "include" }),
+        fetch(`${BASE}/tasks/stats`,     { credentials: "include" }),
         fetch(`${BASE}/tasks/assignees`, { credentials: "include" }),
       ]);
-      if (!tRes.ok) throw new Error((await tRes.json()).error ?? "خطأ في جلب المهام");
-      const [tasksData, statsData, assigneesData] = await Promise.all([
-        tRes.json(), sRes.json(), aRes.ok ? aRes.json() : Promise.resolve([]),
-      ]);
+
+      // Tasks: hard failure — show error if this fails
+      if (!tRes.ok) {
+        const err = await tRes.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? "خطأ في جلب المهام");
+      }
+      const tasksData: Task[] = await tRes.json();
       setTasks(tasksData);
+
+      // Stats: soft failure — empty array on error, don't crash the page
+      const statsData: BuyerStat[] = sRes.ok
+        ? await sRes.json().catch(() => [])
+        : [];
       setStats(statsData);
+
+      // Assignees: soft failure — empty array on error
+      const assigneesData: Assignee[] = aRes.ok
+        ? await aRes.json().catch(() => [])
+        : [];
       setAssignees(assigneesData);
+
     } catch (e) {
       setError(e instanceof Error ? e.message : "خطأ غير معروف");
     } finally {
