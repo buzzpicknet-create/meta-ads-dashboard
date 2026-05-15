@@ -1251,8 +1251,8 @@ ${allHeadlines}
                 className="h-9 text-sm"
               />
               {activeCard === "STANDARD" && !form.stdIsCBO && (
-                <p className="text-[10px] text-muted-foreground">
-                  إجمالي يومي: <span className="font-semibold text-foreground">{(Number(form.budget) || 0) * form.stdAdsetCount} EGP</span> ({form.stdAdsetCount} Adsets × {form.budget} EGP)
+                <p className="text-[10px] text-muted-foreground" dir="rtl">
+                  إجمالي يومي:&rlm; <span className="font-semibold text-foreground" dir="ltr">{(Number(form.budget) || 0) * form.stdAdsetCount} EGP</span>&rlm; ({form.stdAdsetCount} Adsets × {form.budget} EGP)
                 </p>
               )}
             </div>
@@ -1325,8 +1325,8 @@ ${allHeadlines}
                   </div>
                 </div>
               </div>
-              <div className="text-[10px] text-muted-foreground pt-0.5">
-                إجمالي الإعلانات: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{form.stdAdsetCount * form.stdCreativesPerAdset}</span> إعلان · بدون Dynamic Creative
+              <div className="text-[10px] text-muted-foreground pt-0.5" dir="rtl">
+                إجمالي الإعلانات:&rlm; <span className="font-semibold text-emerald-600 dark:text-emerald-400">{form.stdAdsetCount * form.stdCreativesPerAdset}</span> إعلان · بدون Dynamic Creative
               </div>
             </div>
           )}
@@ -1500,10 +1500,18 @@ ${allHeadlines}
 
           {/* Send button */}
           <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
-            <div className="flex-1 min-w-0 text-xs text-muted-foreground">
-              {activeCard === "TEST"
-                ? `🧪 ${form.angles.filter(a => a.name).length > 0 ? `${form.angles.length} زوايا → Dynamic Creative ABO` : "سيُبنى أمر Blueprint Testing"}`
-                : `📋 ${form.stdAdsetCount} Adsets × ${form.stdCreativesPerAdset} Creatives = ${form.stdAdsetCount * form.stdCreativesPerAdset} إعلان · ${form.stdIsCBO ? "CBO" : "ABO"}`}
+            <div className="flex-1 min-w-0 text-xs text-muted-foreground" dir="rtl">
+              {activeCard === "TEST" ? (
+                form.angles.filter(a => a.name).length > 0
+                  ? `🧪 ${form.angles.length} زوايا ← Dynamic Creative ABO`
+                  : "🧪 سيُبنى أمر Blueprint Testing"
+              ) : (
+                <span>
+                  📋{" "}
+                  <span dir="ltr" className="inline-block">{form.stdAdsetCount} Adsets × {form.stdCreativesPerAdset} Creatives = {form.stdAdsetCount * form.stdCreativesPerAdset}</span>
+                  {" "}إعلان · {form.stdIsCBO ? "CBO" : "ABO"}
+                </span>
+              )}
             </div>
             <Button
               size="sm"
