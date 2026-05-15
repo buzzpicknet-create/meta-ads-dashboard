@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const _BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE  = `${_BASE}/api`;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
