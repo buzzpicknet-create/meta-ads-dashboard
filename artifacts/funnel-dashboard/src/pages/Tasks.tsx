@@ -537,8 +537,8 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: 
             </h3>
             <div className="flex items-center gap-3 flex-wrap">
               {task.assigned_to_name && (
-                <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                  <User size={10} />{task.assigned_to_name}
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-blue-300 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
+                  <User size={10} className="text-blue-400" />{task.assigned_to_name}
                 </span>
               )}
               <Countdown deadline={task.deadline} status={task.status} />
@@ -571,20 +571,27 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen }: 
             <span className="text-[10px] text-slate-500">{task.checkin_count} متابعة</span>
           </div>
         )}
+
+        {/* Created-by — always visible */}
+        {task.created_by_name && (
+          <div className="mt-2.5 pt-2.5 border-t border-slate-700/40 flex items-center gap-1.5 text-[11px] text-slate-500">
+            <User size={10} className="flex-shrink-0" />
+            أُضيفت بواسطة:&nbsp;<span className="text-slate-300 font-medium">{task.created_by_name}</span>
+          </div>
+        )}
       </div>
 
-      {/* Expand / details */}
-      {(task.notes || task.created_by_name) && (
+      {/* Expand / details (notes + deadline only) */}
+      {task.notes && (
         <div className="border-t border-slate-700/50">
           <button onClick={() => setExpanded(v => !v)}
             className="w-full px-4 py-2 flex items-center justify-between text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-            <span>{expanded ? "إخفاء التفاصيل" : "عرض التفاصيل"}</span>
+            <span>{expanded ? "إخفاء الملاحظات" : "عرض الملاحظات"}</span>
             {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
           {expanded && (
             <div className="px-4 pb-3 space-y-1.5 text-[11px] text-slate-400">
-              {task.notes && <p className="leading-relaxed">{task.notes}</p>}
-              {task.created_by_name && <p>أُنشئت بواسطة: <span className="text-slate-300">{task.created_by_name}</span></p>}
+              <p className="leading-relaxed">{task.notes}</p>
               <p>الموعد النهائي: <span className="text-slate-300">{formatDate(task.deadline)}</span></p>
               {task.completed_at && <p>اكتملت: <span className="text-emerald-300">{formatDate(task.completed_at)}</span></p>}
             </div>
