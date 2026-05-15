@@ -1,36 +1,10 @@
 import { Router } from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
 import { query } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth-middleware.js";
-
-// Avoid circular import (app.ts → router → tasks.ts → app.ts)
-// by computing the path independently here.
-export const TASK_UPLOADS_DIR = path.join(process.cwd(), "uploads", "task-media");
-fs.mkdirSync(TASK_UPLOADS_DIR, { recursive: true });
+import { ObjectStorageService } from "../lib/objectStorage.js";
 
 const router = Router();
-
-// ── Multer config ─────────────────────────────────────────────────────────────
-
-const storage = multer.diskStorage({
-  destination: TASK_UPLOADS_DIR,
-  filename: (_req, file, cb) => {
-    const rand = Math.random().toString(36).slice(2, 10);
-    const ext  = path.extname(file.originalname).toLowerCase();
-    cb(null, `${Date.now()}-${rand}${ext}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
-  fileFilter: (_req, file, cb) => {
-    const ok = /^(image\/|video\/)/.test(file.mimetype);
-    cb(null, ok);
-  },
-});
+const objectStorage = new ObjectStorageService();
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -202,27 +176,25 @@ router.post("/tasks", requireAdmin, async (req, res) => {
 });
 
 // ── POST /api/tasks/:id/media ─────────────────────────────────────────────────
+// Accepts JSON { objectPath, originalName, mimeType } after client uploads to GCS
 
-router.post("/tasks/:id/media", upload.single("file"), async (req, res) => {
+router.post("/tasks/:id/media", async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
-  if (!req.file) return res.status(400).json({ error: "لا يوجد ملف" });
 
-  const [task] = await query<Task>(`SELECT id FROM tasks WHERE id = $1`, [id]);
-  if (!task) {
-    fs.unlinkSync(req.file.path);
-    return res.status(404).json({ error: "المهمة غير موجودة" });
-  }
+  const { objectPath, originalName, mimeType } =
+    req.body as { objectPath?: string; originalName?: string; mimeType?: string };
+  if (!objectPath || !originalName || !mimeType)
+    return res.status(400).json({ error: "objectPath, originalName, mimeType مطلوبة" });
+
+  const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [id]);
+  if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
 
   const role   = req.session!.role;
   const userId = req.session!.userId;
-  const [existing] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [id]);
-  if (role !== "admin" && existing?.assigned_to_id !== userId) {
-    fs.unlinkSync(req.file.path);
+  if (role !== "admin" && task.assigned_to_id !== userId)
     return res.status(403).json({ error: "غير مصرح" });
-  }
 
-  // First upload to this task becomes primary
   const [countRow] = await query<{ c: string }>(
     `SELECT COUNT(*) AS c FROM task_media WHERE task_id = $1`, [id]
   );
@@ -231,7 +203,7 @@ router.post("/tasks/:id/media", upload.single("file"), async (req, res) => {
   const [media] = await query<TaskMedia>(`
     INSERT INTO task_media (task_id, original_name, file_path, mime_type, is_primary)
     VALUES ($1,$2,$3,$4,$5) RETURNING *
-  `, [id, req.file.originalname, req.file.filename, req.file.mimetype, isPrimary]);
+  `, [id, originalName, objectPath, mimeType, isPrimary]);
 
   res.status(201).json(media);
 });
@@ -269,13 +241,14 @@ router.delete("/tasks/media/:mediaId", async (req, res) => {
   const [task] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [m.task_id]);
   if (role !== "admin" && task?.assigned_to_id !== userId) return res.status(403).json({ error: "غير مصرح" });
 
-  // Delete physical file
-  const filePath = path.join(TASK_UPLOADS_DIR, m.file_path);
-  fs.unlink(filePath, () => {}); // non-blocking, ignore if missing
+  // Delete from GCS (non-blocking, ignore errors if already missing)
+  try {
+    const file = await objectStorage.getObjectEntityFile(m.file_path);
+    await file.delete({ ignoreNotFound: true });
+  } catch { /* already missing */ }
 
   await query(`DELETE FROM task_media WHERE id = $1`, [mediaId]);
 
-  // If this was primary, promote next oldest
   if (m.is_primary) {
     await query(`
       UPDATE task_media SET is_primary = TRUE
@@ -357,13 +330,18 @@ router.delete("/tasks/:id", requireAdmin, async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
 
-  // Delete physical files first
+  // Delete GCS objects for all media
   const mediaRows = await query<{ file_path: string }>(
     `SELECT file_path FROM task_media WHERE task_id = $1`, [id]
   );
-  for (const m of mediaRows) {
-    fs.unlink(path.join(TASK_UPLOADS_DIR, m.file_path), () => {});
-  }
+  await Promise.allSettled(
+    mediaRows.map(async m => {
+      try {
+        const file = await objectStorage.getObjectEntityFile(m.file_path);
+        await file.delete({ ignoreNotFound: true });
+      } catch { /* already missing */ }
+    })
+  );
 
   await query(`DELETE FROM tasks WHERE id = $1`, [id]);
   res.json({ ok: true });

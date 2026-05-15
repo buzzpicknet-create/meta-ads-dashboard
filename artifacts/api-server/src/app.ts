@@ -5,7 +5,6 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
 import router from "./routes";
-import { TASK_UPLOADS_DIR } from "./routes/tasks.js";
 import { logger } from "./lib/logger";
 import { pool } from "./lib/db";
 
@@ -74,9 +73,6 @@ app.use(
     },
   }),
 );
-
-// Serve uploaded task media files (public, no auth — URLs are unguessable UUIDs)
-app.use("/api/task-uploads", express.static(TASK_UPLOADS_DIR));
 
 app.use("/api", router);
 

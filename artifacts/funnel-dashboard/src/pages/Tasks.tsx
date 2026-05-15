@@ -83,7 +83,10 @@ function nowPlusHours(h: number): string {
 }
 
 function mediaUrl(m: TaskMedia): string {
-  return `${BASE}/task-uploads/${m.file_path}`;
+  // file_path is objectPath from GCS e.g. "/objects/uploads/uuid"
+  // serving route: GET /api/storage/objects/*path → prepends /objects/
+  const stripped = m.file_path.replace(/^\/objects\//, "");
+  return `${BASE}/storage/objects/${stripped}`;
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -989,13 +992,33 @@ export default function TasksPage() {
     if (!res.ok) throw new Error((await res.json()).error ?? "فشل الإنشاء");
     const created: Task = await res.json();
 
-    // Upload files sequentially
+    // Upload files via GCS presigned URL (two-step: request URL → PUT to GCS → confirm)
     for (const file of files) {
-      const fd = new FormData();
-      fd.append("file", file);
-      await fetch(`${BASE}/tasks/${created.id}/media`, {
-        method: "POST", credentials: "include", body: fd,
-      });
+      try {
+        // Step 1: request presigned URL
+        const urlRes = await fetch(`${BASE}/storage/uploads/request-url`, {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+        });
+        if (!urlRes.ok) continue;
+        const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+
+        // Step 2: PUT file directly to GCS
+        const putRes = await fetch(uploadURL, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!putRes.ok) continue;
+
+        // Step 3: register media record in DB
+        await fetch(`${BASE}/tasks/${created.id}/media`, {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ objectPath, originalName: file.name, mimeType: file.type }),
+        });
+      } catch { /* skip failed uploads silently */ }
     }
     await fetchAll(true);
   }
