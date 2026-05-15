@@ -3384,12 +3384,14 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
   }
 
   const days = Number(args.days ?? (name === "get_campaigns" ? 30 : (name === "get_ad_performance" || name === "get_adsets" || name === "get_ads_in_adset") ? 7 : 14));
-  // Use Cairo time (GMT+2) so "today" matches the dashboard's date logic
-  const nowCairoExec = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  // Use IANA Africa/Cairo — handles DST automatically (UTC+2 winter / UTC+3 summer EEST)
+  // toLocaleDateString('en-CA') gives YYYY-MM-DD which we treat as a UTC midnight Date for arithmetic
+  const todayCairoStr = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
+  const nowCairoExec  = new Date(todayCairoStr + "T00:00:00Z");
   const fmtDate = (d: Date) => d.toISOString().slice(0, 10);
   const dateRx = /^\d{4}-\d{2}-\d{2}$/;
   // Use explicit since/until from AI args when provided (supports any date range / single day)
-  const u = (typeof args.until === "string" && dateRx.test(args.until)) ? args.until : fmtDate(nowCairoExec);
+  const u = (typeof args.until === "string" && dateRx.test(args.until)) ? args.until : todayCairoStr;
   const s = (typeof args.since === "string" && dateRx.test(args.since)) ? args.since : (() => {
     const d = new Date(nowCairoExec); d.setUTCDate(d.getUTCDate() - days); return fmtDate(d);
   })();
@@ -4837,11 +4839,10 @@ async function runAiStream(params: StreamParams, res: Response): Promise<void> {
       : "";
     const ltmBlock = userId ? await fetchUserLtm(userId) : "";
 
-    const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
-    const todayCairo = nowCairo.toISOString().slice(0, 10);
-    const todayLabel = nowCairo.toLocaleDateString("ar-EG", {
+    const todayCairo = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
+    const todayLabel = new Date().toLocaleDateString("ar-EG", {
       weekday: "long", year: "numeric", month: "long", day: "numeric",
-      timeZone: "UTC",
+      timeZone: "Africa/Cairo",
     });
 
     const dateHeader = `══════════════════════════════════════
@@ -5082,11 +5083,10 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     const ltmBlock = userId ? await fetchUserLtm(userId) : "";
 
     // Cairo time (GMT+2) — so "today" matches the dashboard's date logic
-    const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
-    const todayCairo = nowCairo.toISOString().slice(0, 10);
-    const todayLabel = nowCairo.toLocaleDateString("ar-EG", {
+    const todayCairo = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
+    const todayLabel = new Date().toLocaleDateString("ar-EG", {
       weekday: "long", year: "numeric", month: "long", day: "numeric",
-      timeZone: "UTC",
+      timeZone: "Africa/Cairo",
     });
 
     const dateHeader = `══════════════════════════════════════

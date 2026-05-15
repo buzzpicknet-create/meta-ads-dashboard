@@ -1207,10 +1207,14 @@ export async function getCpaAlerts(opts: {
   const rawAccount = opts.adAccountId;
   const adAccount = rawAccount.startsWith("act_") ? rawAccount.slice(4) : rawAccount;
 
-  // 72 hours = last 3 days (Cairo = UTC+2)
-  const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
-  const until = nowCairo.toISOString().slice(0, 10);
-  const since = new Date(nowCairo.getTime() - 3 * 86_400_000).toISOString().slice(0, 10);
+  // Use IANA Africa/Cairo — handles DST automatically (UTC+2 winter / UTC+3 summer EEST)
+  const todayCairo = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Cairo" });
+  const until = todayCairo;
+  const since = (() => {
+    const d = new Date(todayCairo + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - 3);
+    return d.toISOString().slice(0, 10);
+  })();
   const time_range = JSON.stringify({ since, until });
   const days = 3;
 
