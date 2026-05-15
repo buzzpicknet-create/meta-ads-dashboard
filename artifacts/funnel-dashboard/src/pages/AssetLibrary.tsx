@@ -1174,12 +1174,14 @@ ${allHeadlines}
           const headlines = a.headlines.length
             ? a.headlines.slice(0, creativesPerAdset).map((h, hi) => `    ${hi + 1}. ${h}`).join("\n")
             : `    [enter headlines for Angle ${i + 1}]`;
+          const videoRef = a.name.trim() ? `"${a.name.trim()}"` : `[Angle ${i + 1} video]`;
           return `## Adset ${i + 1} — "${a.name || `Angle ${i + 1}`}"
 - Landing Page: ${lp}${!isCBO ? `\n- Budget: ${form.budget} EGP/day (ABO)` : ""}
-- Ads (${creativesPerAdset} ads, NO Dynamic Creative):
-  Primary Texts:
+- Video: find file named ${videoRef} in Drive folder (match by filename, ignore extension)
+- Ads (${creativesPerAdset} ads — same video, different text per ad, NO Dynamic Creative):
+  Primary Texts (one per ad):
 ${texts}
-  Headlines:
+  Headlines (one per ad):
 ${headlines}`;
         }).join("\n\n")
       : `## Adset 1 — Default
@@ -1424,7 +1426,7 @@ ${adsetBlocks}
                     {/* Name + Landing */}
                     <div className="grid grid-cols-2 gap-2">
                       <Input
-                        placeholder="Angle name (= video name in Drive)"
+                        placeholder='Video filename in Drive (e.g. "hook1")'
                         value={angle.name}
                         onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], name: e.target.value}; upd("stdAngles", a); }}
                         className="h-8 text-xs"
