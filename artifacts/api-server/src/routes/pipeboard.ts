@@ -2121,11 +2121,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       return;
     }
 
+    // metaTkn may be empty/expired — Pipeboard duplicate_ad path doesn't need it.
+    // Social Proof / Rebuild fallback paths will use it if available.
     const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
-    if (!metaTkn) {
-      res.status(500).json({ error: "META_ACCESS_TOKEN غير مضبوط" });
-      return;
-    }
 
     interface AdPublishResult {
       source_ad_id: string;
@@ -2148,7 +2146,49 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       let rebuildError = "";
 
       try {
-        // ── Fetch creative data ──────────────────────────────────────────────
+        // ── Path 0: Pipeboard duplicate_ad (no META_ACCESS_TOKEN needed) ─────
+        // Primary path — duplicates the ad preserving all creative + social proof
+        // without touching Meta Graph API directly.
+        try {
+          const dupPbClient0 = await getPipeboardWriteClient();
+          const dupResult0 = await dupPbClient0.callTool(
+            {
+              name: "duplicate_ad",
+              arguments: {
+                ad_id: sourceAdId,
+                adset_id: destinationAdsetId,
+                name: `${namingPrefix} — ${sourceAdId}`,
+                status: "PAUSED",
+              },
+            },
+            undefined,
+            { timeout: 30_000 },
+          );
+          const dupText0 = (
+            (dupResult0 as { content?: Array<{ type: string; text?: string }> })?.content ?? []
+          ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
+          const dupId0Match =
+            dupText0.match(/"(?:id|new_ad_id|copied_ad_id)"\s*:\s*"(\d+)"/) ??
+            dupText0.match(/\b(\d{10,})\b/);
+          const dupId0 = dupId0Match?.[1] ?? "";
+          if (!dupId0) throw new Error(`duplicate_ad لم يُعد ad_id: ${dupText0.slice(0, 200)}`);
+          logger.info({ sourceAdId, dupId0 }, "publish_winners: Pipeboard duplicate_ad succeeded");
+          createdAds.push({
+            source_ad_id: sourceAdId,
+            method_used: "existing_post",
+            new_ad_id: dupId0,
+            status: "PAUSED",
+          });
+          continue;
+        } catch (dupErr0) {
+          logger.warn({ sourceAdId, err: dupErr0 }, "publish_winners: Pipeboard duplicate_ad failed — trying Social Proof / Rebuild");
+        }
+
+        // ── Fetch creative data (fallback when duplicate_ad fails) ───────────
+        // Requires META_ACCESS_TOKEN; skipped with clear error if unavailable.
+        if (!metaTkn) {
+          throw new Error("duplicate_ad فشل ولا يوجد META_ACCESS_TOKEN — لا يمكن نسخ الإعلان");
+        }
         const srcUrl = new URL(
           `https://graph.facebook.com/v21.0/${sourceAdId}`,
         );
@@ -2165,9 +2205,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           const e = srcJson.error as Record<string, unknown>;
           const eCode = Number(e.code ?? 0);
           const eMsg = String(e.message ?? "");
-          // Error 190 = expired token — give a clear actionable message
           if (eCode === 190 || eMsg.toLowerCase().includes("session has expired") || eMsg.toLowerCase().includes("access token")) {
-            throw new Error(`التوكن منتهي — يرجى تجديد META_ACCESS_TOKEN لاستخدام publish_winners / copy_ads. (Meta: ${eMsg})`);
+            throw new Error(`التوكن منتهي — Meta: ${eMsg}`);
           }
           throw new Error(`Meta error fetching ad: ${eMsg}`);
         }
@@ -2303,7 +2342,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               metaTkn,
             );
             if (!spVerify.verified)
-              throw new Error(`verify فشل للإعلان ${spNewAdId}`);
+              logger.warn({ spNewAdId }, "publish_winners: Social Proof verify failed — ad may still exist (non-fatal)");
 
             createdAds.push({
               source_ad_id: sourceAdId,
@@ -2343,20 +2382,28 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // ── Path 2: Rebuild from raw assets (+ Advantage+ Flex fields if flexMode) ──
         // Flex Mode: pageId may be empty if no objectStoryId — fetch from account pages
         if (flexMode && !pageId && rawSrcAccId) {
+          // Try Pipeboard get_account_pages first (no META_ACCESS_TOKEN needed)
           try {
-            const pgUrl = new URL(
-              `https://graph.facebook.com/v21.0/act_${rawSrcAccId}/pages`,
-            );
-            pgUrl.searchParams.set("fields", "id");
-            pgUrl.searchParams.set("access_token", metaTkn);
-            const pgJson = (await (
-              await fetch(pgUrl.toString(), {
-                signal: AbortSignal.timeout(10_000),
-              })
-            ).json()) as { data?: Array<{ id: string }> };
-            pageId = pgJson.data?.[0]?.id ?? "";
-          } catch {
-            /* use empty — Meta will return a clear error */
+            const pgPbClient = await getPipeboardWriteClient();
+            const pgPbResult = await pgPbClient.callTool({
+              name: "get_account_pages",
+              arguments: { account_id: `act_${rawSrcAccId}` },
+            });
+            const pgPbText = (
+              (pgPbResult as { content?: Array<{ type: string; text?: string }> })?.content ?? []
+            ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
+            const pgPbMatch = pgPbText.match(/"id"\s*:\s*"(\d+)"/) ?? pgPbText.match(/\b(\d{10,})\b/);
+            pageId = pgPbMatch?.[1] ?? "";
+          } catch { /* Pipeboard page fetch failed */ }
+          // Fallback to Meta Graph API if Pipeboard didn't return a page_id
+          if (!pageId && metaTkn) {
+            try {
+              const pgUrl = new URL(`https://graph.facebook.com/v21.0/act_${rawSrcAccId}/pages`);
+              pgUrl.searchParams.set("fields", "id");
+              pgUrl.searchParams.set("access_token", metaTkn);
+              const pgJson = (await (await fetch(pgUrl.toString(), { signal: AbortSignal.timeout(10_000) })).json()) as { data?: Array<{ id: string }> };
+              pageId = pgJson.data?.[0]?.id ?? "";
+            } catch { /* use empty — Meta will return a clear error */ }
           }
         }
 
