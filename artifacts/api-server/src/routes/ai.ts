@@ -4488,6 +4488,23 @@ router.post("/ai/chat", async (req: Request, res: Response): Promise<void> => {
   res.end();
 });
 
+// ── GET /ai/accounts — list ad accounts for AI chat selector ─────────────────
+router.get("/ai/accounts", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const raw = await listAdAccounts();
+    const accounts = (raw ?? []).map((a: { id: string; name?: string; currency?: string }) => ({
+      id: a.id,
+      name: a.name ?? a.id,
+      type: "meta" as const,
+      currency: a.currency,
+    }));
+    res.json({ accounts });
+  } catch (err) {
+    req.log.error({ err }, "ai/accounts error");
+    res.status(500).json({ accounts: [] });
+  }
+});
+
 // ── Warm-up helper — pre-connect Pipeboard MCP singleton at startup ───────────
 export function warmUpPipeboard(): void {
   getPipeboardClient().catch((err: unknown) => {
