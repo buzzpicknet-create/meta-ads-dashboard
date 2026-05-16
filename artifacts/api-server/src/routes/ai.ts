@@ -895,6 +895,7 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
      ٢. create_adset باسم الـ Adset
      ③. upload_video_to_meta(drive_folder_url=<رابط المجلد>, account_id=<id>, filename_hint=<اسم الفيديو في Blueprint>) → احفظ video_id
      ④. create_ad_from_creative_spec لكل نص/عنوان بـ video_id من الخطوة ③ (لا تستدعِ upload_video_to_meta مجدداً لنفس الفيديو)
+   - ⚠️ adset_id في create_ad_from_creative_spec = الرقم الـ numeric المُعاد من create_adset (مثال: 120244466063810554) — ليس اسم المجموعة مثل "Angle 1"
    - page_id: طبّق خريطة الدومين من Landing Page تلقائياً
    - pixel_id: طبّق خريطة الدومين تلقائياً
    - **⛔ لا تستخدم launch_pipeboard_campaign للـ STANDARD** — استخدم create_campaign + create_adset + upload_video_to_meta + create_ad_from_creative_spec يدوياً

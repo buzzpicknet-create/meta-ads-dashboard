@@ -1810,6 +1810,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       res.status(400).json({ error: "adset_id مطلوب" });
       return;
     }
+    // Guard: adset_id must be numeric — reject names like "Angle 1"
+    if (!/^\d{10,}$/.test(adsetId)) {
+      res.status(400).json({
+        error:
+          `adset_id غير صالح: "${adsetId}" — يجب أن يكون الرقم الـ numeric المُعاد من create_adset ` +
+          `(مثال: 120244466063810554)، وليس اسم المجموعة. ` +
+          `ارجع إلى نتيجة create_adset واستخدم adset_id الرقمي منها.`,
+      });
+      return;
+    }
     if (!linkUrl) {
       res.status(400).json({ error: "link_url مطلوب" });
       return;
