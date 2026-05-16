@@ -2595,6 +2595,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     let pipeMsg = "";
     let campaignId = "";
     const adResults: AdResult[] = [];
+    let effectiveAdsets: AdsetInput[] = [];
 
     // ── Parse inputs: support both array and single-item (backward compat) ─
     const rawAdsets: AdsetInput[] =
@@ -2904,7 +2905,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       // ── Auto-expand: 1 adset template × N videos → N adsets (1 per video) ──
       // When user specifies 1 angle but N videos were uploaded from a Drive folder,
       // replicate the adset config so each video gets its own AdSet.
-      let effectiveAdsets: AdsetInput[] = rawAdsets as AdsetInput[];
+      effectiveAdsets = rawAdsets as AdsetInput[];
       if (rawAdsets.length === 1 && rawCreatives.length > 1) {
         const uploadedCreatives = rawCreatives.filter(c => {
           const url = normaliseMediaUrl(c.media_url?.trim() ?? "");
