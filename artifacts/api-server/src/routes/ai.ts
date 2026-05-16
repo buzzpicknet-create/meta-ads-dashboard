@@ -899,6 +899,9 @@ Before proposing any scale or pause or budget update, check the updated_time of 
 
 لديك أدوات تنفيذية تتيح لك اقتراح إجراءات مباشرة على Meta.
 
+🟢 مهم جداً — Write Actions تعمل دائماً عبر Pipeboard بتوكنه الخاص الصالح:
+حتى لو ظهر Error 190 في بيانات القراءة (campaigns/adsets/insights)، جميع عمليات الكتابة (create_campaign, create_adset, create_ad, pause, enable, budget, duplicate_ad) تمر عبر Pipeboard وتعمل بشكل مستقل تماماً. لا تقل أبداً "لا أستطيع تنفيذ create_adset لأن التوكن منتهي" — هذا غير صحيح. نفّذ الكتابة فوراً.
+
 ⚠️ قاعدة ذهبية — لازم تلتزم بها دايماً:
 قبل أي write action، لازم تكون جبت البيانات الفعلية أولاً. الترتيب الإلزامي:
 ٠. إذا لم يكن لديك الـ ID (ad_id / adset_id / campaign_id):
@@ -927,7 +930,7 @@ Before proposing any scale or pause or budget update, check the updated_time of 
 - enable_ad(ad_id, name) — تشغيل إعلان فردي موقوف
 - rename_ad(ad_id, current_name, new_name) — تغيير اسم الإعلان الفردي
 - duplicate_ad(ad_id, destination_adset_id, name) — نسخ إعلان Winner إلى مجموعة أخرى (CBO/ABO) مع الحفاظ على Social Proof (نفس المنشور ونفس اللايكات)
-  ⚠️ هذه الأداة ممكنة — تستخدم Meta Graph API مباشرةً. الإعلان المنسوخ PAUSED للمراجعة.
+  ✅ هذه الأداة تعمل عبر Pipeboard (لا تحتاج META_ACCESS_TOKEN). الإعلان المنسوخ PAUSED للمراجعة.
 - get_ad_creative(ad_id) — اجلب محتوى الإعلان الكامل: primary_text، headline، video_id/image_hash، link_url، call_to_action، object_story_id، page_id، instagram_actor_id. أفضل من get_ad_post_id لأنه يُعيد أكثر بيانات.
 - get_ad_post_id(ad_id) — اجلب Post ID فقط (بديل أخف من get_ad_creative إذا كنت تحتاج object_story_id فقط)
 - create_ad_from_post(account_id, adset_id, post_id, name, page_id?) — أنشئ إعلاناً من منشور بـ post_id مع الحفاظ على Social Proof
@@ -1172,7 +1175,12 @@ Raw API Response (للتشخيص التقني):
 - كود 100 (Invalid pixel) → تحقق من صلاحية الـ Pixel على Facebook Business Manager
 - كود 100 (Missing required field) → promoted_object غير مكتمل — تواصل مع المسؤول
 - كود 200 (Permission error) → الحساب لا يملك صلاحية هذه العملية
-- كود 190 (Token expired) → التوكن المخزون في Pipeboard انتهى — الحل: اذهب إلى pipeboard.co وجدد ربط حساب Meta (Re-connect Meta Account). هذا لا علاقة له بالـ META_ACCESS_TOKEN في السيرفر.
+- كود 190 (Token expired) في عملية WRITE (create_adset / create_campaign / create_ad / pause / enable / budget):
+  هذا الخطأ يعني إن التحقق المبدئي على السيرفر استخدم توكن منتهي، لكن Pipeboard عنده توكنه الخاص الصالح.
+  🔴 لا توقف التنفيذ — استمر في تنفيذ الأداة فوراً. Pipeboard سيُكمل العملية بنجاح باستخدام توكنه الخاص.
+  🔴 لا تقول للمستخدم "التوكن منتهي" أو "لا أستطيع المتابعة" عند عمليات الكتابة — هذا خطأ.
+- كود 190 في عملية READ (get_campaigns / get_adsets / get_insights / بيانات الأداء):
+  التوكن المخزون في Pipeboard انتهى — الحل: اذهب إلى pipeboard.co وجدد ربط حساب Meta (Re-connect Meta Account). هذا لا علاقة له بالـ META_ACCESS_TOKEN في السيرفر.
 - Logic Error / ID match → Pipeboard أعاد parent campaign ID — فشل إنشاء AdSet in Meta
 [/ERROR BOX]
 
