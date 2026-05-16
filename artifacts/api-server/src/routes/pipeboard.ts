@@ -1966,6 +1966,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       if (instagramActorId)
         creativeBody.set("instagram_actor_id", instagramActorId);
 
+      logger.info(
+        { accountIdWithAct, mediaType, videoId, imageHash, linkUrl, pageId, adsetId,
+          object_story_spec: objectStorySpec,
+          primaryText: primaryText.slice(0, 80),
+          headline: headline.slice(0, 40),
+        },
+        "create_adcreative: → Meta POST /adcreatives",
+      );
+
       const creativeResp = await fetch(
         `https://graph.facebook.com/v21.0/${accountIdWithAct}/adcreatives`,
         {
@@ -1979,6 +1988,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         string,
         unknown
       >;
+      logger.info({ creativeJson }, "create_adcreative: ← Meta /adcreatives response");
       if (creativeJson.error) {
         const metaErr = parseMetaErrorDetails(JSON.stringify(creativeJson));
         const e = creativeJson.error as Record<string, unknown>;
