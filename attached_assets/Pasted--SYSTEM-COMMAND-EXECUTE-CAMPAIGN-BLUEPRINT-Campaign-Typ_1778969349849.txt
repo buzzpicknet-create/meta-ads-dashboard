@@ -1,0 +1,141 @@
+[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+Campaign Type: STANDARD
+Build Standard Campaign NOW — 1 Adset(s):
+
+⚠️ STANDARD RULES — لا تخالف هذه القواعد:
+
+* ZERO Dynamic Creative (DCO) — is_dynamic_creative / asset_feed_spec ممنوع تماماً على الـ Adset والـ Creative
+* ZERO creative_features_spec — standard_enhancements مهمل من Meta ومرفوض على POST
+* ⛔ ZERO instagram_actor_id — الصفحات من حساب شخصي (ليس BM) — page_id فقط كافي
+* كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
+* إذا كان هناك N فيديوهات × M نصوص = N×M إعلانات منفصلة في نفس الـ Adset
+* استخدم launch_pipeboard_campaign — الـ backend يرفع الفيديو وينشئ كل إعلان عبر Meta API مباشرةً (STANDARD حقيقي — لا DCO)
+* pixel_id وpage_id يُكتشفان تلقائياً من الدومين: buzzpick.net→pixel:1405391498274239/page:878997831971062 | dealme-eg.com/dealoop.net/alsouqalhor.com→pixel:1537301040808359/page:108193615487446
+
+# 1. Campaign Settings
+
+* Campaign Type: STANDARD (لا Dynamic Creative)
+* Objective: OUTCOME_SALES · Event: PURCHASE
+* Campaign Name: Test-لاصقات شد الوجه
+* Ad Account ID: act_838054421405431
+* Budget: CBO · 180 EGP/day total
+* Media Drive Folder: https://drive.google.com/drive/folders/1r8uR3Qbb2d4a_Gq2OiddK_h3B51HzhTf?usp=sharing
+* Targeting: Advantage+ Audience (Broad) — Egypt only
+* Placements: Advantage+ Placements
+* Dynamic Creative: DISABLED ⛔
+
+# 2. Adsets & Ads
+
+## Adset 1 — "Secret Lift Pro"
+
+### Ad 1 — "Instant Lift"
+
+Landing Page:
+https://dealme-eg.com/products/secret-lift-pro-face-and-eye-lift?utm_source=facebook&utm_medium=paid&utm_campaign=Test-لاصقات-شد-الوجه&utm_content=instant-lift
+
+Primary Texts:
+
+1.
+
+التجاعيد والترهلات حوالين العين والوش مخليين شكلك مرهق حتى لو لسه صغيرة؟ 😩
+دلوقتي تقدري تشدي البشرة فورًا في ثواني مع Secret Lift Pro ✨
+
+✅ شد فوري لمنطقة العين والوجه
+✅ يقلل ظهور الخطوط والتجاعيد بسرعة
+✅ بيخلي المكياج يثبت بشكل أحلى
+✅ خفيف ومريح ومناسب للاستخدام اليومي 💖
+
+مظهرك المشدود والطبيعي بقى أسهل من أي وقت 😍
+اطلبيه دلوقتي قبل نفاد الكمية 👇
+
+2.
+
+كل ما تبصي في المراية تلاقي الخطوط حوالين العين باينة أكتر؟ 😔
+مع Secret Lift Pro هتحسي بفرق واضح من أول استخدام ✨
+
+✅ يساعد على شد البشرة وإخفاء الترهلات
+✅ مثالي قبل المناسبات والخروجات
+✅ سريع وسهل الاستخدام
+✅ يديكي لوك أصغر وأكثر إشراقًا 💫
+
+متخليش التعب يبان على وشك ❤️
+اطلبيه دلوقتي واستمتعي بإطلالة مشدودة وجذابة 👇
+
+Headlines:
+
+1. شد فوري للوجه والعين ✨
+2. ودّعي الترهلات والخطوط 👌
+
+### Ad 2 — "Event Ready"
+
+Landing Page:
+https://dealme-eg.com/products/secret-lift-pro-face-and-eye-lift?utm_source=facebook&utm_medium=paid&utm_campaign=Test-لاصقات-شد-الوجه&utm_content=event-ready
+
+Primary Texts:
+
+1.
+
+لو عندك مناسبة مهمة وعايزة وشك يبان مشدود وجذاب بسرعة 😍
+Secret Lift Pro هو الحل اللي هيخلي فرق الشكل واضح في ثواني ✨
+
+✅ يشد البشرة فورًا
+✅ يقلل مظهر الخطوط الرفيعة
+✅ مناسب للعين والوجه
+✅ تأثير طبيعي بدون مجهود 💖
+
+خلي ثقتك في نفسك ترجع من جديد 🌸
+اطلبيه دلوقتي قبل انتهاء العرض 👇
+
+2.
+
+بدل الفلاتر والتطبيقات 😅
+دلوقتي تقدري تحصلي على مظهر مشدود بشكل طبيعي مع Secret Lift Pro ✨
+
+✅ شد سريع للوجه والعين
+✅ بيحسن شكل البشرة فورًا
+✅ سهل الاستخدام في أي وقت
+✅ مناسب للاستخدام اليومي 💕
+
+اللوك المشدود بقى أسهل وأسرع 💫
+املي الفورم واطلبيه دلوقتي 👇
+
+Headlines:
+
+1. لوك مشدود في ثواني 😍
+2. سر الإطلالة المشدودة ✨
+
+### Ad 3 — "Fresh Look"
+
+Landing Page:
+https://dealme-eg.com/products/secret-lift-pro-face-and-eye-lift?utm_source=facebook&utm_medium=paid&utm_campaign=Test-لاصقات-شد-الوجه&utm_content=fresh-look
+
+Primary Texts:
+
+1.
+
+الهالات والترهلات الصغيرة ممكن تبوظ أي لوك 😩
+عشان كده Secret Lift Pro معمول عشان يديكي شد فوري يخلي وشك أفتح وأجمل ✨
+
+✅ يقلل مظهر التعب والإرهاق
+✅ شد واضح للبشرة
+✅ مناسب قبل الخروج أو التصوير 📸
+✅ حجمه عملي وسهل تاخديه معاكي في أي مكان
+
+اطلبيه دلوقتي وخلي إطلالتك دايمًا كاملة 👇
+
+2.
+
+عايزة تباني أصغر ومنتعشة بدون خطوات كتير؟ 💖
+Secret Lift Pro هيساعدك تحصلي على مظهر مشدود بسرعة وسهولة ✨
+
+✅ شد فوري لمنطقة العين والوجه
+✅ يقلل ظهور الخطوط
+✅ سريع وسهل الاستخدام
+✅ مناسب لكل أنواع البشرة 🌸
+
+متفوتيش الفرصة وجربيه بنفسك 👇
+
+Headlines:
+
+1. مظهر أصغر وإشراقة أجمل 💫
+2. شد سريع قبل أي خروجة 👌

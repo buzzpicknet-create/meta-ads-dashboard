@@ -4904,6 +4904,12 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
   const send = (data: Record<string, unknown>) =>
     res.write(`data: ${JSON.stringify(data)}\n\n`);
 
+  // SSE keepalive — prevents proxy/browser from closing idle connections
+  // during long-running tool calls (launch_pipeboard_campaign with many videos)
+  const keepAlive = setInterval(() => {
+    if (!res.writableEnded) res.write(": keepalive\n\n");
+  }, 20_000);
+
   try {
     const { messages, campaignContext, imageBase64, imageMimeType, fileText, fileName } = session;
     const selectedAccFilter = session.selectedAccounts?.length
@@ -5046,6 +5052,8 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     logger.error({ err }, "runChatStream error");
     send({ error: msg });
     send({ done: true });
+  } finally {
+    clearInterval(keepAlive);
   }
 }
 
@@ -5095,6 +5103,7 @@ router.get("/ai/chat-stream", async (req: Request, res: Response): Promise<void>
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.socket?.setTimeout(0); // disable Node socket timeout for long-running SSE
   res.flushHeaders();
   await runChatStream(session, res);
   res.end();
@@ -5117,6 +5126,7 @@ router.post("/ai/chat", async (req: Request, res: Response): Promise<void> => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.socket?.setTimeout(0); // disable Node socket timeout for long-running SSE
   res.flushHeaders();
   await runChatStream({
     messages: (body.messages ?? []) as ChatSession["messages"],
