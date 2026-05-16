@@ -5049,4 +5049,40 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
+// ── POST /pipeboard/reset — force disconnect + fresh reconnect + list tools ───
+router.post("/pipeboard/reset", async (_req: Request, res: Response) => {
+  try {
+    // 1. Force-close existing clients
+    try { await _pbWriteClient?.close(); } catch { /* ignore */ }
+    _pbWriteClient = null;
+    _pbWriteConnecting = null;
+    try { await _gaWriteClient?.close(); } catch { /* ignore */ }
+    _gaWriteClient = null;
+    _gaWriteConnecting = null;
+    logger.info("pipeboard/reset: singletons cleared");
+
+    // 2. Fresh connect to Meta Ads MCP
+    const freshClient = await getPipeboardWriteClient();
+    logger.info("pipeboard/reset: fresh connection established");
+
+    // 3. List actual tools available
+    const toolsResult = await freshClient.listTools();
+    const tools = (toolsResult.tools ?? []).map((t: { name: string; description?: string }) => ({
+      name: t.name,
+      description: t.description ?? "",
+    }));
+    logger.info({ count: tools.length }, "pipeboard/reset: tools listed");
+
+    res.json({
+      success: true,
+      message: `✅ Pipeboard أعيد الاتصال من الصفر — ${tools.length} tool متاحة`,
+      tools,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "pipeboard/reset: failed");
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
 export default router;
