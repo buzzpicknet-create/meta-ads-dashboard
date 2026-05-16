@@ -4466,6 +4466,14 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       : null;
 
     let systemContent = SYSTEM_PROMPT;
+
+    // ── Inject selected account_ids so the AI always knows which account to use ──
+    // This MUST be injected before campaignContext so it takes precedence.
+    if (selectedAccFilter?.size) {
+      const accountIds = [...selectedAccFilter];
+      systemContent += `\n\n══════════ ACTIVE AD ACCOUNT ══════════\n🏦 الحساب المختار في الواجهة (إلزامي — استخدمه في كل tool call بدون استثناء):\n${accountIds.map(id => `act_${id}`).join(", ")}\n\nلا تسأل المستخدم عن account_id — هو محدد أعلاه. استخدمه فوراً في كل create_campaign / create_adset / create_adcreative / launch_pipeboard_campaign.\n══════════════════════════════════════`;
+    }
+
     if (campaignContext) systemContent += `\n\n══════════ CAMPAIGN CONTEXT ══════════\n${campaignContext}`;
     if (fileText) systemContent += `\n\n══════════ ATTACHED FILE: ${fileName ?? "file"} ══════════\n${fileText}`;
 
