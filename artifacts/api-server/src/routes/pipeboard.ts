@@ -1912,58 +1912,67 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           else pixelId = "1537301040808359";
         }
 
-        // Step 1: create_ad_creative via Pipeboard — using object_story_spec format
-        // This produces a TRUE STANDARD (non-DCO) creative — NO asset_feed_spec.
-        // Pipeboard docs: pass object_story_spec.video_data (or link_data for images)
-        // → Meta does NOT require is_dynamic_creative=true on the adset.
-        let storySpec: Record<string, unknown>;
+        // Use Pipeboard's native create_ad_from_creative_spec with creative_spec.object_story_spec.
+        // Pipeboard's create_ad_creative (flat args) always builds asset_feed_spec (DCO) internally.
+        // create_ad_from_creative_spec passes creative_spec raw to Meta → TRUE STANDARD (non-DCO).
+        let creativeSpecPb: Record<string, unknown>;
         if (mediaType === "video") {
-          storySpec = {
-            page_id: pageId,
-            video_data: {
-              video_id: videoId,
-              message: primaryText ?? "",
-              title: headline ?? "",
-              call_to_action: {
-                type: callToAction || "SHOP_NOW",
-                value: { link: linkUrl },
+          creativeSpecPb = {
+            name: `${adName} — creative`,
+            object_story_spec: {
+              page_id: pageId,
+              video_data: {
+                video_id: videoId,
+                message: primaryText ?? "",
+                title: headline ?? "",
+                call_to_action: {
+                  type: callToAction || "SHOP_NOW",
+                  value: { link: linkUrl },
+                },
               },
             },
           };
         } else {
-          storySpec = {
-            page_id: pageId,
-            link_data: {
-              image_hash: imageHash,
-              link: linkUrl,
-              message: primaryText ?? "",
-              name: headline ?? "",
-              call_to_action: {
-                type: callToAction || "SHOP_NOW",
-                value: { link: linkUrl },
+          creativeSpecPb = {
+            name: `${adName} — creative`,
+            object_story_spec: {
+              page_id: pageId,
+              link_data: {
+                image_hash: imageHash,
+                link: linkUrl,
+                message: primaryText ?? "",
+                name: headline ?? "",
+                call_to_action: {
+                  type: callToAction || "SHOP_NOW",
+                  value: { link: linkUrl },
+                },
               },
             },
           };
         }
-        const creativeArgsPb: Record<string, unknown> = {
+        const adFromSpecArgsPb: Record<string, unknown> = {
           account_id: accountId,
-          name: `${adName} — creative`,
-          object_story_spec: storySpec,
+          adset_id: resolvedAdsetId,
+          name: adName,
+          status: "PAUSED",
+          creative_spec: creativeSpecPb,
+          tracking_specs: [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }],
         };
 
         // Retry up to 4 times with 20s delay for "video still processing" (1885252)
         const MAX_CREATIVE_RETRIES = 4;
         const VIDEO_PROCESSING_DELAY_MS = 20_000;
+        let newAdId = "";
         let creativeId = "";
         for (let attempt = 0; attempt <= MAX_CREATIVE_RETRIES; attempt++) {
-          logger.info({ creativeArgsPb, attempt }, "create_ad_from_creative_spec: → Pipeboard create_ad_creative (no token)");
-          const creativeResult = await pbClient.callTool({ name: "create_ad_creative", arguments: creativeArgsPb });
-          const creativeText = ((creativeResult.content as Array<{ type: string; text?: string }>)
+          logger.info({ adFromSpecArgsPb, attempt }, "create_ad_from_creative_spec: → Pipeboard create_ad_from_creative_spec (no token)");
+          const specResult = await pbClient.callTool({ name: "create_ad_from_creative_spec", arguments: adFromSpecArgsPb });
+          const specText = ((specResult.content as Array<{ type: string; text?: string }>)
             ?.filter(c => c.type === "text").map(c => c.text ?? "").join("") ?? "").trim();
-          logger.info({ creativeText, attempt }, "create_ad_from_creative_spec: ← Pipeboard create_ad_creative");
+          logger.info({ specText, attempt }, "create_ad_from_creative_spec: ← Pipeboard create_ad_from_creative_spec");
 
           // Check for "video still processing" (error_subcode 1885252) → wait and retry
-          if (/"error"/.test(creativeText) && creativeText.includes("1885252")) {
+          if (/"error"/.test(specText) && specText.includes("1885252")) {
             if (attempt < MAX_CREATIVE_RETRIES) {
               logger.warn({ attempt, videoId }, `create_ad_from_creative_spec: video still processing — waiting ${VIDEO_PROCESSING_DELAY_MS / 1000}s before retry`);
               await new Promise(r => setTimeout(r, VIDEO_PROCESSING_DELAY_MS));
@@ -1972,47 +1981,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             throw new Error(`الفيديو لم يجهز بعد ${MAX_CREATIVE_RETRIES} محاولات — الرجاء الانتظار دقيقة وإعادة المحاولة يدوياً`);
           }
 
-          const creativeIdMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
-          creativeId = creativeIdMatch?.[1] ?? "";
-          if (!creativeId || (/"error"/.test(creativeText) && !creativeIdMatch)) {
-            throw new Error(`فشل create_ad_creative (Pipeboard) — ${creativeText.slice(0, 300)}`);
+          const allSpecIds = [...specText.matchAll(/"id"\s*:\s*"(\d{10,})"/g)].map(m => m[1]!);
+          newAdId = allSpecIds[allSpecIds.length - 1] ?? "";
+          creativeId = allSpecIds[0] ?? "";
+          if (!newAdId && /"error"/.test(specText)) {
+            throw new Error(`فشل create_ad_from_creative_spec (Pipeboard) — ${specText.slice(0, 300)}`);
           }
           break; // success
         }
 
-        // Step 2: create_ad via Pipeboard
-        const adArgsPb: Record<string, unknown> = {
-          account_id: accountIdWithAct,
-          name: adName,
-          adset_id: resolvedAdsetId,
-          creative_id: creativeId,
-          status: "PAUSED",
-          tracking_specs: [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }],
-        };
-        logger.info({ adArgsPb }, "create_ad_from_creative_spec: → Pipeboard create_ad (no token)");
-        const adResult = await pbClient.callTool({ name: "create_ad", arguments: adArgsPb });
-        const adText = ((adResult.content as Array<{ type: string; text?: string }>)
-          ?.filter(c => c.type === "text").map(c => c.text ?? "").join("") ?? "").trim();
-        logger.info({ adText }, "create_ad_from_creative_spec: ← Pipeboard create_ad");
-
-        const adIdMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
-        const newAdId = adIdMatch?.[1] ?? "";
-        // ── Special: is_dynamic_creative missing on adset ───────────────────
-        // Pipeboard always builds asset_feed_spec creatives. Meta REQUIRES is_dynamic_creative=true
-        // on the parent adset when using asset_feed_spec. This flag is IMMUTABLE after adset creation.
-        // For STANDARD campaigns we intentionally do NOT set is_dynamic_creative on the adset.
-        // When this error occurs on a STANDARD adset, we must recreate the adset with is_dynamic_creative=true
-        // (DCO classification in Ads Manager is unavoidable when using Pipeboard without META_ACCESS_TOKEN).
-        if (!newAdId && (adText.includes("is_dynamic_creative") || adText.includes("Dynamic Creative"))) {
-          throw new Error(
-            `⚠️ تعارض Pipeboard مع STANDARD: Pipeboard ينشئ creatives بتنسيق asset_feed_spec الذي يتطلب is_dynamic_creative=true على الـ adset. ` +
-            `الـ adset الحالي (${resolvedAdsetId}) لا يحمل هذا الإعداد وهو غير قابل للتعديل بعد الإنشاء. ` +
-            `الحل الإلزامي: استدعِ create_adset من جديد بنفس الإعدادات مع إضافة is_dynamic_creative=true — ` +
-            `ملاحظة: ستظهر المجموعة بعلامة "Dynamic Creative" في Ads Manager (قيد Pipeboard) لكن كل إعلان يحمل فيديو واحد + نص واحد + عنوان واحد (سلوك standard فعلياً). ` +
-            `ثم أعِد استدعاء create_ad_from_creative_spec مع adset_id الجديد.`,
-          );
-        }
-        if (!newAdId) throw new Error(`فشل create_ad (Pipeboard) — ${adText.slice(0, 300)}`);
+        if (!newAdId) throw new Error(`لم يُعاد ad_id من create_ad_from_creative_spec — الرجاء المحاولة مرة أخرى`);
 
         const pbMsg = [
           `✅ create_ad_from_creative_spec نجح (via Pipeboard MCP)`,
@@ -3175,149 +3153,140 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         for (let ti = 0; ti < texts.length; ti++) {
           const singleText = texts[ti]!;
 
-          // Create ad creative — one video + one text + one headline
-          // Use object_story_spec format (NOT flat args) so Pipeboard builds a
-          // standard non-DCO creative instead of asset_feed_spec.
-          // This avoids the "Dynamic Creative Ad Requires is_dynamic_creative" error.
+          // Create ad + creative in ONE call via Pipeboard's native create_ad_from_creative_spec.
+          // Pass creative_spec.object_story_spec → Pipeboard forwards it raw to Meta.
+          // This produces TRUE STANDARD (non-DCO) creative — no asset_feed_spec generated.
+          // Pipeboard's create_ad_creative (flat args) always converts to asset_feed_spec (DCO);
+          // create_ad_from_creative_spec with creative_spec bypasses that conversion.
           let creativeId = "";
+          let adIdFromSpec = "";
           try {
-            let storySpecLpc: Record<string, unknown>;
+            let creativeSpecObj: Record<string, unknown>;
             if (isVid) {
-              storySpecLpc = {
-                page_id: pageId,
-                video_data: {
-                  video_id: media.videoId,
-                  message: singleText,
-                  title: firstHeadline,
-                  call_to_action: {
-                    type: callToAction || "SHOP_NOW",
-                    value: { link: landingPageUrl },
+              creativeSpecObj = {
+                name: `${adset.name} — نص ${ti + 1} — creative`,
+                object_story_spec: {
+                  page_id: pageId,
+                  video_data: {
+                    video_id: media.videoId,
+                    message: singleText,
+                    title: firstHeadline,
+                    call_to_action: {
+                      type: callToAction || "SHOP_NOW",
+                      value: { link: landingPageUrl },
+                    },
                   },
                 },
               };
             } else {
-              storySpecLpc = {
-                page_id: pageId,
-                link_data: {
-                  image_hash: media.imageHash,
-                  link: landingPageUrl,
-                  message: singleText,
-                  name: firstHeadline,
-                  call_to_action: {
-                    type: callToAction || "SHOP_NOW",
-                    value: { link: landingPageUrl },
+              creativeSpecObj = {
+                name: `${adset.name} — نص ${ti + 1} — creative`,
+                object_story_spec: {
+                  page_id: pageId,
+                  link_data: {
+                    image_hash: media.imageHash,
+                    link: landingPageUrl,
+                    message: singleText,
+                    name: firstHeadline,
+                    call_to_action: {
+                      type: callToAction || "SHOP_NOW",
+                      value: { link: landingPageUrl },
+                    },
                   },
                 },
               };
             }
-            const creativeArgs: Record<string, unknown> = {
+            const adFromSpecArgs: Record<string, unknown> = {
               account_id: accountId,
-              name: `${adset.name} — نص ${ti + 1}`,
-              object_story_spec: storySpecLpc,
-            };
-
-            const creativeResult = await client.callTool({
-              name: "create_ad_creative",
-              arguments: creativeArgs,
-            });
-            const creativeText = mcpText(creativeResult);
-            logger.info(
-              { creativeText },
-              `launch_pipeboard_campaign: create_ad_creative [${adset.name}][text ${ti + 1}]`,
-            );
-
-            // ── Strict error parsing: check for nested errors even on 200 ──
-            // Use tight regex: a real creative ID appears as "id": "NNNNN" (standalone key).
-            const hasRealId = /"id"\s*:\s*"(\d{10,})"/.test(creativeText);
-            if (/"error"/.test(creativeText) && !hasRealId) {
-              adResults.push({
-                adset_name: adset.name,
-                adset_id: adsetId,
-                creative_index: ti,
-                error: `فشل creative — ${extractMetaError(creativeText)}`,
-              });
-              continue;
-            }
-            const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
-            creativeId = creativeMatch?.[1] ?? "";
-            if (!creativeId) {
-              adResults.push({
-                adset_name: adset.name,
-                adset_id: adsetId,
-                creative_index: ti,
-                error: `لم يُعاد creative_id — ${extractMetaError(creativeText)}`,
-              });
-              continue;
-            }
-          } catch (e) {
-            adResults.push({
-              adset_name: adset.name,
               adset_id: adsetId,
-              creative_index: ti,
-              error: `create_ad_creative: ${e instanceof Error ? e.message : String(e)}`,
-            });
-            continue;
-          }
-
-          // Create ad — one per text (must use act_ prefix for Meta's /ads endpoint)
-          try {
-            const adArgs: Record<string, unknown> = {
-              account_id: accountIdWithAct,
               name: `${adset.name} — نص ${ti + 1}`,
-              adset_id: adsetId,
-              creative_id: creativeId,
               status: "PAUSED",
+              creative_spec: creativeSpecObj,
             };
-            // For SALES/PURCHASE campaigns Meta requires tracking_specs on the ad
-            // itself (not just promoted_object on the adset) — without this the
-            // creative is considered "invalid" for the conversion context (error 1487015).
             if (hasPixel && pixelId) {
-              adArgs.tracking_specs = [
+              adFromSpecArgs.tracking_specs = [
                 { "action.type": ["offsite_conversion"], fb_pixel: [pixelId] },
               ];
             }
-            const adResult = await client.callTool({
-              name: "create_ad",
-              arguments: adArgs,
-            });
-            const adText = mcpText(adResult);
-            logger.info(
-              { adText },
-              `launch_pipeboard_campaign: create_ad [${adset.name}][text ${ti + 1}]`,
-            );
 
-            // ── Strict error parsing for ads ──────────────────────────────
-            if (/"error"/.test(adText) && !/"id"/.test(adText)) {
+            // Retry up to 4 times for "video still processing" (1885252)
+            const MAX_RETRIES_LPC = 4;
+            const RETRY_DELAY_LPC = 20_000;
+            let specResult;
+            let specText = "";
+            for (let attempt = 0; attempt <= MAX_RETRIES_LPC; attempt++) {
+              logger.info(
+                { adFromSpecArgs, attempt },
+                `launch_pipeboard_campaign: create_ad_from_creative_spec [${adset.name}][text ${ti + 1}]`,
+              );
+              specResult = await client.callTool({
+                name: "create_ad_from_creative_spec",
+                arguments: adFromSpecArgs,
+              });
+              specText = mcpText(specResult);
+              logger.info(
+                { specText },
+                `launch_pipeboard_campaign: create_ad_from_creative_spec result [${adset.name}][text ${ti + 1}]`,
+              );
+
+              // Retry on "video still processing" (error_subcode 1885252)
+              if (/"error"/.test(specText) && specText.includes("1885252")) {
+                if (attempt < MAX_RETRIES_LPC) {
+                  logger.warn(
+                    { attempt, videoId: media.videoId },
+                    `launch_pipeboard_campaign: video still processing — waiting ${RETRY_DELAY_LPC / 1000}s`,
+                  );
+                  await new Promise(r => setTimeout(r, RETRY_DELAY_LPC));
+                  continue;
+                }
+                adResults.push({
+                  adset_name: adset.name,
+                  adset_id: adsetId,
+                  creative_index: ti,
+                  error: `الفيديو لم يجهز بعد ${MAX_RETRIES_LPC} محاولات — انتظر دقيقة وأعِد المحاولة`,
+                });
+                break;
+              }
+              break; // no retry needed
+            }
+
+            // Parse ad_id and creative_id from create_ad_from_creative_spec result
+            const hasRealId = /"id"\s*:\s*"(\d{10,})"/.test(specText);
+            if (/"error"/.test(specText) && !hasRealId) {
               adResults.push({
                 adset_name: adset.name,
                 adset_id: adsetId,
                 creative_index: ti,
-                creative_id: creativeId,
-                error: `فشل create_ad — ${extractMetaError(adText)}`,
+                error: `فشل create_ad_from_creative_spec — ${extractMetaError(specText)}`,
               });
               continue;
             }
-            const adMatch =
-              adText.match(/"id"\s*:\s*"(\d+)"/) ??
-              adText.match(/\b(\d{10,})\b/);
-            const adId = adMatch?.[1] ?? "";
+            // Result may contain both creative_id and ad_id — extract the largest (ad_id)
+            const allIds = [...specText.matchAll(/"id"\s*:\s*"(\d{10,})"/g)].map(m => m[1]!);
+            adIdFromSpec = allIds[allIds.length - 1] ?? "";
+            creativeId = allIds[0] ?? "";
+            if (!adIdFromSpec) {
+              adResults.push({
+                adset_name: adset.name,
+                adset_id: adsetId,
+                creative_index: ti,
+                error: `لم يُعاد ad_id من create_ad_from_creative_spec — ${extractMetaError(specText)}`,
+              });
+              continue;
+            }
             adResults.push({
               adset_name: adset.name,
               adset_id: adsetId,
               creative_index: ti,
-              creative_id: creativeId,
-              ad_id: adId || undefined,
-              error: adId
-                ? undefined
-                : `لم يُعاد ad_id — ${extractMetaError(adText)}`,
+              creative_id: creativeId || undefined,
+              ad_id: adIdFromSpec,
             });
           } catch (e) {
             adResults.push({
               adset_name: adset.name,
               adset_id: adsetId,
               creative_index: ti,
-              creative_id: creativeId,
-              error: `create_ad: ${e instanceof Error ? e.message : String(e)}`,
+              error: `create_ad_from_creative_spec: ${e instanceof Error ? e.message : String(e)}`,
             });
           }
         }
