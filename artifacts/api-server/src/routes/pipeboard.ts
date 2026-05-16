@@ -3555,7 +3555,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
 
         // ── GUARD 2: passed ID must be a campaign, not an adset ────────────
-        if (!campObjJson.objective) {
+        // campFetchOk re-checked: it may have been set to false in GUARD 1 (token error),
+        // in which case campObjJson contains an error response (no objective field) —
+        // skip this guard so we don't falsely report "adset_id passed instead of campaign_id".
+        if (campFetchOk && !campObjJson.objective) {
           res.status(400).json({
             error:
               `Pre-call ID Guard: campaign_id="${salesCampaignId}" يبدو أنه adset_id وليس campaign_id ` +
@@ -3568,7 +3571,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // ── GUARD 3: campaign must belong to the requested account ─────────
         const campAccId = String(campObjJson.account_id ?? "").replace(/^act_/, "");
         const reqAccId  = String(effectiveArgs.account_id ?? "").replace(/^act_/, "");
-        if (campAccId && reqAccId && campAccId !== reqAccId) {
+        if (campFetchOk && campAccId && reqAccId && campAccId !== reqAccId) {
           res.status(400).json({
             error:
               `Pre-call Account Guard: campaign_id="${salesCampaignId}" ينتمي للحساب act_${campAccId} ` +
