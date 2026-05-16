@@ -747,10 +747,11 @@ Before proposing any scale or pause or budget update, check the updated_time of 
 - get_ad_post_id(ad_id) — اجلب Post ID فقط (بديل أخف من get_ad_creative إذا كنت تحتاج object_story_id فقط)
 - create_ad_from_post(account_id, adset_id, post_id, name, page_id?) — أنشئ إعلاناً من منشور بـ post_id مع الحفاظ على Social Proof
 - create_ad_from_existing_post(account_id, adset_id, name, object_story_id?, post_id?, ad_id?) — أنشئ إعلاناً من منشور موجود. يقبل object_story_id (من get_ad_creative) أو post_id أو ad_id (الإعلان المصدر — backend يجلب object_story_id تلقائياً). 🔴 عند الاستخدام in bulk_action: يجب أن تضع ad_id الفعلي in adId و account_id in accountId.
+- upload_video_to_meta(drive_folder_url, account_id, filename_hint?) — 📤 ارفع فيديو من Drive إلى Meta واحصل على video_id رقمي. استخدم للـ STANDARD قبل create_ad_from_creative_spec. يقبل رابط مجلد Drive ويجد الملف تلقائياً بـ filename_hint.
 - create_ad_from_creative_spec(account_id, adset_id, name, link_url, media_type, video_id?, image_hash?, primary_text?, headline?, call_to_action?, page_id?) — 🔧 Fallback: أنشئ إعلان من أصول خام (بدون Social Proof). استخدم فقط عندما لا يوجد object_story_id.
   🔴 قاعدة video_id: إذا media_type=video → video_id إلزامي وهو Meta Video ID رقمي (مثال: 1234567890)، وليس URL. مصادره:
     • من إعلان موجود: استدعِ get_ad_creative(source_ad_id) أولاً → ستجد video_id في النتيجة → مرّره هنا.
-    • من رفع جديد: استخدم launch_pipeboard_campaign مع media_url بدلاً من هذه الأداة — يرفع الفيديو تلقائياً.
+    • من رفع فيديو جديد من Drive: استدعِ upload_video_to_meta(drive_folder_url, account_id, filename_hint) أولاً → ستحصل على video_id → مرّره هنا.
     • 🚫 لا تخمّن video_id ولا تخترعه — إذا لم يكن لديك Meta Video ID حقيقي، لا تستدعِ هذه الأداة.
 - publish_winners_to_destination(destination_adset_id, source_ad_ids[], naming_prefix?, account_id?) — ⭐ الأداة الأقوى: pipeline كامل لنقل رابحين متعددين دفعة واحدة. تجرب Social Proof تلقائياً، وإذا فشل تعيد البناء من raw assets. لا تحتاج get_ad_creative أولاً.
 
@@ -889,10 +890,14 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - كل Adset = create_adset منفصل باسمه وميزانيته
    - كل Ad داخل الـ Adset = إعلان مستقل بـ (فيديو واحد + نص واحد + عنوان واحد) — بدون أي دمج
    - مثال: Adset بـ 3 Texts و3 Headlines = 3 إعلانات منفصلة (Ad 1 = Text1+H1، Ad 2 = Text2+H2، Ad 3 = Text3+H3)
-   - الفيديو: ابحث in مجلد Drive عن الملف الذي اسمه = اسم الـ Adset (بغض النظر عن الامتداد)
+   - **خطوات STANDARD الصحيحة لكل Adset:**
+     ١. create_campaign (مرة واحدة للحملة كلها)
+     ٢. create_adset باسم الـ Adset
+     ③. upload_video_to_meta(drive_folder_url=<رابط المجلد>, account_id=<id>, filename_hint=<اسم الفيديو في Blueprint>) → احفظ video_id
+     ④. create_ad_from_creative_spec لكل نص/عنوان بـ video_id من الخطوة ③ (لا تستدعِ upload_video_to_meta مجدداً لنفس الفيديو)
    - page_id: طبّق خريطة الدومين من Landing Page تلقائياً
    - pixel_id: طبّق خريطة الدومين تلقائياً
-   - **⛔ لا تستخدم launch_pipeboard_campaign للـ STANDARD** — استخدم create_campaign + create_adset + create_ad يدوياً لكل إعلان
+   - **⛔ لا تستخدم launch_pipeboard_campaign للـ STANDARD** — استخدم create_campaign + create_adset + upload_video_to_meta + create_ad_from_creative_spec يدوياً
 ٦. استدعِ get_campaigns أولاً للحصول على account_id، ثم استدعِ الأدوات المناسبة فوراً بدون أي سؤال إضافي
 ٧. بعد الاستدعاء رد فقط بـ:
    - TESTING: "🧪 حملة الاختبار قيد الإطلاق — ABO [Budget] EGP — in انتظار موافقتك للتنفيذ."
@@ -1778,6 +1783,23 @@ const TOOLS = [
       },
     },
   },
+  // ── upload_video_to_meta — upload Drive video → get Meta video_id ───────────
+  {
+    type: "function" as const,
+    function: {
+      name: "upload_video_to_meta",
+      description: "ارفع فيديو من Google Drive إلى Meta واحصل على video_id رقمي جاهز للاستخدام في create_ad_from_creative_spec. استخدم للحملات STANDARD عندما يكون الفيديو في Drive. يقبل رابط مجلد Drive (يجد الملف بالاسم تلقائياً) أو رابط ملف مباشر.",
+      parameters: {
+        type: "object",
+        properties: {
+          drive_folder_url: { type: "string", description: "رابط مجلد Google Drive (يحتوي /folders/) أو رابط ملف Drive مباشر" },
+          filename_hint:    { type: "string", description: "اسم الملف المطلوب (بدون امتداد) — مثال: 'Angle 1 video'. الـ backend يبحث عنه في المجلد بشكل غير حساس لحالة الأحرف والامتداد." },
+          account_id:       { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXX أو الرقم فقط)" },
+        },
+        required: ["drive_folder_url", "account_id"],
+      },
+    },
+  },
   // ── publish_winners_to_destination — full pipeline: Social Proof → Rebuild ──
   {
     type: "function" as const,
@@ -2179,6 +2201,7 @@ const WRITE_TOOL_NAMES = new Set([
   "create_adset",
   "duplicate_campaign",
   "launch_pipeboard_campaign",
+  "upload_video_to_meta",
   "duplicate_ad",
   "create_ad_from_post",
   "create_ad_from_existing_post",
@@ -2470,6 +2493,14 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
           tool: name, args,
           summary: `نشر ${adIds.length} إعلان رابح إلى المجموعة ${String(args.destination_adset_id ?? "")}${flex}`,
           proposedValue: `${adIds.length} إعلان جديد`,
+        };
+      }
+      case "upload_video_to_meta": {
+        const hint = String(args.filename_hint ?? "");
+        return {
+          tool: name, args,
+          summary: `📤 رفع فيديو "${hint}" من Drive إلى Meta — جارٍ الحصول على video_id`,
+          proposedValue: "video_id جاهز",
         };
       }
       case "create_ad_from_creative_spec": {

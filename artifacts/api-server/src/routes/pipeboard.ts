@@ -3948,6 +3948,128 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     return;
   }
 
+  // ── upload_video_to_meta — standalone Drive→Meta video upload ───────────────
+  // Uploads a video from a Google Drive folder (by filename hint) or direct URL
+  // to Meta and returns the numeric video_id. Used by STANDARD campaign flow
+  // so the AI can call create_ad_from_creative_spec without launch_pipeboard_campaign.
+  if (tool === "upload_video_to_meta") {
+    const driveFolderUrl  = String(args?.drive_folder_url ?? "").trim();
+    const filenameHint    = String(args?.filename_hint   ?? "").trim().toLowerCase();
+    const rawAccId_uv     = String(args?.account_id      ?? "").replace(/,/g, "").trim();
+    const accountId_uv    = rawAccId_uv.startsWith("act_") ? rawAccId_uv.slice(4) : rawAccId_uv;
+
+    if (!driveFolderUrl) {
+      res.status(400).json({ error: "upload_video_to_meta: drive_folder_url مطلوب" });
+      return;
+    }
+    if (!accountId_uv) {
+      res.status(400).json({ error: "upload_video_to_meta: account_id مطلوب" });
+      return;
+    }
+
+    try {
+      // ── Helper: normalise a Drive file URL to download link ────────────────
+      function normDriveUrl(raw: string): string {
+        const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+        if (fileMatch) return `https://drive.usercontent.google.com/download?id=${fileMatch[1]}&export=download&authuser=0`;
+        const idMatch = raw.match(/drive\.google\.com\/(?:open|uc)[^?]*\?(?:[^#]*&)?id=([^&#]+)/);
+        if (idMatch) return `https://drive.usercontent.google.com/download?id=${idMatch[1]}&export=download&authuser=0`;
+        if (raw.includes("drive.usercontent.google.com")) return raw;
+        return raw;
+      }
+
+      let uploadUrl = "";
+      let resolvedFilename = "";
+
+      const folderMatch = driveFolderUrl.match(/\/folders\/([a-zA-Z0-9-_]+)/);
+      if (folderMatch) {
+        // ── It's a folder URL — list files and find by filename_hint ─────────
+        const googleApiKey = process.env.GOOGLE_API_KEY;
+        if (!googleApiKey) throw new Error("GOOGLE_API_KEY مفقود — لا يمكن استعراض مجلد Drive");
+
+        const folderId = folderMatch[1]!;
+        const apiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
+        const driveResp = await fetch(apiUrl, { signal: AbortSignal.timeout(30_000) });
+        if (!driveResp.ok) throw new Error(`فشل Google Drive API: ${driveResp.status} ${driveResp.statusText}`);
+        const driveData = (await driveResp.json()) as { files?: Array<{ id: string; mimeType: string; name: string }> };
+        const videoFiles = (driveData.files ?? []).filter(f => f.mimeType.startsWith("video/"));
+
+        logger.info({ folderId, count: videoFiles.length, filenameHint }, "upload_video_to_meta: Drive folder listed");
+
+        if (videoFiles.length === 0) throw new Error(`مجلد Drive "${folderId}" لا يحتوي على فيديوهات`);
+
+        // Match by filename hint (strip extension for comparison)
+        let matched = filenameHint
+          ? videoFiles.find(f => {
+              const nameNoExt = f.name.replace(/\.[^.]+$/, "").toLowerCase();
+              return nameNoExt === filenameHint || nameNoExt.includes(filenameHint) || filenameHint.includes(nameNoExt);
+            })
+          : undefined;
+
+        // Fallback: first video
+        if (!matched) matched = videoFiles[0]!;
+
+        resolvedFilename = matched.name;
+        uploadUrl = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0`;
+        logger.info({ resolvedFilename, uploadUrl }, "upload_video_to_meta: file resolved");
+      } else {
+        // ── Direct file URL (Drive file or other direct URL) ─────────────────
+        uploadUrl = normDriveUrl(driveFolderUrl);
+        resolvedFilename = filenameHint || "video";
+      }
+
+      // ── Upload via Pipeboard upload_ad_video ──────────────────────────────
+      const client = await getPipeboardWriteClient();
+      const vidResult = await client.callTool(
+        {
+          name: "upload_ad_video",
+          arguments: {
+            account_id: accountId_uv,
+            video_url: uploadUrl,
+            name: resolvedFilename || `video_${Date.now()}`,
+          },
+        },
+        undefined,
+        { timeout: 120_000 },
+      );
+
+      const vidText = (
+        (vidResult.content as Array<{ type: string; text?: string }>)
+          ?.filter(c => c.type === "text")
+          .map(c => c.text ?? "")
+          .join("") ?? ""
+      ).trim();
+
+      logger.info({ vidText: vidText.slice(0, 300), resolvedFilename }, "upload_video_to_meta: upload_ad_video response");
+
+      const vidMatch = vidText.match(/"(?:video_id|id)"\s*:\s*"(\d+)"/) ?? vidText.match(/\b(\d{10,})\b/);
+      const videoId = vidMatch?.[1] ?? "";
+
+      if (!videoId) throw new Error(`رفع الفيديو فشل — الاستجابة: ${vidText.slice(0, 300)}`);
+
+      await query(
+        `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [executedBy, tool, JSON.stringify(args ?? {}), true,
+         `video_id: ${videoId} — ${resolvedFilename}`, "", "", false],
+      ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (upload_video_to_meta)"));
+
+      res.json({
+        success: true,
+        video_id: videoId,
+        filename: resolvedFilename,
+        upload_url: uploadUrl,
+        message: `✅ تم رفع الفيديو "${resolvedFilename}" — video_id: ${videoId}`,
+      });
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "upload_video_to_meta: failed");
+      res.status(500).json({ error: `فشل رفع الفيديو: ${msg}` });
+      return;
+    }
+  }
+
   const isGaTool = GA_WRITE_TOOLS.has(tool);
   const { mcpTool, mcpArgs } = isGaTool
     ? translateToGoogleAdsMcp(tool, args ?? {})

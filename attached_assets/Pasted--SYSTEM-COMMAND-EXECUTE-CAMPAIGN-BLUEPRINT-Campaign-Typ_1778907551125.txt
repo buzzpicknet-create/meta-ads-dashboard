@@ -1,0 +1,53 @@
+[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
+Campaign Type: STANDARD
+Build Standard Campaign NOW — 1 Adset(s) · 3 Individual Ads per Adset:
+
+⚠️ STANDARD RULES — لا تخالف هذه القواعد:
+- ZERO Dynamic Creative — asset_feed_spec ممنوع تماماً
+- ZERO Advantage+ Creative Enhancements — degrees_of_freedom_spec ممنوع
+- كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
+- 3 فيديو = 3 إعلانات منفصلة في نفس الـ Adset (ليس variants)
+- لا تستخدم launch_pipeboard_campaign — استخدم create_campaign ثم create_adset ثم create_ad لكل إعلان
+
+# 1. Campaign Settings
+- Campaign Type: STANDARD (لا Dynamic Creative)
+- Objective: OUTCOME_SALES · Event: PURCHASE
+- Campaign Name: 111 - Standard - 16-05-2026
+- Ad Account ID: act_838054421405431
+- Budget: CBO · 180 EGP/day total
+- Media Drive Folder: https://drive.google.com/drive/folders/1xHLNkWC2-gN67NqVMjyITCIuqJdPQKQk?usp=sharing
+- Targeting: Advantage+ Audience (Broad) — Egypt only
+- Placements: Advantage+ Placements
+- Dynamic Creative: DISABLED ⛔
+
+# 2. Adsets & Ads (كل نص = إعلان مستقل — مش Dynamic Creative)
+
+## Adset 1 — "Angle 1"
+- Landing Page: https://dealme-eg.com/pages/lp-high-quality-shoe-glue-4cebn0?utm_source=facebook&utm_medium=paid&utm_campaign=111---Standard---16-05-2026&utm_content=angle-1
+- Video: find file named [Angle 1 video] in Drive folder (match by filename, ignore extension)
+- Ads (3 ads — same video, different text per ad, NO Dynamic Creative):
+  Primary Texts (one per ad):
+    1. جزمتك المفضلة اتقطعت أو النعل فك؟ 👟 بدل ما ترميها وتخسر فلوسك… خلّص الموضوع في دقايق ومن غير مشوار للجزمجي اللي بياخد وقت وفلوس والنتيجة مش مضمونة. 
+✅ لاصق أحذية مخصوص بقوة لصق جبارة 
+✅ مقاوم للمياه عشان الاستخدام اليومي 
+✅ شفاف… مش هيغيّر شكل جزمتك 
+✅ يرجّع الجزمة كأنها جديدة في ثواني ✨
+العرض لفترة محدودة—الحق قبل نفاذ الكمية. املأ الفورم واطلب دلوقتي بـ 199 بدل 450، وادفع لما المنتج يوصلك وتتأكد بنفسك 📦
+    2. بتلبس جزمة جديدة وبعد كام مشوار تلاقي النعل بدأ يفتح من الجنب وشكلها بقى وحش؟ 😤 هتفضل كل شوية تصلّح وتقلق؟ 
+✅ لاصق الأحذية الخارق… الحل النهائي 
+✅ يمسك النعل بقوة لصق جبارة 
+✅ مقاوم للمياه عشان مايفكش مع الاستعمال 
+✅ شفاف… يعني الإصلاح مش باين 
+✅ سهل ويخلّي جزمتك ترجع للحياة كأنها جديدة ✨
+متستناش لحد ما الجزمة تبوظ أكتر. اطلب قبل ما الخصم يخلص: 199 بدل 450 💸 وادفع عند الاستلام بعد ما تتأكد بنفسك.
+    3. قطع مفاجئ في الجلد أو القماش؟ أول فكرة بتيجي في بالك: أرميها وخلاص… حتى لو لسه جديدة! 👟 بس ليه تخسر جزمة غالية وعزيزة عليك؟ 
+✅ لاصق مخصوص بيصلّح بسرعة ومن غير مجهود 
+✅ قوة لصق جبارة تثبت القطع مكانه 
+✅ شفاف عشان ميشوّهش شكل الجزمة 
+✅ مقاوم للمياه للاستخدام براحة 🚿
+النتيجة بتتكلم… ورأي العملاء بيأكد! العرض هينتهي قريب والكمية بتخلص. املأ الفورم واطلب دلوقتي بـ 199 بدل 450، وادفع لما يوصلك 📦
+  Headlines (one per ad):
+    1. رجّع جزمتك جديدة في دقايق
+    2. لاصق خارق للنعل المفكوك فوراً
+    3. متترميش الجزمة… صلحها دلوقتي
+[END_COMMAND]
