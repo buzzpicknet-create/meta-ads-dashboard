@@ -1870,16 +1870,33 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         if (mediaType === "video") creativeArgsPb.video_id = videoId;
         else creativeArgsPb.image_hash = imageHash;
 
-        logger.info({ creativeArgsPb }, "create_ad_from_creative_spec: → Pipeboard create_ad_creative (no token)");
-        const creativeResult = await pbClient.callTool({ name: "create_ad_creative", arguments: creativeArgsPb });
-        const creativeText = ((creativeResult.content as Array<{ type: string; text?: string }>)
-          ?.filter(c => c.type === "text").map(c => c.text ?? "").join("") ?? "").trim();
-        logger.info({ creativeText }, "create_ad_from_creative_spec: ← Pipeboard create_ad_creative");
+        // Retry up to 4 times with 20s delay for "video still processing" (1885252)
+        const MAX_CREATIVE_RETRIES = 4;
+        const VIDEO_PROCESSING_DELAY_MS = 20_000;
+        let creativeId = "";
+        for (let attempt = 0; attempt <= MAX_CREATIVE_RETRIES; attempt++) {
+          logger.info({ creativeArgsPb, attempt }, "create_ad_from_creative_spec: → Pipeboard create_ad_creative (no token)");
+          const creativeResult = await pbClient.callTool({ name: "create_ad_creative", arguments: creativeArgsPb });
+          const creativeText = ((creativeResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("") ?? "").trim();
+          logger.info({ creativeText, attempt }, "create_ad_from_creative_spec: ← Pipeboard create_ad_creative");
 
-        const creativeIdMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
-        const creativeId = creativeIdMatch?.[1] ?? "";
-        if (!creativeId || (/"error"/.test(creativeText) && !creativeIdMatch)) {
-          throw new Error(`فشل create_ad_creative (Pipeboard) — ${creativeText.slice(0, 300)}`);
+          // Check for "video still processing" (error_subcode 1885252) → wait and retry
+          if (/"error"/.test(creativeText) && creativeText.includes("1885252")) {
+            if (attempt < MAX_CREATIVE_RETRIES) {
+              logger.warn({ attempt, videoId }, `create_ad_from_creative_spec: video still processing — waiting ${VIDEO_PROCESSING_DELAY_MS / 1000}s before retry`);
+              await new Promise(r => setTimeout(r, VIDEO_PROCESSING_DELAY_MS));
+              continue;
+            }
+            throw new Error(`الفيديو لم يجهز بعد ${MAX_CREATIVE_RETRIES} محاولات — الرجاء الانتظار دقيقة وإعادة المحاولة يدوياً`);
+          }
+
+          const creativeIdMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
+          creativeId = creativeIdMatch?.[1] ?? "";
+          if (!creativeId || (/"error"/.test(creativeText) && !creativeIdMatch)) {
+            throw new Error(`فشل create_ad_creative (Pipeboard) — ${creativeText.slice(0, 300)}`);
+          }
+          break; // success
         }
 
         // Step 2: create_ad via Pipeboard
