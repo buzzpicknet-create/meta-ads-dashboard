@@ -1912,20 +1912,44 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           else pixelId = "1537301040808359";
         }
 
-        // Step 1: create_ad_creative via Pipeboard
+        // Step 1: create_ad_creative via Pipeboard — using object_story_spec format
+        // This produces a TRUE STANDARD (non-DCO) creative — NO asset_feed_spec.
+        // Pipeboard docs: pass object_story_spec.video_data (or link_data for images)
+        // → Meta does NOT require is_dynamic_creative=true on the adset.
+        let storySpec: Record<string, unknown>;
+        if (mediaType === "video") {
+          storySpec = {
+            page_id: pageId,
+            video_data: {
+              video_id: videoId,
+              message: primaryText ?? "",
+              title: headline ?? "",
+              call_to_action: {
+                type: callToAction || "SHOP_NOW",
+                value: { link: linkUrl },
+              },
+            },
+          };
+        } else {
+          storySpec = {
+            page_id: pageId,
+            link_data: {
+              image_hash: imageHash,
+              link: linkUrl,
+              message: primaryText ?? "",
+              name: headline ?? "",
+              call_to_action: {
+                type: callToAction || "SHOP_NOW",
+                value: { link: linkUrl },
+              },
+            },
+          };
+        }
         const creativeArgsPb: Record<string, unknown> = {
           account_id: accountId,
           name: `${adName} — creative`,
-          page_id: pageId,
-          link_url: linkUrl,
-          destination_url: linkUrl,
-          messages: primaryText ? [primaryText] : [""],
-          headlines: headline ? [headline] : [""],
-          call_to_action_type: callToAction,
-          pixel_id: pixelId,
+          object_story_spec: storySpec,
         };
-        if (mediaType === "video") creativeArgsPb.video_id = videoId;
-        else creativeArgsPb.image_hash = imageHash;
 
         // Retry up to 4 times with 20s delay for "video still processing" (1885252)
         const MAX_CREATIVE_RETRIES = 4;
@@ -3152,24 +3176,45 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           const singleText = texts[ti]!;
 
           // Create ad creative — one video + one text + one headline
-          // NOTE: Do NOT pass instagram_actor_id (Pipeboard auth issue).
-          // NOTE: Do NOT add advantage_plus_creative / degrees_of_freedom_spec
-          // (incompatible with Pipeboard create_ad → error 1487015).
+          // Use object_story_spec format (NOT flat args) so Pipeboard builds a
+          // standard non-DCO creative instead of asset_feed_spec.
+          // This avoids the "Dynamic Creative Ad Requires is_dynamic_creative" error.
           let creativeId = "";
           try {
+            let storySpecLpc: Record<string, unknown>;
+            if (isVid) {
+              storySpecLpc = {
+                page_id: pageId,
+                video_data: {
+                  video_id: media.videoId,
+                  message: singleText,
+                  title: firstHeadline,
+                  call_to_action: {
+                    type: callToAction || "SHOP_NOW",
+                    value: { link: landingPageUrl },
+                  },
+                },
+              };
+            } else {
+              storySpecLpc = {
+                page_id: pageId,
+                link_data: {
+                  image_hash: media.imageHash,
+                  link: landingPageUrl,
+                  message: singleText,
+                  name: firstHeadline,
+                  call_to_action: {
+                    type: callToAction || "SHOP_NOW",
+                    value: { link: landingPageUrl },
+                  },
+                },
+              };
+            }
             const creativeArgs: Record<string, unknown> = {
               account_id: accountId,
               name: `${adset.name} — نص ${ti + 1}`,
-              page_id: pageId,
-              link_url: landingPageUrl,
-              destination_url: landingPageUrl,
-              messages: [singleText],
-              headlines: [firstHeadline],
-              call_to_action_type: callToAction,
+              object_story_spec: storySpecLpc,
             };
-            if (pixelId) creativeArgs.pixel_id = pixelId;
-            if (isVid) creativeArgs.video_id = media.videoId;
-            else creativeArgs.image_hash = media.imageHash;
 
             const creativeResult = await client.callTool({
               name: "create_ad_creative",
@@ -3717,19 +3762,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       );
     }
 
-    // ── Conditional is_dynamic_creative injection ────────────────────────────
-    // Pipeboard's create_adcreative ALWAYS builds asset_feed_spec, which Meta
-    // requires is_dynamic_creative=true on the parent adset (immutable after creation).
-    // When META_ACCESS_TOKEN is absent we ONLY have Pipeboard, so inject unconditionally.
-    // When META_ACCESS_TOKEN is present, create_ad_from_creative_spec uses Meta API
-    // directly with object_story_spec — no DCO needed, don't inject.
-    const hasMetaToken = !!process.env.META_ACCESS_TOKEN;
-    if (!hasMetaToken && !effectiveArgs.is_dynamic_creative) {
-      effectiveArgs.is_dynamic_creative = true;
-      logger.info(
-        "create_adset: is_dynamic_creative=true auto-injected (Pipeboard-only path — META_ACCESS_TOKEN absent)",
-      );
-    }
+    // NOTE: is_dynamic_creative is NOT injected here.
+    // create_ad_from_creative_spec now uses object_story_spec format (not asset_feed_spec),
+    // so Meta does NOT require is_dynamic_creative=true on the adset — true STANDARD campaigns.
 
     const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp(
       "create_adset",

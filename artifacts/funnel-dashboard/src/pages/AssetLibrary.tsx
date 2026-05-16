@@ -1216,7 +1216,7 @@ Build Standard Campaign NOW — ${adsetCount} Adset(s):
 - كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
 - إذا كان هناك N فيديوهات × M نصوص = N×M إعلانات منفصلة في نفس الـ Adset
 - ابدأ بـ upload_video_to_meta(list_only=true) إذا لم يُحدَّد اسم الفيديو — لاكتشاف كل الفيديوهات
-- لا تستخدم launch_pipeboard_campaign — استخدم create_campaign ثم create_adset ثم upload_video_to_meta ثم create_ad_from_creative_spec
+- استخدم launch_pipeboard_campaign فقط — الـ backend يتولى رفع الفيديو وإنشاء كل إعلان منفصل بدون Dynamic Creative
 
 # 1. Campaign Settings
 - Campaign Type: STANDARD (لا Dynamic Creative)
