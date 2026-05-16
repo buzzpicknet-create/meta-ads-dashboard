@@ -3113,13 +3113,18 @@ async function tryExecuteViaPipeboard(
       });
     }
 
-    // NOTE: get_adsets is intentionally NOT handled via Pipeboard.
-    // Pipeboard's get_insights returns raw Meta text without computing
-    // hookRate / holdRate / lpvRate (requires video_play_actions + video_p100_watched_actions).
-    // The native Meta API path below uses getCampaignInsights() which fetches those
-    // video action fields and computes Hook Rate%, Hold Rate%, LPR% correctly per adset.
-    // Returning raw Pipeboard data causes the AI to report "data errors" because the
-    // expected funnel metrics are absent from the tool result.
+    // get_adsets — via Pipeboard (primary). Native Meta path is fallback when Pipeboard fails.
+    // Raw Pipeboard data is returned directly; the AI parses spend/CPA/CTR from it.
+    // Hook Rate / Hold Rate won't be pre-computed, but data is available when Meta token expires.
+    if (name === "get_adsets") {
+      const campaign_id = String(args.campaign_id ?? "");
+      if (!campaign_id) return null;
+      return await callPipeboardRead("get_insights", {
+        object_id: campaign_id,
+        level: "adset",
+        time_range: timeRange,
+      });
+    }
 
     if (name === "get_campaign_status") {
       const campaign_id = String(args.campaign_id ?? "");
@@ -3168,19 +3173,44 @@ async function tryExecuteViaPipeboard(
       });
     }
 
-    // NOTE: get_ads_in_adset is intentionally NOT handled via Pipeboard.
-    // Pipeboard's get_insights returns raw Meta text without computing
-    // hookRate / holdRate (requires video_play_actions + video_p100_watched_actions).
-    // The native Meta API path below uses getCampaignInsights() which fetches
-    // those fields and computes Hook Rate / Hold Rate correctly for every ad row.
+    // get_ads_in_adset — via Pipeboard (primary). Native Meta path is fallback.
+    if (name === "get_ads_in_adset") {
+      const adset_id = String(args.adset_id ?? "");
+      if (!adset_id) return null;
+      return await callPipeboardRead("get_insights", {
+        object_id: adset_id,
+        level: "ad",
+        time_range: timeRange,
+      });
+    }
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────
-    // NOTE: get_campaigns is intentionally NOT handled here via Pipeboard because
-    // get_insights only returns campaigns that have SPEND in the period — zero-spend
-    // active campaigns are silently omitted. The native Meta API path (below) fetches
-    // all active campaigns via the campaigns endpoint first, then joins insights,
-    // so it correctly shows all 9 active campaigns even if some have 0 spend.
-    // Returning null here lets the native path always run for campaign listing.
+
+    // get_campaigns — via Pipeboard (primary). Pipeboard get_insights at campaign level
+    // returns all campaigns with spend in the period. Zero-spend campaigns are omitted,
+    // which is acceptable since the user wants ACTIVE campaigns with real data.
+    // The native Meta path runs as fallback if Pipeboard returns empty/fails.
+    if (name === "get_campaigns") {
+      const accRows = await query<{ account_id: string }>(
+        `SELECT DISTINCT account_id FROM meta_overview_cache LIMIT 5`
+      ).catch(() => [] as { account_id: string }[]);
+      const filtered = selectedAccFilter
+        ? accRows.filter(r => selectedAccFilter.has(r.account_id))
+        : accRows;
+      if (filtered.length === 0) return null;
+      const results = await Promise.all(
+        filtered.map(r =>
+          callPipeboardRead("get_insights", {
+            object_id: `act_${r.account_id}`,
+            level: "campaign",
+            time_range: timeRange,
+          }).catch(() => null)
+        )
+      );
+      const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
+      if (successes.length === 0) return null;
+      return `## الحملات الإعلانية (مصدر: Pipeboard — آخر ${(args.days as number | undefined) ?? 30} يوم):\n\n` + successes.join("\n\n---\n\n");
+    }
 
     if (name === "get_account_daily") {
       const accRows = await query<{ account_id: string }>(
