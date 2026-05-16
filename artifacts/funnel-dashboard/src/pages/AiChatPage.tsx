@@ -72,8 +72,7 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
 ✅ Scale — CPA < 50 EGP + purchases ≥ 2 + إنفاق > 150 EGP
 ⚠️ انتظر — إنفاق < 100 EGP (بيانات ناقصة)
 ❌ أوقف — CPA > 100 EGP + purchases = 0 بعد 200 EGP إنفاق
-🔄 Refresh Creative — CTR < 1% بعد 150 EGP إنفاق (استخدم pause_ad للإعلانات الضعيفة)
-⚠️ Hook Rate غير متوفر حالياً (Pipeboard لا يُرجع بيانات الفيديو) — استبدله بـ CTR.
+🔄 Refresh Creative — Hook Rate < 25% بعد 150 EGP إنفاق (video_view÷impressions ✅ متوفر — استخدم pause_ad للإعلانات الضعيفة)
 
 bulk_action فوري للقرارات بدون سؤال.`,
   },
@@ -115,14 +114,15 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
    — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد جلب البيانات — صنّف كل إعلان:
-⚠️ تنبيه: Hook Rate + Hold Rate غير متوفرين (Pipeboard لا يُرجع بيانات الفيديو) — ركّز على CTR/LPR/CVR/CPA.
-📝 Funnel Leak: CTR < 2% بعد 100 EGP → النص أو CTA ضعيف
+🎬 Media Problem: Hook Rate < 25% → الفيديو مش بيوقف الناس (Hook Rate = video_view ÷ impressions ✅ متوفر)
+📝 Funnel Leak: Hook جيد + CTR < 2% → النص أو CTA ضعيف
 🌐 Landing Page: CTR > 2% + LPR < 70% → الصفحة بطيئة
 💸 Conversion: CTR + LPR كويسين + CVR < 1.5% → السعر مش مقنع
 💀 Dead: 0 Purchases بعد 3 أيام + 200 EGP إنفاق → أوقف فوراً
+ℹ️ Hold Rate غير متوفر (thruplay مش بيرجع من Pipeboard) — تجاهله.
 
 أعرض جدول واحد موحّد لكل الإعلانات:
-| الإعلان | الحملة | CTR% | LPR% | CVR% | Purchases | CPA | التشخيص | الإجراء |`,
+| الإعلان | الحملة | Hook% | CTR% | LPR% | CVR% | Purchases | CPA | التشخيص | الإجراء |`,
   },
   {
     label: "📺 Saturation Check",
@@ -155,14 +155,15 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
    — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد الجلب — فلتر الرابحين فقط:
+- Hook Rate > 25% (video_view ÷ impressions ✅ متوفر)
 - CTR > 2%
 - CPA < 50 EGP
 - Purchases ≥ 2
 - إنفاق > 100 EGP
-⚠️ Hook Rate غير متوفر حالياً (Pipeboard) — الترتيب حسب CPA بدلاً منه.
 
-أعرض جدول الرابحين مرتب من أفضل CPA:
-| اسم الإعلان | الحملة | المجموعة | CTR% | LPR% | CVR% | CPA (EGP) | Purchases | الإنفاق (EGP) |
+أعرض جدول الرابحين مرتب من أعلى Hook Rate:
+| اسم الإعلان | الحملة | المجموعة | Hook% | CTR% | LPR% | CVR% | CPA (EGP) | Purchases | الإنفاق (EGP) |
+ℹ️ Hold Rate غير متوفر (Pipeboard لا يُرجع thruplay).
 
 هؤلاء مرشحون للـ Flex Scale — قولي لو تريد نقلهم.`,
   },
@@ -177,13 +178,14 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
    — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد الجلب — فلتر الإعلانات الميتة:
-- CTR < 0.8% بعد 200 EGP إنفاق
+- Hook Rate < 15% بعد 100 EGP إنفاق (video_view ÷ impressions ✅ متوفر)
+- أو CTR < 0.8% بعد 200 EGP إنفاق
 - أو 0 Purchases بعد 3 أيام + 150 EGP إنفاق
 - أو CPA > 100 EGP بعد 200 EGP إنفاق
-⚠️ Hook Rate غير متوفر حالياً (Pipeboard) — استبدله بمعيار CTR + Purchases.
+ℹ️ Hold Rate غير متوفر (Pipeboard لا يُرجع thruplay).
 
 أعرض جدول مرتب من أعلى إنفاق للأقل:
-| اسم الإعلان | الحملة | CTR% | Purchases | CPA | الإنفاق (EGP) | سبب الموت |
+| اسم الإعلان | الحملة | Hook% | CTR% | Purchases | CPA | الإنفاق (EGP) | سبب الموت |
 
 ثم bulk_action بـ pause_ad لكل الميتين دفعة واحدة.`,
   },

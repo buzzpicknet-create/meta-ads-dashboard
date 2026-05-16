@@ -421,13 +421,14 @@ Flags كلمات قصيرة فقط: LOW_CTR / LOW_HOOK / HIGH_CPA / HIGH_FREQ / 
 - أنت في وضع التحليل الجماعي (bulk analysis) لتوليد bulk_action — استخدم بيانات الـ context الموجودة واحسب newBudget منها مباشرةً، لا تستدعي get_campaign_budget أو get_campaign_status لكل حملة على حدة
 
 ⚠️ قاعدة حرجة — تحليل الإعلانات (Ad Level):
-- get_ads_in_adset تُعيد الفانل الكامل لكل إعلان: CTR% + LPR% + CVR% + CPA + Purchases + LP Views + CPM + Frequency — كلها متاحة بدون استثناء.
-- ⚠️ Hook Rate + Hold Rate: **غير متوفرين حالياً** — قراءات البيانات تمر عبر Pipeboard الذي لا يُرجع حقول الفيديو (video_play_actions). اعتمد على CTR / LPR / CVR / CPA / Purchases بدلاً منهما.
-- لا تقل أبداً "LPR مش متاح" أو "CVR مش متاح" أو "Purchases مش متاح" — كلها تأتي من get_ads_in_adset مباشرةً.
+- get_ads_in_adset تُعيد الفانل الكامل لكل إعلان: Hook Rate% + CTR% + LPR% + CVR% + CPA + Purchases + LP Views + CPM + Frequency — كلها متاحة بدون استثناء.
+- ✅ Hook Rate متوفر: يُحسَب تلقائياً من (video_view ÷ impressions) حيث "video_view" موجود في مصفوفة actions التي تُرجعها Pipeboard.
+- ⚠️ Hold Rate غير متوفر: video_thruplay_watched_actions لا يُرجعها Pipeboard — لا تستخدمه.
+- لا تقل أبداً "Hook Rate مش متاح" أو "LPR مش متاح" أو "CVR مش متاح" أو "Purchases مش متاح" — كلها تأتي من get_ads_in_adset مباشرةً.
 - عند أي طلب تحليل Creative أو Ad level أو تشخيص فانل: نفّذ هذه الخطوات تلقائياً بدون سؤال المستخدم:
   ١. get_campaigns(days=7) → احصل على campaign_ids (ركّز على الـ ACTIVE)
   ٢. get_adsets(campaign_id) لكل حملة نشطة → احصل على adset_ids
-  ٣. get_ads_in_adset(adset_id) لكل مجموعة نشطة → يُعيد جدول كامل: CTR، LPR، CVR، CPA، الطلبات، LP Views
+  ٣. get_ads_in_adset(adset_id) لكل مجموعة نشطة → يُعيد جدول كامل: Hook Rate، CTR، LPR، CVR، CPA، الطلبات، LP Views
 - لو المستخدم طلب "كل الإعلانات النشطة": كرّر الخطوات 1→2→3 على كل المجموعات النشطة واجمع النتائج في جدول موحّد.
 - لا تسأل المستخدم عن campaign_id أو adset_id أو فترة زمنية — اجلبها بنفسك فوراً
 - "آخر 3 أيام" = days=3 في get_ads_in_adset
@@ -496,8 +497,8 @@ CORE AD-LEVEL DIAGNOSTIC METHODOLOGY
 - get_campaigns: قائمة الحملات مع أداءها لأي فترة
 - get_campaign_daily: الأداء اليومي لحملة معينة
 - get_account_daily: الأداء اليومي للحساب كله
-- get_adsets: المجموعات الإعلانية لحملة معينة (يحتوي: الإنفاق، الطلبات، CPA، LPR%، CTR%، CPM، التكرار/Frequency) — ملاحظة: Hook Rate + Hold Rate غير متوفرين عبر Pipeboard
-- get_ads_in_adset: كل الإعلانات داخل مجموعة إعلانية مرتّبة بالكفاءة (يحتوي: الإنفاق، الطلبات، CPA، LPR%، CVR%، LP Views، CTR%، CPM، الظهورات) — هذه الأداة تحتوي على كل بيانات الفانل المتاحة عبر Pipeboard — Hook Rate + Hold Rate غير متوفرين حالياً
+- get_adsets: المجموعات الإعلانية لحملة معينة (يحتوي: الإنفاق، الطلبات، CPA، Hook Rate%، LPR%، CTR%، CPM، التكرار/Frequency) — ملاحظة: Hold Rate غير متوفر عبر Pipeboard
+- get_ads_in_adset: كل الإعلانات داخل مجموعة إعلانية مرتّبة بالكفاءة (يحتوي: الإنفاق، الطلبات، CPA، Hook Rate%، LPR%، CVR%، LP Views، CTR%، CPM، الظهورات) — Hook Rate متوفر (video_view÷impressions) — Hold Rate غير متوفر
 
 ⚠️ تنبيه أدوات مهم جداً:
 - لا توجد أداة اسمها get_ad_performance — هذه الأداة غير موجودة ولا تستخدمها أبداً
@@ -1392,7 +1393,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_ads_in_adset",
-      description: "جيب بيانات الفانل لكل إعلان داخل مجموعة إعلانية — يُعيد: CTR%، LPR% (LP Views ÷ Clicks)، CVR% (Purchases ÷ LP Views)، CPA، Purchases، LP Views، Spend، CPM، Impressions، Frequency. ⚠️ Hook Rate + Hold Rate غير متوفرين (Pipeboard لا يُرجع حقول الفيديو). استخدمها لتشخيص: Funnel Leak (CTR < 2%)، Landing Page Problem (CTR جيد + LPR < 70%)، Conversion Problem (LPR جيد + CVR < 1.5%). مطلوبة لأي تحليل Ad-level. لو رجعت رسالة 'لم يتم العثور' أعد المحاولة بـ days=30.",
+      description: "جيب بيانات الفانل لكل إعلان داخل مجموعة إعلانية — يُعيد: Hook Rate% (video_view÷impressions ✅)، CTR%، LPR% (LP Views ÷ Clicks)، CVR% (Purchases ÷ LP Views)، CPA، Purchases، LP Views، Spend، CPM، Impressions، Frequency. ⚠️ Hold Rate فقط غير متوفر (thruplay لا يُرجعه Pipeboard). استخدمها لتشخيص: Media Problem (Hook Rate < 25%)، Funnel Leak (Hook جيد + CTR < 2%)، Landing Page Problem (CTR جيد + LPR < 70%)، Conversion Problem (LPR جيد + CVR < 1.5%). مطلوبة لأي تحليل Ad-level. لو رجعت رسالة 'لم يتم العثور' أعد المحاولة بـ days=30.",
       parameters: {
         type: "object",
         properties: {
@@ -3221,34 +3222,37 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
       const reach       = Number(row["reach"]       || 0);
 
       // Pipeboard pre-computes CTR as clicks/impressions (all clicks, not link-only).
-      // We use it as-is — outbound_clicks and video fields are NOT returned by Pipeboard.
+      // We use it as-is — outbound_clicks is not returned as a separate field by Pipeboard.
       const ctrRaw  = Number(row["ctr"] || 0);         // already a percentage (e.g. 3.32)
 
       // Landing page views and purchases from actions array.
-      // Pipeboard uses "web_in_store_purchase" (confirmed) — include all known purchase types.
-      const lpViews   = avMulti(row["actions"],
-        "landing_page_view");
+      // Pipeboard uses "web_in_store_purchase" (confirmed by live call) — cover all types.
+      const lpViews   = av(row["actions"], "landing_page_view");
       const purchases = avMulti(row["actions"],
         "offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase",
         "web_in_store_purchase", "onsite_web_purchase", "onsite_web_app_purchase",
-        "onsite_app_purchase");
+        "onsite_app_purchase", "web_app_in_store_purchase");
 
       // CPA: prefer pre-computed cost_per_action_type, fall back to spend/purchases
       const cpaFromMeta = avMulti(row["cost_per_action_type"],
         "offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase",
         "web_in_store_purchase", "onsite_web_purchase", "onsite_web_app_purchase",
-        "onsite_app_purchase");
+        "onsite_app_purchase", "web_app_in_store_purchase");
       const cpa = cpaFromMeta || (purchases ? spend / purchases : 0);
 
-      // Link clicks: Pipeboard doesn't expose outbound_clicks separately.
-      // Use unique_clicks as the best proxy for link-level clicks.
-      const linkClicks = Number(row["unique_clicks"] || row["clicks"] || 0);
+      // Link clicks: use link_click from actions (confirmed in live call) or fallback unique_clicks
+      const linkClicksFromActions = av(row["actions"], "link_click");
+      const linkClicks = linkClicksFromActions || Number(row["unique_clicks"] || row["clicks"] || 0);
       const lpr = linkClicks  ? (lpViews   / linkClicks) * 100 : 0;
       const cvr = lpViews     ? (purchases / lpViews)    * 100 : 0;
 
-      // Hook / Hold: NOT available from Pipeboard (video_play_actions not returned).
-      // hookRate / holdRate will be -1 to signal "no data" (distinguished from 0).
-      const hookRate = -1;
+      // Hook Rate: "video_view" action_type IS confirmed in Pipeboard's actions array.
+      // Formula: video_view (3-sec views) / impressions * 100
+      const videoViews3s = av(row["actions"], "video_view");
+      const hookRate = impressions > 0 ? (videoViews3s / impressions) * 100 : 0;
+
+      // Hold Rate: video_thruplay_watched_actions NOT in Pipeboard actions or top-level fields.
+      // Set to -1 to signal "no data" (distinguishable from 0).
       const holdRate = -1;
 
       const id = String(row[idKey] || row["id"] || "");
@@ -3268,26 +3272,31 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
     const fmt        = (n: number, dec = 1) => n.toFixed(dec);
     const fmtN       = (n: number)          => n.toFixed(0);
 
-    // Pipeboard doesn't return Hook/Hold — note this clearly in the header
-    const videoNote = `⚠️ Hook% / Hold% غير متوفرين عبر Pipeboard (لا تُرجع حقول الفيديو)\n`;
+    // Hook Rate: computed from video_view (confirmed in Pipeboard actions array).
+    // Hold Rate: NOT available — thruplay not returned by Pipeboard.
+    const hasHook      = summaryRows.some(r => r.hookRate > 0);
+    const holdNote     = hasHook ? `ℹ️ Hook% = video_view÷impressions (متاح ✅) | Hold% = غير متوفر عبر Pipeboard ❌\n` : "";
 
-    // For adset level: show Frequency + CPM table (Saturation Check)
+    // For adset level: show Frequency + CPM columns (Saturation Check)
     const hasFrequency = level === "adset" && summaryRows.some(r => r.frequency > 0);
     // Full funnel table when CTR or purchases data is available
     const hasFunnel = summaryRows.some(r => r.ctrRaw > 0 || r.purchases > 0);
     const lines: string[] = [
       `## تحليل الأداء — ${level === "ad" ? "إعلانات" : level === "adset" ? "مجموعات" : "حملات"} (${summaryRows.length} | إنفاق: ${fmtN(totalSpend)} EGP)\n`,
-      videoNote,
+      holdNote,
     ];
     if (hasFunnel) {
-      const freqHeader = hasFrequency ? " Frequency | CPM |" : "";
-      const freqSep    = hasFrequency ? "-----------|-----|" : "";
+      const freqHeader = hasFrequency ? " Freq | CPM |" : "";
+      const freqSep    = hasFrequency ? "------|-----|" : "";
+      const hookHeader = hasHook ? " Hook% |" : "";
+      const hookSep    = hasHook ? "-------|" : "";
       lines.push(
-        `| الاسم (id) | الإنفاق | CTR% | LPR% | CVR% | Purchases | CPA |${freqHeader}`,
-        `|-----------|---------|------|------|------|-----------|-----|${freqSep}`,
+        `| الاسم (id) | الإنفاق |${hookHeader} CTR% | LPR% | CVR% | Purchases | CPA |${freqHeader}`,
+        `|-----------|---------|${hookSep}------|------|------|-----------|-----|${freqSep}`,
         ...limited.map(r => {
+          const hookCell = hasHook ? ` ${r.hookRate > 0 ? fmt(r.hookRate) : "—"} |` : "";
           const freqCell = hasFrequency ? ` ${r.frequency > 0 ? fmt(r.frequency, 2) : "—"} | ${r.cpm > 0 ? fmtN(r.cpm) : "—"} |` : "";
-          return `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${fmtN(r.spend)} EGP | ${r.ctrRaw > 0 ? fmt(r.ctrRaw) : "—"} | ${r.lpr > 0 ? fmt(r.lpr) : "—"} | ${r.cvr > 0 ? fmt(r.cvr) : "—"} | ${r.purchases > 0 ? Math.round(r.purchases) : 0} | ${r.cpa > 0 ? fmtN(r.cpa) + " EGP" : "—"} |${freqCell}`;
+          return `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${fmtN(r.spend)} EGP |${hookCell} ${r.ctrRaw > 0 ? fmt(r.ctrRaw) : "—"} | ${r.lpr > 0 ? fmt(r.lpr) : "—"} | ${r.cvr > 0 ? fmt(r.cvr) : "—"} | ${r.purchases > 0 ? Math.round(r.purchases) : 0} | ${r.cpa > 0 ? fmtN(r.cpa) + " EGP" : "—"} |${freqCell}`;
         }),
       );
     } else if (hasFrequency) {
@@ -3301,11 +3310,12 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
       );
     } else {
       lines.push(
-        `| الاسم (id) | الظهورات | الإنفاق (EGP) | CTR% | Purchases | CPA |`,
-        `|-----------|----------|--------------|------|-----------|-----|`,
-        ...limited.map(r =>
-          `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${r.impressions.toLocaleString()} | ${fmtN(r.spend)} | ${r.ctrRaw > 0 ? fmt(r.ctrRaw) : "—"} | ${r.purchases > 0 ? Math.round(r.purchases) : 0} | ${r.cpa > 0 ? fmtN(r.cpa) + " EGP" : "—"} |`
-        ),
+        `| الاسم (id) | الظهورات | الإنفاق (EGP) |${hasHook ? " Hook% |" : ""} CTR% | Purchases | CPA |`,
+        `|-----------|----------|--------------|${hasHook ? "-------|" : ""}------|-----------|-----|`,
+        ...limited.map(r => {
+          const hookCell = hasHook ? ` ${r.hookRate > 0 ? fmt(r.hookRate) : "—"} |` : "";
+          return `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${r.impressions.toLocaleString()} | ${fmtN(r.spend)} |${hookCell} ${r.ctrRaw > 0 ? fmt(r.ctrRaw) : "—"} | ${r.purchases > 0 ? Math.round(r.purchases) : 0} | ${r.cpa > 0 ? fmtN(r.cpa) + " EGP" : "—"} |`;
+        }),
       );
     }
     if (hasMore) lines.push(`\n> has_more: true — عُرض أعلى 30 عنصراً من ${summaryRows.length} إجمالاً.`);
