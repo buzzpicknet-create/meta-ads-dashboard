@@ -1,0 +1,24 @@
+مهمة: إضافة طبقة معالجة لرد Pipeboard في مسار التحليلات فقط.
+السياق المؤكَّد: callPipeboardRead("get_insights", {compact:false, fields:[...]}) ترجع JSON يحتوي حقول الفيديو كـ arrays خام: "video_play_actions":[{"action_type":"video_view","value":"540"}]. لا يوجد كود يحوّلها لأرقام في مسار Pipeboard (actionVal/derive تُستخدم فقط في مسار Meta الـ native). الموديل يتلقى JSON ضخم يُقتطع عند 15000 حرف.
+المطلوب — نفّذ بالترتيب، الخطوة 1 و2 عرض فقط:
+
+اعرض لي خطة (بدون كتابة كود): دالة جديدة summarizePipeboardInsights(rawJson: string, level: "adset"|"ad"|"campaign"): string في ai.ts تقوم بـ:
+
+JSON.parse للرد، استخراج results[].insights[]
+لكل سطر: videoPlays = Number(video_play_actions?.[0]?.value || 0)، v100 = Number(video_p100_watched_actions?.[0]?.value || 0)، thruplay = Number(video_thruplay_watched_actions?.[0]?.value || 0)
+حساب hookRate = impressions ? videoPlays/impressions*100 : 0 و holdRate = videoPlays ? v100/videoPlays*100 : 0 (نفس معادلة derive بالحرف)
+بناء جدول Markdown مختصر: اسم + impressions + spend + Hook% + Hold% + ThruPlay، بحد أقصى 30 صفاً مرتبة تنازلياً بالـ spend
+معالجة آمنة: لو JSON.parse فشل أو الشكل غير متوقع، أرجِع الـ raw كما هو (fallback — لا تكسر شيئاً)
+
+
+اعرض لي نقاط الدمج: في tryExecuteViaPipeboard، بعد كل return await callPipeboardRead("get_insights", ...) في الدوال الأربعة (get_campaign_daily, get_adsets, get_ad_performance, get_ads_in_adset)، لفّ النتيجة بـ summarizePipeboardInsights(result, level) مع تمرير الـ level الصحيح لكل دالة. اعرض لي الكود الحالي والمقترح لكل موضع.
+انتظر موافقتي، ثم طبّق فقط بعد موافقة صريحة.
+بعد التطبيق: npx tsc --noEmit، أكّد عدد الأخطاء = نفس الـ baseline السابق (71)، واعرض الـ diff.
+
+قيود صارمة — ممنوع تماماً:
+
+لا تلمس الـ system prompt (سنعالجه منفصلاً لاحقاً).
+لا تلمس مسار Meta الـ native، ولا actionVal/derive في meta-api.ts.
+لا تلمس get_campaigns/get_account_daily (account-level) في هذه المرحلة.
+لا تلمس BulkActionPanel.tsx, GlobalAiChat.tsx, الـ CustomEvent/bulk-action-complete, ولا أي دالة create/update/pause/enable/duplicate.
+التعديل حصري: دالة واحدة جديدة + لفّها حول 4 نقاط return فقط.
