@@ -1415,7 +1415,9 @@ ${adsetBlocks}
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Creatives / Adset</label>
+                    <label className="text-xs text-muted-foreground" title="عدد أزواج النص+العنوان المُرسلة للـ AI. الإعلانات الفعلية = فيديوهات الفولدر × هذا الرقم">
+                      Copy Pairs / Adset
+                    </label>
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.max(1, form.stdCreativesPerAdset - 1))}
                         className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
@@ -1425,8 +1427,14 @@ ${adsetBlocks}
                     </div>
                   </div>
                 </div>
-                <div className="text-[10px] text-muted-foreground">
-                  Total: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{form.stdAngles.length} Adsets × {form.stdCreativesPerAdset} Creatives = {form.stdAngles.length * form.stdCreativesPerAdset} Ads</span> · No Dynamic Creative · {form.stdIsCBO ? "CBO" : "ABO"}
+                <div className="text-[10px] text-muted-foreground space-y-0.5">
+                  <div>
+                    Copy pairs per Adset: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{form.stdCreativesPerAdset}</span>
+                    <span className="mx-1 text-muted-foreground/60">·</span>
+                    Total Ads = <span className="font-semibold text-emerald-600 dark:text-emerald-400">N videos in Drive × {form.stdCreativesPerAdset} copy pairs</span>
+                    <span className="ml-1 text-muted-foreground/60">(e.g. 3 videos → {form.stdAngles.length * form.stdCreativesPerAdset * 3} ads)</span>
+                  </div>
+                  <div className="text-muted-foreground/70">No Dynamic Creative · {form.stdIsCBO ? "CBO" : "ABO"} · {form.stdAngles.length} Adset{form.stdAngles.length !== 1 ? "s" : ""}</div>
                 </div>
               </div>
 
@@ -1682,7 +1690,7 @@ ${adsetBlocks}
                   ? `🧪 ${form.angles.length} Angles → Dynamic Creative ABO`
                   : "🧪 Blueprint Testing command will be built"
               ) : (
-                `📋 ${form.stdAngles.length} Adsets × ${form.stdCreativesPerAdset} Creatives = ${form.stdAngles.length * form.stdCreativesPerAdset} Ads · ${form.stdIsCBO ? "CBO" : "ABO"}`
+                `📋 ${form.stdAngles.length} Adset${form.stdAngles.length !== 1 ? "s" : ""} · N videos × ${form.stdCreativesPerAdset} copy pairs = N×${form.stdCreativesPerAdset} Ads · ${form.stdIsCBO ? "CBO" : "ABO"}`
               )}
             </div>
             <Button
