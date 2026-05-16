@@ -2821,6 +2821,11 @@ async function callPipeboardRead(
       .map((c) => c.text ?? "")
       .join("\n")
       .trim();
+    // Pipeboard signals Meta API errors via isError=true (not thrown exceptions).
+    // Throw so the caller's catch block handles the error instead of returning raw error text.
+    if (result.isError) {
+      throw new Error(raw || "Pipeboard tool returned an error");
+    }
     return truncateToolResult(raw);
   } catch (err) {
     // Stale connection — reset so next call reconnects fresh
@@ -2840,11 +2845,17 @@ async function callPipeboardReadFull(
     const client = await getPipeboardClient();
     const result = await client.callTool({ name: toolName, arguments: toolArgs });
     const content = result.content as Array<{ type: string; text?: string }>;
-    return content
+    const text = content
       .filter((c) => c.type === "text")
       .map((c) => c.text ?? "")
       .join("\n")
       .trim();
+    // Pipeboard signals Meta API errors via isError=true (not thrown exceptions).
+    // Throw so tryExecuteViaPipeboard catch handles it and falls back to native Meta.
+    if (result.isError) {
+      throw new Error(text || "Pipeboard tool returned an error");
+    }
+    return text;
   } catch (err) {
     _pbClient = null;
     _pbConnecting = null;
