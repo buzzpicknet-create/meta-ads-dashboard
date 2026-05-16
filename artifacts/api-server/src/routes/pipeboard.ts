@@ -1889,141 +1889,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
 
-    // ── Pipeboard MCP fallback (no META_ACCESS_TOKEN) ──────────────────────
-    // When direct Meta API token is unavailable, create creative + ad via
-    // Pipeboard MCP tools (same path as launch_pipeboard_campaign).
+    // ── No token = hard error ──────────────────────────────────────────────
+    // Pipeboard does NOT have create_ad_from_creative_spec — calling it returns
+    // "Unknown tool". META_ACCESS_TOKEN is required to use Meta API directly.
     if (!metaTkn) {
-      // Resolve page_id from domain map (no API call possible without token)
-      if (!pageId) {
-        const lp = linkUrl;
-        if (lp.includes("buzzpick.net")) pageId = "878997831971062";
-        else if (lp.includes("dealme-eg.com") || lp.includes("alsouqalhor.com") || lp.includes("dealoop.net")) pageId = "108193615487446";
-        else pageId = "108193615487446";
-        logger.warn({ pageId, lp }, "create_ad_from_creative_spec: no token — domain-mapped page_id");
-      }
-
-      try {
-        const pbClient = await getPipeboardWriteClient();
-
-        // Detect pixel_id from domain if not provided
-        let pixelId = String(args?.pixel_id ?? "");
-        if (!pixelId) {
-          if (linkUrl.includes("buzzpick.net")) pixelId = "1405391498274239";
-          else pixelId = "1537301040808359";
-        }
-
-        // Use Pipeboard's native create_ad_from_creative_spec with creative_spec.object_story_spec.
-        // Pipeboard's create_ad_creative (flat args) always builds asset_feed_spec (DCO) internally.
-        // create_ad_from_creative_spec passes creative_spec raw to Meta → TRUE STANDARD (non-DCO).
-        let creativeSpecPb: Record<string, unknown>;
-        if (mediaType === "video") {
-          creativeSpecPb = {
-            name: `${adName} — creative`,
-            object_story_spec: {
-              page_id: pageId,
-              video_data: {
-                video_id: videoId,
-                message: primaryText ?? "",
-                title: headline ?? "",
-                call_to_action: {
-                  type: callToAction || "SHOP_NOW",
-                  value: { link: linkUrl },
-                },
-              },
-            },
-          };
-        } else {
-          creativeSpecPb = {
-            name: `${adName} — creative`,
-            object_story_spec: {
-              page_id: pageId,
-              link_data: {
-                image_hash: imageHash,
-                link: linkUrl,
-                message: primaryText ?? "",
-                name: headline ?? "",
-                call_to_action: {
-                  type: callToAction || "SHOP_NOW",
-                  value: { link: linkUrl },
-                },
-              },
-            },
-          };
-        }
-        const adFromSpecArgsPb: Record<string, unknown> = {
-          account_id: accountId,
-          adset_id: resolvedAdsetId,
-          name: adName,
-          status: "PAUSED",
-          creative_spec: creativeSpecPb,
-          tracking_specs: [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }],
-        };
-
-        // Retry up to 4 times with 20s delay for "video still processing" (1885252)
-        const MAX_CREATIVE_RETRIES = 4;
-        const VIDEO_PROCESSING_DELAY_MS = 20_000;
-        let newAdId = "";
-        let creativeId = "";
-        for (let attempt = 0; attempt <= MAX_CREATIVE_RETRIES; attempt++) {
-          logger.info({ adFromSpecArgsPb, attempt }, "create_ad_from_creative_spec: → Pipeboard create_ad_from_creative_spec (no token)");
-          const specResult = await pbClient.callTool({ name: "create_ad_from_creative_spec", arguments: adFromSpecArgsPb });
-          const specText = ((specResult.content as Array<{ type: string; text?: string }>)
-            ?.filter(c => c.type === "text").map(c => c.text ?? "").join("") ?? "").trim();
-          logger.info({ specText, attempt }, "create_ad_from_creative_spec: ← Pipeboard create_ad_from_creative_spec");
-
-          // Check for "video still processing" (error_subcode 1885252) → wait and retry
-          if (/"error"/.test(specText) && specText.includes("1885252")) {
-            if (attempt < MAX_CREATIVE_RETRIES) {
-              logger.warn({ attempt, videoId }, `create_ad_from_creative_spec: video still processing — waiting ${VIDEO_PROCESSING_DELAY_MS / 1000}s before retry`);
-              await new Promise(r => setTimeout(r, VIDEO_PROCESSING_DELAY_MS));
-              continue;
-            }
-            throw new Error(`الفيديو لم يجهز بعد ${MAX_CREATIVE_RETRIES} محاولات — الرجاء الانتظار دقيقة وإعادة المحاولة يدوياً`);
-          }
-
-          const allSpecIds = [...specText.matchAll(/"id"\s*:\s*"(\d{10,})"/g)].map(m => m[1]!);
-          newAdId = allSpecIds[allSpecIds.length - 1] ?? "";
-          creativeId = allSpecIds[0] ?? "";
-          if (!newAdId && /"error"/.test(specText)) {
-            throw new Error(`فشل create_ad_from_creative_spec (Pipeboard) — ${specText.slice(0, 300)}`);
-          }
-          break; // success
-        }
-
-        if (!newAdId) throw new Error(`لم يُعاد ad_id من create_ad_from_creative_spec — الرجاء المحاولة مرة أخرى`);
-
-        const pbMsg = [
-          `✅ create_ad_from_creative_spec نجح (via Pipeboard MCP)`,
-          `new_ad_id: ${newAdId}`,
-          `creative_id: ${creativeId}`,
-          `adset_id: ${resolvedAdsetId}`,
-          `media_type: ${mediaType}`,
-        ].join(" — ");
-
-        await query(
-          `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [executedBy, tool, JSON.stringify(args ?? {}), true, pbMsg, "", adName, false],
-        ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (create_ad_from_creative_spec pb)"));
-
-        res.json({
-          success: true,
-          message: pbMsg,
-          new_ad_id: newAdId,
-          creative_id: creativeId,
-          adset_id: resolvedAdsetId,
-          account_id: accountIdWithAct,
-          status: "PAUSED",
-          effective_status: "PAUSED",
-          via: "pipeboard_mcp",
-        });
-        return;
-      } catch (pbErr) {
-        const msg = pbErr instanceof Error ? pbErr.message : String(pbErr);
-        logger.error({ pbErr }, "create_ad_from_creative_spec: Pipeboard fallback failed");
-        res.status(500).json({ error: `فشل create_ad_from_creative_spec (Pipeboard): ${msg}` });
-        return;
-      }
+      res.status(500).json({
+        error:
+          "META_ACCESS_TOKEN مفقود — لا يمكن إنشاء إعلان STANDARD بدون Access Token. " +
+          "تأكد من ضبط META_ACCESS_TOKEN في متغيرات البيئة.",
+      });
+      return;
     }
 
     let csSuccess = false;
@@ -3153,132 +3028,138 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         for (let ti = 0; ti < texts.length; ti++) {
           const singleText = texts[ti]!;
 
-          // Create ad + creative in ONE call via Pipeboard's native create_ad_from_creative_spec.
-          // Pass creative_spec.object_story_spec → Pipeboard forwards it raw to Meta.
-          // This produces TRUE STANDARD (non-DCO) creative — no asset_feed_spec generated.
-          // Pipeboard's create_ad_creative (flat args) always converts to asset_feed_spec (DCO);
-          // create_ad_from_creative_spec with creative_spec bypasses that conversion.
+          // Create creative + ad via Meta Graph API directly (bypass Pipeboard entirely).
+          // Pipeboard has no create_ad_from_creative_spec tool — "Unknown tool" error.
+          // Direct Meta API produces TRUE STANDARD (non-DCO) creative via object_story_spec.
           let creativeId = "";
           let adIdFromSpec = "";
-          try {
-            let creativeSpecObj: Record<string, unknown>;
-            if (isVid) {
-              creativeSpecObj = {
-                name: `${adset.name} — نص ${ti + 1} — creative`,
-                object_story_spec: {
-                  page_id: pageId,
-                  video_data: {
-                    video_id: media.videoId,
-                    message: singleText,
-                    title: firstHeadline,
-                    call_to_action: {
-                      type: callToAction || "SHOP_NOW",
-                      value: { link: landingPageUrl },
-                    },
-                  },
-                },
-              };
-            } else {
-              creativeSpecObj = {
-                name: `${adset.name} — نص ${ti + 1} — creative`,
-                object_story_spec: {
-                  page_id: pageId,
-                  link_data: {
-                    image_hash: media.imageHash,
-                    link: landingPageUrl,
-                    message: singleText,
-                    name: firstHeadline,
-                    call_to_action: {
-                      type: callToAction || "SHOP_NOW",
-                      value: { link: landingPageUrl },
-                    },
-                  },
-                },
-              };
-            }
-            const adFromSpecArgs: Record<string, unknown> = {
-              account_id: accountId,
-              adset_id: adsetId,
-              name: `${adset.name} — نص ${ti + 1}`,
-              status: "PAUSED",
-              creative_spec: creativeSpecObj,
-            };
-            if (hasPixel && pixelId) {
-              adFromSpecArgs.tracking_specs = [
-                { "action.type": ["offsite_conversion"], fb_pixel: [pixelId] },
-              ];
-            }
-
-            // Retry up to 4 times for "video still processing" (1885252)
-            const MAX_RETRIES_LPC = 4;
-            const RETRY_DELAY_LPC = 20_000;
-            let specResult;
-            let specText = "";
-            for (let attempt = 0; attempt <= MAX_RETRIES_LPC; attempt++) {
-              logger.info(
-                { adFromSpecArgs, attempt },
-                `launch_pipeboard_campaign: create_ad_from_creative_spec [${adset.name}][text ${ti + 1}]`,
-              );
-              specResult = await client.callTool({
-                name: "create_ad_from_creative_spec",
-                arguments: adFromSpecArgs,
-              });
-              specText = mcpText(specResult);
-              logger.info(
-                { specText },
-                `launch_pipeboard_campaign: create_ad_from_creative_spec result [${adset.name}][text ${ti + 1}]`,
-              );
-
-              // Retry on "video still processing" (error_subcode 1885252)
-              if (/"error"/.test(specText) && specText.includes("1885252")) {
-                if (attempt < MAX_RETRIES_LPC) {
-                  logger.warn(
-                    { attempt, videoId: media.videoId },
-                    `launch_pipeboard_campaign: video still processing — waiting ${RETRY_DELAY_LPC / 1000}s`,
-                  );
-                  await new Promise(r => setTimeout(r, RETRY_DELAY_LPC));
-                  continue;
-                }
-                adResults.push({
-                  adset_name: adset.name,
-                  adset_id: adsetId,
-                  creative_index: ti,
-                  error: `الفيديو لم يجهز بعد ${MAX_RETRIES_LPC} محاولات — انتظر دقيقة وأعِد المحاولة`,
-                });
-                break;
-              }
-              break; // no retry needed
-            }
-
-            // Parse ad_id and creative_id from create_ad_from_creative_spec result
-            const hasRealId = /"id"\s*:\s*"(\d{10,})"/.test(specText);
-            if (/"error"/.test(specText) && !hasRealId) {
-              adResults.push({
-                adset_name: adset.name,
-                adset_id: adsetId,
-                creative_index: ti,
-                error: `فشل create_ad_from_creative_spec — ${extractMetaError(specText)}`,
-              });
-              continue;
-            }
-            // Result may contain both creative_id and ad_id — extract the largest (ad_id)
-            const allIds = [...specText.matchAll(/"id"\s*:\s*"(\d{10,})"/g)].map(m => m[1]!);
-            adIdFromSpec = allIds[allIds.length - 1] ?? "";
-            creativeId = allIds[0] ?? "";
-            if (!adIdFromSpec) {
-              adResults.push({
-                adset_name: adset.name,
-                adset_id: adsetId,
-                creative_index: ti,
-                error: `لم يُعاد ad_id من create_ad_from_creative_spec — ${extractMetaError(specText)}`,
-              });
-              continue;
-            }
+          const metaTknLpc = process.env.META_ACCESS_TOKEN ?? "";
+          if (!metaTknLpc) {
             adResults.push({
               adset_name: adset.name,
               adset_id: adsetId,
               creative_index: ti,
-              creative_id: creativeId || undefined,
+              error: "META_ACCESS_TOKEN مفقود — لا يمكن إنشاء إعلان بدون Access Token",
+            });
+            continue;
+          }
+          try {
+            // Step 1: Create ad creative via Meta API with object_story_spec (STANDARD)
+            const MAX_RETRIES_LPC = 4;
+            const RETRY_DELAY_LPC = 20_000;
+            let storySpec: Record<string, unknown>;
+            if (isVid) {
+              storySpec = {
+                page_id: pageId,
+                video_data: {
+                  video_id: media.videoId,
+                  message: singleText,
+                  title: firstHeadline,
+                  call_to_action: {
+                    type: callToAction || "SHOP_NOW",
+                    value: { link: landingPageUrl },
+                  },
+                },
+              };
+            } else {
+              storySpec = {
+                page_id: pageId,
+                link_data: {
+                  image_hash: media.imageHash,
+                  link: landingPageUrl,
+                  message: singleText,
+                  name: firstHeadline,
+                  call_to_action: {
+                    type: callToAction || "SHOP_NOW",
+                    value: { link: landingPageUrl },
+                  },
+                },
+              };
+            }
+            const creativeBody: Record<string, unknown> = {
+              name: `${adset.name} — نص ${ti + 1} — creative`,
+              object_story_spec: storySpec,
+              access_token: metaTknLpc,
+            };
+
+            for (let attempt = 0; attempt <= MAX_RETRIES_LPC; attempt++) {
+              logger.info(
+                { adset: adset.name, ti: ti + 1, attempt },
+                "launch_pipeboard_campaign: POST /adcreatives (Meta API direct)",
+              );
+              const creativeRes = await fetch(
+                `https://graph.facebook.com/v21.0/act_${accountId}/adcreatives`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(creativeBody),
+                  signal: AbortSignal.timeout(30_000),
+                },
+              );
+              const creativeJson = (await creativeRes.json()) as { id?: string; error?: { message: string; error_subcode?: number } };
+              logger.info({ creativeJson }, "launch_pipeboard_campaign: /adcreatives response");
+
+              if (creativeJson.error?.error_subcode === 1885252 && attempt < MAX_RETRIES_LPC) {
+                logger.warn({ attempt }, `launch_pipeboard_campaign: video processing — wait ${RETRY_DELAY_LPC / 1000}s`);
+                await new Promise(r => setTimeout(r, RETRY_DELAY_LPC));
+                continue;
+              }
+              if (creativeJson.error || !creativeJson.id) {
+                adResults.push({
+                  adset_name: adset.name,
+                  adset_id: adsetId,
+                  creative_index: ti,
+                  error: `فشل إنشاء Creative — ${creativeJson.error?.message ?? JSON.stringify(creativeJson)}`,
+                });
+                break;
+              }
+              creativeId = creativeJson.id;
+              break;
+            }
+            if (!creativeId) continue;
+
+            // Step 2: Create ad via Meta API
+            const adBody: Record<string, unknown> = {
+              name: `${adset.name} — نص ${ti + 1}`,
+              adset_id: adsetId,
+              creative: { creative_id: creativeId },
+              status: "PAUSED",
+              access_token: metaTknLpc,
+            };
+            if (hasPixel && pixelId) {
+              adBody.tracking_specs = [
+                { "action.type": ["offsite_conversion"], fb_pixel: [pixelId] },
+              ];
+            }
+            logger.info({ adset: adset.name, ti: ti + 1, creativeId }, "launch_pipeboard_campaign: POST /ads (Meta API direct)");
+            const adRes = await fetch(
+              `https://graph.facebook.com/v21.0/act_${accountId}/ads`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(adBody),
+                signal: AbortSignal.timeout(30_000),
+              },
+            );
+            const adJson = (await adRes.json()) as { id?: string; error?: { message: string } };
+            logger.info({ adJson }, "launch_pipeboard_campaign: /ads response");
+
+            if (adJson.error || !adJson.id) {
+              adResults.push({
+                adset_name: adset.name,
+                adset_id: adsetId,
+                creative_index: ti,
+                creative_id: creativeId,
+                error: `فشل إنشاء Ad — ${adJson.error?.message ?? JSON.stringify(adJson)}`,
+              });
+              continue;
+            }
+            adIdFromSpec = adJson.id;
+            adResults.push({
+              adset_name: adset.name,
+              adset_id: adsetId,
+              creative_index: ti,
+              creative_id: creativeId,
               ad_id: adIdFromSpec,
             });
           } catch (e) {
@@ -3286,7 +3167,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               adset_name: adset.name,
               adset_id: adsetId,
               creative_index: ti,
-              error: `create_ad_from_creative_spec: ${e instanceof Error ? e.message : String(e)}`,
+              error: `Meta API: ${e instanceof Error ? e.message : String(e)}`,
             });
           }
         }
