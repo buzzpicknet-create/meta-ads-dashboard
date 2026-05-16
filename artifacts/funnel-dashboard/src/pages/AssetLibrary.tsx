@@ -992,7 +992,7 @@ function QuickLaunchSection() {
 - AdSet Budget: ${form.budget} EGP daily
 - Video: ${a.name.trim() || `angle${i+1}`} (ابحث في Drive عن ملف باسم "${a.name.trim() || `angle${i+1}`}")
 - Destination URL: ${lp}
-- Primary Texts:
+- Primary Texts (كل نص = إعلان منفصل — NO Dynamic Creative — NO asset_feed_spec):
   1. ${a.texts[0] || "[نص 1]"}
   2. ${a.texts[1] || "[نص 2]"}
 - Headlines:

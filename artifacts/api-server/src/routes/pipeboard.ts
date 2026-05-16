@@ -2424,6 +2424,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   // ── Special multi-step: launch_pipeboard_campaign ────────────────────────
   if (tool === "launch_pipeboard_campaign") {
+    const campaignStrategy = String(args?.strategy ?? "").toLowerCase();
+    if (campaignStrategy === "standard") {
+      res.status(400).json({
+        error: "launch_pipeboard_campaign cannot be used for Standard strategy. Use create_campaign + create_adset + create_ad separately for each ad.",
+        code: "WRONG_TOOL_FOR_STANDARD",
+      });
+      return;
+    }
+
     // ── Types ──────────────────────────────────────────────────────────────
     interface AdsetInput {
       name: string;
@@ -2770,131 +2779,162 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
       }
 
-      // ── Step 4: Create adsets × creatives → ads ──────────────────────────
-      for (const adset of rawAdsets) {
-        // Create one AdSet + one Ad per creative (video)
-        for (let ci = 0; ci < rawCreatives.length; ci++) {
-          // ── Create a dedicated AdSet for this creative (video) ──
-          // Each video gets its own AdSet with is_dynamic_creative=true
-          let adsetId = "";
-          let adsetErr = "";
-          const adsetName = `${adset.name} — video ${ci + 1}`;
+      // ── Step 4: One AdSet per angle, N separate ads (one per text) ──────────
+      // Each angle = 1 AdSet. Each text within that angle = 1 separate ad.
+      // Video is matched by filename (without extension) to angle name,
+      // falling back to same-index creative or rawCreatives[0].
+      // NO is_dynamic_creative — NO asset_feed_spec — each ad has exactly
+      // one video_id, one text, one headline.
+      let totalAdsExpected = 0;
+      for (let ai = 0; ai < rawAdsets.length; ai++) {
+        const adset = rawAdsets[ai]!;
 
-          try {
-            // NOTE: Budget lives on the CAMPAIGN (CBO mode). Do NOT set daily_budget on
-            // adsets — it conflicts with CBO and causes Meta to ignore the campaign budget.
-            const adsetArgs: Record<string, unknown> = {
-              account_id: accountId,
-              campaign_id: campaignId,
-              name: adsetName,
-              optimization_goal: optimizationGoal,
-              billing_event: "IMPRESSIONS",
-              status: "PAUSED",
-              is_dynamic_creative: true,
-              targeting: { geo_locations: { countries: ["EG"] } },
-              targeting_automation: { advantage_audience: 1 },
-              attribution_spec: [
-                { event_type: "CLICK_THROUGH", window_days: 7 },
-                { event_type: "VIEW_THROUGH", window_days: 1 },
-              ],
+        // ── Find matching creative by filename ↔ angle name ────────────────
+        const angleName = adset.name.toLowerCase().trim();
+        const matchingCreative =
+          rawCreatives.find((c) => {
+            const url = (c.media_url ?? "").toLowerCase();
+            const filename =
+              url.split("/").pop()?.split("?")[0]?.split("#")[0] ?? "";
+            const nameWithoutExt = filename.replace(/\.[^.]+$/, "");
+            return (
+              nameWithoutExt === angleName ||
+              nameWithoutExt.includes(angleName) ||
+              angleName.includes(nameWithoutExt)
+            );
+          }) ??
+          rawCreatives[ai] ??
+          rawCreatives[0];
+
+        if (!matchingCreative) {
+          adResults.push({
+            adset_name: adset.name,
+            creative_index: 0,
+            error: "لم يُعثر على creative مطابق لهذه الزاوية",
+          });
+          continue;
+        }
+
+        const texts =
+          Array.isArray(matchingCreative.texts) &&
+          matchingCreative.texts.length > 0
+            ? (matchingCreative.texts as string[])
+            : [""];
+        const headlines =
+          Array.isArray(matchingCreative.headlines) &&
+          matchingCreative.headlines.length > 0
+            ? (matchingCreative.headlines as string[])
+            : [""];
+        const firstHeadline = headlines[0]!;
+        totalAdsExpected += texts.length;
+
+        // ── Create ONE AdSet for this angle ───────────────────────────────
+        let adsetId = "";
+        let adsetErr = "";
+        const adsetName = adset.name;
+
+        try {
+          // NOTE: Budget lives on the CAMPAIGN (CBO mode). Do NOT set daily_budget on
+          // adsets — it conflicts with CBO and causes Meta to ignore the campaign budget.
+          const adsetArgs: Record<string, unknown> = {
+            account_id: accountId,
+            campaign_id: campaignId,
+            name: adsetName,
+            optimization_goal: optimizationGoal,
+            billing_event: "IMPRESSIONS",
+            status: "PAUSED",
+            targeting: { geo_locations: { countries: ["EG"] } },
+            targeting_automation: { advantage_audience: 1 },
+            attribution_spec: [
+              { event_type: "CLICK_THROUGH", window_days: 7 },
+              { event_type: "VIEW_THROUGH", window_days: 1 },
+            ],
+          };
+          if (hasPixel) {
+            adsetArgs.promoted_object = {
+              pixel_id: pixelId,
+              custom_event_type: "PURCHASE",
             };
-            if (hasPixel) {
-              adsetArgs.promoted_object = {
-                pixel_id: pixelId,
-                custom_event_type: "PURCHASE",
-              };
-            }
-            const adsetResult = await client.callTool({
-              name: "create_adset",
-              arguments: adsetArgs,
-            });
-            const adsetText = mcpText(adsetResult);
-            logger.info(
-              { adsetText },
-              `launch_pipeboard_campaign: create_adset "${adsetName}"`,
-            );
-            const adsetIdMatch =
-              adsetText.match(/"id"\s*:\s*"(\d+)"/) ??
-              adsetText.match(/(\d{10,})/);
-            adsetId = adsetIdMatch?.[1] ?? "";
-            if (!adsetId)
-              adsetErr = `فشل إنشاء AdSet "${adsetName}" — ${adsetText.slice(0, 200)}`;
-          } catch (e) {
-            adsetErr = `فشل إنشاء AdSet "${adsetName}": ${e instanceof Error ? e.message : String(e)}`;
-            logger.warn(
-              { adsetErr },
-              "launch_pipeboard_campaign: create_adset threw",
-            );
           }
+          const adsetResult = await client.callTool({
+            name: "create_adset",
+            arguments: adsetArgs,
+          });
+          const adsetText = mcpText(adsetResult);
+          logger.info(
+            { adsetText },
+            `launch_pipeboard_campaign: create_adset "${adsetName}"`,
+          );
+          const adsetIdMatch =
+            adsetText.match(/"id"\s*:\s*"(\d+)"/) ??
+            adsetText.match(/(\d{10,})/);
+          adsetId = adsetIdMatch?.[1] ?? "";
+          if (!adsetId)
+            adsetErr = `فشل إنشاء AdSet "${adsetName}" — ${adsetText.slice(0, 200)}`;
+        } catch (e) {
+          adsetErr = `فشل إنشاء AdSet "${adsetName}": ${e instanceof Error ? e.message : String(e)}`;
+          logger.warn(
+            { adsetErr },
+            "launch_pipeboard_campaign: create_adset threw",
+          );
+        }
 
-          if (!adsetId) {
-            adResults.push({
-              adset_name: adsetName,
-              creative_index: ci,
-              error: adsetErr,
-            });
-            continue;
-          }
+        if (!adsetId) {
+          adResults.push({
+            adset_name: adsetName,
+            creative_index: 0,
+            error: adsetErr,
+          });
+          continue;
+        }
 
-          const creative = rawCreatives[ci]!;
-          const rawUrl = creative.media_url?.trim() ?? "";
-          const mediaUrl = normaliseMediaUrl(rawUrl);
-          const media = mediaCache.get(mediaUrl);
+        // ── Resolve media once per angle ──────────────────────────────────
+        const rawUrl = matchingCreative.media_url?.trim() ?? "";
+        const mediaUrl = normaliseMediaUrl(rawUrl);
+        const media = mediaCache.get(mediaUrl);
 
-          if (!media || media.error) {
-            adResults.push({
-              adset_name: adset.name,
-              adset_id: adsetId,
-              creative_index: ci,
-              error: media?.error ?? "رابط الميديا مفقود",
-            });
-            continue;
-          }
+        if (!media || media.error) {
+          adResults.push({
+            adset_name: adset.name,
+            adset_id: adsetId,
+            creative_index: 0,
+            error: media?.error ?? "رابط الميديا مفقود",
+          });
+          continue;
+        }
 
-          const isVid = isVideoType(mediaUrl, creative.media_type ?? "");
-          const hasMedia = isVid
-            ? Boolean(media.videoId)
-            : Boolean(media.imageHash);
-          if (!hasMedia) {
-            adResults.push({
-              adset_name: adset.name,
-              adset_id: adsetId,
-              creative_index: ci,
-              error: "الميديا لم تُرفع بنجاح",
-            });
-            continue;
-          }
+        const isVid = isVideoType(mediaUrl, matchingCreative.media_type ?? "");
+        const hasMedia = isVid
+          ? Boolean(media.videoId)
+          : Boolean(media.imageHash);
+        if (!hasMedia) {
+          adResults.push({
+            adset_name: adset.name,
+            adset_id: adsetId,
+            creative_index: 0,
+            error: "الميديا لم تُرفع بنجاح",
+          });
+          continue;
+        }
 
-          // Create ad creative — inject page_id, pixel_id, destination_url + Advantage+ enhancements
+        // ── Create N ads — one per text ───────────────────────────────────
+        for (let ti = 0; ti < texts.length; ti++) {
+          const singleText = texts[ti]!;
+
+          // Create ad creative — one video + one text + one headline
+          // NOTE: Do NOT pass instagram_actor_id (Pipeboard auth issue).
+          // NOTE: Do NOT add advantage_plus_creative / degrees_of_freedom_spec
+          // (incompatible with Pipeboard create_ad → error 1487015).
           let creativeId = "";
           try {
             const creativeArgs: Record<string, unknown> = {
               account_id: accountId,
-              name: `${adset.name} — creative ${ci + 1}`,
+              name: `${adset.name} — نص ${ti + 1}`,
               page_id: pageId,
-              // NOTE: Do NOT pass instagram_actor_id here.
-              // Pipeboard validates that the token has instagram_basic permission
-              // when instagram_actor_id is present, and rejects the request if not —
-              // causing a Pipeboard-level error before Meta is even reached.
-              // Without instagram_actor_id, Meta will use automatic placements
-              // (Facebook + Instagram where available based on page permissions).
-              //
-              // NOTE: Do NOT add advantage_plus_creative / degrees_of_freedom_spec
-              // here — those create an Advantage+ creative format that is incompatible
-              // with Pipeboard's create_ad tool and causes error 1487015
-              // ("Ad Creative Invalid") at the ad-creation step.
               link_url: landingPageUrl,
               destination_url: landingPageUrl,
-              messages:
-                Array.isArray(creative.texts) && creative.texts.length > 0
-                  ? creative.texts
-                  : undefined,
-              headlines:
-                Array.isArray(creative.headlines) &&
-                creative.headlines.length > 0
-                  ? creative.headlines
-                  : undefined,
-
+              messages: [singleText],
+              headlines: [firstHeadline],
               call_to_action_type: callToAction,
             };
             if (pixelId) creativeArgs.pixel_id = pixelId;
@@ -2908,31 +2948,28 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             const creativeText = mcpText(creativeResult);
             logger.info(
               { creativeText },
-              `launch_pipeboard_campaign: create_ad_creative [${adset.name}][${ci}]`,
+              `launch_pipeboard_campaign: create_ad_creative [${adset.name}][text ${ti + 1}]`,
             );
 
             // ── Strict error parsing: check for nested errors even on 200 ──
             // Use tight regex: a real creative ID appears as "id": "NNNNN" (standalone key).
-            // This avoids false matches on keys like "instagram_actor_id", "account_id", etc.
-            // that also contain "id" as a substring.
             const hasRealId = /"id"\s*:\s*"(\d{10,})"/.test(creativeText);
             if (/"error"/.test(creativeText) && !hasRealId) {
               adResults.push({
                 adset_name: adset.name,
                 adset_id: adsetId,
-                creative_index: ci,
+                creative_index: ti,
                 error: `فشل creative — ${extractMetaError(creativeText)}`,
               });
               continue;
             }
-            // Extract creative ID using tight regex (standalone "id" key only)
             const creativeMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
             creativeId = creativeMatch?.[1] ?? "";
             if (!creativeId) {
               adResults.push({
                 adset_name: adset.name,
                 adset_id: adsetId,
-                creative_index: ci,
+                creative_index: ti,
                 error: `لم يُعاد creative_id — ${extractMetaError(creativeText)}`,
               });
               continue;
@@ -2941,17 +2978,17 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             adResults.push({
               adset_name: adset.name,
               adset_id: adsetId,
-              creative_index: ci,
+              creative_index: ti,
               error: `create_ad_creative: ${e instanceof Error ? e.message : String(e)}`,
             });
             continue;
           }
 
-          // Create ad — must use act_ prefix for Meta's /ads endpoint
+          // Create ad — one per text (must use act_ prefix for Meta's /ads endpoint)
           try {
             const adArgs: Record<string, unknown> = {
               account_id: accountIdWithAct,
-              name: `${adset.name} — إعلان ${ci + 1}`,
+              name: `${adset.name} — نص ${ti + 1}`,
               adset_id: adsetId,
               creative_id: creativeId,
               status: "PAUSED",
@@ -2971,15 +3008,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             const adText = mcpText(adResult);
             logger.info(
               { adText },
-              `launch_pipeboard_campaign: create_ad [${adset.name}][${ci}]`,
+              `launch_pipeboard_campaign: create_ad [${adset.name}][text ${ti + 1}]`,
             );
 
-            // ── Strict error parsing for ads ─────────────────────────────
+            // ── Strict error parsing for ads ──────────────────────────────
             if (/"error"/.test(adText) && !/"id"/.test(adText)) {
               adResults.push({
                 adset_name: adset.name,
                 adset_id: adsetId,
-                creative_index: ci,
+                creative_index: ti,
                 creative_id: creativeId,
                 error: `فشل create_ad — ${extractMetaError(adText)}`,
               });
@@ -2992,7 +3029,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             adResults.push({
               adset_name: adset.name,
               adset_id: adsetId,
-              creative_index: ci,
+              creative_index: ti,
               creative_id: creativeId,
               ad_id: adId || undefined,
               error: adId
@@ -3003,14 +3040,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             adResults.push({
               adset_name: adset.name,
               adset_id: adsetId,
-              creative_index: ci,
+              creative_index: ti,
               creative_id: creativeId,
               error: `create_ad: ${e instanceof Error ? e.message : String(e)}`,
             });
           }
         }
       }
-
       // ── Build summary ─────────────────────────────────────────────────────
       const adsCreated = adResults.filter((r) => r.ad_id).length;
       const adsFailed = adResults.filter((r) => !r.ad_id).length;
@@ -3025,7 +3061,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       pipeSuccess = true;
       pipeMsg = [
         `campaign_id:${campaignId}`,
-        `ads_created:${adsCreated}/${rawAdsets.length * rawCreatives.length}`,
+        `ads_created:${adsCreated}/${totalAdsExpected}`,
         adsFailed > 0
           ? `\n⚠️ إعلانات فشلت (${adsFailed}):\n${failedDetails}`
           : "",

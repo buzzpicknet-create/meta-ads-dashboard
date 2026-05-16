@@ -1275,21 +1275,6 @@ const TOOLS = [
   {
     type: "function" as const,
     function: {
-      name: "get_ad_performance",
-      description: "جيب أداء إعلان بعينه — نسبة الجذب (Hook Rate)، نسبة النقر (CTR)، تكلفة التحويل (CPA)، الإنفاق، والظهورات. استخدم قبل أي توصية بتغيير المحتوى الإعلاني أو إيقاف إعلان معين للتحقق من أرقامه الفعلية.",
-      parameters: {
-        type: "object",
-        properties: {
-          ad_id: { type: "string", description: "رقم الإعلان (id)" },
-          days: { type: "number", description: "عدد الأيام للرجوع للخلف. افتراضي: 7" },
-        },
-        required: ["ad_id"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
       name: "get_ads_in_adset",
       description: "جيب قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية (Ad Set) محددة — مرتّبة حسب الكفاءة (CPA، نسبة الجذب، نسبة النقر، الإنفاق). استخدم قبل التوصية بزيادة إعلان معين أو إيقاف آخر لتحديد الـ Winner والـ Drain بشكل دقيق. لو رجعت رسالة 'لم يتم العثور' أعد المحاولة بـ days=30.",
       parameters: {
@@ -2722,7 +2707,7 @@ async function getPipeboardClient(): Promise<Client> {
 // ── Tool-result safety cap ────────────────────────────────────────────────────
 // Hard ceiling only — keeps context window sane if an API returns an absurd payload.
 // Normal adset/ad responses (hundreds of rows) are well under this limit.
-const MAX_TOOL_RESULT_CHARS = 50_000;
+const MAX_TOOL_RESULT_CHARS = 15_000;
 
 function truncateToolResult(text: string, maxChars = MAX_TOOL_RESULT_CHARS): string {
   if (text.length <= maxChars) return text;

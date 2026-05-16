@@ -1,0 +1,72 @@
+I want to make 6 improvements to the codebase. Do NOT touch: streaming logic, bulk_action panel, pending cards, UI components, Scale AdSets, or Scale Creative.
+
+**Change 1: Remove unused tool definition**
+In the TOOLS array, find and completely remove the tool named `get_ad_performance`. It is already forbidden in the system prompt but still defined — this causes the model to sometimes call it by mistake.
+
+**Change 2: Reduce MAX_TOOL_RESULT_CHARS**
+Find this line:
+const MAX_TOOL_RESULT_CHARS = 50_000;
+Change it to:
+const MAX_TOOL_RESULT_CHARS = 15_000;
+
+**Change 3: Add database indexes for performance**
+Run these SQL statements on the database:
+CREATE INDEX IF NOT EXISTS idx_insights_campaign_fetched ON meta_insights_cache(campaign_id, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_campaigns_account_period ON meta_campaigns_cache(account_id, period_since, period_until);
+CREATE INDEX IF NOT EXISTS idx_overview_account_period ON meta_overview_cache(account_id, period_since, period_until);
+
+**Change 4: Block launch_pipeboard_campaign for Standard strategy**
+In the POST /api/pipeboard/action handler, at the very beginning of the launch_pipeboard_campaign block, before any other logic, add:
+
+const campaignStrategy = String(args?.strategy ?? "").toLowerCase();
+if (campaignStrategy === "standard") {
+  res.status(400).json({ 
+    error: "launch_pipeboard_campaign cannot be used for Standard strategy. Use create_campaign + create_adset + create_ad separately for each ad.",
+    code: "WRONG_TOOL_FOR_STANDARD"
+  });
+  return;
+}
+
+**Change 5: Remove is_dynamic_creative from launch_pipeboard_campaign**
+In the launch_pipeboard_campaign handler, find this line inside the create_adset arguments:
+is_dynamic_creative: true,
+Remove it completely. This flag causes Meta to randomly mix texts and headlines instead of using the exact creative specified.
+
+**Change 6: Fix Test campaign to create separate ads per text per video**
+
+Current broken behavior:
+- Code tries to put multiple texts in one ad → fails at Meta API
+
+Required behavior:
+- Each angle = one AdSet
+- Each AdSet contains N separate ads (one per text)
+- Example: 2 angles × 2 texts = 2 AdSets × 2 ads each = 4 total ads
+- Video matching: match video filename without extension to angle name in Drive folder
+
+In the launch_pipeboard_campaign handler, fix the adset/ad creation loop:
+
+For each adset (angle):
+  1. Find the matching video from Drive folder by filename matching angle name
+  2. Create ONE AdSet for this angle
+  3. For each text in the texts array:
+     - Create ONE separate ad with: matching video + this single text + first headline
+  4. Result: 1 AdSet × N texts = N individual ads
+
+Rules for each ad creation:
+- One video_id only
+- One text only (not an array)
+- One headline only
+- status: PAUSED
+- NO is_dynamic_creative
+- NO asset_feed_spec
+- NO degrees_of_freedom_spec
+
+Also fix the buildBlueprintCmd function in AssetLibrary.tsx for type "TEST":
+- Add this line to each angle section in the blueprint command:
+  "Each text = one separate ad — NO Dynamic Creative — NO asset_feed_spec"
+- Make it explicit that texts array means N individual ads not one ad with multiple texts
+
+**Instructions:**
+- Make each change separately and show me the diff before applying
+- Do not refactor anything else you notice along the way
+- After all 6 changes, show me a summary confirming nothing else was touched
