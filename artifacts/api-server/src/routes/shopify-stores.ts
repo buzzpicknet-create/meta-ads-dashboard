@@ -8,21 +8,6 @@ const router: IRouter = Router();
 const SHOPIFY_API_VERSION = "2024-01";
 const SHOPIFY_SCOPES = "read_products,write_products,read_content,write_content,write_themes,read_themes";
 
-// ─── In-memory OAuth state store (TTL 10 min) ─────────────────────────────────
-interface PendingOAuth {
-  domain: string;
-  clientId: string;
-  clientSecret: string;
-  isDefault: boolean;
-  createdAt: number;
-}
-const pendingOAuth = new Map<string, PendingOAuth>();
-setInterval(() => {
-  const cutoff = Date.now() - 10 * 60 * 1000;
-  for (const [k, v] of pendingOAuth) {
-    if (v.createdAt < cutoff) pendingOAuth.delete(k);
-  }
-}, 60_000);
 
 function getAppBaseUrl(req: Request): string {
   const domains = (process.env.REPLIT_DOMAINS ?? "").split(",").map(d => d.trim()).filter(Boolean);
@@ -50,13 +35,15 @@ router.post("/shopify/oauth/start", async (req: Request, res: Response): Promise
   const cleanDomain = domain.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
   const state = randomUUID();
 
-  pendingOAuth.set(state, {
+  // Store in session (DB-backed) so server restarts don't break the flow
+  req.session.pendingShopifyOAuth = {
     domain: cleanDomain,
     clientId: clientId.trim(),
     clientSecret: clientSecret.trim(),
     isDefault: !!isDefault,
+    state,
     createdAt: Date.now(),
-  });
+  };
 
   const redirectUri = `${getAppBaseUrl(req)}/api/shopify/oauth/callback`;
   const authUrl =
@@ -74,12 +61,13 @@ router.post("/shopify/oauth/start", async (req: Request, res: Response): Promise
 router.get("/shopify/oauth/callback", async (req: Request, res: Response): Promise<void> => {
   const { code, shop, state, hmac } = req.query as Record<string, string>;
 
-  const pending = pendingOAuth.get(state ?? "");
-  if (!pending) {
-    res.status(400).send("انتهت صلاحية طلب OAuth أو غير صالح. أعد المحاولة من التطبيق.");
+  const pending = req.session.pendingShopifyOAuth;
+  if (!pending || pending.state !== state) {
+    res.redirect("/landing-page?shopify_error=session_expired");
     return;
   }
-  pendingOAuth.delete(state);
+  // Clear from session
+  delete req.session.pendingShopifyOAuth;
 
   // ── Validate HMAC ────────────────────────────────────────────────────────────
   const params = { ...req.query } as Record<string, string>;
@@ -87,7 +75,7 @@ router.get("/shopify/oauth/callback", async (req: Request, res: Response): Promi
   const message = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&");
   const expected = createHmac("sha256", pending.clientSecret).update(message).digest("hex");
   if (hmac !== expected) {
-    res.status(400).send("فشل التحقق من HMAC. أعد المحاولة.");
+    res.redirect("/landing-page?shopify_error=hmac_failed");
     return;
   }
 
@@ -103,14 +91,14 @@ router.get("/shopify/oauth/callback", async (req: Request, res: Response): Promi
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
       logger.error({ status: tokenRes.status, body }, "shopify_token_exchange_failed");
-      res.status(400).send(`فشل استبدال الكود بـ Access Token (${tokenRes.status}). أعد المحاولة.`);
+      res.redirect(`/landing-page?shopify_error=token_exchange_${tokenRes.status}`);
       return;
     }
 
     const tokenData = await tokenRes.json() as { access_token?: string };
     const accessToken = tokenData.access_token;
     if (!accessToken) {
-      res.status(400).send("لم يتم إرجاع access_token. أعد المحاولة.");
+      res.redirect("/landing-page?shopify_error=no_token");
       return;
     }
 
@@ -145,7 +133,7 @@ router.get("/shopify/oauth/callback", async (req: Request, res: Response): Promi
     res.redirect(`/landing-page?shopify_connected=1&shop=${encodeURIComponent(shopName)}`);
   } catch (err) {
     logger.error({ err }, "shopify_oauth_callback_error");
-    res.status(500).send("خطأ داخلي أثناء إتمام OAuth. أعد المحاولة.");
+    res.redirect("/landing-page?shopify_error=internal");
   }
 });
 

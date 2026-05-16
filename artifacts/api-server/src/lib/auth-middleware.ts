@@ -5,6 +5,14 @@ declare module "express-session" {
     userId: number;
     username: string;
     role: "admin" | "media_buyer" | "media_manager";
+    pendingShopifyOAuth?: {
+      domain: string;
+      clientId: string;
+      clientSecret: string;
+      isDefault: boolean;
+      state: string;
+      createdAt: number;
+    };
   }
 }
 

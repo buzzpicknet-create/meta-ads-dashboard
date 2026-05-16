@@ -2073,6 +2073,20 @@ export default function LandingPageGenerator() {
           toast({ title: "✅ تم ربط Shopify بنجاح!", description: shopName });
         })
         .catch(() => {});
+    } else if (params.has("shopify_error")) {
+      const code = params.get("shopify_error") ?? "unknown";
+      window.history.replaceState({}, "", "/landing-page");
+      const messages: Record<string, string> = {
+        session_expired: "انتهت الجلسة — أعد المحاولة",
+        hmac_failed: "فشل التحقق من الأمان — تأكد من Client Secret",
+        no_token: "لم يُرسل Shopify الـ Token — أعد المحاولة",
+        internal: "خطأ داخلي في الخادم — أعد المحاولة",
+      };
+      const tokenMatch = code.match(/^token_exchange_(\d+)$/);
+      const msg = tokenMatch
+        ? `فشل استبدال الكود (${tokenMatch[1]}) — تأكد من Client ID و Secret`
+        : (messages[code] ?? "فشل ربط Shopify — أعد المحاولة");
+      toast({ title: "❌ فشل ربط Shopify", description: msg, variant: "destructive" });
     }
   }, []);
 

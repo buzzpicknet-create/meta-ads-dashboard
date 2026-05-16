@@ -4306,7 +4306,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
         tools: TOOLS,
         tool_choice: "auto",
         stream: true,
-        max_tokens: 4096,
+        max_completion_tokens: 4096,
       });
 
       let assistantContent = "";
