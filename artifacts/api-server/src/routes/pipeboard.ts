@@ -1927,7 +1927,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           logger.warn({ pageId }, "create_adcreative: domain-mapped page_id fallback");
         }
       }
-      if (!instagramActorId) instagramActorId = pageId;
+      // instagram_actor_id: only use if explicitly provided.
+      // Pages are from a personal account (not BM) — page_id in object_story_spec
+      // is sufficient for all placements including Instagram.
+      // ⛔ Never fall back instagramActorId → pageId: FB Page IDs are invalid IG Actor IDs.
 
       // Step 1: build object_story_spec
       let objectStorySpec: Record<string, unknown>;
