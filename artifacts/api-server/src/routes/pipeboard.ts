@@ -1935,10 +1935,35 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       // Step 1: build object_story_spec
       let objectStorySpec: Record<string, unknown>;
       if (mediaType === "video") {
+        // Meta requires image_hash OR image_url (thumbnail) in video_data — fetch auto-generated thumbnail if not provided
+        let thumbnailImageHash = String(args?.image_hash ?? "");
+        let thumbnailImageUrl = String(args?.image_url ?? "");
+        if (!thumbnailImageHash && !thumbnailImageUrl && videoId) {
+          try {
+            const thumbUrl = new URL(`https://graph.facebook.com/v21.0/${videoId}/thumbnails`);
+            thumbUrl.searchParams.set("access_token", metaTkn);
+            const thumbResp = await fetch(thumbUrl.toString(), { signal: AbortSignal.timeout(8_000) });
+            const thumbJson = (await thumbResp.json()) as { data?: Array<{ uri?: string; is_preferred?: boolean }> };
+            const thumbs = thumbJson.data ?? [];
+            // prefer is_preferred=true, else take first
+            const preferred = thumbs.find(t => t.is_preferred) ?? thumbs[0];
+            if (preferred?.uri) {
+              thumbnailImageUrl = preferred.uri;
+              logger.info({ videoId, thumbnailImageUrl }, "create_adcreative: auto-fetched video thumbnail");
+            } else {
+              logger.warn({ videoId, thumbJson }, "create_adcreative: no thumbnails returned from Meta");
+            }
+          } catch (thumbErr) {
+            logger.warn({ videoId, err: String(thumbErr) }, "create_adcreative: failed to fetch thumbnails — proceeding without");
+          }
+        }
+
         objectStorySpec = {
           page_id: pageId,
           video_data: {
             video_id: videoId,
+            ...(thumbnailImageHash ? { image_hash: thumbnailImageHash } : {}),
+            ...(thumbnailImageUrl && !thumbnailImageHash ? { image_url: thumbnailImageUrl } : {}),
             ...(primaryText ? { message: primaryText } : {}),
             ...(headline ? { link_description: headline } : {}),
             call_to_action: { type: callToAction, value: { link: linkUrl } },
