@@ -1810,35 +1810,49 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       res.status(400).json({ error: "adset_id مطلوب" });
       return;
     }
-    // Guard: adset_id must be numeric — if name given, auto-resolve from DB
+    // Guard: adset_id must be numeric — if name/placeholder given, auto-resolve from DB
     if (!/^\d{10,}$/.test(adsetId)) {
-      // Try to resolve adset name → numeric ID from recent pipeboard_actions
       try {
-        const dbRows = await query<{ result_message: string }>(
+        // Strategy 1: resolve by exact adset name
+        const byName = await query<{ result_message: string }>(
           `SELECT result_message FROM pipeboard_actions
            WHERE tool_name = 'create_adset' AND success = true AND adset_name = $1
            ORDER BY created_at DESC LIMIT 1`,
           [adsetId],
         );
-        const msg = dbRows[0]?.result_message ?? "";
-        const idMatch = msg.match(/adset_id:\s*(\d{10,})/);
-        if (idMatch?.[1]) {
-          logger.warn(
-            { passedName: adsetId, resolvedId: idMatch[1] },
-            "create_ad_from_creative_spec: adset_id was a name — auto-resolved from DB",
+        const msgByName = byName[0]?.result_message ?? "";
+        const idByName = msgByName.match(/adset_id:\s*(\d{10,})/)?.[1];
+
+        // Strategy 2 (fallback): most recent successful create_adset in last 10 min
+        // Used when AI sends a placeholder like "<PLEASE_PROVIDE_ADSET_ID>"
+        let resolvedId = idByName;
+        let resolveStrategy = "by-name";
+        if (!resolvedId) {
+          const byRecent = await query<{ result_message: string; adset_name: string }>(
+            `SELECT result_message, adset_name FROM pipeboard_actions
+             WHERE tool_name = 'create_adset' AND success = true
+               AND created_at > NOW() - INTERVAL '10 minutes'
+             ORDER BY created_at DESC LIMIT 1`,
+            [],
           );
-          // Mutate adsetId to the resolved numeric ID
-          (args as Record<string, unknown>).adset_id = idMatch[1];
-          // Re-read the sanitized value
-          const resolvedAdsetId = idMatch[1];
-          // Override the local variable by falling through with the corrected value
-          // We'll just overwrite adsetId indirectly via a second param variable
-          Object.assign(args as object, { adset_id: resolvedAdsetId });
+          const msgByRecent = byRecent[0]?.result_message ?? "";
+          resolvedId = msgByRecent.match(/adset_id:\s*(\d{10,})/)?.[1];
+          if (resolvedId) {
+            resolveStrategy = `by-recent (adset_name="${byRecent[0]?.adset_name}")`;
+          }
+        }
+
+        if (resolvedId) {
+          logger.warn(
+            { passedValue: adsetId, resolvedId, resolveStrategy },
+            "create_ad_from_creative_spec: adset_id was non-numeric — auto-resolved from DB",
+          );
+          Object.assign(args as object, { adset_id: resolvedId });
         } else {
           res.status(400).json({
             error:
               `adset_id غير صالح: "${adsetId}" — يجب أن يكون الرقم الـ numeric المُعاد من create_adset ` +
-              `(مثال: 120244466063810554)، وليس اسم المجموعة. ` +
+              `(مثال: 120244466883620554)، وليس اسم المجموعة أو placeholder. ` +
               `ارجع إلى نتيجة create_adset واستخدم adset_id الرقمي منها.`,
           });
           return;
@@ -1846,8 +1860,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       } catch {
         res.status(400).json({
           error:
-            `adset_id غير صالح: "${adsetId}" — يجب أن يكون الرقم الـ numeric المُعاد من create_adset ` +
-            `(مثال: 120244466063810554)، وليس اسم المجموعة.`,
+            `adset_id غير صالح: "${adsetId}" — يجب أن يكون الرقم الـ numeric المُعاد من create_adset.`,
         });
         return;
       }
