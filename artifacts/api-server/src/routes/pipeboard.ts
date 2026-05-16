@@ -3430,13 +3430,25 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // ── GUARD 1: campaign must exist in Meta ────────────────────────────
         if (campObjJson.error != null) {
           const metaErr = campObjJson.error as Record<string, unknown>;
-          res.status(400).json({
-            error:
-              `Pre-call Guard: campaign_id="${salesCampaignId}" غير موجود في Meta أو لا يمكن الوصول إليه. ` +
-              `(Meta: ${String(metaErr.message ?? JSON.stringify(campObjJson.error))}). ` +
-              `استخدم campaign_id الصحيح الذي أعادته create_campaign للتو.`,
-          });
-          return;
+          const errCode = Number(metaErr.code ?? 0);
+          // Error 190 = expired/invalid token — this is NOT a "wrong campaign_id" error.
+          // Skip the guard and let Pipeboard handle it (Pipeboard has its own token).
+          // Only block on genuine "campaign not found / no access" errors (codes 100, 200, 273, 803).
+          const isTokenError = errCode === 190 ||
+            String(metaErr.message ?? "").toLowerCase().includes("session has expired") ||
+            String(metaErr.message ?? "").toLowerCase().includes("access token");
+          if (!isTokenError) {
+            res.status(400).json({
+              error:
+                `Pre-call Guard: campaign_id="${salesCampaignId}" غير موجود في Meta أو لا يمكن الوصول إليه. ` +
+                `(Meta: ${String(metaErr.message ?? JSON.stringify(campObjJson.error))}). ` +
+                `استخدم campaign_id الصحيح الذي أعادته create_campaign للتو.`,
+            });
+            return;
+          }
+          // Token expired — skip remaining guards, proceed to Pipeboard which has valid auth
+          logger.warn({ errCode, salesCampaignId }, "Pre-call Guard: token expired — skipping guard, proceeding via Pipeboard");
+          campFetchOk = false; // treat as network failure so GUARD 2 & 3 are also skipped
         }
 
         // ── GUARD 2: passed ID must be a campaign, not an adset ────────────
