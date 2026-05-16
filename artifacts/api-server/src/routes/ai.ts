@@ -1358,7 +1358,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_ads_in_adset",
-      description: "جيب قائمة مقارنة بكل الإعلانات داخل مجموعة إعلانية (Ad Set) محددة — مرتّبة حسب الكفاءة (CPA، نسبة الجذب، نسبة النقر، الإنفاق). استخدم قبل التوصية بزيادة إعلان معين أو إيقاف آخر لتحديد الـ Winner والـ Drain بشكل دقيق. لو رجعت رسالة 'لم يتم العثور' أعد المحاولة بـ days=30.",
+      description: "جيب الفانل الكامل لكل إعلان داخل مجموعة إعلانية — يُعيد جدول كامل يحتوي على: Hook Rate% (نسبة الجذب = مشاهدات 3ث ÷ ظهورات)، Hold Rate% (نسبة الاستمرار = مشاهدة 100% ÷ مشاهدات 3ث)، LPR% (نسبة الوصول للصفحة = LP Views ÷ Clicks)، CVR% (نسبة التحويل = Purchases ÷ LP Views)، CTR%، CPA، Purchases، LP Views، Spend، CPM، Impressions، وتقييم تلقائي (Winner / Drain / Hook ضعيف / CVR ضعيف). استخدمها لتشخيص: Media Problem (Hook < 25%)، Funnel Leak (Hook جيد + CTR ضعيف)، Landing Page Problem (CTR جيد + LPR < 70%)، Conversion Problem (LPR جيد + CVR < 1.5%). مطلوبة لأي تحليل Ad-level — Hook Rate وHold Rate وLPR وCVR متاحة فقط عبر هذه الأداة. لو رجعت رسالة 'لم يتم العثور' أعد المحاولة بـ days=30.",
       parameters: {
         type: "object",
         properties: {
