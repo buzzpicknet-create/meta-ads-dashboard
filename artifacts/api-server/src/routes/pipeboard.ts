@@ -1790,7 +1790,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     const accountIdWithAct = rawAccountId.startsWith("act_")
       ? rawAccountId
       : `act_${rawAccountId}`;
-    const adsetId = String(args?.adset_id ?? "");
+    const adsetId = String(args?.adset_id ?? "").replace(/,/g, "").trim();
     const adName = String(args?.name ?? "إعلان من أصول creative");
     const primaryText = String(args?.primary_text ?? "");
     const headline = String(args?.headline ?? "");
