@@ -1546,20 +1546,26 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
         // Flex creative + ad via Pipeboard MCP (Pipeboard token has ads_management)
         const flexPbClient = await getPipeboardWriteClient();
+        // Build flat params for Pipeboard (does NOT accept object_story_spec)
+        const flexCrFlatArgs: Record<string, unknown> = {
+          account_id: accountIdWithAct,
+          name: `${adName} — flex creative`,
+          page_id: pageId,
+          link_url: flexLink,
+          ...(flexText ? { message: flexText } : {}),
+          ...(flexTitle ? { headline: flexTitle } : {}),
+          call_to_action_type: flexCtaType,
+          creative_features_spec: { standard_enhancements: { enroll_status: "OPT_IN" } },
+        };
+        if (flexVideoId) {
+          flexCrFlatArgs.video_id = flexVideoId;
+        } else {
+          flexCrFlatArgs.image_hash = flexImgHash;
+        }
+
         logger.info({ accountIdWithAct, adsetId }, "create_ad_from_existing_post: → Pipeboard create_ad_creative (flex)");
         const flexCrResult = await flexPbClient.callTool(
-          {
-            name: "create_ad_creative",
-            arguments: {
-              account_id: accountIdWithAct,
-              name: `${adName} — flex creative`,
-              object_story_spec: flexSpec,
-              degrees_of_freedom_spec: {
-                creative_features_spec: { standard_enhancements: { enroll_status: "OPT_IN" } },
-              },
-              advantage_plus_creative: { enroll_status: "OPT_IN" },
-            },
-          },
+          { name: "create_ad_creative", arguments: flexCrFlatArgs },
           undefined,
           { timeout: 30_000 },
         );
@@ -1933,13 +1939,27 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
       // Step 2: POST adcreatives via Pipeboard MCP
       // Pipeboard has its own Meta token with ads_management — direct Meta API fails (permissions).
+      // Pipeboard's create_ad_creative uses FLAT params, NOT object_story_spec.
       const pbClientCs = await getPipeboardWriteClient();
       const pbCreativeArgs: Record<string, unknown> = {
         account_id: accountIdWithAct,
         name: `${adName} — creative`,
-        object_story_spec: objectStorySpec,
+        page_id: pageId,
+        link_url: linkUrl,
+        ...(primaryText ? { message: primaryText } : {}),
+        ...(headline ? { headline } : {}),
+        ...(callToAction ? { call_to_action_type: callToAction } : {}),
+        ...(instagramActorId ? { instagram_actor_id: instagramActorId } : {}),
       };
-      if (instagramActorId) pbCreativeArgs.instagram_actor_id = instagramActorId;
+      if (mediaType === "video") {
+        pbCreativeArgs.video_id = videoId;
+        // Extract thumbnail from the already-built objectStorySpec
+        const vidData = (objectStorySpec.video_data ?? {}) as Record<string, unknown>;
+        if (vidData.image_url) pbCreativeArgs.thumbnail_url = String(vidData.image_url);
+        if (vidData.image_hash) pbCreativeArgs.image_hash = String(vidData.image_hash);
+      } else {
+        pbCreativeArgs.image_hash = imageHash;
+      }
 
       logger.info(
         { accountIdWithAct, mediaType, videoId, imageHash, linkUrl, pageId, adsetId,
@@ -2370,20 +2390,42 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               },
             };
 
-        // Rebuild creative + ad via Pipeboard MCP (Pipeboard token has ads_management)
+        // Rebuild creative + ad via Pipeboard MCP (flat params — does NOT accept object_story_spec)
         const rbPbClient = await getPipeboardWriteClient();
         const rbAccWithAct = `act_${rawSrcAccId}`;
+        // Extract media from objSpec for flat Pipeboard params
+        const rbVideoData = (objSpec as Record<string, unknown>).video_data as Record<string, unknown> | undefined;
+        const rbLinkData = (objSpec as Record<string, unknown>).link_data as Record<string, unknown> | undefined;
+        const rbVideoId = String(rbVideoData?.video_id ?? "");
+        const rbImageHash = String(rbLinkData?.image_hash ?? "");
+        const rbMsg = String(rbVideoData?.message ?? rbLinkData?.message ?? "");
+        const rbHeadline = String(rbVideoData?.link_description ?? rbLinkData?.name ?? "");
+        const rbCtaObj = (rbVideoData?.call_to_action ?? rbLinkData?.call_to_action ?? {}) as Record<string, unknown>;
+        const rbCtaType = String(rbCtaObj.type ?? callToAction);
+        const rbCtaLink = String((rbCtaObj.value as Record<string, unknown> | undefined)?.link ?? linkUrl);
+        const rbPageId = String((objSpec as Record<string, unknown>).page_id ?? pageId);
+
         const rbCreativeArgs: Record<string, unknown> = {
           account_id: rbAccWithAct,
           name: `${adLabel} — ${flexMode ? "flex" : "rebuild"} creative`,
-          object_story_spec: objSpec,
+          page_id: rbPageId,
+          link_url: rbCtaLink,
+          ...(rbMsg ? { message: rbMsg } : {}),
+          ...(rbHeadline ? { headline: rbHeadline } : {}),
+          ...(rbCtaType ? { call_to_action_type: rbCtaType } : {}),
+          ...(instagramActorId ? { instagram_actor_id: instagramActorId } : {}),
         };
-        if (instagramActorId) rbCreativeArgs.instagram_actor_id = instagramActorId;
+        if (rbVideoId) {
+          rbCreativeArgs.video_id = rbVideoId;
+          if (rbVideoData?.image_url) rbCreativeArgs.thumbnail_url = String(rbVideoData.image_url);
+          if (rbVideoData?.image_hash) rbCreativeArgs.image_hash = String(rbVideoData.image_hash);
+        } else {
+          rbCreativeArgs.image_hash = rbImageHash;
+        }
         if (flexMode) {
-          rbCreativeArgs.degrees_of_freedom_spec = {
-            creative_features_spec: { standard_enhancements: { enroll_status: "OPT_IN" } },
+          rbCreativeArgs.creative_features_spec = {
+            standard_enhancements: { enroll_status: "OPT_IN" },
           };
-          rbCreativeArgs.advantage_plus_creative = { enroll_status: "OPT_IN" };
         }
 
         logger.info({ rbAccWithAct, destinationAdsetId, flexMode }, "publish_winners: → Pipeboard create_ad_creative (rebuild)");
