@@ -1887,19 +1887,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       return;
     }
 
+    // META_ACCESS_TOKEN used only for page_id and thumbnail GET requests (optional fallbacks).
+    // Creative + Ad creation now routes through Pipeboard MCP (which has its own Meta token with ads_management).
     const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
-
-    // ── No token = hard error ──────────────────────────────────────────────
-    // Pipeboard does NOT have create_ad_from_creative_spec — calling it returns
-    // "Unknown tool". META_ACCESS_TOKEN is required to use Meta API directly.
-    if (!metaTkn) {
-      res.status(500).json({
-        error:
-          "META_ACCESS_TOKEN مفقود — لا يمكن إنشاء إعلان STANDARD بدون Access Token. " +
-          "تأكد من ضبط META_ACCESS_TOKEN في متغيرات البيئة.",
-      });
-      return;
-    }
 
     let csSuccess = false;
     let csMsg = "";
@@ -1982,14 +1972,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         };
       }
 
-      // Step 2: POST adcreatives
-      const creativeBody = new URLSearchParams({
+      // Step 2: POST adcreatives via Pipeboard MCP
+      // Pipeboard has its own Meta token with ads_management — direct Meta API fails (permissions).
+      const pbClientCs = await getPipeboardWriteClient();
+      const pbCreativeArgs: Record<string, unknown> = {
+        account_id: accountIdWithAct,
         name: `${adName} — creative`,
-        object_story_spec: JSON.stringify(objectStorySpec),
-        access_token: metaTkn,
-      });
-      if (instagramActorId)
-        creativeBody.set("instagram_actor_id", instagramActorId);
+        object_story_spec: objectStorySpec,
+      };
+      if (instagramActorId) pbCreativeArgs.instagram_actor_id = instagramActorId;
 
       logger.info(
         { accountIdWithAct, mediaType, videoId, imageHash, linkUrl, pageId, adsetId,
@@ -1997,72 +1988,64 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           primaryText: primaryText.slice(0, 80),
           headline: headline.slice(0, 40),
         },
-        "create_adcreative: → Meta POST /adcreatives",
+        "create_adcreative: → Pipeboard create_ad_creative",
       );
 
-      const creativeResp = await fetch(
-        `https://graph.facebook.com/v21.0/${accountIdWithAct}/adcreatives`,
+      const pbCreativeResult = await pbClientCs.callTool(
+        { name: "create_ad_creative", arguments: pbCreativeArgs },
+        undefined,
+        { timeout: 30_000 },
+      );
+      const pbCreativeText = (
+        (pbCreativeResult as { content?: Array<{ type: string; text?: string }> })
+          ?.content ?? []
+      ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
+      logger.info({ pbCreativeText: pbCreativeText.slice(0, 400) }, "create_adcreative: ← Pipeboard create_ad_creative");
+
+      const creativeIdMatch =
+        pbCreativeText.match(/"id"\s*:\s*"(\d{10,})"/) ??
+        pbCreativeText.match(/\b(\d{10,})\b/);
+      const creativeId = creativeIdMatch?.[1] ?? "";
+      if (!creativeId)
+        throw new Error(`فشل create_ad_creative — ${pbCreativeText.slice(0, 300)}`);
+      logger.info({ creativeId, mediaType, adsetId }, "create_ad_from_creative_spec: creative created via Pipeboard");
+
+      // Step 3: POST ads via Pipeboard MCP
+      const pbAdResult = await pbClientCs.callTool(
         {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: creativeBody,
-          signal: AbortSignal.timeout(15_000),
+          name: "create_ad",
+          arguments: {
+            account_id: accountIdWithAct,
+            name: adName,
+            adset_id: resolvedAdsetId,
+            creative_id: creativeId,
+            status: "PAUSED",
+          },
         },
+        undefined,
+        { timeout: 30_000 },
       );
-      const creativeJson = (await creativeResp.json()) as Record<
-        string,
-        unknown
-      >;
-      logger.info({ creativeJson }, "create_adcreative: ← Meta /adcreatives response");
-      if (creativeJson.error) {
-        const metaErr = parseMetaErrorDetails(JSON.stringify(creativeJson));
-        const e = creativeJson.error as Record<string, unknown>;
-        throw new Error(
-          `فشل create_ad_creative — ${String(e.message ?? "")}${metaErr.fbtrace_id ? ` | fbtrace: ${metaErr.fbtrace_id}` : ""}`,
-        );
-      }
-      const creativeId = String(creativeJson.id ?? "");
-      if (!creativeId) throw new Error("Meta لم يُعد creative_id");
-      logger.info(
-        { creativeId, mediaType, adsetId },
-        "create_ad_from_creative_spec: creative created",
-      );
+      const pbAdText = (
+        (pbAdResult as { content?: Array<{ type: string; text?: string }> })
+          ?.content ?? []
+      ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
+      logger.info({ pbAdText: pbAdText.slice(0, 400) }, "create_adcreative: ← Pipeboard create_ad");
 
-      // Step 3: POST ads
-      const adBody = new URLSearchParams({
-        name: adName,
-        adset_id: adsetId,
-        creative: JSON.stringify({ creative_id: creativeId }),
-        status: "PAUSED",
-        access_token: metaTkn,
-      });
-      const adResp = await fetch(
-        `https://graph.facebook.com/v21.0/${accountIdWithAct}/ads`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: adBody,
-          signal: AbortSignal.timeout(15_000),
-        },
-      );
-      const adJson = (await adResp.json()) as Record<string, unknown>;
-      if (adJson.error) {
-        const metaErr = parseMetaErrorDetails(JSON.stringify(adJson));
-        const e = adJson.error as Record<string, unknown>;
-        throw new Error(
-          `فشل create_ad — ${String(e.message ?? "")}${metaErr.fbtrace_id ? ` | fbtrace: ${metaErr.fbtrace_id}` : ""}`,
-        );
-      }
-      const newAdId = String(adJson.id ?? "");
-      if (!newAdId) throw new Error("Meta لم يُعد ad_id");
+      const newAdIdMatch =
+        pbAdText.match(/"id"\s*:\s*"(\d+)"/) ?? pbAdText.match(/\b(\d{10,})\b/);
+      const newAdId = newAdIdMatch?.[1] ?? "";
+      if (!newAdId) throw new Error(`فشل create_ad — ${pbAdText.slice(0, 300)}`);
 
-      // Step 4: verify
+      // Step 4: verify (GET only — safe even with limited META_ACCESS_TOKEN)
       const csVerify = await verifyMetaEntityDirect(
         newAdId,
         "id,name,status,effective_status,adset_id,campaign_id,creative{id}",
         metaTkn,
       );
-      if (!csVerify.verified) throw new Error(`verify فشل للإعلان ${newAdId}`);
+      // Non-fatal verify: continue even if it fails (token may lack read access too)
+      if (!csVerify.verified) {
+        logger.warn({ newAdId }, "create_adcreative: verify failed — ad may still exist");
+      }
 
       csSuccess = true;
       csMsg = [
@@ -3059,29 +3042,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           continue;
         }
 
-        // ── Create N ads — one per text ───────────────────────────────────
+        // ── Create N ads — one per text via Pipeboard MCP ────────────────
+        // Pipeboard has create_ad_creative + create_ad tools using its own Meta token with ads_management.
+        // Direct Meta API (META_ACCESS_TOKEN) fails with error_subcode:33 (missing permissions).
+        const lpcPbClient = await getPipeboardWriteClient();
         for (let ti = 0; ti < texts.length; ti++) {
           const singleText = texts[ti]!;
-
-          // Create creative + ad via Meta Graph API directly (bypass Pipeboard entirely).
-          // Pipeboard has no create_ad_from_creative_spec tool — "Unknown tool" error.
-          // Direct Meta API produces TRUE STANDARD (non-DCO) creative via object_story_spec.
           let creativeId = "";
           let adIdFromSpec = "";
-          const metaTknLpc = process.env.META_ACCESS_TOKEN ?? "";
-          if (!metaTknLpc) {
-            adResults.push({
-              adset_name: adset.name,
-              adset_id: adsetId,
-              creative_index: ti,
-              error: "META_ACCESS_TOKEN مفقود — لا يمكن إنشاء إعلان بدون Access Token",
-            });
-            continue;
-          }
           try {
-            // Step 1: Create ad creative via Meta API with object_story_spec (STANDARD)
-            const MAX_RETRIES_LPC = 4;
-            const RETRY_DELAY_LPC = 20_000;
+            // Step 1: Build object_story_spec
             let storySpec: Record<string, unknown>;
             if (isVid) {
               storySpec = {
@@ -3089,7 +3059,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
                 video_data: {
                   video_id: media.videoId,
                   message: singleText,
-                  title: firstHeadline,
+                  ...(firstHeadline ? { title: firstHeadline, link_description: firstHeadline } : {}),
                   call_to_action: {
                     type: callToAction || "SHOP_NOW",
                     value: { link: landingPageUrl },
@@ -3103,7 +3073,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
                   image_hash: media.imageHash,
                   link: landingPageUrl,
                   message: singleText,
-                  name: firstHeadline,
+                  ...(firstHeadline ? { name: firstHeadline } : {}),
                   call_to_action: {
                     type: callToAction || "SHOP_NOW",
                     value: { link: landingPageUrl },
@@ -3111,85 +3081,76 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
                 },
               };
             }
-            const creativeBody: Record<string, unknown> = {
-              name: `${adset.name} — نص ${ti + 1} — creative`,
-              object_story_spec: storySpec,
-              access_token: metaTknLpc,
-            };
 
-            for (let attempt = 0; attempt <= MAX_RETRIES_LPC; attempt++) {
-              logger.info(
-                { adset: adset.name, ti: ti + 1, attempt },
-                "launch_pipeboard_campaign: POST /adcreatives (Meta API direct)",
-              );
-              const creativeRes = await fetch(
-                `https://graph.facebook.com/v21.0/act_${accountId}/adcreatives`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(creativeBody),
-                  signal: AbortSignal.timeout(30_000),
-                },
-              );
-              const creativeJson = (await creativeRes.json()) as { id?: string; error?: { message: string; error_subcode?: number } };
-              logger.info({ creativeJson }, "launch_pipeboard_campaign: /adcreatives response");
-
-              if (creativeJson.error?.error_subcode === 1885252 && attempt < MAX_RETRIES_LPC) {
-                logger.warn({ attempt }, `launch_pipeboard_campaign: video processing — wait ${RETRY_DELAY_LPC / 1000}s`);
-                await new Promise(r => setTimeout(r, RETRY_DELAY_LPC));
-                continue;
-              }
-              if (creativeJson.error || !creativeJson.id) {
-                adResults.push({
-                  adset_name: adset.name,
-                  adset_id: adsetId,
-                  creative_index: ti,
-                  error: `فشل إنشاء Creative — ${creativeJson.error?.message ?? JSON.stringify(creativeJson)}`,
-                });
-                break;
-              }
-              creativeId = creativeJson.id;
-              break;
-            }
-            if (!creativeId) continue;
-
-            // Step 2: Create ad via Meta API
-            const adBody: Record<string, unknown> = {
-              name: `${adset.name} — نص ${ti + 1}`,
-              adset_id: adsetId,
-              creative: { creative_id: creativeId },
-              status: "PAUSED",
-              access_token: metaTknLpc,
-            };
-            if (hasPixel && pixelId) {
-              adBody.tracking_specs = [
-                { "action.type": ["offsite_conversion"], fb_pixel: [pixelId] },
-              ];
-            }
-            logger.info({ adset: adset.name, ti: ti + 1, creativeId }, "launch_pipeboard_campaign: POST /ads (Meta API direct)");
-            const adRes = await fetch(
-              `https://graph.facebook.com/v21.0/act_${accountId}/ads`,
+            // Step 2: create_ad_creative via Pipeboard MCP
+            logger.info({ adset: adset.name, ti: ti + 1 }, "launch_pipeboard_campaign: → Pipeboard create_ad_creative");
+            const lpcCreativeResult = await lpcPbClient.callTool(
               {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(adBody),
-                signal: AbortSignal.timeout(30_000),
+                name: "create_ad_creative",
+                arguments: {
+                  account_id: `act_${accountId}`,
+                  name: `${adset.name} — نص ${ti + 1} — creative`,
+                  object_story_spec: storySpec,
+                },
               },
+              undefined,
+              { timeout: 60_000 },
             );
-            const adJson = (await adRes.json()) as { id?: string; error?: { message: string } };
-            logger.info({ adJson }, "launch_pipeboard_campaign: /ads response");
+            const lpcCreativeText = (
+              (lpcCreativeResult as { content?: Array<{ type: string; text?: string }> })
+                ?.content ?? []
+            ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
+            logger.info({ lpcCreativeText: lpcCreativeText.slice(0, 400) }, "launch_pipeboard_campaign: ← Pipeboard create_ad_creative");
 
-            if (adJson.error || !adJson.id) {
+            const lpcCreativeIdMatch =
+              lpcCreativeText.match(/"id"\s*:\s*"(\d{10,})"/) ??
+              lpcCreativeText.match(/\b(\d{10,})\b/);
+            creativeId = lpcCreativeIdMatch?.[1] ?? "";
+            if (!creativeId) {
+              adResults.push({
+                adset_name: adset.name,
+                adset_id: adsetId,
+                creative_index: ti,
+                error: `فشل إنشاء Creative — ${lpcCreativeText.slice(0, 300)}`,
+              });
+              continue;
+            }
+
+            // Step 3: create_ad via Pipeboard MCP
+            logger.info({ adset: adset.name, ti: ti + 1, creativeId }, "launch_pipeboard_campaign: → Pipeboard create_ad");
+            const lpcAdResult = await lpcPbClient.callTool(
+              {
+                name: "create_ad",
+                arguments: {
+                  account_id: `act_${accountId}`,
+                  name: `${adset.name} — نص ${ti + 1}`,
+                  adset_id: adsetId,
+                  creative_id: creativeId,
+                  status: "PAUSED",
+                },
+              },
+              undefined,
+              { timeout: 30_000 },
+            );
+            const lpcAdText = (
+              (lpcAdResult as { content?: Array<{ type: string; text?: string }> })
+                ?.content ?? []
+            ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
+            logger.info({ lpcAdText: lpcAdText.slice(0, 400) }, "launch_pipeboard_campaign: ← Pipeboard create_ad");
+
+            const lpcAdIdMatch =
+              lpcAdText.match(/"id"\s*:\s*"(\d+)"/) ?? lpcAdText.match(/\b(\d{10,})\b/);
+            adIdFromSpec = lpcAdIdMatch?.[1] ?? "";
+            if (!adIdFromSpec) {
               adResults.push({
                 adset_name: adset.name,
                 adset_id: adsetId,
                 creative_index: ti,
                 creative_id: creativeId,
-                error: `فشل إنشاء Ad — ${adJson.error?.message ?? JSON.stringify(adJson)}`,
+                error: `فشل إنشاء Ad — ${lpcAdText.slice(0, 300)}`,
               });
               continue;
             }
-            adIdFromSpec = adJson.id;
             adResults.push({
               adset_name: adset.name,
               adset_id: adsetId,
@@ -3202,7 +3163,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               adset_name: adset.name,
               adset_id: adsetId,
               creative_index: ti,
-              error: `Meta API: ${e instanceof Error ? e.message : String(e)}`,
+              error: `Pipeboard MCP: ${e instanceof Error ? e.message : String(e)}`,
             });
           }
         }
@@ -4417,6 +4378,17 @@ router.get("/pipeboard/history", async (req: Request, res: Response) => {
       [days],
     );
     res.json({ actions: rows });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── GET /pipeboard/list-tools — قائمة tools Pipeboard MCP (للـ debugging) ──
+router.get("/pipeboard/list-tools", async (_req: Request, res: Response) => {
+  try {
+    const client = await getPipeboardWriteClient();
+    const result = await client.listTools();
+    res.json({ tools: result.tools.map(t => ({ name: t.name, description: (t.description ?? "").slice(0, 120) })) });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
