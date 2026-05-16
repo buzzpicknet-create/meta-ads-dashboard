@@ -1974,13 +1974,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const adIdMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
         const newAdId = adIdMatch?.[1] ?? "";
         // ── Special: is_dynamic_creative missing on adset ───────────────────
-        // Pipeboard always builds asset_feed_spec → adset MUST have is_dynamic_creative=true.
-        // Since this flag is immutable, the AI must create a NEW adset (old one is unusable).
+        // Pipeboard always builds asset_feed_spec creatives. Meta REQUIRES is_dynamic_creative=true
+        // on the parent adset when using asset_feed_spec. This flag is IMMUTABLE after adset creation.
+        // For STANDARD campaigns we intentionally do NOT set is_dynamic_creative on the adset.
+        // When this error occurs on a STANDARD adset, we must recreate the adset with is_dynamic_creative=true
+        // (DCO classification in Ads Manager is unavoidable when using Pipeboard without META_ACCESS_TOKEN).
         if (!newAdId && (adText.includes("is_dynamic_creative") || adText.includes("Dynamic Creative"))) {
           throw new Error(
-            `الـ adset المستخدم (adset_id: ${resolvedAdsetId}) لا يحتوي على is_dynamic_creative=true وهذا الإعداد غير قابل للتعديل بعد الإنشاء. ` +
-            `الحل الإلزامي: استدعِ create_adset من جديد بنفس الإعدادات لنفس الحملة (campaign_id) لإنشاء adset جديد — ` +
-            `سيتضمّن الـ adset الجديد is_dynamic_creative=true تلقائياً — ثم أعِد استدعاء create_ad_from_creative_spec مع adset_id الجديد.`,
+            `⚠️ تعارض Pipeboard مع STANDARD: Pipeboard ينشئ creatives بتنسيق asset_feed_spec الذي يتطلب is_dynamic_creative=true على الـ adset. ` +
+            `الـ adset الحالي (${resolvedAdsetId}) لا يحمل هذا الإعداد وهو غير قابل للتعديل بعد الإنشاء. ` +
+            `الحل الإلزامي: استدعِ create_adset من جديد بنفس الإعدادات مع إضافة is_dynamic_creative=true — ` +
+            `ملاحظة: ستظهر المجموعة بعلامة "Dynamic Creative" في Ads Manager (قيد Pipeboard) لكن كل إعلان يحمل فيديو واحد + نص واحد + عنوان واحد (سلوك standard فعلياً). ` +
+            `ثم أعِد استدعاء create_ad_from_creative_spec مع adset_id الجديد.`,
           );
         }
         if (!newAdId) throw new Error(`فشل create_ad (Pipeboard) — ${adText.slice(0, 300)}`);
@@ -3712,14 +3717,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       );
     }
 
-    // ── Always enable is_dynamic_creative ────────────────────────────────────
-    // Pipeboard's create_adcreative always builds asset_feed_spec (even for a
-    // single headline/message), which Meta REQUIRES is_dynamic_creative=true on
-    // the parent adset. This flag is immutable after creation, so inject here.
-    if (!effectiveArgs.is_dynamic_creative) {
-      effectiveArgs.is_dynamic_creative = true;
-      logger.info("create_adset: is_dynamic_creative=true injected (required for asset_feed_spec creatives)");
-    }
+    // NOTE: is_dynamic_creative is NOT injected here for STANDARD campaigns.
+    // Pipeboard's create_adcreative produces asset_feed_spec (DCO-style) creatives.
+    // For STANDARD (non-DCO) ads, the AI should pass is_dynamic_creative only if
+    // the campaign type explicitly requires it (e.g. TEST/DCO blueprints).
+    // If create_ad_from_creative_spec fails with the DCO error on a STANDARD adset,
+    // a clear error message guides the AI to recreate the adset with is_dynamic_creative=true.
 
     const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp(
       "create_adset",
@@ -4148,6 +4151,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   if (tool === "upload_video_to_meta") {
     const driveFolderUrl  = String(args?.drive_folder_url ?? "").trim();
     const filenameHint    = String(args?.filename_hint   ?? "").trim().toLowerCase();
+    const listOnly        = args?.list_only === true || args?.list_only === "true";
     const rawAccId_uv     = String(args?.account_id      ?? "").replace(/,/g, "").trim();
     const accountId_uv    = rawAccId_uv.startsWith("act_") ? rawAccId_uv.slice(4) : rawAccId_uv;
 
@@ -4155,7 +4159,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       res.status(400).json({ error: "upload_video_to_meta: drive_folder_url مطلوب" });
       return;
     }
-    if (!accountId_uv) {
+    if (!listOnly && !accountId_uv) {
       res.status(400).json({ error: "upload_video_to_meta: account_id مطلوب" });
       return;
     }
@@ -4187,9 +4191,22 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const driveData = (await driveResp.json()) as { files?: Array<{ id: string; mimeType: string; name: string }> };
         const videoFiles = (driveData.files ?? []).filter(f => f.mimeType.startsWith("video/"));
 
-        logger.info({ folderId, count: videoFiles.length, filenameHint }, "upload_video_to_meta: Drive folder listed");
+        logger.info({ folderId, count: videoFiles.length, filenameHint, listOnly }, "upload_video_to_meta: Drive folder listed");
 
         if (videoFiles.length === 0) throw new Error(`مجلد Drive "${folderId}" لا يحتوي على فيديوهات`);
+
+        // ── list_only mode: return all video filenames without uploading ────────
+        if (listOnly) {
+          const filenames = videoFiles.map(f => f.name.replace(/\.[^.]+$/, ""));
+          res.json({
+            success: true,
+            mode: "list_only",
+            count: videoFiles.length,
+            filenames,
+            message: `وُجد ${videoFiles.length} فيديو في المجلد: ${filenames.join(", ")} — استدعِ upload_video_to_meta مرة لكل فيديو باستخدام filename_hint المناسب`,
+          });
+          return;
+        }
 
         // Match by filename hint (strip extension for comparison)
         let matched = filenameHint

@@ -1185,11 +1185,13 @@ ${allHeadlines}
           const headlines = a.headlines.length
             ? a.headlines.slice(0, creativesPerAdset).map((h, hi) => `    ${hi + 1}. ${h}`).join("\n")
             : `    [enter headlines for Angle ${i + 1}]`;
-          const videoRef = a.name.trim() ? `"${a.name.trim()}"` : `[Angle ${i + 1} video]`;
+          const hasVideoName = a.name.trim().length > 0;
+          const videoSection = hasVideoName
+            ? `- Video: find file named "${a.name.trim()}" in Drive folder (match by filename, ignore extension)\n- Ads (${creativesPerAdset} ads = 1 video × ${creativesPerAdset} copy pairs — NO Dynamic Creative):`
+            : `- Videos: call upload_video_to_meta(list_only=true) first to discover ALL videos in Drive folder, then upload each → Total ads = N_videos × ${creativesPerAdset} copy pairs (NO Dynamic Creative):`;
           return `## Adset ${i + 1} — "${a.name || `Angle ${i + 1}`}"
 - Landing Page: ${lp}${!isCBO ? `\n- Budget: ${form.budget} EGP/day (ABO)` : ""}
-- Video: find file named ${videoRef} in Drive folder (match by filename, ignore extension)
-- Ads (${creativesPerAdset} ads — same video, different text per ad, NO Dynamic Creative):
+${videoSection}
   Primary Texts (one per ad):
 ${texts}
   Headlines (one per ad):
@@ -1197,7 +1199,8 @@ ${headlines}`;
         }).join("\n\n")
       : `## Adset 1 — Default
 - Landing Page: [add landing page]
-- Ads: ${creativesPerAdset} ads`;
+- Videos: call upload_video_to_meta(list_only=true) to discover all videos in Drive folder
+- Ads: N_videos × ${creativesPerAdset} copy pairs`;
 
     const accountLine = form.quickAccountId
       ? `- Ad Account ID: ${form.quickAccountId}`
@@ -1205,14 +1208,15 @@ ${headlines}`;
 
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
 Campaign Type: STANDARD
-Build Standard Campaign NOW — ${adsetCount} Adset(s) · ${creativesPerAdset} Individual Ads per Adset:
+Build Standard Campaign NOW — ${adsetCount} Adset(s):
 
 ⚠️ STANDARD RULES — لا تخالف هذه القواعد:
-- ZERO Dynamic Creative — asset_feed_spec ممنوع تماماً
+- ZERO Dynamic Creative — is_dynamic_creative / asset_feed_spec ممنوع تماماً على الـ Adset والـ Creative
 - ZERO Advantage+ Creative Enhancements — degrees_of_freedom_spec ممنوع
 - كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
-- ${creativesPerAdset} فيديو = ${creativesPerAdset} إعلانات منفصلة في نفس الـ Adset (ليس variants)
-- لا تستخدم launch_pipeboard_campaign — استخدم create_campaign ثم create_adset ثم create_ad لكل إعلان
+- إذا كان هناك N فيديوهات × M نصوص = N×M إعلانات منفصلة في نفس الـ Adset
+- ابدأ بـ upload_video_to_meta(list_only=true) إذا لم يُحدَّد اسم الفيديو — لاكتشاف كل الفيديوهات
+- لا تستخدم launch_pipeboard_campaign — استخدم create_campaign ثم create_adset ثم upload_video_to_meta ثم create_ad_from_creative_spec
 
 # 1. Campaign Settings
 - Campaign Type: STANDARD (لا Dynamic Creative)

@@ -748,7 +748,7 @@ Before proposing any scale or pause or budget update, check the updated_time of 
 - get_ad_post_id(ad_id) — اجلب Post ID فقط (بديل أخف من get_ad_creative إذا كنت تحتاج object_story_id فقط)
 - create_ad_from_post(account_id, adset_id, post_id, name, page_id?) — أنشئ إعلاناً من منشور بـ post_id مع الحفاظ على Social Proof
 - create_ad_from_existing_post(account_id, adset_id, name, object_story_id?, post_id?, ad_id?) — أنشئ إعلاناً من منشور موجود. يقبل object_story_id (من get_ad_creative) أو post_id أو ad_id (الإعلان المصدر — backend يجلب object_story_id تلقائياً). 🔴 عند الاستخدام in bulk_action: يجب أن تضع ad_id الفعلي in adId و account_id in accountId.
-- upload_video_to_meta(drive_folder_url, account_id, filename_hint?) — 📤 ارفع فيديو من Drive إلى Meta واحصل على video_id رقمي. استخدم للـ STANDARD قبل create_ad_from_creative_spec. يقبل رابط مجلد Drive ويجد الملف تلقائياً بـ filename_hint.
+- upload_video_to_meta(drive_folder_url, account_id?, filename_hint?, list_only?) — 📤 ارفع فيديو من Drive أو اعرض قائمة الفيديوهات. للـ STANDARD متعدد الفيديوهات: استدعِ أولاً مع list_only=true → تُعيد أسماء كل الفيديوهات → ثم ارفع كل فيديو على حدة → N فيديو × M نصوص = N×M إعلانات.
 - create_ad_from_creative_spec(account_id, adset_id, name, link_url, media_type, video_id?, image_hash?, primary_text?, headline?, call_to_action?, page_id?) — 🔧 Fallback: أنشئ إعلان من أصول خام (بدون Social Proof). استخدم فقط عندما لا يوجد object_story_id.
   🔴 قاعدة video_id: إذا media_type=video → video_id إلزامي وهو Meta Video ID رقمي (مثال: 1234567890)، وليس URL. مصادره:
     • من إعلان موجود: استدعِ get_ad_creative(source_ad_id) أولاً → ستجد video_id في النتيجة → مرّره هنا.
@@ -886,21 +886,22 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - Advantage+ Creative: الـ backend يُفعّله تلقائياً
 ٥. لـ STANDARD:
    - نوع خاص يختلف عن TESTING وSCALING تماماً
-   - اقرأ الـ Blueprint: عدد Adsets، وكل Adset له اسم + Landing Page + Video name + قائمة نصوص + قائمة عناوين
-   - **🚫 ممنوع تماماً: Dynamic Creative / asset_feed_spec / Advantage+ Creative Enhancements**
-   - كل Adset = create_adset منفصل باسمه وميزانيته
-   - كل Ad داخل الـ Adset = إعلان مستقل بـ (فيديو واحد + نص واحد + عنوان واحد) — بدون أي دمج
-   - مثال: Adset بـ 3 Texts و3 Headlines = 3 إعلانات منفصلة (Ad 1 = Text1+H1، Ad 2 = Text2+H2، Ad 3 = Text3+H3)
-   - **خطوات STANDARD الصحيحة لكل Adset:**
-     ١. create_campaign (مرة واحدة للحملة كلها)
-     ٢. create_adset باسم الـ Adset → احفظ adset_id الرقمي المُعاد
-     ③. upload_video_to_meta(drive_folder_url=<رابط المجلد>, account_id=<id>, filename_hint=<اسم الفيديو في Blueprint>) → احفظ video_id
-     ④. create_ad_from_creative_spec لكل نص/عنوان (Ad 1, Ad 2, Ad 3, …) بـ video_id من ③ وadset_id من ② — نفّذ الكل بالتسلسل بدون توقف
-   - 🔴 بعد Ad 1 لا تتوقف ولا تسأل — انتقل فوراً لـ Ad 2 ثم Ad 3 حتى آخر إعلان في الـ Blueprint
-   - ⚠️ adset_id في create_ad_from_creative_spec = الرقم الـ numeric المُعاد من create_adset (مثال: 120244466063810554) — ليس اسم المجموعة مثل "Angle 1"
-   - page_id: طبّق خريطة الدومين من Landing Page تلقائياً
-   - pixel_id: طبّق خريطة الدومين تلقائياً
-   - **⛔ لا تستخدم launch_pipeboard_campaign للـ STANDARD** — استخدم create_campaign + create_adset + upload_video_to_meta + create_ad_from_creative_spec يدوياً
+   - اقرأ الـ Blueprint: عدد Adsets، وكل Adset له اسم + Landing Page + Videos + قائمة نصوص + قائمة عناوين
+   - **🚫 ممنوع تماماً: Dynamic Creative / is_dynamic_creative / asset_feed_spec / Advantage+ Creative Enhancements**
+   - كل Adset = create_adset منفصل باسمه وميزانيته (بدون is_dynamic_creative)
+   - كل Ad = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
+   - **خطوات STANDARD الصحيحة:**
+     ١. create_campaign مرة واحدة
+     ٢. لكل Adset:
+        أ. create_adset → احفظ adset_id الرقمي
+        ب. اكتشف الفيديوهات: upload_video_to_meta(drive_folder_url, account_id, list_only=true) → تُعيد قائمة أسماء الفيديوهات
+        ج. لكل فيديو في القائمة: upload_video_to_meta(drive_folder_url, account_id, filename_hint=<اسم الفيديو>) → احفظ video_id
+        د. لكل فيديو × لكل (نص+عنوان): create_ad_from_creative_spec → Ad واحد لكل تركيبة
+        هـ. مثال: 3 فيديوهات × 3 نصوص = 9 إعلانات في نفس الـ Adset
+   - 🔴 نفّذ جميع الإعلانات بالتسلسل الكامل بدون أي توقف أو سؤال حتى آخر إعلان
+   - ⚠️ adset_id = الرقم الـ numeric المُعاد من create_adset — ليس الاسم
+   - page_id و pixel_id: طبّق خريطة الدومين تلقائياً
+   - **⛔ لا تستخدم launch_pipeboard_campaign للـ STANDARD**
 ٦. استدعِ get_campaigns أولاً للحصول على account_id، ثم استدعِ الأدوات المناسبة فوراً بدون أي سؤال إضافي
 ٧. بعد الاستدعاء رد فقط بـ:
    - TESTING: "🧪 حملة الاختبار قيد الإطلاق — ABO [Budget] EGP — in انتظار موافقتك للتنفيذ."
@@ -1791,15 +1792,16 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "upload_video_to_meta",
-      description: "ارفع فيديو من Google Drive إلى Meta واحصل على video_id رقمي جاهز للاستخدام في create_ad_from_creative_spec. استخدم للحملات STANDARD عندما يكون الفيديو في Drive. يقبل رابط مجلد Drive (يجد الملف بالاسم تلقائياً) أو رابط ملف مباشر.",
+      description: "ارفع فيديو من Google Drive إلى Meta أو اعرض قائمة الفيديوهات في المجلد. للحملات STANDARD متعددة الفيديوهات: استدعِ أولاً مع list_only=true لمعرفة أسماء جميع الفيديوهات، ثم استدعِ مرة لكل فيديو مع filename_hint. يقبل رابط مجلد Drive أو رابط ملف مباشر.",
       parameters: {
         type: "object",
         properties: {
           drive_folder_url: { type: "string", description: "رابط مجلد Google Drive (يحتوي /folders/) أو رابط ملف Drive مباشر" },
-          filename_hint:    { type: "string", description: "اسم الملف المطلوب (بدون امتداد) — مثال: 'Angle 1 video'. الـ backend يبحث عنه في المجلد بشكل غير حساس لحالة الأحرف والامتداد." },
-          account_id:       { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXX أو الرقم فقط)" },
+          filename_hint:    { type: "string", description: "اسم الملف المطلوب (بدون امتداد) — مثال: 'hook1'. الـ backend يبحث بشكل غير حساس للحروف. أتركه فارغاً إذا استخدمت list_only." },
+          account_id:       { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXX أو الرقم فقط). غير مطلوب عند list_only=true." },
+          list_only:        { type: "boolean", description: "true = أعد قائمة أسماء جميع الفيديوهات في المجلد بدون رفع. استخدم قبل الرفع لاكتشاف الفيديوهات المتاحة (مثال: 3 فيديوهات × 3 نصوص = 9 إعلانات)." },
         },
-        required: ["drive_folder_url", "account_id"],
+        required: ["drive_folder_url"],
       },
     },
   },
