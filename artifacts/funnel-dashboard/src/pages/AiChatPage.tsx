@@ -26,116 +26,206 @@ interface AccountMention { id: string; name: string; type: "meta" | "google"; cu
 
 // ─── Quick actions ─────────────────────────────────────────────────────────────
 // Day-focused (intra-day) — shown prominently at top
-const QUICK_ACTIONS = [
-  // Row 1 - اليومي
+const QUICK_ACTIONS_META = [
   {
     label: "📊 افتتاحية اليوم",
-    prompt: `اسحب داتا أمس (Yesterday) لكل الحملات النشطة. قارنها بآخر 7 أيام وآخر 30 يوم.
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-أعرض في جدول موجز:
-✅ الحملات اللي ضربت Target CPA — أمس كان يوم رابح
-💰 الحملات اللي خسرت فلوس — CPA أعلى من الهدف
-📈 اقتراح: ابدأ اليوم بإيه؟ — أول إجراء تعمله النهارده
-
-الأرقام بالإنجليزية. سطر واحد لكل حملة.`,
+اسحب داتا أمس (Yesterday) لكل الحملات النشطة. قارنها بآخر 7 أيام.
+أعرض في جدول:
+| الحملة | الإنفاق أمس | CPA أمس | CPA 7 أيام | القرار |
+القرارات:
+✅ Scale — CPA أمس < 40 EGP + purchases > 3
+⚠️ Monitor — CPA بين 40-50 EGP
+❌ Kill — CPA > 80 EGP أو 0 purchases بعد 200 EGP
+bulk_action فوري للـ Scale والـ Kill.
+تنبيه: بيانات اليوم غير مكتملة — الأرقام من أمس فقط.`,
   },
   {
-    label: "🔍 نبض الحملات",
-    prompt: `نحن في منتصف اليوم. لكل حملة نشطة:
-- انفقت كام؟ (% من الميزانية اليومية)
-- متوقع تنفق كام آخر اليوم؟
-- هل في حملة هتعدي Target قبل آخر اليوم؟
+    label: "⚡ قرار التيست",
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-اقتراحات فورية مع bulk_action:
-↑ زود ميزانية الرابح (CPA أقل من الهدف)
-↓ قلل ميزانية الخسران (CPA عالي + صارف أكثر من 50%)
-
-جدول مختصر — الأرقام بالإنجليزية.`,
+جيب الحملات النشطة اللي اسمها فيه كلمة "test" أو "TEST" أو "تيست" من آخر 3 أيام.
+لكل حملة اعرض:
+| الحملة | الإنفاق | Purchases | CPA | Hook Rate | القرار |
+الحكم بعد 24-36 ساعة:
+✅ Scale — CPA < 50 EGP + purchases ≥ 2 + إنفاق > 150 EGP
+⚠️ انتظر — إنفاق < 100 EGP (بيانات ناقصة)
+❌ أوقف — CPA > 100 EGP + purchases = 0 بعد 200 EGP إنفاق
+🔄 Refresh Creative — Hook Rate < 25% بعد 150 EGP إنفاق
+bulk_action فوري للقرارات.`,
   },
   {
-    label: "🎯 قرارات قبل النوم",
-    prompt: `لكل AdSet نشط، أعرض كريتف اليوم (Today):
-- Hook Rate
-- CTR (Link Click-Through Rate)
-- CPA (Cost per Purchase)
+    label: "🎯 قرارات الآن",
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-اقتراحات:
-🛑 وقف كريتف (مش حملة) — Hook Rate < 85% أو CTR < 1.2%
-📊 خطة باكرة — أي adset محتاج refresh creative؟
-
-جدول: Creative Name | Hook Rate | CTR | CPA | القرار`,
-  },
-
-  // Row 2 - عمق
-  {
-    label: "🔬 تشخيص الفانل",
-    prompt: `افحص مسار المبيعات لكل الإعلانات النشطة. استخرج الإعلانات التي:
-- Hook Rate ممتاز (>90%)
-- لكن CVR أو CTR ضعيفة
-
-حدد أين الخلل:
-- Hook ممتاز + CTR ضعيف → مشكلة في النص أو العنوان
-- Hook + CTR ممتازين + CVR ضعيف → مشكلة في Landing Page أو السعر
-
-جدول: Ad Name | Hook Rate | CTR | CVR | التشخيص`,
+جيب كل الحملات والمجموعات النشطة. رتبهم من الأسوأ للأفضل CPA.
+أعرض جدولين:
+جدول 1 — محتاجين إجراء فوري:
+| الكيان | النوع | الإنفاق | CPA | المشكلة | الإجراء |
+الإجراءات:
+🔴 أوقف AdSet — CPA > 100 EGP + إنفاق > 2× Target
+🟡 قلل ميزانية 30% — CPA بين 60-100 EGP
+🟢 زود ميزانية 20% — CPA < 40 EGP + مستقر 3 أيام
+جدول 2 — الرابحين:
+| الحملة | CPA | Purchases | الميزانية الحالية | الميزانية الجديدة |
+bulk_action بكل الإجراءات دفعة واحدة.`,
   },
   {
-    label: "🚀 فرصة Scale",
-    prompt: `حلل الحملات النشطة بناءً على أداء آخر 7 أيام.
-حدد الـ AdSets التي:
-- CPA < Target
-- مستقرة (Frequency < 1.6)
-- مبيعات > 5
+    label: "🔬 فين المشكلة؟",
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-جهّز مقترحات لزيادة ميزانيتها 30% مع bulk_action فوري.
-جدول: AdSet | CPA | Frequency | Purchases | الميزانية الحالية | الميزانية الجديدة`,
-  },
-
-  // Row 3 - ذكاء استراتيجي
-  {
-    label: "🕵️ صياد الكريتف",
-    prompt: `دور على Hook Rate > 95% في كل الحملات ما عدا:
-- الحملات اسمها فيه "Flex" أو "Scale"
-- الكريتف المنقولة قبل كده (duplicated ads)
-
-دول الرابحين المخبيين — مرشحين للـ Flex Scale.
-أعرض: Ad ID | AdSet Name | Campaign Name | Hook Rate | CTR | CPA
-مرتب من الأعلى Hook Rate للأقل.`,
+حلل كل الإعلانات النشطة وحدد نوع المشكلة بالضبط:
+🎬 Media Problem (مشكلة في الكريتف):
+- Hook Rate < 25% → الفيديو مش بيوقف الناس
+- Hold Rate < 15% → المحتوى مش ممتع بعد أول 3 ثواني
+📝 Funnel Leak (مشكلة في النص أو الـ CTA):
+- Hook كويس (> 25%) + CTR < 2% → النص أو العنوان ضعيف
+🌐 Landing Page Problem:
+- CTR كويس (> 2%) + LPR < 70% → الصفحة بطيئة أو مشكلة تقنية
+💸 Conversion Problem (مشكلة في العرض أو السعر):
+- CTR + LPR كويسين + CVR < 1.5% → السعر أو العرض مش مقنع
+أعرض لكل إعلان: التشخيص + الإجراء المطلوب في سطر واحد.`,
   },
   {
     label: "📺 Saturation Check",
-    prompt: `كل حملة فوق 7 أيام — أعرض:
-- Frequency (آخر 7 أيام)
-- CPM trend (قارن أول 3 أيام بآخر 3 أيام)
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-هل دخلت مرحلة الإشباع؟ (معايير السوق المصري):
-- Frequency > 1.8 → إشباع واضح
-- CPM زاد > 20% → السوق اتشبع من الكريتف
+كل حملة نشطة شغالة أكتر من 5 أيام — أعرض:
+| الحملة | Frequency | CPM | أيام التشغيل | الحالة |
+تشخيص إشباع الجمهور (معايير مصر):
+🔴 إشباع واضح — Frequency > 2.8 + CPM زاد > 20%
+🟡 بدأ الإشباع — Frequency بين 2-2.8
+🟢 لسه بخير — Frequency < 2 + CPM ثابت
+الحل:
+- إشباع واضح → Refresh Creative فوراً
+- بدأ الإشباع → جهز Creative جديد خلال 48 ساعة`,
+  },
+  {
+    label: "🕵️ صياد الكريتف",
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-ولا لسه فيها نفس؟
-- Frequency < 1.4 + CPM ثابت → لسه شغالة
-
-جدول: Campaign | Days Running | Frequency | CPM Trend | الحالة`,
+دور على الإعلانات الرابحة المخبية في كل الحملات النشطة:
+شروط الرابح:
+- Hook Rate > 30%
+- CTR > 2%
+- CPA < 50 EGP
+- إنفاق > 100 EGP
+أعرض:
+| Ad ID | اسم الإعلان | الحملة | Hook Rate | CTR | CPA | الإنفاق |
+مرتب من أعلى Hook Rate للأقل.
+هدول مرشحين للـ Flex Scale — قولي لو تبي تنقلهم.`,
   },
   {
     label: "💀 قبر الكريتف",
-    prompt: `اعرضلي كل الكريتف اللي ماتت:
-- CTR < 1%
-- أو 0 Purchases بعد 3 أيام
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-عشان نستبعدهم من الحملات الجديدة.
-أعرض: Creative ID | Ad Name | Campaign | CTR | Purchases | Days Running | Total Spent
-مرتب من الأعلى Spend للأقل.`,
+اعرضلي كل الإعلانات النشطة اللي ماتت أو في طريقها للموت:
+معايير الإعلان الميت:
+- CTR < 0.8% بعد 200 EGP إنفاق
+- أو 0 Purchases بعد 3 أيام + 150 EGP إنفاق
+- أو Hook Rate < 15% بعد 100 EGP إنفاق
+أعرض:
+| Ad Name | Campaign | Hook Rate | CTR | Purchases | إنفاق | السبب |
+مرتب من أعلى إنفاق للأقل.
+bulk_action لإيقافهم دفعة واحدة.`,
+  },
+  {
+    label: "🔁 نبض منتصف اليوم",
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
+
+نحن في منتصف اليوم. لكل حملة نشطة:
+| الحملة | إنفاق اليوم | % من الميزانية | توقع آخر اليوم | CPA حتى الآن |
+تحذيرات فورية:
+⚠️ صرفت > 70% من الميزانية قبل الساعة 3 — راجع الـ bid
+⚠️ CPA اليوم > 80 EGP — وقف مؤقت أو قلل ميزانية 30%
+✅ CPA اليوم < 35 EGP — فكر في رفع الميزانية 20%
+تنبيه: بيانات اليوم غير مكتملة.`,
+  },
+  {
+    label: "🚀 Scale الرابحين",
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
+
+جيب كل الحملات والمجموعات الإعلانية النشطة من آخر 7 أيام.
+حدد النوع (CBO/ABO) لكل حملة تلقائياً.
+فلتر الرابحين:
+- Purchases ≥ 5 في 7 أيام
+- إنفاق > 100 EGP
+
+احسب نسبة الزيادة على حسب CPA:
+| CPA | الإجراء |
+|-----|---------|
+| < 20 EGP | Aggressive Scale — اعرض 3 خيارات: +1× أو +2× أو +3× الميزانية الحالية |
+| 20-30 EGP | +20% |
+| 30-40 EGP | +10% |
+| 40-50 EGP | WAIT — بيانات كافية بس مش رابح كفاية |
+
+للـ CBO: عدّل ميزانية الحملة.
+للـ ABO: عدّل ميزانية كل AdSet على حدة.
+
+أعرض جدول:
+| الحملة/المجموعة | النوع | CPA | Purchases | الميزانية الحالية | الإجراء المقترح |
+
+للحملات اللي CPA < 20 EGP: اسأل المستخدم يختار المضاعف (+1× / +2× / +3×) قبل ما تولد bulk_action.
+للباقي: ولّد bulk_action مباشرة.`,
+  },
+  {
+    label: "🔴 Punishment",
+    prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
+
+جيب كل الحملات والمجموعات الإعلانية النشطة من آخر 7 أيام.
+حدد النوع (CBO/ABO) لكل حملة تلقائياً.
+فلتر الخاسرين:
+- CPA > 50 EGP (أعلى من الـ Target)
+- إنفاق > 100 EGP (بيانات كافية للحكم)
+
+احسب الإجراء على حسب CPA:
+| CPA | الإجراء |
+|-----|---------|
+| 50-80 EGP | قلل الميزانية 20% |
+| 80-100 EGP | قلل الميزانية 30% |
+| > 100 EGP + إنفاق > 100 EGP | أوقف فوراً |
+
+للـ CBO: عدّل ميزانية الحملة.
+للـ ABO: عدّل ميزانية كل AdSet على حدة.
+
+أعرض جدول:
+| الحملة/المجموعة | النوع | CPA | إنفاق | الميزانية الحالية | الإجراء |
+
+ولّد bulk_action واحد بكل الإجراءات دفعة واحدة.`,
   },
 ];
 
-// للتوافق مع الكود القديم
-const QA_DAY = QUICK_ACTIONS.slice(0, 3);
-const QA = QUICK_ACTIONS.slice(3);
+const QUICK_ACTIONS_GOOGLE = [
+  {
+    label: "📹 Demand Gen اليوم",
+    prompt: `ركز فقط على الحملات النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
+جيب أداء حملات Google Demand Gen النشطة من آخر 7 أيام.
+أعرض:
+| الحملة | الإنفاق | Purchases | CPA | القرار |
+معايير Demand Gen على YouTube Shorts:
+✅ Scale — CPA < 50 EGP + Purchases > 3
+⚠️ Monitor — CPA بين 50-80 EGP
+❌ Kill — CPA > 100 EGP + Purchases = 0 بعد 200 EGP
+قارن أداء Google vs Meta في نفس الفترة لو في بيانات.`,
+  },
+  {
+    label: "🎬 Creative Google",
+    prompt: `ركز فقط على الحملات النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
-// All for the bottom strip
-const QA_ALL = [...QA_DAY, ...QA];
+جيب أداء الفيديوهات في حملات Google Demand Gen النشطة.
+لكل فيديو أعرض:
+| اسم الفيديو | View Rate | CTR | Purchases | CPA | القرار |
+تشخيص:
+🎬 View Rate < 20% → الفيديو مش بيوقف الناس على YouTube
+📝 View Rate كويس + CTR < 1.5% → الـ CTA ضعيف
+💸 CTR كويس + Purchases قليلة → مشكلة في الصفحة أو العرض
+الرابح: View Rate > 30% + CPA < 50 EGP → مرشح للـ Scale.`,
+  },
+];
+
+const QA_ALL = [...QUICK_ACTIONS_META, ...QUICK_ACTIONS_GOOGLE];
 
 // ─── Chart block ──────────────────────────────────────────────────────────────
 const C = ["#6366f1","#10b981","#f59e0b","#ef4444","#3b82f6","#8b5cf6","#ec4899"];
@@ -1155,41 +1245,48 @@ export default function AiChatPage() {
                 )}
               </div>
 
-              {/* Day-focused quick actions — prominent top row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 w-full max-w-3xl">
-                {QA_DAY.map(q=>(
-                  <button
-                    key={q.label}
-                    onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }}
-                    className="group text-right px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-xl border border-primary/30 bg-primary/5 hover:border-primary/60 hover:bg-primary/10 transition-all text-sm shadow-sm"
-                  >
-                    <span className="block font-semibold text-foreground text-xs sm:text-sm">{q.label}</span>
-                    <span className="hidden sm:block text-xs text-muted-foreground mt-1 line-clamp-2 group-hover:text-foreground/70">
-                      {q.prompt.slice(0,65)}...
-                    </span>
-                  </button>
-                ))}
+              {/* ── Meta Section ── */}
+              <div className="w-full max-w-3xl space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Meta Ads</span>
+                  <div className="flex-1 h-px bg-border/60" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  {QUICK_ACTIONS_META.map(q => (
+                    <button
+                      key={q.label}
+                      onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }}
+                      className="group text-right px-3 py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all"
+                    >
+                      <span className="block font-medium text-foreground text-xs">{q.label}</span>
+                      <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
+                        {q.prompt.slice(0, 45)}...
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Classic Meta quick actions — second row */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 w-full max-w-3xl">
-                {QA.map(q=>(
-                  <button
-                    key={q.label}
-                    onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }}
-                    className="group text-right px-3 py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all text-sm"
-                  >
-                    <span className="block font-medium text-foreground text-xs">{q.label}</span>
-                    <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
-                      {q.prompt.slice(0,45)}...
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* ── Strategy Commands — Scale / Blueprint / Flex ── */}
-              <div className="w-full max-w-3xl">
-                <div className="flex items-center gap-2 mb-2"></div>
+              {/* ── Google Section ── */}
+              <div className="w-full max-w-3xl space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Google Ads</span>
+                  <div className="flex-1 h-px bg-border/60" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {QUICK_ACTIONS_GOOGLE.map(q => (
+                    <button
+                      key={q.label}
+                      onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }}
+                      className="group text-right px-3 py-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/30 dark:bg-emerald-950/10 hover:border-emerald-400/60 hover:bg-emerald-50/60 transition-all"
+                    >
+                      <span className="block font-medium text-foreground text-xs">{q.label}</span>
+                      <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
+                        {q.prompt.slice(0, 45)}...
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1363,14 +1460,12 @@ export default function AiChatPage() {
           {/* Quick actions strip (when chat has messages) — hidden on mobile to save space */}
           {!isEmpty && (
             <div className="hidden sm:flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
-              {QA_ALL.map((q,idx)=>(
-                <button key={q.label} onClick={()=>{ setInput(q.prompt); setTimeout(()=>inputRef.current?.focus(),50); }} disabled={streaming}
+              {QA_ALL.map((q, idx) => (
+                <button key={q.label} onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }} disabled={streaming}
                   className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 whitespace-nowrap ${
-                    idx < QA_DAY.length
-                      ? "border-primary/35 bg-primary/8 text-foreground hover:bg-primary/15 hover:border-primary/60"
-                      : idx < QA_DAY.length + QA.length
-                        ? "border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
-                        : "border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-500/60"
+                    idx < QUICK_ACTIONS_META.length
+                      ? "border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
+                      : "border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-500/60"
                   }`}>
                   {q.label}
                 </button>
