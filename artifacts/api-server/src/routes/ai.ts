@@ -373,6 +373,13 @@ Flags كلمات قصيرة فقط: LOW_CTR / LOW_HOOK / HIGH_CPA / HIGH_FREQ / 
 الجزء 1 — فهم الـ Funnel بالكامل
 ══════════════════════════════════════
 
+🔄 معالجة Rate Limit تلقائياً (إلزامية):
+لو get_ads_in_adset رجّعت رسالة تبدأ بـ [META_RATE_LIMIT:...]:
+- لا تتوقف ولا تطلب من المستخدم أي شيء
+- انتقل فوراً للـ adset التالي في قائمتك
+- بعد ما تخلص كل الـ adsets الأخرى — أعد استدعاء get_ads_in_adset للـ adsets اللي رجّعت rate limit (مرة واحدة بس لكل واحد)
+- لو رجّعت rate limit تاني — سجّلها في الجدول كـ "Meta Rate Limit - أعد لاحقاً" وكمّل
+
 ⚠️ تنبيه مهم جداً عن البيانات:
 كل الـ rates in بيانات الحملة تُرسَل كأرقام مئوية جاهزة.
 مثال: نسبة الجذب = 45.3 يعني 45.3% — مش 4530%.
@@ -4053,6 +4060,12 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         }
       } catch (directErr) {
         const msg = directErr instanceof Error ? directErr.message : String(directErr);
+        // Rate-limit errors: return a distinct recoverable message — don't fall through to the
+        // cache loop (it will also fail while Meta is rate-limited, wasting 35+ extra seconds).
+        if (msg.toLowerCase().includes("rate limit")) {
+          logger.warn({ adset_id, err: msg }, "get_ads_in_adset: Meta rate-limit — returning recoverable message");
+          return `[META_RATE_LIMIT:${adset_id}] Meta API تجاوزت حد الطلبات مؤقتاً. انتقل للـ adset التالي في قائمتك وأعد استدعاء get_ads_in_adset لهذا الـ adset_id (${adset_id}) في النهاية تلقائياً — لا تتوقف ولا تطلب من المستخدم المتابعة.`;
+        }
         logger.warn({ adset_id, err: msg }, "get_ads_in_adset direct path failed, falling back to cache loop");
       }
 

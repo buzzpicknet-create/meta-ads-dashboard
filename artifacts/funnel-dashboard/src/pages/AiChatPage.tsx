@@ -98,9 +98,10 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
     prompt: `ركز فقط على الحملات والمجموعات الإعلانية النشطة (ACTIVE) — تجاهل المتوقفة تماماً. لو أردت رؤية المتوقفة اطلب ذلك صراحةً.
 
 خطوات التنفيذ الإلزامية (بدون سؤال):
-١. get_campaigns(days=7) → احصل على campaign_ids النشطة (ركّز على أكبر 5 حملات إنفاقاً)
-٢. get_adsets(campaign_id) لكل حملة نشطة → احصل على adset_ids
-٣. get_ads_in_adset(adset_id) لكل مجموعة نشطة → يُعيد Hook Rate + Hold Rate + LPR + CVR + CTR لكل إعلان
+١. get_campaigns(days=7) → احصل على campaign_ids النشطة (أكبر 5 حملات إنفاقاً)
+٢. get_adsets(campaign_id) لكل حملة → احصل على adset_ids مرتّبة حسب الإنفاق
+٣. get_ads_in_adset(adset_id) للمجموعات الـ 3 الأعلى إنفاقاً فقط من كل حملة (مش كل المجموعات)
+   — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد جلب البيانات — صنّف كل إعلان:
 🎬 Media Problem: Hook Rate < 25% → الفيديو مش بيوقف الناس
@@ -138,8 +139,9 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
 
 خطوات التنفيذ الإلزامية (بدون سؤال):
 ١. get_campaigns(days=7) → احصل على campaign_ids النشطة (أكبر 5 حملات إنفاقاً)
-٢. get_adsets(campaign_id) لكل حملة → احصل على adset_ids النشطة
-٣. get_ads_in_adset(adset_id) لكل مجموعة → يُعيد Hook Rate + CTR + CPA + Spend لكل إعلان
+٢. get_adsets(campaign_id) لكل حملة → احصل على adset_ids مرتّبة حسب الإنفاق
+٣. get_ads_in_adset(adset_id) للمجموعات الـ 3 الأعلى إنفاقاً فقط من كل حملة
+   — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد الجلب — فلتر الرابحين فقط:
 - Hook Rate > 30%
@@ -158,8 +160,9 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
 
 خطوات التنفيذ الإلزامية (بدون سؤال):
 ١. get_campaigns(days=7) → احصل على campaign_ids النشطة (أكبر 5 حملات إنفاقاً)
-٢. get_adsets(campaign_id) لكل حملة → احصل على adset_ids النشطة
-٣. get_ads_in_adset(adset_id) لكل مجموعة → يُعيد Hook Rate + CTR + Purchases + Spend لكل إعلان
+٢. get_adsets(campaign_id) لكل حملة → احصل على adset_ids مرتّبة حسب الإنفاق
+٣. get_ads_in_adset(adset_id) للمجموعات الـ 3 الأعلى إنفاقاً فقط من كل حملة
+   — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد الجلب — فلتر الإعلانات الميتة:
 - CTR < 0.8% بعد 200 EGP إنفاق
