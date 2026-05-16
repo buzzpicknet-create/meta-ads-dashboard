@@ -901,7 +901,7 @@ export default function AiChatPage() {
     const history = [...msgs, newMsg];
     setMsgs(history); setStr(true); setStTxt(""); setTL([]); setPending(null);
     const ctrl = new AbortController(); abortRef.current=ctrl;
-    const tid = setTimeout(()=>ctrl.abort(), 180000);
+    const tid = setTimeout(()=>ctrl.abort(), 360000);
     let acc = "";
     try {
       const cid = await ensureConv(userText);

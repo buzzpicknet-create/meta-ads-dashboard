@@ -61,8 +61,8 @@ export function isRateLimitActive(): boolean {
 }
 const RATE_LIMIT_BACKOFF_MS = 180_000; // 3 minutes global backoff after retries exhausted
 const RATE_LIMIT_CODES = new Set([80004, 17, 32]);
-// Exponential backoff delays before setting global backoff (30s, 60s, 120s with jitter)
-const RATE_LIMIT_RETRY_DELAYS_MS = [30_000, 60_000, 120_000];
+// Reduced from [30s, 60s, 120s] — chat flows can't survive 60s per retry across 15 calls
+const RATE_LIMIT_RETRY_DELAYS_MS = [5_000, 10_000, 20_000];
 
 // ── Usage header tracking (updated on every Meta response) ────────────────
 interface UsageHeaders {

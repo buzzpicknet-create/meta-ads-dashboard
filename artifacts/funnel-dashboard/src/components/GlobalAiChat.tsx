@@ -1111,8 +1111,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    // 180-second hard timeout — write-tool flows + large context models need time
-    const timeoutId = setTimeout(() => ctrl.abort(), 180000);
+    // 360-second hard timeout — bulk tool flows (15+ adset calls) can take 3–5 min
+    const timeoutId = setTimeout(() => ctrl.abort(), 360000);
     let accumulated = "";
 
     try {

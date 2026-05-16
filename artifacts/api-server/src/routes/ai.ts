@@ -3345,6 +3345,13 @@ async function tryExecuteViaPipeboard(
       return successes.join("\n\n---\n\n");
     }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // If Pipeboard itself hit a Meta rate-limit, skip native fallback (it will also fail).
+    // Return a descriptive message so the AI can acknowledge the limit instead of retrying.
+    if (msg.includes("rate limit") || msg.includes("17") || msg.includes("80004") || msg.includes("32")) {
+      logger.warn({ tool: name }, "Pipeboard rate-limit — skipping native Meta fallback");
+      return `⚠️ تجاوز حد الطلبات (Meta rate limit) — انتظر دقيقة ثم أعد المحاولة. لا تتوفر بيانات الأداء حالياً بسبب قيود Meta API.`;
+    }
     logger.warn({ err, tool: name }, "Pipeboard read failed — falling back to native Meta API");
     return null;
   }
