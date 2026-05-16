@@ -1172,7 +1172,7 @@ Raw API Response (للتشخيص التقني):
 - كود 100 (Invalid pixel) → تحقق من صلاحية الـ Pixel على Facebook Business Manager
 - كود 100 (Missing required field) → promoted_object غير مكتمل — تواصل مع المسؤول
 - كود 200 (Permission error) → الحساب لا يملك صلاحية هذه العملية
-- كود 190 (Token expired) → يجب تجديد Meta Access Token
+- كود 190 (Token expired) → التوكن المخزون في Pipeboard انتهى — الحل: اذهب إلى pipeboard.co وجدد ربط حساب Meta (Re-connect Meta Account). هذا لا علاقة له بالـ META_ACCESS_TOKEN في السيرفر.
 - Logic Error / ID match → Pipeboard أعاد parent campaign ID — فشل إنشاء AdSet in Meta
 [/ERROR BOX]
 
@@ -3014,6 +3014,16 @@ async function callPipeboardRead(
     // Pipeboard signals Meta API errors via isError=true (not thrown exceptions).
     // Throw so the caller's catch block handles the error instead of returning raw error text.
     if (result.isError) {
+      // Error 190 = Meta token stored in Pipeboard settings has expired
+      const isTokenExpiry = /190|session.*expired|access.*token.*invalid|OAuthException/i.test(raw);
+      if (isTokenExpiry) {
+        throw new Error(
+          `⚠️ توكن Meta منتهي في Pipeboard\n\n` +
+          `التوكن المخزون في حساب Pipeboard بتاعك انتهت صلاحيته.\n` +
+          `الحل: اذهب إلى https://pipeboard.co وأعد ربط حساب Meta (Re-connect Meta Account).\n\n` +
+          `التفاصيل التقنية: ${raw.slice(0, 300)}`
+        );
+      }
       throw new Error(raw || "Pipeboard tool returned an error");
     }
     return truncateToolResult(raw);
@@ -3043,6 +3053,15 @@ async function callPipeboardReadFull(
     // Pipeboard signals Meta API errors via isError=true (not thrown exceptions).
     // Throw so tryExecuteViaPipeboard catch handles it and falls back to native Meta.
     if (result.isError) {
+      const isTokenExpiry = /190|session.*expired|access.*token.*invalid|OAuthException/i.test(text);
+      if (isTokenExpiry) {
+        throw new Error(
+          `⚠️ توكن Meta منتهي في Pipeboard\n\n` +
+          `التوكن المخزون في حساب Pipeboard بتاعك انتهت صلاحيته.\n` +
+          `الحل: اذهب إلى https://pipeboard.co وأعد ربط حساب Meta (Re-connect Meta Account).\n\n` +
+          `التفاصيل التقنية: ${text.slice(0, 300)}`
+        );
+      }
       throw new Error(text || "Pipeboard tool returned an error");
     }
     return text;
