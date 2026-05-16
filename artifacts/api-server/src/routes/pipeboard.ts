@@ -3717,12 +3717,19 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       );
     }
 
-    // NOTE: is_dynamic_creative is NOT injected here for STANDARD campaigns.
-    // Pipeboard's create_adcreative produces asset_feed_spec (DCO-style) creatives.
-    // For STANDARD (non-DCO) ads, the AI should pass is_dynamic_creative only if
-    // the campaign type explicitly requires it (e.g. TEST/DCO blueprints).
-    // If create_ad_from_creative_spec fails with the DCO error on a STANDARD adset,
-    // a clear error message guides the AI to recreate the adset with is_dynamic_creative=true.
+    // ── Conditional is_dynamic_creative injection ────────────────────────────
+    // Pipeboard's create_adcreative ALWAYS builds asset_feed_spec, which Meta
+    // requires is_dynamic_creative=true on the parent adset (immutable after creation).
+    // When META_ACCESS_TOKEN is absent we ONLY have Pipeboard, so inject unconditionally.
+    // When META_ACCESS_TOKEN is present, create_ad_from_creative_spec uses Meta API
+    // directly with object_story_spec — no DCO needed, don't inject.
+    const hasMetaToken = !!process.env.META_ACCESS_TOKEN;
+    if (!hasMetaToken && !effectiveArgs.is_dynamic_creative) {
+      effectiveArgs.is_dynamic_creative = true;
+      logger.info(
+        "create_adset: is_dynamic_creative=true auto-injected (Pipeboard-only path — META_ACCESS_TOKEN absent)",
+      );
+    }
 
     const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp(
       "create_adset",
