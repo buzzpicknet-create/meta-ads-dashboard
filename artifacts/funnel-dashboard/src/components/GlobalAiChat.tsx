@@ -1216,7 +1216,14 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [input, messages, streaming, buildContext, ensureConversation, saveToDB, attachment, logout]);
-
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      if (detail) void send(detail);
+    };
+    window.addEventListener("bulk-action-complete", handler);
+    return () => window.removeEventListener("bulk-action-complete", handler);
+  }, [send]);
   const executeAction = useCallback(async () => {
     if (!pendingAction || executingAction) return;
     setExecutingAction(true);

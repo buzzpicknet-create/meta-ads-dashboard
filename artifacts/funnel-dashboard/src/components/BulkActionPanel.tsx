@@ -21,7 +21,10 @@ export interface BulkActionItem {
     | "duplicate_campaign"
     | "duplicate_ad"
     | "create_ad_from_post"
-    | "create_ad_from_existing_post";
+  | "create_ad_from_existing_post"
+  | "create_adset"
+  | "publish_winners_to_destination"
+  | "create_ad_from_creative_spec";
   campaignId?: string;
   adsetId?: string;
   adId?: string;
@@ -64,8 +67,11 @@ const TYPE_META: Record<BulkActionItem["type"], { icon: React.ReactNode; color: 
   duplicate_campaign: { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-sky-600 dark:text-sky-400",      badge: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30" },
   duplicate_ad:              { icon: <Copy className="h-3.5 w-3.5" />,   color: "text-orange-600 dark:text-orange-400",  badge: "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/30" },
   create_ad_from_post:       { icon: <Rocket className="h-3.5 w-3.5" />, color: "text-emerald-600 dark:text-emerald-400", badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30" },
-  create_ad_from_existing_post: { icon: <Rocket className="h-3.5 w-3.5" />, color: "text-teal-600 dark:text-teal-400",    badge: "bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30" },
-};
+create_ad_from_existing_post: { icon: <Rocket className="h-3.5 w-3.5" />, color: "text-teal-600 dark:text-teal-400",    badge: "bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30" },
+create_adset:                  { icon: <Rocket className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" },
+publish_winners_to_destination:{ icon: <Rocket className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" },
+  create_ad_from_creative_spec:  { icon: <Rocket className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" },
+  };
 
 const FALLBACK_META = { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" };
 
@@ -151,7 +157,7 @@ function buildToolCall(item: BulkActionItem): { tool: string; args: Record<strin
   }
 }
 
-export default function BulkActionPanel({ payload }: { payload: BulkActionPayload }) {
+export default function BulkActionPanel({ payload, onComplete }: { payload: BulkActionPayload; onComplete?: (summary: string) => void }) {
   const actions  = payload.actions ?? [];
   const isCompact = payload.compact === true && actions.length === 1;
 
@@ -174,6 +180,7 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
     const toRun = actions
       .map((a, i) => ({ action: a, idx: i, selected: checked[i] }))
       .filter(x => x.selected);
+    const outcomes: { ok: boolean; type: string; label: string; error: string }[] = [];
     await Promise.all(toRun.map(async ({ action, idx }) => {
       setStatuses(prev => { const n = [...prev]; n[idx] = "running"; return n; });
       try {
@@ -187,16 +194,28 @@ export default function BulkActionPanel({ payload }: { payload: BulkActionPayloa
         const d = await r.json() as { success?: boolean; error?: string };
         if (r.ok && d.success) {
           setStatuses(prev => { const n = [...prev]; n[idx] = "success"; return n; });
+          outcomes.push({ ok: true, type: action.type, label: action.label || action.name || action.type, error: "" });
         } else {
           throw new Error(d.error ?? "فشل التنفيذ");
         }
       } catch (err) {
+        const msg = err instanceof Error ? err.message : "خطأ";
         setStatuses(prev => { const n = [...prev]; n[idx] = "error"; return n; });
-        setErrors(prev => { const n = [...prev]; n[idx] = err instanceof Error ? err.message : "خطأ"; return n; });
+        setErrors(prev => { const n = [...prev]; n[idx] = msg; return n; });
+        outcomes.push({ ok: false, type: action.type, label: action.label || action.name || action.type, error: msg });
       }
     }));
     setRunning(false);
     setDone(true);
+    const summary = outcomes
+      .map(o =>
+        o.ok
+          ? `✅ ${o.type} — ${o.label}: نجح`
+          : `❌ ${o.type} — ${o.label}: فشل — ${o.error || "سبب غير معروف"}`
+      )
+      .join("\n");
+    if (onComplete) onComplete(summary);
+    window.dispatchEvent(new CustomEvent("bulk-action-complete", { detail: summary }));
   }
 
   // ── Compact mode: single inline action button ──────────────────────────────
