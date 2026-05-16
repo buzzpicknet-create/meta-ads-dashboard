@@ -3240,6 +3240,15 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
       const entry = (arr as Array<Record<string, unknown>>).find(a => a["action_type"] === t);
       return Number(entry?.["value"]) || 0;
     };
+    // avFirst: returns the FIRST non-zero value found among the given action types.
+    // Use for conversions/purchases — all Meta purchase action_types represent the SAME
+    // purchase event and must NOT be summed (that would multiply the count).
+    const avFirst = (arr: unknown, ...types: string[]): number => {
+      for (const t of types) { const v = av(arr, t); if (v > 0) return v; }
+      return 0;
+    };
+    // avMulti: sums values across types — use ONLY for truly additive metrics (e.g. reach).
+    // DO NOT use for purchases/conversions (they share the same event across types).
     const avMulti = (arr: unknown, ...types: string[]): number =>
       types.reduce((sum, t) => sum + av(arr, t), 0);
 
@@ -3277,18 +3286,21 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
       const ctrRaw  = Number(row["ctr"] || 0);         // already a percentage (e.g. 3.32)
 
       // Landing page views and purchases from actions array.
-      // Pipeboard uses "web_in_store_purchase" (confirmed by live call) — cover all types.
+      // IMPORTANT: all Meta purchase action_types represent the SAME purchase event —
+      // use avFirst (not avMulti/sum) to avoid multiplying the real count.
+      // Priority: web_in_store_purchase (confirmed primary for this account) → pixel → generic.
       const lpViews   = av(row["actions"], "landing_page_view");
-      const purchases = avMulti(row["actions"],
-        "offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase",
-        "web_in_store_purchase", "onsite_web_purchase", "onsite_web_app_purchase",
-        "onsite_app_purchase", "web_app_in_store_purchase");
+      const purchases = avFirst(row["actions"],
+        "web_in_store_purchase", "offsite_conversion.fb_pixel_purchase",
+        "purchase", "omni_purchase", "onsite_web_purchase",
+        "onsite_web_app_purchase", "web_app_in_store_purchase");
 
-      // CPA: prefer pre-computed cost_per_action_type, fall back to spend/purchases
-      const cpaFromMeta = avMulti(row["cost_per_action_type"],
-        "offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase",
-        "web_in_store_purchase", "onsite_web_purchase", "onsite_web_app_purchase",
-        "onsite_app_purchase", "web_app_in_store_purchase");
+      // CPA: prefer pre-computed cost_per_action_type (avFirst — same reason as purchases).
+      // Fall back to spend/purchases if none available.
+      const cpaFromMeta = avFirst(row["cost_per_action_type"],
+        "web_in_store_purchase", "offsite_conversion.fb_pixel_purchase",
+        "purchase", "omni_purchase", "onsite_web_purchase",
+        "onsite_web_app_purchase", "web_app_in_store_purchase");
       const cpa = cpaFromMeta || (purchases ? spend / purchases : 0);
 
       // Link clicks: use link_click from actions (confirmed in live call) or fallback unique_clicks
