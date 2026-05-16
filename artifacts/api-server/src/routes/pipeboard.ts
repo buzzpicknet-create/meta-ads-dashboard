@@ -1152,10 +1152,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           logger.warn({ e }, "create_ad_from_post: get_account_pages threw");
         }
       }
-      if (!pageId)
-        throw new Error(
-          "تعذّر جلب page_id للحساب — أرسل page_id يدوياً في الأمر",
-        );
+      if (!pageId) {
+        const lp = String(args?.landing_page_url ?? args?.link_url ?? "");
+        if (lp.includes("buzzpick.net")) pageId = "878997831971062";
+        else if (lp.includes("dealme-eg.com") || lp.includes("alsouqalhor.com") || lp.includes("dealoop.net")) pageId = "108193615487446";
+        else pageId = "108193615487446";
+        logger.warn({ pageId }, "create_ad_from_post: domain-mapped page_id fallback");
+      }
 
       const objectStoryId = `${pageId}_${postId}`;
 
@@ -1492,10 +1495,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           );
         }
       }
-      if (!pageId)
-        throw new Error(
-          "تعذّر جلب page_id للحساب — أرسل page_id أو object_story_id يدوياً",
-        );
+      if (!pageId) {
+        const lp = String(args?.landing_page_url ?? args?.link_url ?? "");
+        if (lp.includes("buzzpick.net")) pageId = "878997831971062";
+        else if (lp.includes("dealme-eg.com") || lp.includes("alsouqalhor.com") || lp.includes("dealoop.net")) pageId = "108193615487446";
+        else pageId = "108193615487446";
+        logger.warn({ pageId }, "create_ad_from_existing_post: domain-mapped page_id fallback");
+      }
 
       if (!objectStoryId) objectStoryId = `${pageId}_${postId}`;
 
@@ -1847,7 +1853,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           data?: Array<{ id: string }>;
         };
         pageId = pagesJson.data?.[0]?.id ?? "";
-        if (!pageId) throw new Error("تعذّر جلب page_id — أرسل page_id يدوياً");
+        if (!pageId) {
+          const lp = String(args?.landing_page_url ?? args?.link_url ?? "");
+          if (lp.includes("buzzpick.net")) pageId = "878997831971062";
+          else if (lp.includes("dealme-eg.com") || lp.includes("alsouqalhor.com") || lp.includes("dealoop.net")) pageId = "108193615487446";
+          else pageId = "108193615487446";
+          logger.warn({ pageId }, "create_adcreative: domain-mapped page_id fallback");
+        }
       }
       if (!instagramActorId) instagramActorId = pageId;
 
@@ -2601,8 +2613,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
       // ── Step 2: Get page_id — domain map first, then auto-fetch ──────────
       const PAGE_ID_MAP: Record<string, string> = {
-        "dealme-eg.com":   "1010704388784861",
-        "dealoop.net":     "1010704388784861",
+        "dealme-eg.com":   "108193615487446",
+        "dealoop.net":     "108193615487446",
         "alsouqalhor.com": "108193615487446",
         "buzzpick.net":    "878997831971062",
       };
