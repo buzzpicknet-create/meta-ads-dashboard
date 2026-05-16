@@ -5,6 +5,9 @@ import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+// Public router — only the OAuth callback lives here (no auth required;
+// the `state` CSRF token provides sufficient security).
+const publicRouter: IRouter = Router();
 const SHOPIFY_API_VERSION = "2024-01";
 const SHOPIFY_SCOPES = "read_products,write_products,read_content,write_content,write_themes,read_themes";
 
@@ -54,11 +57,22 @@ router.post("/shopify/oauth/start", async (req: Request, res: Response): Promise
     `&state=${encodeURIComponent(state)}`;
 
   logger.info({ domain: cleanDomain }, "shopify_oauth_start");
-  res.json({ authUrl, redirectUri });
+  // Explicitly save before responding — guarantees the state is in DB
+  // before the browser navigates away to Shopify.
+  req.session.save((err) => {
+    if (err) {
+      logger.error({ err }, "shopify_oauth_session_save_failed");
+      res.status(500).json({ error: "فشل حفظ الجلسة — أعد المحاولة" });
+      return;
+    }
+    res.json({ authUrl, redirectUri });
+  });
 });
 
 // ─── GET /shopify/oauth/callback ───────────────────────────────────────────────
-router.get("/shopify/oauth/callback", async (req: Request, res: Response): Promise<void> => {
+// Registered on publicRouter (no auth guard) — the state CSRF token is
+// sufficient protection. Shopify redirects here after the user authorises.
+publicRouter.get("/shopify/oauth/callback", async (req: Request, res: Response): Promise<void> => {
   const { code, shop, state, hmac } = req.query as Record<string, string>;
 
   const pending = req.session.pendingShopifyOAuth;
@@ -495,4 +509,5 @@ router.post("/shopify/upload-custom-image", async (req: Request, res: Response):
   }
 });
 
+export { publicRouter as shopifyPublicRouter };
 export default router;

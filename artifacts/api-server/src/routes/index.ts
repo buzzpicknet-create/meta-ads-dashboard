@@ -20,7 +20,7 @@ import tasksRouter from "./tasks";
 import storageRouter from "./storage";
 import landingPageGenRouter from "./landing-page-gen";
 import landingPageRecordsRouter from "./landing-page-records";
-import shopifyStoresRouter from "./shopify-stores";
+import shopifyStoresRouter, { shopifyPublicRouter } from "./shopify-stores";
 const router = Router();
 
 // Pre-warm Pipeboard MCP connection so the first chat request doesn't
@@ -30,6 +30,7 @@ warmUpPipeboard();
 // ── Public routes (no auth required) ──────────────────────────────────────────
 router.use(authRouter);
 router.use(healthRouter);
+router.use(shopifyPublicRouter);
 
 // ── Auth guard for all routes below ───────────────────────────────────────────
 router.use((req: Request, res: Response, next: NextFunction) => {
