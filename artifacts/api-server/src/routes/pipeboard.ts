@@ -2900,9 +2900,33 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       // falling back to same-index creative or rawCreatives[0].
       // NO is_dynamic_creative — NO asset_feed_spec — each ad has exactly
       // one video_id, one text, one headline.
+
+      // ── Auto-expand: 1 adset template × N videos → N adsets (1 per video) ──
+      // When user specifies 1 angle but N videos were uploaded from a Drive folder,
+      // replicate the adset config so each video gets its own AdSet.
+      let effectiveAdsets: AdsetInput[] = rawAdsets as AdsetInput[];
+      if (rawAdsets.length === 1 && rawCreatives.length > 1) {
+        const uploadedCreatives = rawCreatives.filter(c => {
+          const url = normaliseMediaUrl(c.media_url?.trim() ?? "");
+          const cached = mediaCache.get(url);
+          return cached && !cached.error && (cached.videoId ?? cached.imageHash);
+        });
+        if (uploadedCreatives.length > 1) {
+          const template = rawAdsets[0]!;
+          effectiveAdsets = uploadedCreatives.map((_, i) => ({
+            ...template,
+            name: `${template.name} — فيديو ${i + 1}`,
+          }));
+          logger.info(
+            { from: 1, to: effectiveAdsets.length },
+            "launch_pipeboard_campaign: auto-expanded adsets (1 template → N videos)",
+          );
+        }
+      }
+
       let totalAdsExpected = 0;
-      for (let ai = 0; ai < rawAdsets.length; ai++) {
-        const adset = rawAdsets[ai]!;
+      for (let ai = 0; ai < effectiveAdsets.length; ai++) {
+        const adset = effectiveAdsets[ai]!;
 
         // ── Find matching creative by filename ↔ angle name ────────────────
         const angleName = adset.name.toLowerCase().trim();
@@ -3193,7 +3217,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           campaign_id: campaignId,
           objective: campObjective,
           has_pixel: hasPixel,
-          adsets_count: rawAdsets.length,
+          adsets_count: effectiveAdsets.length,
           creatives_count: rawCreatives.length,
           ads_created: adsCreated,
           ads_failed: adResults.length - adsCreated,
