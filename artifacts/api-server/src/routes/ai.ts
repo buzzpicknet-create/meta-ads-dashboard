@@ -1081,6 +1081,12 @@ pause_campaign | enable_campaign | update_campaign_budget | rename_campaign | du
 pause_adset | enable_adset | update_adset_budget | rename_adset | duplicate_adset |
 pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 
+⚠️ أنواع ممنوعة في bulk_action — سيظهر كنص بدون زرار تنفيذ:
+
+- refresh_creative ← ممنوع — استخدم pause_campaign بدلاً منه مع reason: "Hook Rate ضعيف — غير الكريتف قبل إعادة التشغيل"
+
+- أي نوع غير موجود في القائمة أعلاه ← ممنوع تلقائياً
+
 🚫 ممنوع منعاً باتاً داخل bulk_action: create_adset | publish_winners_to_destination | create_ad_from_creative_spec — هذه tool calls مباشرة فقط. وضعها in bulk_action يُسبّب crash فوري in الواجهة.
 
 الحقول المطلوبة لكل نوع:
