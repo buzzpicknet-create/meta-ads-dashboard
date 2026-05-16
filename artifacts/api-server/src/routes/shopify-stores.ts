@@ -13,6 +13,10 @@ const SHOPIFY_SCOPES = "read_products,write_products,read_content,write_content,
 
 
 function getAppBaseUrl(req: Request): string {
+  // APP_BASE_URL overrides everything — set this to the production custom domain
+  if (process.env.APP_BASE_URL?.trim()) {
+    return process.env.APP_BASE_URL.trim().replace(/\/$/, "");
+  }
   const domains = (process.env.REPLIT_DOMAINS ?? "").split(",").map(d => d.trim()).filter(Boolean);
   const domain = domains.find(d => !d.includes(".worf.replit.dev")) ?? domains[0] ?? process.env.REPLIT_DEV_DOMAIN ?? "";
   if (domain) return `https://${domain}`;
@@ -497,9 +501,14 @@ router.post("/shopify/upload-custom-image", async (req: Request, res: Response):
     const buf = Buffer.from(imageBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
     await storage.uploadFromBytes(key, buf, { contentType: mimeType });
 
-    const domains = (process.env.REPLIT_DOMAINS ?? "").split(",").map(d => d.trim()).filter(Boolean);
-    const domain = domains.find(d => !d.includes(".worf.replit.dev")) ?? domains[0] ?? process.env.REPLIT_DEV_DOMAIN ?? "";
-    const url = domain ? `https://${domain}/api/storage/${key}` : `/api/storage/${key}`;
+    const appBase = process.env.APP_BASE_URL?.trim()
+      ? process.env.APP_BASE_URL.trim().replace(/\/$/, "")
+      : (() => {
+          const domains = (process.env.REPLIT_DOMAINS ?? "").split(",").map(d => d.trim()).filter(Boolean);
+          const domain = domains.find(d => !d.includes(".worf.replit.dev")) ?? domains[0] ?? process.env.REPLIT_DEV_DOMAIN ?? "";
+          return domain ? `https://${domain}` : "";
+        })();
+    const url = appBase ? `${appBase}/api/storage/${key}` : `/api/storage/${key}`;
 
     logger.info({ key, mimeType, filename }, "custom_image_uploaded");
     res.json({ success: true, url, key });

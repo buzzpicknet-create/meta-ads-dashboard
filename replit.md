@@ -104,3 +104,6 @@ Express API backed by Meta Ads API + PostgreSQL.
 - Screenshot tool always captures skeleton/loading state (Meta API takes 5-8s) — this is expected
 - BASE_URL pattern: `import.meta.env.BASE_URL.replace(/\/$/, "")` prefix on all API calls
 - `alert_key` format: `"ctr-low:account"` or `"high-frequency:campaign-{id}"`
+- **Production domain**: `meta.ecom-egypt.com` — `APP_BASE_URL=https://meta.ecom-egypt.com` is set in production env; used by `getAppBaseUrl()` in `shopify-stores.ts` for generating Shopify OAuth redirect URIs and storage URLs
+- **Shopify OAuth callback** (whitelisted in Shopify Partners): `https://meta.ecom-egypt.com/api/shopify/oauth/callback`
+- **Shopify OAuth callback route** is public (no auth guard) — registered via `shopifyPublicRouter` before the auth middleware in `routes/index.ts`

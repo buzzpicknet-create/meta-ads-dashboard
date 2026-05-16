@@ -45,3 +45,8 @@ externalPort = 4200
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.production]
+APP_BASE_URL = "https://meta.ecom-egypt.com"
