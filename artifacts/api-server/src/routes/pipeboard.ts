@@ -3296,10 +3296,11 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     const salesCampaignId = String(effectiveArgs.campaign_id ?? "");
 
     if (metaTokenSales && salesCampaignId) {
+      // ── PHASE 1: MANDATORY guards (fatal — must throw and propagate) ──────────
+      // These run OUTSIDE any non-fatal catch so they cannot be silently swallowed.
+      let campObjJson: Record<string, unknown> = {};
+      let campFetchOk = false;
       try {
-        // Fetch campaign — include account_id + campaign_id so we can:
-        //   a) detect if caller passed an adset_id instead of campaign_id
-        //   b) verify the campaign belongs to the requested account
         const campObjUrl = new URL(
           `https://graph.facebook.com/v21.0/${salesCampaignId}`,
         );
@@ -3311,27 +3312,28 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const campObjResp = await fetch(campObjUrl.toString(), {
           signal: AbortSignal.timeout(8_000),
         });
-        const campObjJson = (await campObjResp.json()) as Record<
-          string,
-          unknown
-        >;
+        campObjJson = (await campObjResp.json()) as Record<string, unknown>;
+        campFetchOk = true;
+      } catch (fetchErr) {
+        // Network-only failure — non-fatal, skip guards and enhancements
+        logger.warn(
+          { fetchErr },
+          "create_adset: campaign pre-fetch network error (non-fatal) — proceeding without guard checks",
+        );
+      }
 
-        // ── GUARD: campaign must exist in Meta ────────────────────────────────
-        // If Meta returns an error object, the campaign_id is wrong / doesn't exist.
+      if (campFetchOk) {
+        // ── GUARD 1: campaign must exist in Meta ────────────────────────────
         if (campObjJson.error != null) {
           const metaErr = campObjJson.error as Record<string, unknown>;
           throw new Error(
             `Pre-call Guard: campaign_id="${salesCampaignId}" غير موجود في Meta أو لا يمكن الوصول إليه. ` +
-              `(Meta error: ${String(metaErr.message ?? JSON.stringify(campObjJson.error))}). ` +
+              `(Meta: ${String(metaErr.message ?? JSON.stringify(campObjJson.error))}). ` +
               `استخدم campaign_id الصحيح الذي أعادته create_campaign للتو.`,
           );
         }
 
-        const objective = String(campObjJson.objective ?? "").toUpperCase();
-
-        // ── PRE-CALL ID GUARD: campaign_id arg MUST be a campaign, not an adset ──
-        // If Meta returns a `campaign_id` field on the fetched entity, the entity IS
-        // an adset — caller accidentally passed adset_id where campaign_id is expected.
+        // ── GUARD 2: passed ID must be a campaign, not an adset ────────────
         if (campObjJson.campaign_id != null) {
           throw new Error(
             `Pre-call ID Guard: campaign_id="${salesCampaignId}" هو adset_id وليس campaign_id ` +
@@ -3340,8 +3342,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           );
         }
 
-        // ── ACCOUNT OWNERSHIP GUARD: campaign must belong to the specified account ─
-        // Meta campaign account_id is returned without the "act_" prefix.
+        // ── GUARD 3: campaign must belong to the requested account ─────────
         const campAccId = String(campObjJson.account_id ?? "").replace(/^act_/, "");
         const reqAccId  = String(effectiveArgs.account_id ?? "").replace(/^act_/, "");
         if (campAccId && reqAccId && campAccId !== reqAccId) {
@@ -3352,14 +3353,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           );
         }
 
-        // ── CBO Budget Fix: strip adset-level budget for CBO campaigns ────────
-        // Meta REJECTS adsets with daily_budget/lifetime_budget when the parent
-        // campaign is CBO (has its own daily_budget or lifetime_budget).
+        // ── PHASE 2: OPTIONAL enhancements (non-fatal — failures silently skipped) ─
+      } // closes if (campFetchOk)
+      try {
+        const campForEnhance = campFetchOk ? campObjJson : {};
+        const objective = String(campForEnhance.objective ?? "").toUpperCase();
+
+        // ── CBO Budget Fix ────────────────────────────────────────────────
         const campHasBudget =
-          (campObjJson.daily_budget != null &&
-            String(campObjJson.daily_budget) !== "0") ||
-          (campObjJson.lifetime_budget != null &&
-            String(campObjJson.lifetime_budget) !== "0");
+          (campForEnhance.daily_budget != null &&
+            String(campForEnhance.daily_budget) !== "0") ||
+          (campForEnhance.lifetime_budget != null &&
+            String(campForEnhance.lifetime_budget) !== "0");
 
         if (campHasBudget) {
           const strippedBudget =
@@ -3373,7 +3378,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             logger.info(
               {
                 salesCampaignId,
-                campaign_daily_budget: campObjJson.daily_budget,
+                campaign_daily_budget: campForEnhance.daily_budget,
                 stripped_adset_budget: strippedBudget,
               },
               "create_adset: CBO campaign detected — stripped adset daily_budget/lifetime_budget to prevent Budget Conflict",
@@ -3386,9 +3391,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           }
         }
 
-        // ── AUTO-TARGETING FALLBACK + ADVANTAGE+ AUDIENCE (all campaign types) ──
-        // Meta REQUIRES at least one geo_location. Advantage+ Audience (AA) is
-        // injected universally for both ABO and CBO — Meta's AI optimises delivery.
+        // ── AUTO-TARGETING FALLBACK + ADVANTAGE+ AUDIENCE ────────────────
         const DEFAULT_TARGETING = {
           geo_locations: { countries: ["EG"], location_types: ["home"] },
         };
@@ -3402,14 +3405,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             tgt.geo_locations = { countries: ["EG"], location_types: ["home"] };
           }
         }
-        // Advantage+ Audience — top-level parameters (NOT inside targeting)
         if (!effectiveArgs.advantage_plus_audience) {
           effectiveArgs.advantage_plus_audience = 1;
         }
         if (!effectiveArgs.targeting_automation) {
           effectiveArgs.targeting_automation = { advantage_audience: 1 };
         }
-        // Always use LOWEST_COST_WITHOUT_CAP to avoid bid amount requirement
         if (!effectiveArgs.bid_strategy) {
           effectiveArgs.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
         }
