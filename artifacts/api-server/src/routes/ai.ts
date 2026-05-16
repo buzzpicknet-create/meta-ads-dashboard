@@ -4691,6 +4691,10 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
         })),
       } as ApiMsg);
 
+      // Collect write tools separately so all pending actions are sent in one batch.
+      // Previously, the loop returned on the first write tool — leaving the rest silent.
+      const pendingWrites: Array<{ tc: { id: string; name: string; argsStr: string; index: number }; args: Record<string, unknown> }> = [];
+
       for (const tc of toolCallsAccum) {
         if (!tc.name) continue;
         let args: Record<string, unknown> = {};
@@ -4699,17 +4703,25 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
         send({ tool_call_label: getToolLabel(tc.name, args) });
 
         if (WRITE_TOOL_NAMES.has(tc.name)) {
+          pendingWrites.push({ tc, args });
+          continue; // defer — present all write actions together below
+        }
+
+        const result = await executeTool(tc.name, args, selectedAccFilter);
+        apiMessages.push({ role: "tool", tool_call_id: tc.id, content: result } as ApiMsg);
+      }
+
+      // Present all collected write actions as pending cards in one bulk batch
+      if (pendingWrites.length > 0) {
+        for (const { tc, args } of pendingWrites) {
           const pending = buildOptimisticPendingAction(tc.name, args);
           send({ pending_action: pending });
           resolveWriteToolDetails(tc.name, args)
             .then((resolved) => { send({ pending_action_resolved: resolved }); })
             .catch(() => {});
-          send({ done: true });
-          return;
         }
-
-        const result = await executeTool(tc.name, args, selectedAccFilter);
-        apiMessages.push({ role: "tool", tool_call_id: tc.id, content: result } as ApiMsg);
+        send({ done: true });
+        return;
       }
     }
 
