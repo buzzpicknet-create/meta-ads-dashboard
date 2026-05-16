@@ -3232,7 +3232,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       }
 
       ccSuccess = true;
-      ccMsg = `تم إنشاء الحملة "${String(args?.name ?? "")}" — campaign_id: ${ccCampaignId} — الحالة: ${String(ccData.effective_status ?? ccData.status ?? "PAUSED")}`;
+      ccMsg = [
+        `✅ تم إنشاء الحملة "${String(args?.name ?? "")}"`,
+        `CAMPAIGN_ID: ${ccCampaignId}`,
+        `⚠️ استخدم CAMPAIGN_ID=${ccCampaignId} بالضبط في خطوة create_adset التالية — لا تستخدم أي ID آخر.`,
+        `الحالة: ${String(ccData.effective_status ?? ccData.status ?? "PAUSED")}`,
+      ].join("\n");
     } catch (err) {
       ccMsg = err instanceof Error ? err.message : String(err);
       _pbWriteClient = null;
@@ -3292,13 +3297,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     if (metaTokenSales && salesCampaignId) {
       try {
-        // Fetch campaign — include campaign_id field so we detect if caller passed an adset_id by mistake
+        // Fetch campaign — include account_id + campaign_id so we can:
+        //   a) detect if caller passed an adset_id instead of campaign_id
+        //   b) verify the campaign belongs to the requested account
         const campObjUrl = new URL(
           `https://graph.facebook.com/v21.0/${salesCampaignId}`,
         );
         campObjUrl.searchParams.set(
           "fields",
-          "id,objective,name,daily_budget,lifetime_budget,campaign_id",
+          "id,objective,name,daily_budget,lifetime_budget,campaign_id,account_id",
         );
         campObjUrl.searchParams.set("access_token", metaTokenSales);
         const campObjResp = await fetch(campObjUrl.toString(), {
@@ -3308,6 +3315,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           string,
           unknown
         >;
+
+        // ── GUARD: campaign must exist in Meta ────────────────────────────────
+        // If Meta returns an error object, the campaign_id is wrong / doesn't exist.
+        if (campObjJson.error != null) {
+          const metaErr = campObjJson.error as Record<string, unknown>;
+          throw new Error(
+            `Pre-call Guard: campaign_id="${salesCampaignId}" غير موجود في Meta أو لا يمكن الوصول إليه. ` +
+              `(Meta error: ${String(metaErr.message ?? JSON.stringify(campObjJson.error))}). ` +
+              `استخدم campaign_id الصحيح الذي أعادته create_campaign للتو.`,
+          );
+        }
+
         const objective = String(campObjJson.objective ?? "").toUpperCase();
 
         // ── PRE-CALL ID GUARD: campaign_id arg MUST be a campaign, not an adset ──
@@ -3318,6 +3337,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             `Pre-call ID Guard: campaign_id="${salesCampaignId}" هو adset_id وليس campaign_id ` +
               `(Meta أعاد campaign_id=${campObjJson.campaign_id} للـ entity ده). ` +
               `من فضلك أرسل الـ campaign_id الصحيح، وليس الـ adset_id.`,
+          );
+        }
+
+        // ── ACCOUNT OWNERSHIP GUARD: campaign must belong to the specified account ─
+        // Meta campaign account_id is returned without the "act_" prefix.
+        const campAccId = String(campObjJson.account_id ?? "").replace(/^act_/, "");
+        const reqAccId  = String(effectiveArgs.account_id ?? "").replace(/^act_/, "");
+        if (campAccId && reqAccId && campAccId !== reqAccId) {
+          throw new Error(
+            `Pre-call Account Guard: campaign_id="${salesCampaignId}" ينتمي للحساب act_${campAccId} ` +
+              `وليس للحساب act_${reqAccId} المرسَل في الطلب. ` +
+              `استخدم campaign_id الصحيح الذي أعادته create_campaign للتو.`,
           );
         }
 
