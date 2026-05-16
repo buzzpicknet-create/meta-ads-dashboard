@@ -458,6 +458,27 @@ function RenderMarkdown({ text }: { text: string }) {
       continue;
     }
 
+    // Diagnosis cards :::تشخيص — per-ad structured diagnosis
+    if (/^:::تشخيص\s*$/.test(line.trim())) {
+      const cardLines: string[] = [];
+      i++;
+      while (i < lines.length && lines[i]!.trim() !== ":::") { cardLines.push(lines[i]!); i++; }
+      i++;
+      const content = cardLines.join(" ");
+      let diagType = "";
+      if (/media|hook|جذب|🎬/i.test(content))               diagType = "ai-diag-media";
+      else if (/funnel|cta|copy|نقر|leak|📝/i.test(content)) diagType = "ai-diag-funnel";
+      else if (/landing|page|صفحة|🌐/i.test(content))        diagType = "ai-diag-page";
+      else if (/conversion|offer|سعر|عرض|💸/i.test(content)) diagType = "ai-diag-conversion";
+      else if (/scale|رابح|winning|✅.*scale|scale.*✅/i.test(content)) diagType = "ai-diag-scale";
+      elements.push(
+        <div key={`diag-${i}`} className={`ai-diag-card ${diagType}`}>
+          {cardLines.map((cl, ci) => <div key={ci}>{renderInline(cl)}</div>)}
+        </div>
+      );
+      continue;
+    }
+
     // Fenced code block ``` — detect "json chart" / "bulk_action" for live rendering
     if (line.trim().startsWith("```")) {
       const lang = line.trim().slice(3).trim().toLowerCase();

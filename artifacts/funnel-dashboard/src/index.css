@@ -444,6 +444,30 @@
 .dark .ai-trend-up   { color: hsl(142 65% 60%); }
 .dark .ai-trend-down { color: hsl(0 70% 68%); }
 
+/* ── Diagnosis Cards (:::تشخيص) ── */
+.ai-diag-card {
+  margin: 0.5rem 0;
+  padding: 11px 16px 11px 14px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border) / 0.45);
+  border-right: 3px solid hsl(234 89% 62%);
+  background: hsl(var(--muted) / 0.18);
+  font-size: 15px;
+  line-height: 1.7;
+  font-family: 'Readex Pro', 'IBM Plex Sans Arabic', sans-serif;
+}
+.ai-diag-card.ai-diag-media      { border-right-color: hsl(0 84% 55%);   background: hsl(0 84% 60% / 0.055);   border-color: hsl(0 84% 60% / 0.22); }
+.ai-diag-card.ai-diag-funnel     { border-right-color: hsl(25 90% 48%);  background: hsl(25 90% 52% / 0.055);  border-color: hsl(25 90% 52% / 0.22); }
+.ai-diag-card.ai-diag-page       { border-right-color: hsl(45 93% 42%);  background: hsl(45 93% 47% / 0.055);  border-color: hsl(45 93% 47% / 0.22); }
+.ai-diag-card.ai-diag-conversion { border-right-color: hsl(270 65% 58%); background: hsl(270 65% 60% / 0.055); border-color: hsl(270 65% 60% / 0.22); }
+.ai-diag-card.ai-diag-scale      { border-right-color: hsl(142 71% 40%); background: hsl(142 71% 45% / 0.055); border-color: hsl(142 71% 45% / 0.22); }
+.dark .ai-diag-card { background: hsl(var(--muted) / 0.12); }
+.dark .ai-diag-card.ai-diag-media      { border-right-color: hsl(0 84% 65%);   background: hsl(0 84% 60% / 0.09);   border-color: hsl(0 84% 60% / 0.20); }
+.dark .ai-diag-card.ai-diag-funnel     { border-right-color: hsl(25 90% 62%);  background: hsl(25 90% 52% / 0.09);  border-color: hsl(25 90% 52% / 0.20); }
+.dark .ai-diag-card.ai-diag-page       { border-right-color: hsl(45 93% 57%);  background: hsl(45 93% 47% / 0.09);  border-color: hsl(45 93% 47% / 0.20); }
+.dark .ai-diag-card.ai-diag-conversion { border-right-color: hsl(270 65% 72%); background: hsl(270 65% 60% / 0.09); border-color: hsl(270 65% 60% / 0.20); }
+.dark .ai-diag-card.ai-diag-scale      { border-right-color: hsl(142 71% 58%); background: hsl(142 71% 45% / 0.09); border-color: hsl(142 71% 45% / 0.20); }
+
 /* ── Winning row glow (🟢 Scale decision) ── */
 .ai-tbl-winner-row td {
   background: hsl(142 71% 45% / 0.055) !important;
