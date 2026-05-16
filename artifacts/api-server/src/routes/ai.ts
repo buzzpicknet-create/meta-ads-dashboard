@@ -414,15 +414,18 @@ Flags كلمات قصيرة فقط: LOW_CTR / LOW_HOOK / HIGH_CPA / HIGH_FREQ / 
 - أنت في وضع التحليل الجماعي (bulk analysis) لتوليد bulk_action — استخدم بيانات الـ context الموجودة واحسب newBudget منها مباشرةً، لا تستدعي get_campaign_budget أو get_campaign_status لكل حملة على حدة
 
 ⚠️ قاعدة حرجة — تحليل الإعلانات (Ad Level):
-- get_ads_in_adset تُعيد Hook Rate وHold Rate وCTR وCPA لكل إعلان — هذه الأداة موجودة وتعمل بشكل كامل.
-- عند أي طلب تحليل Creative أو Ad level: نفّذ هذه الخطوات تلقائياً بدون سؤال المستخدم:
-  ١. get_campaigns(days=7) → احصل على campaign_ids النشطة
-  ٢. get_adsets(campaign_id) → احصل على adset_ids
-  ٣. get_ads_in_adset(adset_id, days=3) → Hook Rate وCTR وCPA موجودة في النتيجة
+- get_ads_in_adset تُعيد الفانل الكامل لكل إعلان: Hook Rate% + Hold Rate% + LPR% + CVR% + CTR% + CPA + Purchases + LP Views + CPM — كلها متاحة بدون استثناء.
+- لا تقل أبداً "Hook Rate مش متاح" أو "LPR مش متاح" أو "CVR مش متاح" — كلها تأتي من get_ads_in_adset مباشرةً.
+- عند أي طلب تحليل Creative أو Ad level أو تشخيص فانل: نفّذ هذه الخطوات تلقائياً بدون سؤال المستخدم:
+  ١. get_campaigns(days=7) → احصل على campaign_ids (ركّز على الـ ACTIVE)
+  ٢. get_adsets(campaign_id) لكل حملة نشطة → احصل على adset_ids
+  ٣. get_ads_in_adset(adset_id) لكل مجموعة نشطة → يُعيد جدول كامل: Hook Rate، Hold Rate، LPR، CVR، CTR، CPA، الطلبات، LP Views
+- لو المستخدم طلب "كل الإعلانات النشطة": كرّر الخطوات 1→2→3 على كل المجموعات النشطة واجمع النتائج في جدول موحّد.
 - لا تسأل المستخدم عن campaign_id أو adset_id أو فترة زمنية — اجلبها بنفسك فوراً
-- لا تقل أبداً "Hook Rate مش متاح" أو "محتاج campaign_id" — كلاهما متاح عبر الأدوات
 - "آخر 3 أيام" = days=3 في get_ads_in_adset
 - سؤال عن إيقاف أو تعديل؟ → اجلب الحالة الحالية أولاً (get_campaign_status / get_adset_status)
+
+🔴 ممنوع تماماً: أن تقول "البيانات غير متاحة" أو "لا أقدر أنفّذ التشخيص" قبل استدعاء get_ads_in_adset فعلياً — نفّذ الأداة أولاً ثم حلّل.
 
 ══════════════════════════════════════
 قاعدة المحقق — DATA DISCOVERY RULE
@@ -3306,19 +3309,11 @@ async function tryExecuteViaPipeboard(
       return summarizePipeboardInsights(pbRaw2, "ad");
     }
 
-    // get_ads_in_adset — via Pipeboard (primary). Native Meta path is fallback.
-    if (name === "get_ads_in_adset") {
-      const adset_id = String(args.adset_id ?? "");
-      if (!adset_id) return null;
-      const pbRaw3 = await callPipeboardReadFull("get_insights", {
-        object_id: adset_id,
-        level: "ad",
-        time_range: timeRange,
-        compact: false,
-        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
-      });
-      return summarizePipeboardInsights(pbRaw3, "ad");
-    }
+    // get_ads_in_adset — always via native Meta (NOT Pipeboard).
+    // Pipeboard's get_insights returns only Hook/Hold/ThruPlay — missing CTR, LPR, CVR, CPA, Purchases.
+    // Native Meta returns the full funnel table the AI needs for diagnosis.
+    // Return null here so executeTool() always handles it via getAdsetAdsInsights().
+    if (name === "get_ads_in_adset") return null;
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────
 
