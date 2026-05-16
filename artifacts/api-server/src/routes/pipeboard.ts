@@ -3425,34 +3425,6 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           }
         }
 
-        // ── AUTO-TARGETING FALLBACK + ADVANTAGE+ AUDIENCE ────────────────
-        const DEFAULT_TARGETING = {
-          geo_locations: { countries: ["EG"], location_types: ["home"] },
-        };
-        const tgt = effectiveArgs.targeting as
-          | Record<string, unknown>
-          | undefined;
-        if (!tgt) {
-          effectiveArgs.targeting = DEFAULT_TARGETING;
-        } else {
-          if (!tgt.geo_locations) {
-            tgt.geo_locations = { countries: ["EG"], location_types: ["home"] };
-          }
-        }
-        if (!effectiveArgs.advantage_plus_audience) {
-          effectiveArgs.advantage_plus_audience = 1;
-        }
-        if (!effectiveArgs.targeting_automation) {
-          effectiveArgs.targeting_automation = { advantage_audience: 1 };
-        }
-        if (!effectiveArgs.bid_strategy) {
-          effectiveArgs.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
-        }
-        logger.info(
-          { had_geo: !!tgt?.geo_locations },
-          "create_adset: targeting merged — Advantage+ Audience top-level + EG residents ensured",
-        );
-
         const isSales =
           objective.includes("SALES") || objective === "OUTCOME_SALES";
         if (isSales) {
@@ -3526,6 +3498,34 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           "create_adset: campaign objective pre-fetch failed (non-fatal) — proceeding without injection",
         );
       }
+    }
+
+    // ── AUTO-TARGETING FALLBACK + ADVANTAGE+ AUDIENCE (always runs) ──────────
+    // Runs unconditionally — even when META_ACCESS_TOKEN is absent — so that
+    // the Pipeboard MCP call always includes geo_locations (Meta rejects without it).
+    {
+      const DEFAULT_TARGETING = {
+        geo_locations: { countries: ["EG"], location_types: ["home"] },
+      };
+      const tgt = effectiveArgs.targeting as Record<string, unknown> | undefined;
+      if (!tgt) {
+        effectiveArgs.targeting = DEFAULT_TARGETING;
+      } else if (!tgt.geo_locations) {
+        tgt.geo_locations = { countries: ["EG"], location_types: ["home"] };
+      }
+      if (!effectiveArgs.advantage_plus_audience) {
+        effectiveArgs.advantage_plus_audience = 1;
+      }
+      if (!effectiveArgs.targeting_automation) {
+        effectiveArgs.targeting_automation = { advantage_audience: 1 };
+      }
+      if (!effectiveArgs.bid_strategy) {
+        effectiveArgs.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
+      }
+      logger.info(
+        { had_geo: !!(effectiveArgs.targeting as Record<string, unknown> | undefined)?.geo_locations },
+        "create_adset: targeting merged (unconditional) — Advantage+ Audience + EG geo ensured",
+      );
     }
 
     const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp(
