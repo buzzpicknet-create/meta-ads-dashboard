@@ -1960,6 +1960,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
         const adIdMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
         const newAdId = adIdMatch?.[1] ?? "";
+        // ── Special: is_dynamic_creative missing on adset ───────────────────
+        // Pipeboard always builds asset_feed_spec → adset MUST have is_dynamic_creative=true.
+        // Since this flag is immutable, the AI must create a NEW adset (old one is unusable).
+        if (!newAdId && (adText.includes("is_dynamic_creative") || adText.includes("Dynamic Creative"))) {
+          throw new Error(
+            `الـ adset المستخدم (adset_id: ${resolvedAdsetId}) لا يحتوي على is_dynamic_creative=true وهذا الإعداد غير قابل للتعديل بعد الإنشاء. ` +
+            `الحل الإلزامي: استدعِ create_adset من جديد بنفس الإعدادات لنفس الحملة (campaign_id) لإنشاء adset جديد — ` +
+            `سيتضمّن الـ adset الجديد is_dynamic_creative=true تلقائياً — ثم أعِد استدعاء create_ad_from_creative_spec مع adset_id الجديد.`,
+          );
+        }
         if (!newAdId) throw new Error(`فشل create_ad (Pipeboard) — ${adText.slice(0, 300)}`);
 
         const pbMsg = [
@@ -3687,6 +3697,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         { had_geo: !!(effectiveArgs.targeting as Record<string, unknown> | undefined)?.geo_locations },
         "create_adset: targeting merged (unconditional) — Advantage+ Audience + EG geo ensured",
       );
+    }
+
+    // ── Always enable is_dynamic_creative ────────────────────────────────────
+    // Pipeboard's create_adcreative always builds asset_feed_spec (even for a
+    // single headline/message), which Meta REQUIRES is_dynamic_creative=true on
+    // the parent adset. This flag is immutable after creation, so inject here.
+    if (!effectiveArgs.is_dynamic_creative) {
+      effectiveArgs.is_dynamic_creative = true;
+      logger.info("create_adset: is_dynamic_creative=true injected (required for asset_feed_spec creatives)");
     }
 
     const { mcpTool: asMcpTool, mcpArgs: asMcpArgs } = translateToMcp(
