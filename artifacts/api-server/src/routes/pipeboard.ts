@@ -1177,7 +1177,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       if (!newAdId)
         throw new Error(`لم يُعد ad_id — ${extractMetaError(adText)}`);
 
-      // Verify immediately (Standard Write Contract)
+      // Verify (non-fatal when META_ACCESS_TOKEN is missing/expired — trust Pipeboard id)
       const cafpVerify = await verifyMetaEntityDirect(
         newAdId,
         "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
@@ -1185,8 +1185,22 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       );
       if (!cafpVerify.verified) {
         const ve = cafpVerify.meta_error ?? {};
-        throw new Error(
-          `create_ad_from_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${String(ve.message ?? "")}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`,
+        const veCode = Number(ve.code ?? 0);
+        const veMsg = String(ve.message ?? "");
+        const isTokenIssue =
+          !process.env.META_ACCESS_TOKEN ||
+          veMsg === "META_ACCESS_TOKEN missing" ||
+          veCode === 190 ||
+          veMsg.toLowerCase().includes("session has expired") ||
+          veMsg.toLowerCase().includes("access token");
+        if (!isTokenIssue) {
+          throw new Error(
+            `create_ad_from_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${veMsg}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`,
+          );
+        }
+        logger.warn(
+          { newAdId, veCode },
+          "create_ad_from_post: token missing/expired — skipping verify, trusting Pipeboard id",
         );
       }
 
@@ -1474,8 +1488,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
       // ── FLEX PATH: Advantage+ Single Asset creative via direct Meta API ────────
       // Bypasses Pipeboard (which rejects degrees_of_freedom_spec / advantage_plus_creative).
-      if (flexMode && sourceAdId) {
-        const metaTknFlex = process.env.META_ACCESS_TOKEN ?? "";
+      // Requires META_ACCESS_TOKEN for creative asset lookup — if missing/expired, fall
+      // through to NORMAL PATH (Pipeboard create_ad_creative via object_story_id).
+      if (flexMode && sourceAdId && process.env.META_ACCESS_TOKEN) {
+        const metaTknFlex = process.env.META_ACCESS_TOKEN;
 
         // Fetch raw creative assets from source ad
         const flexAssetUrl = new URL(
