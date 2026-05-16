@@ -54,13 +54,20 @@ const MINI_MODEL = "gpt-5-nano";
 const SYSTEM_PROMPT = `أنت CMO (Chief Marketing Officer) ومحلل بيانات استراتيجي وخبير Media Buying من أعلى مستوى — خبرة 10+ سنوات in Meta Ads.
 مهمتك: تشخيص حملات Meta بعقلية استراتيجية عميقة — تربط الأنماط ببعضها وتصل للسبب الجذري قبل ما تعرض الأرقام.
 
-🚨🚨🚨 CRITICAL — لا تُخرج bulk_action قبل جدول تحليل 🚨🚨🚨
-عند أي طلب فلترة رابحين أو Scale حملات:
-١. جلب البيانات (tool calls) أولاً.
-٢. عرض جدول تحليل كامل بكل الكيانات المؤهلة (الجدول إلزامي — بدونه لا bulk_action).
-٣. للـ Aggressive Scale (CPA < 20 EGP): اعرض 3 خيارات (+1×/+2×/+3×) وانتظر المستخدم — لا تُولّد bulk_action.
-٤. للباقي: ولّد bulk_action واحد يجمع كل الإجراءات معاً — ليس إجراء لكل حملة على حدة.
-الانتهاك = تولّد bulk_action قبل الجدول أو لكيان واحد بدل الكل = خطأ فادح.
+🚨🚨🚨 CRITICAL — WINNERS SCALE: لا تستدعِ write tools مباشرةً 🚨🚨🚨
+عند أي طلب فلترة رابحين أو Scale حملات متعددة:
+
+⛔ ممنوع تماماً: استدعاء update_campaign_budget أو update_adset_budget كـ tool call مباشر.
+✅ المطلوب دائماً: توليد كتلة bulk_action بعد عرض الجدول.
+
+الترتيب الإلزامي الوحيد:
+١. جلب ALL الحملات/المجموعات: get_campaigns أو get_adsets (tool calls قراءة فقط).
+٢. عرض جدول تحليل كامل بكل الكيانات المؤهلة — BEFORE أي action.
+٣. للـ Aggressive Scale (CPA < 20 EGP): اعرض 3 خيارات (+1×/+2×/+3×) وانتظر المستخدم.
+٤. للباقي: اجمع كل الإجراءات في كتلة bulk_action واحدة — ليس tool call مباشر.
+
+⚠️ لا تستدعِ get_campaign_budget لكيان واحد ثم update_campaign_budget مباشرة.
+⚠️ لا تعالج حملة واحدة — عالج الكل ثم اعرض الجدول ثم ولّد bulk_action.
 🚨🚨🚨
 
 🔴 قاعدة اللغة — إلزامية بلا استثناء: اكتب ردودك كاملةً بالعربية دائماً. ممنوع تماماً أن تكتب جملة أو فقرة أو عنواناً أو تحليلاً بالإنجليزية. المصطلحات التقنية (CPA, CTR, ROAS, AdSet…) تُكتب كما هي لكن الجمل والتحليل والعناوين والاستنتاجات = عربية 100%. حتى لو المستخدم كتب لك بالإنجليزي — ردّ بالعربية.
@@ -5005,7 +5012,17 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
           continue; // defer — present all write actions together below
         }
 
-        const result = await executeTool(tc.name, args, selectedAccFilter);
+        let result = await executeTool(tc.name, args, selectedAccFilter);
+        // Inject a mandatory reminder after get_campaigns/get_adsets results so the
+        // model cannot skip the "show table → bulk_action" protocol for winners-scale.
+        if (tc.name === "get_campaigns" || tc.name === "get_adsets") {
+          result += "\n\n[SYSTEM REMINDER — MANDATORY BEFORE ANY ACTION:\n" +
+            "1. Display a full markdown analysis table for ALL campaigns/adsets above.\n" +
+            "2. Do NOT call update_campaign_budget or update_adset_budget as a direct tool call.\n" +
+            "3. For CPA < 20 EGP (Aggressive): show 3 options (+1×/+2×/+3×) and STOP — wait for user choice.\n" +
+            "4. For others: generate ONE ```bulk_action``` block containing ALL qualifying actions.\n" +
+            "Violation = generating direct write tool call or bulk_action before table = critical error.]";
+        }
         apiMessages.push({ role: "tool", tool_call_id: tc.id, content: result } as ApiMsg);
       }
 
