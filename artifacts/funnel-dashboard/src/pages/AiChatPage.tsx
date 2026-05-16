@@ -927,6 +927,7 @@ export default function AiChatPage() {
       const reader=resp.body.getReader(), dec=new TextDecoder();
       const localLabels: string[] = [];
       let done=false;
+      let hadPendingAction = false;
       outer: while(true) {
         const {done:d,value}=await reader.read();
         if (d||done) break;
@@ -938,16 +939,21 @@ export default function AiChatPage() {
           if (data.error) throw new Error(String(data.error));
           if (data.done) { done=true; break outer; }
           if (data.tool_call_label) { localLabels.push(data.tool_call_label as string); setTL(p=>[...p, data.tool_call_label as string]); }
-          if (data.pending_action) setPending(data.pending_action as PendingAction);
+          if (data.pending_action) { setPending(data.pending_action as PendingAction); hadPendingAction = true; }
           if (data.pending_action_resolved) setPending(p=>p?{...p,...(data.pending_action_resolved as Partial<PendingAction>),detailsLoading:false}:p);
           if (data.content) { setTL([]); acc+=String(data.content); setStTxt(acc); }
         }
       }
-      const final = acc.trim().length>3 ? acc : "عذراً، لم أتمكن من الإجابة. حاول مرة أخرى.";
-      const aMsg: ChatMsg = {role:"assistant", content:final};
-      if (localLabels.length) aMsg.tool_calls=localLabels;
-      setMsgs(p=>[...p,aMsg]);
-      if (acc.trim().length>3) void saveToDB(cid, userText, acc, localLabels.length?localLabels:undefined);
+      // If a pending action card was shown, the card itself IS the response — skip "عذراً" fallback
+      const final = acc.trim().length>3 ? acc : hadPendingAction ? null : "عذراً، لم أتمكن من الإجابة. حاول مرة أخرى.";
+      if (final !== null) {
+        const aMsg: ChatMsg = {role:"assistant", content:final};
+        if (localLabels.length) aMsg.tool_calls=localLabels;
+        setMsgs(p=>[...p,aMsg]);
+        if (acc.trim().length>3) void saveToDB(cid, userText, acc, localLabels.length?localLabels:undefined);
+      } else {
+        if (localLabels.length) setMsgs(p=>{ const last=p[p.length-1]; return last?[...p.slice(0,-1),{...last,tool_calls:[...(last.tool_calls??[]),...localLabels]}]:p; });
+      }
     } catch(err) {
       if (err instanceof Error) {
         if (err.name==="AbortError") {
@@ -1027,7 +1033,9 @@ export default function AiChatPage() {
             adsetId: adsetMatch?.[1] ?? prev.adsetId,
           };
         });
-        setTimeout(() => void send(`✅ تم تنفيذ: ${pending.summary}. الآن نفّذ الخطوة التالية فوراً — تذكر: create_adset يجب أن يكون tool call مباشر وليس داخل bulk_action.`), 500);
+        // Include the backend result message (contains CAMPAIGN_ID / ADSET_ID) so AI uses the real ID
+        const resultDetail = d.message && !d.message.trim().startsWith("{") ? `\nنتيجة التنفيذ:\n${d.message.trim()}` : "";
+        setTimeout(() => void send(`✅ تم تنفيذ: ${pending.summary}.${resultDetail}\nالآن نفّذ الخطوة التالية فوراً — تذكر: create_adset يجب أن يكون tool call مباشر وليس داخل bulk_action.`), 500);
       }
     } catch { setMsgs(p=>[...p,{role:"assistant",content:"❌ خطأ في الاتصال."}]); }
     finally { setExec(false); setPending(null); }
