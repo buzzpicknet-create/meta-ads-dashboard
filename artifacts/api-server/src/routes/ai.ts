@@ -3087,6 +3087,81 @@ async function tryExecuteViaGoogleAds(
   }
 }
 
+// ── Pipeboard insights summarizer ────────────────────────────────────────────
+// Converts raw Pipeboard JSON (with video array fields) into a compact Markdown
+// table with pre-computed Hook Rate, Hold Rate, and ThruPlay.
+// Falls back to returning raw as-is on any parse/shape error — never breaks.
+function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campaign"): string {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return raw;
+
+    // Mirrors actionVal() in meta-api.ts — matches by action_type, never blindly takes [0]
+    const av = (arr: unknown, t = "video_view"): number => {
+      if (!Array.isArray(arr)) return 0;
+      const entry = (arr as Array<Record<string, unknown>>).find(a => a["action_type"] === t);
+      return Number(entry?.["value"]) || 0;
+    };
+
+    // Primary structure confirmed by live Pipeboard call:
+    // { "results": [{ "status": "success", "insights": [{row},...] }, { "status": "no_data" }] }
+    let rows: Record<string, unknown>[] = [];
+    const p = parsed as Record<string, unknown>;
+
+    if (Array.isArray(p["results"])) {
+      rows = (p["results"] as Array<Record<string, unknown>>)
+        .filter(r => r["status"] === "success" && Array.isArray(r["insights"]))
+        .flatMap(r => r["insights"] as Record<string, unknown>[]);
+    }
+    // Fallback structures (in case Pipeboard shape changes)
+    if (rows.length === 0 && Array.isArray(p["data"])) {
+      rows = p["data"] as Record<string, unknown>[];
+    }
+    if (rows.length === 0 && Array.isArray(parsed)) {
+      rows = parsed as Record<string, unknown>[];
+    }
+    if (rows.length === 0) return raw; // unrecognised shape — return raw safely
+
+    const nameKey = level === "ad" ? "ad_name" : level === "adset" ? "adset_name" : "campaign_name";
+
+    const summaryRows = rows.map(row => {
+      const impressions = Number(row["impressions"] || 0);
+      const spend       = Number(row["spend"]       || 0);
+      const videoPlays  = av(row["video_play_actions"]);
+      const v100        = av(row["video_p100_watched_actions"]);
+      const thruplay    = av(row["video_thruplay_watched_actions"]);
+      return {
+        name:     String(row[nameKey] || row["name"] || row["ad_name"] || row["adset_name"] || row["campaign_name"] || "—"),
+        impressions,
+        spend,
+        hookRate: impressions ? (videoPlays / impressions) * 100 : 0,
+        holdRate: videoPlays  ? (v100 / videoPlays)       * 100 : 0,
+        thruplay,
+      };
+    });
+
+    summaryRows.sort((a, b) => b.spend - a.spend);
+    const limited    = summaryRows.slice(0, 30);
+    const hasMore    = summaryRows.length > 30;
+    const totalSpend = summaryRows.reduce((s, r) => s + r.spend, 0);
+    const fmt        = (n: number, dec = 0) => n.toFixed(dec);
+
+    const lines: string[] = [
+      `## تحليل الأداء (${summaryRows.length} عنصر | إجمالي الإنفاق: ${fmt(totalSpend)} EGP)\n`,
+      `| الاسم | الظهورات | الإنفاق (EGP) | Hook% | Hold% | ThruPlay |`,
+      `|-------|----------|--------------|-------|-------|---------|`,
+      ...limited.map(r =>
+        `| ${r.name} | ${r.impressions.toLocaleString()} | ${fmt(r.spend)} | ${r.hookRate > 0 ? fmt(r.hookRate, 1) : "—"} | ${r.holdRate > 0 ? fmt(r.holdRate, 1) : "—"} | ${r.thruplay > 0 ? r.thruplay : "—"} |`
+      ),
+    ];
+    if (hasMore) lines.push(`\n> has_more: true — عُرض أعلى 30 عنصراً من ${summaryRows.length} إجمالاً.`);
+
+    return lines.join("\n");
+  } catch (_e) {
+    return raw; // safe fallback: preserve existing behaviour on any error
+  }
+}
+
 // Maps our AI tool names → Pipeboard MCP read calls.
 // Returns null if the tool isn't mapped (caller falls through to native Meta API).
 async function tryExecuteViaPipeboard(
@@ -3105,7 +3180,7 @@ async function tryExecuteViaPipeboard(
     if (name === "get_campaign_daily") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return null;
-      return await callPipeboardRead("get_insights", {
+      const pbRaw0 = await callPipeboardRead("get_insights", {
         object_id: campaign_id,
         level: "campaign",
         time_breakdown: "day",
@@ -3113,6 +3188,7 @@ async function tryExecuteViaPipeboard(
         compact: false,
         fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
+      return summarizePipeboardInsights(pbRaw0, "campaign");
     }
 
     // get_adsets — via Pipeboard (primary). Native Meta path is fallback when Pipeboard fails.
@@ -3121,13 +3197,14 @@ async function tryExecuteViaPipeboard(
     if (name === "get_adsets") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return null;
-      return await callPipeboardRead("get_insights", {
+      const pbRaw1 = await callPipeboardRead("get_insights", {
         object_id: campaign_id,
         level: "adset",
         time_range: timeRange,
         compact: false,
         fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
+      return summarizePipeboardInsights(pbRaw1, "adset");
     }
 
     if (name === "get_campaign_status") {
@@ -3170,26 +3247,28 @@ async function tryExecuteViaPipeboard(
     if (name === "get_ad_performance") {
       const ad_id = String(args.ad_id ?? "");
       if (!ad_id) return null;
-      return await callPipeboardRead("get_insights", {
+      const pbRaw2 = await callPipeboardRead("get_insights", {
         object_id: ad_id,
         level: "ad",
         time_range: timeRange,
         compact: false,
         fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
+      return summarizePipeboardInsights(pbRaw2, "ad");
     }
 
     // get_ads_in_adset — via Pipeboard (primary). Native Meta path is fallback.
     if (name === "get_ads_in_adset") {
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return null;
-      return await callPipeboardRead("get_insights", {
+      const pbRaw3 = await callPipeboardRead("get_insights", {
         object_id: adset_id,
         level: "ad",
         time_range: timeRange,
         compact: false,
         fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
+      return summarizePipeboardInsights(pbRaw3, "ad");
     }
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────

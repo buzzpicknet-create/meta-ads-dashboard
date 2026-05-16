@@ -1,0 +1,32 @@
+راجعت خطة Replit بالكامل. الخطة سليمة معمارياً والـ fallback الآمن موجود — بس فيه خطأ واحد حقيقي هيخلّي الدالة تفشل وترجع للـ raw دايماً. لو وافقت زي ما هي، التعديل هيتطبّق بس مش هيشتغل (هيرجع نفس النتيجة الحالية). خليني أوضّح.
+الخطأ: شكل الـ JSON الفعلي مش أي واحد من التلاتة اللي افترضتهم Replit
+Replit بتفترض الشكل {data:[...]} أو {results:[...]} أو array مباشر. لكن أنا شفت الشكل الحقيقي بعينّي في الاستدعاء التشخيصي اللي عملته. الشكل الفعلي متداخل أعمق:
+{ "results": [ { "status": "success", "insights": [ {...الإعلان...}, {...} ] }, ... ] }
+يعني الصفوف مش في results[] مباشرة — هي في results[].insights[]، وبس في العناصر اللي status === "success" (فيه عناصر status: "no_data" ملهاش insights خالص). خطة Replit بتقول "data[].insights[] أو data[] مباشرة" بشكل مبهم — ده هيخلّي الاستخراج يفشل والدالة ترجع raw. النتيجة: التعديل يتطبّق بنجاح، tsc ينضف، بس Hook/Hold مايظهروش — وتفتكر إن الحل فشل وهو أصلاً مأتطبّقش صح.
+فيه نقطة تانية أصغر — مفتاح الـ thruplay المنطقي
+الـ array بييجي [{"action_type":"video_view","value":"30"}]. خطة Replit بتاخد [0].value على طول. ده شغّال هنا لأن العنصر دايماً video_view في النتيجة اللي شفتها، بس الأمتن إننا نطابق بـ action_type زي ما actionVal الأصلية بتعمل بالظبط (التقرير بتاعك أكّد إن actionVal بتعمل .find(a => a.action_type === type)). نخليها متسقة مع الكود الموجود مش نعمل اختصار.
+الرد المصحَّح لـ Replit — انسخه زي ما هو
+ده موافقة مشروطة بتصحيحين. ابعته لـ Replit:
+
+
+الخطة موافَق عليها من حيث المبدأ، لكن مع تصحيحين إلزاميين قبل التطبيق — بدونهما الدالة ستفشل وترجع raw دائماً:
+تصحيح ١ — هيكل الـ JSON الفعلي (مؤكَّد، تم التحقق منه باستدعاء حقيقي):
+الشكل الحقيقي من Pipeboard هو:
+{ "results": [ { "status": "success", "insights": [ {row}, {row} ] }, { "status": "no_data" } ] }
+الصفوف موجودة في results[].insights[] وليس في results[] مباشرة. استخراج الصفوف يجب أن يكون:
+const parsed = JSON.parse(raw);
+const rows = (parsed?.results ?? [])
+  .filter(r => r?.status === "success" && Array.isArray(r.insights))
+  .flatMap(r => r.insights);
+if (rows.length === 0) return raw;  // fallback آمن
+أبقِ أيضاً المحاولات الاحتياطية (parsed.data, array مباشر) بعد هذه المحاولة الأساسية، لا قبلها.
+تصحيح ٢ — استخراج قيمة الـ array بمطابقة action_type (اتساقاً مع actionVal الموجودة):
+بدلاً من ?.[0]?.value، استخدم نفس منطق actionVal:
+const av = (arr, t = "video_view") =>
+  Number(arr?.find(a => a.action_type === t)?.value) || 0;
+videoPlays = av(row.video_play_actions);
+v100       = av(row.video_p100_watched_actions);
+thruplay   = av(row.video_thruplay_watched_actions);
+باقي الخطة (المعادلات، الترتيب، حد 30 صفاً، الجدول، fallback للـ raw عند أي خطأ، نقاط الدمج الأربع) موافَق عليه كما هو.
+طبّق التصحيحين داخل الخطة، ثم اعرض لي الكود النهائي الكامل للدالة + الـ diff لنقاط الدمج الأربع قبل الحفظ. بعد الحفظ: npx tsc --noEmit وأكّد عدد الأخطاء = 71 (نفس الـ baseline).
+القيود الصارمة السابقة كلها سارية: لا system prompt، لا native path، لا get_campaigns/get_account_daily، لا bulk/CustomEvent/GlobalAiChat، لا أي دالة كتابة.
