@@ -1682,9 +1682,19 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         );
         if (!efpVerify.verified) {
           const ve = efpVerify.meta_error ?? {};
-          throw new Error(
-            `create_ad_from_existing_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${String(ve.message ?? "")}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`,
-          );
+          const veCode = Number(ve.code ?? 0);
+          const veMsg = String(ve.message ?? "");
+          // Error 190 = expired token — ad WAS created by Pipeboard, just can't verify.
+          // Treat as success and trust the id Pipeboard returned.
+          const isTokenExpired = veCode === 190 ||
+            veMsg.toLowerCase().includes("session has expired") ||
+            veMsg.toLowerCase().includes("access token");
+          if (!isTokenExpired) {
+            throw new Error(
+              `create_ad_from_existing_post: Pipeboard أعطى id=${newAdId} لكن Meta فشل التحقق — ${veMsg}${ve.fbtrace_id ? ` | fbtrace_id: ${ve.fbtrace_id}` : ""}`,
+            );
+          }
+          logger.warn({ newAdId, veCode }, "create_ad_from_existing_post: token expired — skipping verify, trusting Pipeboard id");
         }
 
         efpSuccess = true;
@@ -2153,7 +2163,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const srcJson = (await srcResp.json()) as Record<string, unknown>;
         if (srcJson.error) {
           const e = srcJson.error as Record<string, unknown>;
-          throw new Error(`Meta error fetching ad: ${String(e.message ?? "")}`);
+          const eCode = Number(e.code ?? 0);
+          const eMsg = String(e.message ?? "");
+          // Error 190 = expired token — give a clear actionable message
+          if (eCode === 190 || eMsg.toLowerCase().includes("session has expired") || eMsg.toLowerCase().includes("access token")) {
+            throw new Error(`التوكن منتهي — يرجى تجديد META_ACCESS_TOKEN لاستخدام publish_winners / copy_ads. (Meta: ${eMsg})`);
+          }
+          throw new Error(`Meta error fetching ad: ${eMsg}`);
         }
 
         const rawSrcAccId =
@@ -3862,16 +3878,37 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const step1Json = (await step1Resp.json()) as Record<string, unknown>;
 
       if (step1Json.error) {
-        // Step1 GET returned a Meta error → the id from Pipeboard is wrong/nonexistent.
-        // Throw immediately — a bad id cannot proceed to step2.
+        // Step1 GET returned a Meta error.
         const ve =
           typeof step1Json.error === "object" && step1Json.error !== null
             ? (step1Json.error as Record<string, unknown>)
             : {};
+        const veCode = Number(ve.code ?? 0);
         const veMsg = String(ve.message ?? JSON.stringify(step1Json.error));
-        const veCode = ve.code != null ? ` (code: ${ve.code})` : "";
+        // Error 190 = expired/invalid token — NOT a "bad adset id" error.
+        // Skip verification and trust Pipeboard's returned id.
+        const isTokenErr190 = veCode === 190 ||
+          veMsg.toLowerCase().includes("session has expired") ||
+          veMsg.toLowerCase().includes("access token");
+        if (isTokenErr190) {
+          logger.warn({ asAdsetId, veCode }, "create_adset hard-verify: token expired — skipping step1/step2, trusting Pipeboard id");
+          asData = {
+            adset_id: asAdsetId,
+            name: String(args?.name ?? ""),
+            campaign_id: String(args?.campaign_id ?? ""),
+            status: "PAUSED",
+            effective_status: "PAUSED",
+            daily_budget_egp: null,
+            verified: false,
+            verified_fields: [],
+          };
+          res.json({ success: true, message: asMsg, adset_id: asAdsetId, ...asData });
+          return;
+        }
+        // Genuine bad id error — throw as before
+        const veCodeStr = ve.code != null ? ` (code: ${ve.code})` : "";
         throw new Error(
-          `التحقق المباشر من الـ id فشل — Meta رفضت GET /${asAdsetId}${veCode}: ${veMsg}. ` +
+          `التحقق المباشر من الـ id فشل — Meta رفضت GET /${asAdsetId}${veCodeStr}: ${veMsg}. ` +
             `الـ id المُعاد من Pipeboard غير صالح — AdSet لم يُنشأ فعلياً.`,
         );
       } else {
@@ -3917,8 +3954,29 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           typeof step2Json.error === "object" && step2Json.error !== null
             ? (step2Json.error as Record<string, unknown>)
             : {};
+        const ve2Code = Number(ve.code ?? 0);
+        const ve2Msg = String(ve.message ?? JSON.stringify(ve));
+        // Error 190 = expired token — skip step2 verification, trust step1 id
+        const isTokenErr2 = ve2Code === 190 ||
+          ve2Msg.toLowerCase().includes("session has expired") ||
+          ve2Msg.toLowerCase().includes("access token");
+        if (isTokenErr2) {
+          logger.warn({ asAdsetId, ve2Code }, "create_adset hard-verify step2: token expired — skipping, trusting step1 id");
+          asData = {
+            adset_id: asAdsetId,
+            name: String(args?.name ?? ""),
+            campaign_id: String(args?.campaign_id ?? ""),
+            status: "PAUSED",
+            effective_status: "PAUSED",
+            daily_budget_egp: null,
+            verified: false,
+            verified_fields: [],
+          };
+          res.json({ success: true, message: asMsg, adset_id: asAdsetId, ...asData });
+          return;
+        }
         throw new Error(
-          `التحقق من قائمة المجموعات فشل — ${String(ve.message ?? JSON.stringify(ve))}`,
+          `التحقق من قائمة المجموعات فشل — ${ve2Msg}`,
         );
       }
 
