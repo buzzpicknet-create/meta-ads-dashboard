@@ -4202,21 +4202,22 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
             `| \`${shortName}\` (${r.level === "adset" ? "adset:" : "camp:"}${r.entity_id}) | ${budgetType} | ${statusIcon} | ${fmtN(r.spend, 0)} | ${r.purchases} | ${r.cpa > 0 ? fmtN(r.cpa, 0) : "—"} | ${activeBudget != null ? fmtN(activeBudget, 0) : "—"} | ${r.pct_of_budget != null ? fmtN(r.pct_of_budget, 0) + "%" : "—"} | ${flags.join(" ") || "—"} | **${decision}** |`
           );
 
-          // Collect bulk_action recommendations
+          // Collect bulk_action recommendations — use camelCase BulkActionItem fields
+          // so BulkActionPanel can detect direction (↑/↓) and execute correctly.
           if (decision === "SCALE +20%" && activeBudget) {
             const newBudget = Math.round(activeBudget * 1.2);
             if (r.level === "campaign") {
-              winnerActions.push({ action: "update_campaign_budget", campaign_id: r.entity_id, budget_type: "daily", budget_amount: newBudget, label: `SCALE +20% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP < هدف ${targetCpa} EGP` });
+              winnerActions.push({ type: "update_campaign_budget", campaignId: r.entity_id, name: r.name, currentBudget: activeBudget, newBudget, budgetType: "daily", label: `SCALE +20% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP < هدف ${targetCpa} EGP` });
             } else {
-              winnerActions.push({ action: "update_adset_budget", adset_id: r.entity_id, budget_amount: newBudget, label: `SCALE +20% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP < هدف ${targetCpa} EGP` });
+              winnerActions.push({ type: "update_adset_budget", adsetId: r.entity_id, name: r.name, currentBudget: activeBudget, newBudget, label: `SCALE +20% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP < هدف ${targetCpa} EGP` });
             }
           }
           if (decision === "REDUCE -30%" && activeBudget) {
             const newBudget = Math.round(activeBudget * 0.7);
             if (r.level === "campaign") {
-              loserActions.push({ action: "update_campaign_budget", campaign_id: r.entity_id, budget_type: "daily", budget_amount: newBudget, label: `REDUCE -30% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP > هدف ${targetCpa} EGP` });
+              loserActions.push({ type: "update_campaign_budget", campaignId: r.entity_id, name: r.name, currentBudget: activeBudget, newBudget, budgetType: "daily", label: `REDUCE -30% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP > هدف ${targetCpa} EGP` });
             } else {
-              loserActions.push({ action: "update_adset_budget", adset_id: r.entity_id, budget_amount: newBudget, label: `REDUCE -30% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP > هدف ${targetCpa} EGP` });
+              loserActions.push({ type: "update_adset_budget", adsetId: r.entity_id, name: r.name, currentBudget: activeBudget, newBudget, label: `REDUCE -30% — ${r.name}`, reason: `CPA ${fmtN(r.cpa, 0)} EGP > هدف ${targetCpa} EGP` });
             }
           }
         }
