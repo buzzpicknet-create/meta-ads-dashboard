@@ -258,6 +258,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "create_adset",
     "duplicate_campaign",
     "launch_pipeboard_campaign",
+    "upload_video_to_meta",
     "duplicate_ad",
     "create_ad_from_post",
     "create_ad_from_existing_post",
