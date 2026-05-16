@@ -1808,7 +1808,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       return;
     }
     if (mediaType === "video" && !videoId) {
-      res.status(400).json({ error: "video_id مطلوب لـ media_type=video" });
+      res.status(400).json({
+        error:
+          "video_id مطلوب لـ media_type=video — " +
+          "video_id هو Meta Video ID (رقم مثل 1234567890)، وليس URL. " +
+          "احصل عليه بإحدى الطريقتين: " +
+          "(١) إذا كان لديك إعلان فيديو موجود → استدعِ get_ad_creative(source_ad_id) وستجد video_id في النتيجة، ثم أعِد استدعاء create_ad_from_creative_spec مع video_id الصحيح. " +
+          "(٢) إذا لم يكن لديك إعلان مصدر → استخدم launch_pipeboard_campaign مع media_url (URL الفيديو) بدلاً من create_ad_from_creative_spec — سيتولى الـ backend رفع الفيديو وإنشاء الإعلان تلقائياً.",
+      });
       return;
     }
     if (mediaType === "image" && !imageHash) {

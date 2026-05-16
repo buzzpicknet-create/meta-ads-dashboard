@@ -748,6 +748,10 @@ Before proposing any scale or pause or budget update, check the updated_time of 
 - create_ad_from_post(account_id, adset_id, post_id, name, page_id?) — أنشئ إعلاناً من منشور بـ post_id مع الحفاظ على Social Proof
 - create_ad_from_existing_post(account_id, adset_id, name, object_story_id?, post_id?, ad_id?) — أنشئ إعلاناً من منشور موجود. يقبل object_story_id (من get_ad_creative) أو post_id أو ad_id (الإعلان المصدر — backend يجلب object_story_id تلقائياً). 🔴 عند الاستخدام in bulk_action: يجب أن تضع ad_id الفعلي in adId و account_id in accountId.
 - create_ad_from_creative_spec(account_id, adset_id, name, link_url, media_type, video_id?, image_hash?, primary_text?, headline?, call_to_action?, page_id?) — 🔧 Fallback: أنشئ إعلان من أصول خام (بدون Social Proof). استخدم فقط عندما لا يوجد object_story_id.
+  🔴 قاعدة video_id: إذا media_type=video → video_id إلزامي وهو Meta Video ID رقمي (مثال: 1234567890)، وليس URL. مصادره:
+    • من إعلان موجود: استدعِ get_ad_creative(source_ad_id) أولاً → ستجد video_id في النتيجة → مرّره هنا.
+    • من رفع جديد: استخدم launch_pipeboard_campaign مع media_url بدلاً من هذه الأداة — يرفع الفيديو تلقائياً.
+    • 🚫 لا تخمّن video_id ولا تخترعه — إذا لم يكن لديك Meta Video ID حقيقي، لا تستدعِ هذه الأداة.
 - publish_winners_to_destination(destination_adset_id, source_ad_ids[], naming_prefix?, account_id?) — ⭐ الأداة الأقوى: pipeline كامل لنقل رابحين متعددين دفعة واحدة. تجرب Social Proof تلقائياً، وإذا فشل تعيد البناء من raw assets. لا تحتاج get_ad_creative أولاً.
 
 ⚠️ Ad Scale — قاعدة حرجة:
