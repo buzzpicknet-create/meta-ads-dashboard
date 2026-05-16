@@ -2806,6 +2806,43 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         rawCreatives = expanded;
       }
 
+      // ── Dedup expanded creatives by normalised media URL ─────────────────────
+      // When the AI sends the same folder URL N times (once per ad/text
+      // combination), folder expansion creates N×M entries (M = videos in folder).
+      // Deduplicate to ONE entry per unique video URL, merging texts and headlines
+      // from all duplicates so every adset still gets all the copy variations.
+      {
+        type CreativeItem = typeof rawCreatives[0];
+        const urlOrder: string[] = [];
+        const urlMap = new Map<string, CreativeItem>();
+        for (const c of rawCreatives) {
+          const url = normaliseMediaUrl(c.media_url?.trim() ?? "");
+          if (!urlMap.has(url)) {
+            urlOrder.push(url);
+            urlMap.set(url, { ...c,
+              texts:     Array.isArray(c.texts)     ? [...c.texts as string[]]     : [],
+              headlines: Array.isArray(c.headlines) ? [...c.headlines as string[]] : [],
+            });
+          } else {
+            // Merge texts and headlines from duplicates (no duplicates within the list)
+            const existing = urlMap.get(url)!;
+            const existingTexts     = existing.texts     as string[];
+            const existingHeadlines = existing.headlines as string[];
+            for (const t of (c.texts     as string[] ?? [])) { if (!existingTexts.includes(t))     existingTexts.push(t); }
+            for (const h of (c.headlines as string[] ?? [])) { if (!existingHeadlines.includes(h)) existingHeadlines.push(h); }
+            // Keep last landing_page_url so all landing pages cycle through
+            if (c.landing_page_url) existing.landing_page_url = c.landing_page_url as string;
+          }
+        }
+        if (urlMap.size < rawCreatives.length) {
+          logger.info(
+            { before: rawCreatives.length, after: urlMap.size },
+            "launch_pipeboard_campaign: deduped expanded creatives by media URL",
+          );
+          rawCreatives = urlOrder.map(u => urlMap.get(u)!);
+        }
+      }
+
       // ── Step 3: Pre-upload all unique media URLs (dedup by normalised URL) ─
       interface MediaCacheEntry {
         imageHash?: string;
