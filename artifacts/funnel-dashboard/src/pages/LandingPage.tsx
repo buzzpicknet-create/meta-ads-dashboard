@@ -3250,6 +3250,26 @@ export default function LandingPageGenerator() {
               <div className="space-y-3 border border-white/10 rounded-xl p-4 bg-white/3">
                 <p className="text-xs font-bold text-gray-300">بيانات التطبيق على Shopify Partners</p>
 
+                {/* Redirect URI box — must be whitelisted in Shopify Partners */}
+                <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-3 space-y-1.5">
+                  <p className="text-[11px] font-bold text-orange-300">⚠️ خطوة ضرورية قبل الربط</p>
+                  <p className="text-[10px] text-orange-200/80 leading-relaxed">
+                    افتح <strong>Shopify Partners → Apps → اختر التطبيق → Configuration → Allowed redirection URL(s)</strong> وأضف هذا الرابط بالضبط:
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <code className="flex-1 text-[10px] bg-black/30 rounded px-2 py-1.5 text-orange-100 break-all font-mono leading-relaxed" dir="ltr">
+                      {window.location.origin}/api/shopify/oauth/callback
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => void navigator.clipboard.writeText(`${window.location.origin}/api/shopify/oauth/callback`)}
+                      className="flex-shrink-0 p-1.5 rounded bg-orange-500/20 hover:bg-orange-500/40 transition-colors text-orange-300"
+                      title="نسخ">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label className="text-[11px] text-gray-400 mb-1 block">نطاق المتجر (Store Domain)</label>
                   <input
