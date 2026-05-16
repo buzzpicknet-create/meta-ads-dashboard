@@ -299,6 +299,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       .trim();
   }
 
+  // Strip commas (and any non-digit chars) from Meta / Google entity IDs.
+  // The AI may format large IDs with thousand-separators (e.g. "120,233,750,727,240,519")
+  // which makes Meta reject the request with "not a valid campaign id".
+  function sanitizeId(v: unknown): string {
+    return String(v ?? "").replace(/,/g, "").trim();
+  }
+
   function translateToMcp(
     t: string,
     a: Record<string, unknown>,
@@ -308,12 +315,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       case "pause_campaign":
         return {
           mcpTool: "update_campaign",
-          mcpArgs: { campaign_id: a.campaign_id, status: "PAUSED" },
+          mcpArgs: { campaign_id: sanitizeId(a.campaign_id), status: "PAUSED" },
         };
       case "enable_campaign":
         return {
           mcpTool: "update_campaign",
-          mcpArgs: { campaign_id: a.campaign_id, status: "ACTIVE" },
+          mcpArgs: { campaign_id: sanitizeId(a.campaign_id), status: "ACTIVE" },
         };
       case "update_campaign_budget": {
         const field =
@@ -321,7 +328,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         return {
           mcpTool: "update_campaign",
           mcpArgs: {
-            campaign_id: a.campaign_id,
+            campaign_id: sanitizeId(a.campaign_id),
             [field]: egpToCents(a.budget_amount),
           },
         };
@@ -329,49 +336,49 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       case "pause_adset":
         return {
           mcpTool: "update_adset",
-          mcpArgs: { adset_id: a.adset_id, status: "PAUSED" },
+          mcpArgs: { adset_id: sanitizeId(a.adset_id), status: "PAUSED" },
         };
       case "enable_adset":
         return {
           mcpTool: "update_adset",
-          mcpArgs: { adset_id: a.adset_id, status: "ACTIVE" },
+          mcpArgs: { adset_id: sanitizeId(a.adset_id), status: "ACTIVE" },
         };
       case "update_adset_budget":
         return {
           mcpTool: "update_adset",
           mcpArgs: {
-            adset_id: a.adset_id,
+            adset_id: sanitizeId(a.adset_id),
             daily_budget: egpToCents(a.budget_amount),
           },
         };
       case "pause_ad":
         return {
           mcpTool: "update_ad",
-          mcpArgs: { ad_id: a.ad_id, status: "PAUSED" },
+          mcpArgs: { ad_id: sanitizeId(a.ad_id), status: "PAUSED" },
         };
       case "enable_ad":
         return {
           mcpTool: "update_ad",
-          mcpArgs: { ad_id: a.ad_id, status: "ACTIVE" },
+          mcpArgs: { ad_id: sanitizeId(a.ad_id), status: "ACTIVE" },
         };
       case "rename_campaign":
         return {
           mcpTool: "update_campaign",
-          mcpArgs: { campaign_id: a.campaign_id, name: sanitizeName(String(a.new_name ?? "")) },
+          mcpArgs: { campaign_id: sanitizeId(a.campaign_id), name: sanitizeName(String(a.new_name ?? "")) },
         };
       case "rename_adset":
         return {
           mcpTool: "update_adset",
-          mcpArgs: { adset_id: a.adset_id, name: sanitizeName(String(a.new_name ?? "")) },
+          mcpArgs: { adset_id: sanitizeId(a.adset_id), name: sanitizeName(String(a.new_name ?? "")) },
         };
       case "rename_ad":
         return {
           mcpTool: "update_ad",
-          mcpArgs: { ad_id: a.ad_id, name: sanitizeName(String(a.new_name ?? "")) },
+          mcpArgs: { ad_id: sanitizeId(a.ad_id), name: sanitizeName(String(a.new_name ?? "")) },
         };
       case "create_campaign": {
         // Normalise account_id: Pipeboard expects the bare numeric ID (no act_ prefix)
-        const rawAccId = String(a.account_id ?? "");
+        const rawAccId = String(a.account_id ?? "").replace(/,/g, "");
         const normAccId = rawAccId.startsWith("act_")
           ? rawAccId.slice(4)
           : rawAccId;
@@ -397,7 +404,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         };
       }
       case "create_adset": {
-        const rawAccId2 = String(a.account_id ?? "");
+        const rawAccId2 = String(a.account_id ?? "").replace(/,/g, "");
         const normAccId2 = rawAccId2.startsWith("act_")
           ? rawAccId2.slice(4)
           : rawAccId2;
@@ -408,10 +415,17 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         } = a as Record<string, unknown>;
         void _drop;
         void _db;
+        // Sanitize campaign_id — AI may pass it with commas as thousand separators
+        const sanitizedRestAdset = {
+          ...restAdset,
+          ...(restAdset.campaign_id != null
+            ? { campaign_id: sanitizeId(restAdset.campaign_id) }
+            : {}),
+        };
         return {
           mcpTool: "create_adset",
           mcpArgs: {
-            ...restAdset,
+            ...sanitizedRestAdset,
             account_id: normAccId2,
             ...(a.daily_budget != null
               ? { daily_budget: egpToCents(a.daily_budget) }
@@ -436,20 +450,20 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       case "ga_pause_campaign":
         return {
           mcpTool: "pause_google_ads_campaign",
-          mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id },
+          mcpArgs: { customer_id: sanitizeId(a.customer_id), campaign_id: sanitizeId(a.campaign_id) },
         };
       case "ga_enable_campaign":
         return {
           mcpTool: "enable_google_ads_campaign",
-          mcpArgs: { customer_id: a.customer_id, campaign_id: a.campaign_id },
+          mcpArgs: { customer_id: sanitizeId(a.customer_id), campaign_id: sanitizeId(a.campaign_id) },
         };
       case "ga_update_campaign_budget":
         // Correct param is budget_amount_micros (not daily_budget_micros)
         return {
           mcpTool: "update_google_ads_campaign",
           mcpArgs: {
-            customer_id: a.customer_id,
-            campaign_id: a.campaign_id,
+            customer_id: sanitizeId(a.customer_id),
+            campaign_id: sanitizeId(a.campaign_id),
             budget_amount_micros: egpToMicros(a.budget_amount),
           },
         };
@@ -3268,6 +3282,11 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     };
 
     let effectiveArgs: Record<string, unknown> = { ...(args ?? {}) };
+    // Strip commas from any IDs the AI may have formatted with thousand-separators
+    if (effectiveArgs.campaign_id != null)
+      effectiveArgs.campaign_id = String(effectiveArgs.campaign_id).replace(/,/g, "").trim();
+    if (effectiveArgs.account_id != null)
+      effectiveArgs.account_id = String(effectiveArgs.account_id).replace(/,/g, "").trim();
     const metaTokenSales = process.env.META_ACCESS_TOKEN;
     const salesCampaignId = String(effectiveArgs.campaign_id ?? "");
 
