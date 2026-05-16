@@ -3041,47 +3041,28 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           let creativeId = "";
           let adIdFromSpec = "";
           try {
-            // Step 1: Build object_story_spec
-            let storySpec: Record<string, unknown>;
+            // Step 1: Build flat Pipeboard args (Pipeboard does NOT accept object_story_spec)
+            const lpcCreativeArgs: Record<string, unknown> = {
+              account_id: `act_${accountId}`,
+              name: `${adset.name} — نص ${ti + 1} — creative`,
+              page_id: pageId,
+              link_url: landingPageUrl,
+              message: singleText,
+              ...(firstHeadline ? { headline: firstHeadline } : {}),
+              call_to_action_type: callToAction || "SHOP_NOW",
+            };
             if (isVid) {
-              storySpec = {
-                page_id: pageId,
-                video_data: {
-                  video_id: media.videoId,
-                  message: singleText,
-                  ...(firstHeadline ? { title: firstHeadline, link_description: firstHeadline } : {}),
-                  call_to_action: {
-                    type: callToAction || "SHOP_NOW",
-                    value: { link: landingPageUrl },
-                  },
-                },
-              };
+              lpcCreativeArgs.video_id = media.videoId;
             } else {
-              storySpec = {
-                page_id: pageId,
-                link_data: {
-                  image_hash: media.imageHash,
-                  link: landingPageUrl,
-                  message: singleText,
-                  ...(firstHeadline ? { name: firstHeadline } : {}),
-                  call_to_action: {
-                    type: callToAction || "SHOP_NOW",
-                    value: { link: landingPageUrl },
-                  },
-                },
-              };
+              lpcCreativeArgs.image_hash = media.imageHash;
             }
 
             // Step 2: create_ad_creative via Pipeboard MCP
-            logger.info({ adset: adset.name, ti: ti + 1 }, "launch_pipeboard_campaign: → Pipeboard create_ad_creative");
+            logger.info({ adset: adset.name, ti: ti + 1, isVid }, "launch_pipeboard_campaign: → Pipeboard create_ad_creative");
             const lpcCreativeResult = await lpcPbClient.callTool(
               {
                 name: "create_ad_creative",
-                arguments: {
-                  account_id: `act_${accountId}`,
-                  name: `${adset.name} — نص ${ti + 1} — creative`,
-                  object_story_spec: storySpec,
-                },
+                arguments: lpcCreativeArgs,
               },
               undefined,
               { timeout: 60_000 },
