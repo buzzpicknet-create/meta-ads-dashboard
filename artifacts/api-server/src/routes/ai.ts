@@ -3182,11 +3182,13 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
     if (!parsed || typeof parsed !== "object") return raw;
 
     // Mirrors actionVal() in meta-api.ts — matches by action_type, never blindly takes [0]
-    const av = (arr: unknown, t = "video_view"): number => {
+    const av = (arr: unknown, t: string): number => {
       if (!Array.isArray(arr)) return 0;
       const entry = (arr as Array<Record<string, unknown>>).find(a => a["action_type"] === t);
       return Number(entry?.["value"]) || 0;
     };
+    const avMulti = (arr: unknown, ...types: string[]): number =>
+      types.reduce((sum, t) => sum + av(arr, t), 0);
 
     // Primary structure confirmed by live Pipeboard call:
     // { "results": [{ "status": "success", "insights": [{row},...] }, { "status": "no_data" }] }
@@ -3208,20 +3210,38 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
     if (rows.length === 0) return raw; // unrecognised shape — return raw safely
 
     const nameKey = level === "ad" ? "ad_name" : level === "adset" ? "adset_name" : "campaign_name";
+    const idKey   = level === "ad" ? "ad_id"   : level === "adset" ? "adset_id"   : "campaign_id";
 
     const summaryRows = rows.map(row => {
       const impressions = Number(row["impressions"] || 0);
       const spend       = Number(row["spend"]       || 0);
-      const videoPlays  = av(row["video_play_actions"]);
-      const v100        = av(row["video_p100_watched_actions"]);
-      const thruplay    = av(row["video_thruplay_watched_actions"]);
+      const videoPlays  = av(row["video_play_actions"], "video_view");
+      const v100        = av(row["video_p100_watched_actions"], "video_view");
+      const thruplay    = av(row["video_thruplay_watched_actions"], "video_view");
+
+      // Link clicks: try outbound_clicks array first, then actions link_click, then generic clicks
+      const outboundClicks = (() => {
+        const oc = row["outbound_clicks"];
+        if (Array.isArray(oc)) return Number((oc as Record<string,unknown>[])[0]?.["value"] || 0);
+        return 0;
+      })();
+      const linkClicks  = outboundClicks || av(row["actions"], "link_click") || Number(row["clicks"] || 0);
+      const lpViews     = av(row["actions"], "landing_page_view");
+      const purchases   = avMulti(row["actions"],
+        "offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase");
+      const ctr         = impressions  ? (linkClicks / impressions) * 100 : 0;
+      const lpr         = linkClicks   ? (lpViews    / linkClicks)  * 100 : 0;
+      const cvr         = lpViews      ? (purchases  / lpViews)     * 100 : 0;
+      const cpa         = purchases    ? spend / purchases : 0;
+
+      const id = String(row[idKey] || row["id"] || "");
       return {
-        name:     String(row[nameKey] || row["name"] || row["ad_name"] || row["adset_name"] || row["campaign_name"] || "—"),
-        impressions,
-        spend,
+        name: String(row[nameKey] || row["name"] || row["ad_name"] || row["adset_name"] || row["campaign_name"] || "—"),
+        id,
+        impressions, spend, thruplay,
         hookRate: impressions ? (videoPlays / impressions) * 100 : 0,
         holdRate: videoPlays  ? (v100 / videoPlays)       * 100 : 0,
-        thruplay,
+        ctr, lpr, cvr, cpa, purchases, linkClicks, lpViews,
       };
     });
 
@@ -3229,16 +3249,31 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
     const limited    = summaryRows.slice(0, 30);
     const hasMore    = summaryRows.length > 30;
     const totalSpend = summaryRows.reduce((s, r) => s + r.spend, 0);
-    const fmt        = (n: number, dec = 0) => n.toFixed(dec);
+    const fmt        = (n: number, dec = 1) => n.toFixed(dec);
+    const fmtN       = (n: number)          => n.toFixed(0);
 
+    // Full funnel table when purchases/CTR data is available
+    const hasFunnel = summaryRows.some(r => r.ctr > 0 || r.purchases > 0);
     const lines: string[] = [
-      `## تحليل الأداء (${summaryRows.length} عنصر | إجمالي الإنفاق: ${fmt(totalSpend)} EGP)\n`,
-      `| الاسم | الظهورات | الإنفاق (EGP) | Hook% | Hold% | ThruPlay |`,
-      `|-------|----------|--------------|-------|-------|---------|`,
-      ...limited.map(r =>
-        `| ${r.name} | ${r.impressions.toLocaleString()} | ${fmt(r.spend)} | ${r.hookRate > 0 ? fmt(r.hookRate, 1) : "—"} | ${r.holdRate > 0 ? fmt(r.holdRate, 1) : "—"} | ${r.thruplay > 0 ? r.thruplay : "—"} |`
-      ),
+      `## تحليل الأداء — ${level === "ad" ? "إعلانات" : level === "adset" ? "مجموعات" : "حملات"} (${summaryRows.length} | إنفاق: ${fmtN(totalSpend)} EGP)\n`,
     ];
+    if (hasFunnel) {
+      lines.push(
+        `| الاسم (id) | الإنفاق | Hook% | Hold% | CTR% | LPR% | CVR% | Purchases | CPA |`,
+        `|-----------|---------|-------|-------|------|------|------|-----------|-----|`,
+        ...limited.map(r =>
+          `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${fmtN(r.spend)} EGP | ${r.hookRate > 0 ? fmt(r.hookRate) : "—"} | ${r.holdRate > 0 ? fmt(r.holdRate) : "—"} | ${r.ctr > 0 ? fmt(r.ctr) : "—"} | ${r.lpr > 0 ? fmt(r.lpr) : "—"} | ${r.cvr > 0 ? fmt(r.cvr) : "—"} | ${r.purchases > 0 ? Math.round(r.purchases) : 0} | ${r.cpa > 0 ? fmtN(r.cpa) + " EGP" : "—"} |`
+        ),
+      );
+    } else {
+      lines.push(
+        `| الاسم (id) | الظهورات | الإنفاق (EGP) | Hook% | Hold% | ThruPlay |`,
+        `|-----------|----------|--------------|-------|-------|---------|`,
+        ...limited.map(r =>
+          `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${r.impressions.toLocaleString()} | ${fmtN(r.spend)} | ${r.hookRate > 0 ? fmt(r.hookRate) : "—"} | ${r.holdRate > 0 ? fmt(r.holdRate) : "—"} | ${r.thruplay > 0 ? r.thruplay : "—"} |`
+        ),
+      );
+    }
     if (hasMore) lines.push(`\n> has_more: true — عُرض أعلى 30 عنصراً من ${summaryRows.length} إجمالاً.`);
 
     return lines.join("\n");
@@ -3271,7 +3306,7 @@ async function tryExecuteViaPipeboard(
         time_breakdown: "day",
         time_range: timeRange,
         compact: false,
-        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
+        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
       });
       return summarizePipeboardInsights(pbRaw0, "campaign");
     }
@@ -3287,7 +3322,7 @@ async function tryExecuteViaPipeboard(
         level: "adset",
         time_range: timeRange,
         compact: false,
-        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
+        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
       });
       return summarizePipeboardInsights(pbRaw1, "adset");
     }
@@ -3337,16 +3372,26 @@ async function tryExecuteViaPipeboard(
         level: "ad",
         time_range: timeRange,
         compact: false,
-        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
+        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
       });
       return summarizePipeboardInsights(pbRaw2, "ad");
     }
 
-    // get_ads_in_adset — always via native Meta (NOT Pipeboard).
-    // Pipeboard's get_insights returns only Hook/Hold/ThruPlay — missing CTR, LPR, CVR, CPA, Purchases.
-    // Native Meta returns the full funnel table the AI needs for diagnosis.
-    // Return null here so executeTool() always handles it via getAdsetAdsInsights().
-    if (name === "get_ads_in_adset") return null;
+    // get_ads_in_adset — via Pipeboard (primary). Fetches full funnel at ad level under the adset.
+    // Now includes actions (link_click, landing_page_view, purchase) + outbound_clicks
+    // so summarizePipeboardInsights can compute CTR, LPR, CVR, CPA, Purchases.
+    if (name === "get_ads_in_adset") {
+      const adset_id = String(args.adset_id ?? "");
+      if (!adset_id) return null;
+      const pbRaw3 = await callPipeboardReadFull("get_insights", {
+        object_id: adset_id,
+        level: "ad",
+        time_range: timeRange,
+        compact: false,
+        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
+      });
+      return summarizePipeboardInsights(pbRaw3, "ad");
+    }
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────
 
