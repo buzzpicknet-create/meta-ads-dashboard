@@ -838,6 +838,375 @@ const INIT_FORM: QuickForm = {
   quickAccountId: "",
 };
 
+// ── Shared types (used by Scale + AddCreative forms) ──────────────────────────
+type AdsetRow = { id: string; name: string; ctr: number | null; cpa: number | null; spend: number | null };
+type CampaignRow = { id: string; name: string; is_cbo?: boolean };
+type SseEvent = { type: string; message?: string; adset_name?: string; new_adset_id?: string; ads_created?: number; total_ads?: number; ad_ids?: string[]; campaign_id?: string; success?: number; failed?: number; adset_id?: string };
+
+// ── Add Creative to Existing AdSet ────────────────────────────────────────────
+function AddCreativeExistingAdsetForm({
+  accountId, onAccountChange, onSend,
+}: { accountId: string; onAccountChange: (v: string) => void; onSend: (cmd: string) => void }) {
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
+  const { toast } = useToast();
+
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [selCampaign, setSelCampaign] = useState<CampaignRow | null>(null);
+  const [adsets, setAdsets] = useState<AdsetRow[]>([]);
+  const [loadingAdsets, setLoadingAdsets] = useState(false);
+  const [selAdset, setSelAdset] = useState<AdsetRow | null>(null);
+
+  const [driveLink, setDriveLink] = useState("");
+  const [landingPage, setLandingPage] = useState("");
+  const [copyCount, setCopyCount] = useState(2);
+  const [texts, setTexts] = useState<string[]>([]);
+  const [headlines, setHeadlines] = useState<string[]>([]);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) return;
+    setLoadingCampaigns(true);
+    setCampaigns([]); setSelCampaign(null); setAdsets([]); setSelAdset(null);
+    apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
+      .then(d => setCampaigns(d.campaigns ?? []))
+      .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
+      .finally(() => setLoadingCampaigns(false));
+  }, [accountId]);
+
+  async function fetchAdsets(camp: CampaignRow) {
+    setSelCampaign(camp); setLoadingAdsets(true); setAdsets([]); setSelAdset(null);
+    try {
+      const d = await apiFetch<{ adsets: (AdsetRow & { ctr: string | null; cpa: string | null })[] }>(`/pipeboard/campaigns/${camp.id}/adsets?account_id=${accountId}`);
+      setAdsets((d.adsets ?? []).map(a => ({ ...a, ctr: a.ctr ? Number(a.ctr) : null, cpa: a.cpa ? Number(a.cpa) : null })));
+    } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
+    finally { setLoadingAdsets(false); }
+  }
+
+  async function generateCopy() {
+    if (!landingPage.trim()) { toast({ title: "أضف Landing Page أولاً", variant: "destructive" }); return; }
+    setGenerating(true);
+    try {
+      const r = await fetch(`${API}/library/quick-generate`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ productName: selCampaign?.name ?? "منتج", landingPageUrl: landingPage.trim(), textCount: copyCount, headlineCount: copyCount }),
+      });
+      const d = await r.json() as { texts?: { content: string }[]; headlines?: { content: string }[]; error?: string };
+      if (!r.ok) throw new Error(d.error ?? "خطأ");
+      setTexts((d.texts ?? []).map(t => t.content).filter(Boolean));
+      setHeadlines((d.headlines ?? []).map(h => h.content).filter(Boolean));
+      toast({ title: "✅ تم التوليد!" });
+    } catch (e) { toast({ title: "خطأ في التوليد", description: String(e), variant: "destructive" }); }
+    finally { setGenerating(false); }
+  }
+
+  function buildCmd(): string {
+    const acctLine = `act_${accountId.replace(/^act_/, "")}`;
+    const txts = texts.slice(0, copyCount).map((t, i) => `    ${i + 1}. ${t}`).join("\n") || "    [أدخل النصوص]";
+    const hdls = headlines.slice(0, copyCount).map((h, i) => `    ${i + 1}. ${h}`).join("\n") || "    [أدخل العناوين]";
+    return `[SYSTEM COMMAND: ADD_CREATIVE_TO_ADSET]
+Action: إضافة كريتف جديد في Adset موجودة
+
+Ad Account ID: ${acctLine}
+Campaign ID: ${selCampaign?.id ?? ""} (Name: ${selCampaign?.name ?? ""})
+Adset ID: ${selAdset?.id ?? ""} (Name: ${selAdset?.name ?? ""})
+Media Drive Folder: ${driveLink.trim() || "—"}
+Landing Page: ${landingPage.trim() || "—"}
+
+⚠️ RULES (لا تخالف):
+- ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
+- page_id / pixel_id يُكتشفان تلقائياً من الدومين
+- استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في نفس الـ Adset (${selAdset?.id ?? "???"})
+- لو كانت الفيديوهات في فولدر Drive: اكتشف الملفات بـ upload_video_to_meta(list_only=true) ثم ارفع كل واحد
+
+Copy Pairs (${copyCount}):
+  Texts:
+${txts}
+  Headlines:
+${hdls}
+[END_COMMAND]`;
+  }
+
+  function handleSend() {
+    if (!selAdset) { toast({ title: "❌ اختار الـ AdSet أولاً", variant: "destructive" }); return; }
+    if (!driveLink.trim() && !landingPage.trim()) { toast({ title: "❌ أضف Drive Link أو Landing Page", variant: "destructive" }); return; }
+    onSend(buildCmd());
+  }
+
+  return (
+    <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/30 dark:bg-violet-950/10 p-4 space-y-4 animate-in fade-in duration-150">
+      <div className="flex items-center gap-2">
+        <span className="text-lg">➕</span>
+        <span className="font-semibold text-sm">كريتف في Adset موجودة</span>
+        <span className="text-[11px] text-muted-foreground mr-auto">حملة → Adset → فيديو + نص → AI يطلق</span>
+      </div>
+      {!accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">الحساب الإعلاني</label>
+          <select className="w-full h-9 text-sm rounded-md border border-border bg-background px-3" onChange={e => { if (e.target.value) onAccountChange(e.target.value); }} dir="ltr">
+            <option value="">— اختار —</option>
+            {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name ?? acc.id}</option>)}
+          </select>
+        </div>
+      )}
+      {accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-semibold">① الحملة</label>
+          <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            {loadingCampaigns && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
+            {campaigns.map(c => (
+              <button key={c.id} onClick={() => fetchAdsets(c)}
+                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selCampaign?.id === c.id ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 font-semibold" : "hover:bg-muted"}`}>
+                <span className="truncate">{c.name}</span>
+                <span className={`shrink-0 ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${selCampaign?.id === c.id ? "bg-violet-200 dark:bg-violet-800 text-violet-700" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {selCampaign && (
+        <div className="space-y-1">
+          <label className="text-xs font-semibold">② الـ AdSet</label>
+          <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            {loadingAdsets && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
+            {adsets.map(a => (
+              <button key={a.id} onClick={() => setSelAdset(a)}
+                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center gap-2 ${selAdset?.id === a.id ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 font-semibold" : "hover:bg-muted"}`}>
+                <span className="truncate">{a.name}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground font-mono">{a.id}</span>
+              </button>
+            ))}
+          </div>
+          {selAdset && <div className="text-[11px] text-violet-600 font-medium">✓ {selAdset.name}</div>}
+        </div>
+      )}
+      {selAdset && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FolderOpen className="h-3 w-3" /> Drive Folder</label>
+              <Input placeholder="https://drive.google.com/drive/folders/..." value={driveLink} onChange={e => setDriveLink(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Landing Page</label>
+              <Input placeholder="https://..." value={landingPage} onChange={e => setLandingPage(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-muted-foreground">Copy Pairs:</label>
+            <button onClick={() => setCopyCount(c => Math.max(1, c - 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
+            <span className="text-sm font-bold text-violet-700 dark:text-violet-300 tabular-nums w-4 text-center">{copyCount}</span>
+            <button onClick={() => setCopyCount(c => Math.min(8, c + 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+            <button onClick={generateCopy} disabled={generating || !landingPage.trim()} className="text-[11px] text-violet-700 dark:text-violet-400 hover:underline disabled:opacity-40 font-medium mr-auto">
+              {generating ? "جاري التوليد..." : "✨ توليد Copy"}
+            </button>
+          </div>
+          {(texts.length > 0 || headlines.length > 0) && (
+            <div className="rounded-lg border border-violet-200/50 dark:border-violet-800/30 bg-background/60 p-2 space-y-2">
+              {texts.slice(0, copyCount).map((t, i) => (
+                <div key={i} className="text-xs rounded border border-violet-200/30 px-2 py-1.5" dir="rtl">
+                  <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-violet-500 text-white text-[8px] font-bold ml-1.5">{i + 1}</span>{t}
+                </div>
+              ))}
+              {headlines.slice(0, copyCount).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {headlines.slice(0, copyCount).map((h, i) => (
+                    <span key={i} className="text-[11px] rounded-full px-2 py-0.5 border border-violet-200/50 bg-violet-50/50 dark:bg-violet-950/10 text-violet-700 dark:text-violet-300">{i + 1}. {h}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <Button size="sm" onClick={handleSend} className="w-full h-9 text-xs bg-violet-600 hover:bg-violet-700 text-white gap-1.5">
+            <Send className="h-3.5 w-3.5" /> إرسال للمساعد ↗
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Add Creative to New AdSet ──────────────────────────────────────────────────
+function AddCreativeNewAdsetForm({
+  accountId, onAccountChange, onSend,
+}: { accountId: string; onAccountChange: (v: string) => void; onSend: (cmd: string) => void }) {
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
+  const { toast } = useToast();
+
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [selCampaign, setSelCampaign] = useState<CampaignRow | null>(null);
+  const [adsetName, setAdsetName] = useState("");
+  const [budget, setBudget] = useState("100");
+  const [driveLink, setDriveLink] = useState("");
+  const [landingPage, setLandingPage] = useState("");
+  const [copyCount, setCopyCount] = useState(2);
+  const [texts, setTexts] = useState<string[]>([]);
+  const [headlines, setHeadlines] = useState<string[]>([]);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) return;
+    setLoadingCampaigns(true);
+    setCampaigns([]); setSelCampaign(null);
+    apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
+      .then(d => setCampaigns(d.campaigns ?? []))
+      .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
+      .finally(() => setLoadingCampaigns(false));
+  }, [accountId]);
+
+  async function generateCopy() {
+    if (!landingPage.trim()) { toast({ title: "أضف Landing Page أولاً", variant: "destructive" }); return; }
+    setGenerating(true);
+    try {
+      const r = await fetch(`${API}/library/quick-generate`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ productName: selCampaign?.name ?? "منتج", landingPageUrl: landingPage.trim(), textCount: copyCount, headlineCount: copyCount }),
+      });
+      const d = await r.json() as { texts?: { content: string }[]; headlines?: { content: string }[]; error?: string };
+      if (!r.ok) throw new Error(d.error ?? "خطأ");
+      setTexts((d.texts ?? []).map(t => t.content).filter(Boolean));
+      setHeadlines((d.headlines ?? []).map(h => h.content).filter(Boolean));
+      toast({ title: "✅ تم التوليد!" });
+    } catch (e) { toast({ title: "خطأ في التوليد", description: String(e), variant: "destructive" }); }
+    finally { setGenerating(false); }
+  }
+
+  function buildCmd(): string {
+    const acctLine = `act_${accountId.replace(/^act_/, "")}`;
+    const isCBO = selCampaign?.is_cbo ?? false;
+    const budgetLine = isCBO
+      ? "Budget Type: CBO — لا تحتاج ميزانية على الـ Adset (الميزانية على مستوى الحملة)"
+      : `Budget Type: ABO — ${budget} EGP/day (مطلوب تحديد budget على الـ Adset)`;
+    const txts = texts.slice(0, copyCount).map((t, i) => `    ${i + 1}. ${t}`).join("\n") || "    [أدخل النصوص]";
+    const hdls = headlines.slice(0, copyCount).map((h, i) => `    ${i + 1}. ${h}`).join("\n") || "    [أدخل العناوين]";
+    return `[SYSTEM COMMAND: ADD_CREATIVE_NEW_ADSET]
+Action: إضافة Adset جديدة في حملة موجودة
+
+Ad Account ID: ${acctLine}
+Campaign ID: ${selCampaign?.id ?? ""} (Name: ${selCampaign?.name ?? ""})
+New Adset Name: ${adsetName.trim() || "New Adset"}
+${budgetLine}
+Media Drive Folder: ${driveLink.trim() || "—"}
+Landing Page: ${landingPage.trim() || "—"}
+
+⚠️ RULES (لا تخالف):
+- أنشئ الـ Adset في الحملة ${selCampaign?.id ?? "???"} باستخدام create_adset${isCBO ? " (لا تحدد daily_budget على الـ Adset — الحملة CBO)" : ` (daily_budget: ${budget} EGP — الحملة ABO)`}
+- ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
+- page_id / pixel_id يُكتشفان تلقائياً من الدومين
+- استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في الـ Adset الجديدة
+- لو كانت الفيديوهات في فولدر Drive: اكتشف الملفات بـ upload_video_to_meta(list_only=true) ثم ارفع كل واحد
+
+Copy Pairs (${copyCount}):
+  Texts:
+${txts}
+  Headlines:
+${hdls}
+[END_COMMAND]`;
+  }
+
+  function handleSend() {
+    if (!selCampaign) { toast({ title: "❌ اختار الحملة أولاً", variant: "destructive" }); return; }
+    if (!driveLink.trim() && !landingPage.trim()) { toast({ title: "❌ أضف Drive Link أو Landing Page", variant: "destructive" }); return; }
+    onSend(buildCmd());
+  }
+
+  const isCBO = selCampaign?.is_cbo ?? false;
+
+  return (
+    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-950/10 p-4 space-y-4 animate-in fade-in duration-150">
+      <div className="flex items-center gap-2">
+        <span className="text-lg">🆕</span>
+        <span className="font-semibold text-sm">كريتف في Adset جديدة</span>
+        <span className="text-[11px] text-muted-foreground mr-auto">حملة موجودة → Adset جديدة → فيديو + نص → AI يطلق</span>
+      </div>
+      {!accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">الحساب الإعلاني</label>
+          <select className="w-full h-9 text-sm rounded-md border border-border bg-background px-3" onChange={e => { if (e.target.value) onAccountChange(e.target.value); }} dir="ltr">
+            <option value="">— اختار —</option>
+            {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name ?? acc.id}</option>)}
+          </select>
+        </div>
+      )}
+      {accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-semibold">① الحملة الهدف</label>
+          <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            {loadingCampaigns && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
+            {campaigns.map(c => (
+              <button key={c.id} onClick={() => { setSelCampaign(c); setAdsetName(""); }}
+                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selCampaign?.id === c.id ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 font-semibold" : "hover:bg-muted"}`}>
+                <span className="truncate">{c.name}</span>
+                <span className={`shrink-0 ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${selCampaign?.id === c.id ? "bg-amber-200 dark:bg-amber-800 text-amber-700" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {selCampaign && (
+        <div className="space-y-3">
+          <div className={`text-[11px] px-3 py-2 rounded-lg font-medium ${isCBO ? "bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800" : "bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800"}`}>
+            {isCBO ? "✅ CBO — لا تحتاج ميزانية على الـ Adset (الحملة بتحكم الميزانية)" : "⚠️ ABO — مطلوب تحديد ميزانية للـ Adset الجديدة"}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">② اسم الـ Adset الجديد</label>
+              <Input placeholder="مثال: Angle 2 — Hook B" value={adsetName} onChange={e => setAdsetName(e.target.value)} className="h-8 text-xs" dir="rtl" />
+            </div>
+            {!isCBO && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">الميزانية (EGP/يوم)</label>
+                <Input type="number" min={1} value={budget} onChange={e => setBudget(e.target.value)} className="h-8 text-xs" />
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FolderOpen className="h-3 w-3" /> Drive Folder</label>
+              <Input placeholder="https://drive.google.com/drive/folders/..." value={driveLink} onChange={e => setDriveLink(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Landing Page</label>
+              <Input placeholder="https://..." value={landingPage} onChange={e => setLandingPage(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-muted-foreground">Copy Pairs:</label>
+            <button onClick={() => setCopyCount(c => Math.max(1, c - 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
+            <span className="text-sm font-bold text-amber-700 dark:text-amber-300 tabular-nums w-4 text-center">{copyCount}</span>
+            <button onClick={() => setCopyCount(c => Math.min(8, c + 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+            <button onClick={generateCopy} disabled={generating || !landingPage.trim()} className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline disabled:opacity-40 font-medium mr-auto">
+              {generating ? "جاري التوليد..." : "✨ توليد Copy"}
+            </button>
+          </div>
+          {(texts.length > 0 || headlines.length > 0) && (
+            <div className="rounded-lg border border-amber-200/50 dark:border-amber-800/30 bg-background/60 p-2 space-y-2">
+              {texts.slice(0, copyCount).map((t, i) => (
+                <div key={i} className="text-xs rounded border border-amber-200/30 px-2 py-1.5" dir="rtl">
+                  <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-amber-500 text-white text-[8px] font-bold ml-1.5">{i + 1}</span>{t}
+                </div>
+              ))}
+              {headlines.slice(0, copyCount).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {headlines.slice(0, copyCount).map((h, i) => (
+                    <span key={i} className="text-[11px] rounded-full px-2 py-0.5 border border-amber-200/50 bg-amber-50/50 dark:bg-amber-950/10 text-amber-700 dark:text-amber-300">{i + 1}. {h}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <Button size="sm" onClick={handleSend} className="w-full h-9 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1.5">
+            <Send className="h-3.5 w-3.5" /> إرسال للمساعد ↗
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QuickLaunchSection() {
   const [, navigate] = useLocation();
   const { toast }    = useToast();
@@ -1596,402 +1965,7 @@ ${adsetBlocks}
 
 
 
-// ── Add Creative to Existing AdSet ────────────────────────────────────────────
-function AddCreativeExistingAdsetForm({
-  accountId, onAccountChange, onSend,
-}: { accountId: string; onAccountChange: (v: string) => void; onSend: (cmd: string) => void }) {
-  const { data: accountsData } = useAccounts();
-  const accounts = accountsData?.accounts ?? [];
-  const { toast } = useToast();
-
-  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
-  const [selCampaign, setSelCampaign] = useState<CampaignRow | null>(null);
-  const [adsets, setAdsets] = useState<AdsetRow[]>([]);
-  const [loadingAdsets, setLoadingAdsets] = useState(false);
-  const [selAdset, setSelAdset] = useState<AdsetRow | null>(null);
-
-  const [driveLink, setDriveLink] = useState("");
-  const [landingPage, setLandingPage] = useState("");
-  const [copyCount, setCopyCount] = useState(2);
-  const [texts, setTexts] = useState<string[]>([]);
-  const [headlines, setHeadlines] = useState<string[]>([]);
-  const [generating, setGenerating] = useState(false);
-
-  useEffect(() => {
-    if (!accountId) return;
-    setLoadingCampaigns(true);
-    setCampaigns([]); setSelCampaign(null); setAdsets([]); setSelAdset(null);
-    apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
-      .then(d => setCampaigns(d.campaigns ?? []))
-      .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
-      .finally(() => setLoadingCampaigns(false));
-  }, [accountId]);
-
-  async function fetchAdsets(camp: CampaignRow) {
-    setSelCampaign(camp); setLoadingAdsets(true); setAdsets([]); setSelAdset(null);
-    try {
-      const d = await apiFetch<{ adsets: (AdsetRow & { ctr: string | null; cpa: string | null })[] }>(`/pipeboard/campaigns/${camp.id}/adsets?account_id=${accountId}`);
-      setAdsets((d.adsets ?? []).map(a => ({ ...a, ctr: a.ctr ? Number(a.ctr) : null, cpa: a.cpa ? Number(a.cpa) : null })));
-    } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
-    finally { setLoadingAdsets(false); }
-  }
-
-  async function generateCopy() {
-    if (!landingPage.trim()) { toast({ title: "أضف Landing Page أولاً", variant: "destructive" }); return; }
-    setGenerating(true);
-    try {
-      const r = await fetch(`${API}/library/quick-generate`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({ productName: selCampaign?.name ?? "منتج", landingPageUrl: landingPage.trim(), textCount: copyCount, headlineCount: copyCount }),
-      });
-      const d = await r.json() as { texts?: { content: string }[]; headlines?: { content: string }[]; error?: string };
-      if (!r.ok) throw new Error(d.error ?? "خطأ");
-      setTexts((d.texts ?? []).map(t => t.content).filter(Boolean));
-      setHeadlines((d.headlines ?? []).map(h => h.content).filter(Boolean));
-      toast({ title: "✅ تم التوليد!" });
-    } catch (e) { toast({ title: "خطأ في التوليد", description: String(e), variant: "destructive" }); }
-    finally { setGenerating(false); }
-  }
-
-  function buildCmd(): string {
-    const acctLine = `act_${accountId.replace(/^act_/, "")}`;
-    const txts = texts.slice(0, copyCount).map((t, i) => `    ${i + 1}. ${t}`).join("\n") || "    [أدخل النصوص]";
-    const hdls = headlines.slice(0, copyCount).map((h, i) => `    ${i + 1}. ${h}`).join("\n") || "    [أدخل العناوين]";
-    return `[SYSTEM COMMAND: ADD_CREATIVE_TO_ADSET]
-Action: إضافة كريتف جديد في Adset موجودة
-
-Ad Account ID: ${acctLine}
-Campaign ID: ${selCampaign?.id ?? ""} (Name: ${selCampaign?.name ?? ""})
-Adset ID: ${selAdset?.id ?? ""} (Name: ${selAdset?.name ?? ""})
-Media Drive Folder: ${driveLink.trim() || "—"}
-Landing Page: ${landingPage.trim() || "—"}
-
-⚠️ RULES (لا تخالف):
-- ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
-- page_id / pixel_id يُكتشفان تلقائياً من الدومين
-- استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في نفس الـ Adset (${selAdset?.id ?? "???"})
-- لو كانت الفيديوهات في فولدر Drive: اكتشف الملفات بـ upload_video_to_meta(list_only=true) ثم ارفع كل واحد
-
-Copy Pairs (${copyCount}):
-  Texts:
-${txts}
-  Headlines:
-${hdls}
-[END_COMMAND]`;
-  }
-
-  function handleSend() {
-    if (!selAdset) { toast({ title: "❌ اختار الـ AdSet أولاً", variant: "destructive" }); return; }
-    if (!driveLink.trim() && !landingPage.trim()) { toast({ title: "❌ أضف Drive Link أو Landing Page", variant: "destructive" }); return; }
-    onSend(buildCmd());
-  }
-
-  return (
-    <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/30 dark:bg-violet-950/10 p-4 space-y-4 animate-in fade-in duration-150">
-      <div className="flex items-center gap-2">
-        <span className="text-lg">➕</span>
-        <span className="font-semibold text-sm">كريتف في Adset موجودة</span>
-        <span className="text-[11px] text-muted-foreground mr-auto">حملة → Adset → فيديو + نص → AI يطلق</span>
-      </div>
-
-      {/* Account */}
-      {!accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">الحساب الإعلاني</label>
-          <select className="w-full h-9 text-sm rounded-md border border-border bg-background px-3" onChange={e => { if (e.target.value) onAccountChange(e.target.value); }} dir="ltr">
-            <option value="">— اختار —</option>
-            {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name ?? acc.id}</option>)}
-          </select>
-        </div>
-      )}
-
-      {/* Campaign list */}
-      {accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-semibold">① الحملة</label>
-          <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
-            {loadingCampaigns && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
-            {campaigns.map(c => (
-              <button key={c.id} onClick={() => fetchAdsets(c)}
-                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selCampaign?.id === c.id ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 font-semibold" : "hover:bg-muted"}`}>
-                <span className="truncate">{c.name}</span>
-                <span className={`shrink-0 ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${selCampaign?.id === c.id ? "bg-violet-200 dark:bg-violet-800 text-violet-700" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Adset list */}
-      {selCampaign && (
-        <div className="space-y-1">
-          <label className="text-xs font-semibold">② الـ AdSet</label>
-          <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
-            {loadingAdsets && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
-            {adsets.map(a => (
-              <button key={a.id} onClick={() => setSelAdset(a)}
-                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center gap-2 ${selAdset?.id === a.id ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 font-semibold" : "hover:bg-muted"}`}>
-                <span className="truncate">{a.name}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground font-mono">{a.id}</span>
-              </button>
-            ))}
-          </div>
-          {selAdset && <div className="text-[11px] text-violet-600 font-medium">✓ {selAdset.name}</div>}
-        </div>
-      )}
-
-      {/* Drive + Landing */}
-      {selAdset && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FolderOpen className="h-3 w-3" /> Drive Folder</label>
-              <Input placeholder="https://drive.google.com/drive/folders/..." value={driveLink} onChange={e => setDriveLink(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Landing Page</label>
-              <Input placeholder="https://..." value={landingPage} onChange={e => setLandingPage(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
-            </div>
-          </div>
-
-          {/* Copy count + generate */}
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-muted-foreground">Copy Pairs:</label>
-            <button onClick={() => setCopyCount(c => Math.max(1, c - 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
-            <span className="text-sm font-bold text-violet-700 dark:text-violet-300 tabular-nums w-4 text-center">{copyCount}</span>
-            <button onClick={() => setCopyCount(c => Math.min(8, c + 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
-            <button onClick={generateCopy} disabled={generating || !landingPage.trim()} className="text-[11px] text-violet-700 dark:text-violet-400 hover:underline disabled:opacity-40 font-medium mr-auto">
-              {generating ? "جاري التوليد..." : "✨ توليد Copy"}
-            </button>
-          </div>
-
-          {/* Generated copy */}
-          {(texts.length > 0 || headlines.length > 0) && (
-            <div className="rounded-lg border border-violet-200/50 dark:border-violet-800/30 bg-background/60 p-2 space-y-2">
-              {texts.slice(0, copyCount).map((t, i) => (
-                <div key={i} className="text-xs rounded border border-violet-200/30 px-2 py-1.5" dir="rtl">
-                  <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-violet-500 text-white text-[8px] font-bold ml-1.5">{i + 1}</span>{t}
-                </div>
-              ))}
-              {headlines.slice(0, copyCount).length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {headlines.slice(0, copyCount).map((h, i) => (
-                    <span key={i} className="text-[11px] rounded-full px-2 py-0.5 border border-violet-200/50 bg-violet-50/50 dark:bg-violet-950/10 text-violet-700 dark:text-violet-300">{i + 1}. {h}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <Button size="sm" onClick={handleSend} className="w-full h-9 text-xs bg-violet-600 hover:bg-violet-700 text-white gap-1.5">
-            <Send className="h-3.5 w-3.5" /> إرسال للمساعد ↗
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Add Creative to New AdSet ──────────────────────────────────────────────────
-function AddCreativeNewAdsetForm({
-  accountId, onAccountChange, onSend,
-}: { accountId: string; onAccountChange: (v: string) => void; onSend: (cmd: string) => void }) {
-  const { data: accountsData } = useAccounts();
-  const accounts = accountsData?.accounts ?? [];
-  const { toast } = useToast();
-
-  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
-  const [selCampaign, setSelCampaign] = useState<CampaignRow | null>(null);
-
-  const [adsetName, setAdsetName] = useState("");
-  const [budget, setBudget] = useState("100");
-  const [driveLink, setDriveLink] = useState("");
-  const [landingPage, setLandingPage] = useState("");
-  const [copyCount, setCopyCount] = useState(2);
-  const [texts, setTexts] = useState<string[]>([]);
-  const [headlines, setHeadlines] = useState<string[]>([]);
-  const [generating, setGenerating] = useState(false);
-
-  useEffect(() => {
-    if (!accountId) return;
-    setLoadingCampaigns(true);
-    setCampaigns([]); setSelCampaign(null);
-    apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
-      .then(d => setCampaigns(d.campaigns ?? []))
-      .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
-      .finally(() => setLoadingCampaigns(false));
-  }, [accountId]);
-
-  async function generateCopy() {
-    if (!landingPage.trim()) { toast({ title: "أضف Landing Page أولاً", variant: "destructive" }); return; }
-    setGenerating(true);
-    try {
-      const r = await fetch(`${API}/library/quick-generate`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({ productName: selCampaign?.name ?? "منتج", landingPageUrl: landingPage.trim(), textCount: copyCount, headlineCount: copyCount }),
-      });
-      const d = await r.json() as { texts?: { content: string }[]; headlines?: { content: string }[]; error?: string };
-      if (!r.ok) throw new Error(d.error ?? "خطأ");
-      setTexts((d.texts ?? []).map(t => t.content).filter(Boolean));
-      setHeadlines((d.headlines ?? []).map(h => h.content).filter(Boolean));
-      toast({ title: "✅ تم التوليد!" });
-    } catch (e) { toast({ title: "خطأ في التوليد", description: String(e), variant: "destructive" }); }
-    finally { setGenerating(false); }
-  }
-
-  function buildCmd(): string {
-    const acctLine = `act_${accountId.replace(/^act_/, "")}`;
-    const isCBO = selCampaign?.is_cbo ?? false;
-    const budgetLine = isCBO
-      ? "Budget Type: CBO — لا تحتاج ميزانية على الـ Adset (الميزانية على مستوى الحملة)"
-      : `Budget Type: ABO — ${budget} EGP/day (مطلوب تحديد budget على الـ Adset)`;
-    const txts = texts.slice(0, copyCount).map((t, i) => `    ${i + 1}. ${t}`).join("\n") || "    [أدخل النصوص]";
-    const hdls = headlines.slice(0, copyCount).map((h, i) => `    ${i + 1}. ${h}`).join("\n") || "    [أدخل العناوين]";
-    return `[SYSTEM COMMAND: ADD_CREATIVE_NEW_ADSET]
-Action: إضافة Adset جديدة في حملة موجودة
-
-Ad Account ID: ${acctLine}
-Campaign ID: ${selCampaign?.id ?? ""} (Name: ${selCampaign?.name ?? ""})
-New Adset Name: ${adsetName.trim() || "New Adset"}
-${budgetLine}
-Media Drive Folder: ${driveLink.trim() || "—"}
-Landing Page: ${landingPage.trim() || "—"}
-
-⚠️ RULES (لا تخالف):
-- أنشئ الـ Adset في الحملة ${selCampaign?.id ?? "???"} باستخدام create_adset${isCBO ? " (لا تحدد daily_budget على الـ Adset — الحملة CBO)" : ` (daily_budget: ${budget} EGP — الحملة ABO)`}
-- ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
-- page_id / pixel_id يُكتشفان تلقائياً من الدومين
-- استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في الـ Adset الجديدة
-- لو كانت الفيديوهات في فولدر Drive: اكتشف الملفات بـ upload_video_to_meta(list_only=true) ثم ارفع كل واحد
-
-Copy Pairs (${copyCount}):
-  Texts:
-${txts}
-  Headlines:
-${hdls}
-[END_COMMAND]`;
-  }
-
-  function handleSend() {
-    if (!selCampaign) { toast({ title: "❌ اختار الحملة أولاً", variant: "destructive" }); return; }
-    if (!driveLink.trim() && !landingPage.trim()) { toast({ title: "❌ أضف Drive Link أو Landing Page", variant: "destructive" }); return; }
-    onSend(buildCmd());
-  }
-
-  const isCBO = selCampaign?.is_cbo ?? false;
-
-  return (
-    <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-950/10 p-4 space-y-4 animate-in fade-in duration-150">
-      <div className="flex items-center gap-2">
-        <span className="text-lg">🆕</span>
-        <span className="font-semibold text-sm">كريتف في Adset جديدة</span>
-        <span className="text-[11px] text-muted-foreground mr-auto">حملة موجودة → Adset جديدة → فيديو + نص → AI يطلق</span>
-      </div>
-
-      {/* Account */}
-      {!accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-muted-foreground">الحساب الإعلاني</label>
-          <select className="w-full h-9 text-sm rounded-md border border-border bg-background px-3" onChange={e => { if (e.target.value) onAccountChange(e.target.value); }} dir="ltr">
-            <option value="">— اختار —</option>
-            {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name ?? acc.id}</option>)}
-          </select>
-        </div>
-      )}
-
-      {/* Campaign list */}
-      {accountId && (
-        <div className="space-y-1">
-          <label className="text-xs font-semibold">① الحملة الهدف</label>
-          <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
-            {loadingCampaigns && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
-            {campaigns.map(c => (
-              <button key={c.id} onClick={() => { setSelCampaign(c); setAdsetName(""); }}
-                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selCampaign?.id === c.id ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 font-semibold" : "hover:bg-muted"}`}>
-                <span className="truncate">{c.name}</span>
-                <span className={`shrink-0 ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${selCampaign?.id === c.id ? "bg-amber-200 dark:bg-amber-800 text-amber-700" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* New adset settings */}
-      {selCampaign && (
-        <div className="space-y-3">
-          {/* CBO/ABO badge */}
-          <div className={`text-[11px] px-3 py-2 rounded-lg font-medium ${isCBO ? "bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800" : "bg-orange-50 dark:bg-orange-950/20 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800"}`}>
-            {isCBO ? "✅ CBO — لا تحتاج ميزانية على الـ Adset (الحملة بتحكم الميزانية)" : "⚠️ ABO — مطلوب تحديد ميزانية للـ Adset الجديدة"}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">② اسم الـ Adset الجديد</label>
-              <Input placeholder="مثال: Angle 2 — Hook B" value={adsetName} onChange={e => setAdsetName(e.target.value)} className="h-8 text-xs" dir="rtl" />
-            </div>
-            {!isCBO && (
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">الميزانية (EGP/يوم)</label>
-                <Input type="number" min={1} value={budget} onChange={e => setBudget(e.target.value)} className="h-8 text-xs" />
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FolderOpen className="h-3 w-3" /> Drive Folder</label>
-              <Input placeholder="https://drive.google.com/drive/folders/..." value={driveLink} onChange={e => setDriveLink(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Landing Page</label>
-              <Input placeholder="https://..." value={landingPage} onChange={e => setLandingPage(e.target.value)} className="h-8 text-xs font-mono" dir="ltr" />
-            </div>
-          </div>
-
-          {/* Copy count + generate */}
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-muted-foreground">Copy Pairs:</label>
-            <button onClick={() => setCopyCount(c => Math.max(1, c - 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
-            <span className="text-sm font-bold text-amber-700 dark:text-amber-300 tabular-nums w-4 text-center">{copyCount}</span>
-            <button onClick={() => setCopyCount(c => Math.min(8, c + 1))} className="h-6 w-6 rounded border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
-            <button onClick={generateCopy} disabled={generating || !landingPage.trim()} className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline disabled:opacity-40 font-medium mr-auto">
-              {generating ? "جاري التوليد..." : "✨ توليد Copy"}
-            </button>
-          </div>
-
-          {/* Generated copy */}
-          {(texts.length > 0 || headlines.length > 0) && (
-            <div className="rounded-lg border border-amber-200/50 dark:border-amber-800/30 bg-background/60 p-2 space-y-2">
-              {texts.slice(0, copyCount).map((t, i) => (
-                <div key={i} className="text-xs rounded border border-amber-200/30 px-2 py-1.5" dir="rtl">
-                  <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-amber-500 text-white text-[8px] font-bold ml-1.5">{i + 1}</span>{t}
-                </div>
-              ))}
-              {headlines.slice(0, copyCount).length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {headlines.slice(0, copyCount).map((h, i) => (
-                    <span key={i} className="text-[11px] rounded-full px-2 py-0.5 border border-amber-200/50 bg-amber-50/50 dark:bg-amber-950/10 text-amber-700 dark:text-amber-300">{i + 1}. {h}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          <Button size="sm" onClick={handleSend} className="w-full h-9 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1.5">
-            <Send className="h-3.5 w-3.5" /> إرسال للمساعد ↗
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Scale AdSets Component ────────────────────────────────────────────────────
-type AdsetRow = { id: string; name: string; ctr: number | null; cpa: number | null; spend: number | null };
-type CampaignRow = { id: string; name: string; is_cbo?: boolean };
-type SseEvent = { type: string; message?: string; adset_name?: string; new_adset_id?: string; ads_created?: number; total_ads?: number; ad_ids?: string[]; campaign_id?: string; success?: number; failed?: number; adset_id?: string };
 
 function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; onAccountChange: (v: string) => void }) {
   const { data: accountsData } = useAccounts();
