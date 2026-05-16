@@ -786,7 +786,7 @@ function FlexScaleForm({
 
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
-type QuickCardType = "TEST" | "STANDARD" | "SCALEADSETS" | "SCALECREATIVE";
+type QuickCardType = "STANDARD" | "SCALEADSETS" | "SCALECREATIVE";
 
 interface QuickAngle {
   name: string;
@@ -1216,7 +1216,7 @@ Build Standard Campaign NOW — ${adsetCount} Adset(s):
 - كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
 - إذا كان هناك N فيديوهات × M نصوص = N×M إعلانات منفصلة في نفس الـ Adset
 - ابدأ بـ upload_video_to_meta(list_only=true) إذا لم يُحدَّد اسم الفيديو — لاكتشاف كل الفيديوهات
-- استخدم launch_pipeboard_campaign فقط — الـ backend يتولى رفع الفيديو وإنشاء كل إعلان منفصل بدون Dynamic Creative
+- استخدم launch_pipeboard_campaign — الـ backend يرفع الفيديو وينشئ كل إعلان عبر Meta API مباشرةً (STANDARD حقيقي — لا DCO)
 
 # 1. Campaign Settings
 - Campaign Type: STANDARD (لا Dynamic Creative)
@@ -1248,7 +1248,7 @@ ${adsetBlocks}
         credentials: "include",
         body: JSON.stringify({
           product_name: form.product.trim() || "منتج",
-          angle_name: `Quick Launch — ${type === "TEST" ? "Blueprint TESTING" : "Blueprint STANDARD"}`,
+          angle_name: `Quick Launch — Blueprint STANDARD`,
           generated_prompt: cmd,
         }),
       });
@@ -1257,10 +1257,9 @@ ${adsetBlocks}
   }
 
   const CARDS: { id: QuickCardType; emoji: string; label: string; hint: string; color: string }[] = [
-    { id: "TEST",         emoji: "🧪", label: "حملة اختبار dynamic creative", hint: "ABO • Adset per 1 creative • multi ad copy", color: "blue"    },
-    { id: "STANDARD",     emoji: "📋", label: "حملة Standard",                 hint: "ABO أو CBO • عدد Adsets قابل للتحديد",      color: "emerald" },
-    { id: "SCALEADSETS",  emoji: "📦", label: "Scale AdSets",                  hint: "نسخ AdSets رابحة لحملة جديدة",              color: "rose"    },
-    { id: "SCALECREATIVE",emoji: "🎨", label: "Scale Creative",                hint: "نسخ Creative وينر لـ AdSet جديد",            color: "cyan"    },
+    { id: "STANDARD",     emoji: "📋", label: "حملة Standard",   hint: "ABO أو CBO · فيديوهات × Copy Pairs · لا Dynamic Creative", color: "emerald" },
+    { id: "SCALEADSETS",  emoji: "📦", label: "Scale AdSets",    hint: "نسخ AdSets رابحة لحملة جديدة",                             color: "rose"    },
+    { id: "SCALECREATIVE",emoji: "🎨", label: "Scale Creative",  hint: "نسخ Creative وينر لـ AdSet جديد",                          color: "cyan"    },
   ];
 
   const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {
@@ -1308,8 +1307,8 @@ ${adsetBlocks}
         })}
       </div>
 
-      {/* ── Blueprint TEST / STANDARD form ── */}
-      {(activeCard === "TEST" || activeCard === "STANDARD") && (
+      {/* ── Blueprint STANDARD form ── */}
+      {activeCard === "STANDARD" && (
         <div className="rounded-xl border border-border bg-background p-4 space-y-3 animate-in fade-in duration-150">
           {/* Row 0: Ad Account selector */}
           <div className="space-y-1">
@@ -1541,165 +1540,16 @@ ${adsetBlocks}
             </div>
           )}
 
-          {/* TEST: Angles Section */}
-          {activeCard === "TEST" && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <FolderOpen className="h-3 w-3" /> رابط مجلد الميديا (Drive)
-              </label>
-            </div>
-            <Input
-              placeholder="https://drive.google.com/drive/folders/..."
-              value={form.driveLink}
-              onChange={e => upd("driveLink", e.target.value)}
-              className="h-9 text-sm font-mono text-xs"
-              dir="ltr"
-            />
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-xs font-medium text-muted-foreground">الزوايا الإعلانية</span>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={generateAngles} disabled={generating}
-                  className="text-xs text-violet-600 hover:underline flex items-center gap-1 disabled:opacity-50">
-                  {generating ? "جاري التوليد..." : "✨ توليد النصوص"}
-                </button>
-                <button type="button" onClick={() => upd("angles", [...form.angles, { ...INIT_ANGLE }])}
-                  className="text-xs text-primary hover:underline flex items-center gap-1">
-                  + إضافة زاوية
-                </button>
-              </div>
-            </div>
-            {form.angles.map((angle, idx) => (
-              <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-foreground">زاوية {idx + 1}</span>
-                  {form.angles.length > 1 && (
-                    <button type="button" onClick={() => upd("angles", form.angles.filter((_, i) => i !== idx))}
-                      className="text-xs text-destructive hover:underline">حذف</button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="اسم الزاوية (= اسم الفيديو في Drive)"
-                    value={angle.name}
-                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], name: e.target.value}; upd("angles", a); }}
-                    className="h-8 text-xs" dir="rtl" />
-                  <Input placeholder="https://buzzpick.net/product"
-                    value={angle.landing}
-                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], landing: e.target.value}; upd("angles", a); }}
-                    className="h-8 text-xs font-mono" dir="ltr" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <textarea placeholder="نص 1" value={angle.texts[0]}
-                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], texts: [e.target.value, a[idx].texts[1]]}; upd("angles", a); }}
-                    className="h-16 text-xs rounded-md border border-border bg-background p-2 resize-none" dir="rtl" />
-                  <textarea placeholder="نص 2" value={angle.texts[1]}
-                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], texts: [a[idx].texts[0], e.target.value]}; upd("angles", a); }}
-                    className="h-16 text-xs rounded-md border border-border bg-background p-2 resize-none" dir="rtl" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input placeholder="عنوان 1" value={angle.headlines[0]}
-                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], headlines: [e.target.value, a[idx].headlines[1]]}; upd("angles", a); }}
-                    className="h-8 text-xs" dir="rtl" />
-                  <Input placeholder="عنوان 2" value={angle.headlines[1]}
-                    onChange={e => { const a = [...form.angles]; a[idx] = {...a[idx], headlines: [a[idx].headlines[0], e.target.value]}; upd("angles", a); }}
-                    className="h-8 text-xs" dir="rtl" />
-                </div>
-              </div>
-            ))}
-          </div>
-          )}
-
-         
-
-          {/* Texts — shown for TEST only (STANDARD uses per-angle texts) */}
-          {activeCard === "TEST" && form.texts.length > 0 && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                النصوص المولّدة
-                <span className="mr-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-medium">
-                  كلها ستُدرج في الأمر
-                </span>
-              </label>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {form.texts.map((t, i) => (
-                  <div key={i} className="w-full text-right text-xs rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/40 dark:bg-emerald-950/10 p-2.5 leading-relaxed">
-                    <span className="inline-flex items-center justify-center h-4 w-4 rounded-full bg-emerald-500 text-white text-[9px] font-bold ml-1.5 shrink-0 align-middle">{i + 1}</span>
-                    {t}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {activeCard === "TEST" && form.texts.length === 0 && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <FileText className="h-3 w-3" /> النص الإعلاني (أو ولّد بالـ AI في الزاوية أعلاه)
-              </label>
-              <Textarea
-                dir="rtl"
-                placeholder="اكتب النص الإعلاني هنا..."
-                value={form.texts[0] ?? ""}
-                onChange={e => upd("texts", [e.target.value])}
-                rows={3}
-                className="text-sm resize-none"
-              />
-            </div>
-          )}
-
-          {/* Headlines — shown for TEST only (STANDARD uses per-angle headlines) */}
-          {activeCard === "TEST" && form.headlines.length > 0 && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <Heading1 className="h-3 w-3" />
-                العناوين المولّدة
-                <span className="mr-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 font-medium">
-                  كلها ستُدرج
-                </span>
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {form.headlines.map((h, i) => (
-                  <div key={i} className="text-xs rounded-full px-2.5 py-1 border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300 font-medium flex items-center gap-1">
-                    <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-emerald-500 text-white text-[8px] font-bold shrink-0">{i + 1}</span>
-                    {h}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {activeCard === "TEST" && form.headlines.length === 0 && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <Heading1 className="h-3 w-3" /> العنوان
-              </label>
-              <Input
-                dir="rtl"
-                placeholder="عنوان الإعلان (5-7 كلمات)"
-                value={form.headlines[0] ?? ""}
-                onChange={e => upd("headlines", [e.target.value])}
-                className="h-9 text-sm"
-              />
-            </div>
-          )}
-
+          {/* (TEST card removed — STANDARD is the only blueprint type) */}
           {/* Send button */}
           <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
             <div className="flex-1 min-w-0 text-xs text-muted-foreground">
-              {activeCard === "TEST" ? (
-                form.angles.filter(a => a.name).length > 0
-                  ? `🧪 ${form.angles.length} Angles → Dynamic Creative ABO`
-                  : "🧪 Blueprint Testing command will be built"
-              ) : (
-                `📋 ${form.stdAngles.length} Adset${form.stdAngles.length !== 1 ? "s" : ""} · N videos × ${form.stdCreativesPerAdset} copy pairs = N×${form.stdCreativesPerAdset} Ads · ${form.stdIsCBO ? "CBO" : "ABO"}`
-              )}
+              📋 {form.stdAngles.length} Adset{form.stdAngles.length !== 1 ? "s" : ""} · N videos × {form.stdCreativesPerAdset} copy pairs = N×{form.stdCreativesPerAdset} Ads · {form.stdIsCBO ? "CBO" : "ABO"} · لا Dynamic Creative
             </div>
             <Button
               size="sm"
               className="gap-1.5 h-9 text-xs shrink-0 bg-primary hover:bg-primary/90"
-              onClick={() => {
-                if (activeCard === "TEST") sendToChat(buildBlueprintCmd("TEST"), "TEST");
-                else if (activeCard === "STANDARD") sendToChat(buildStandardCmd(), "TEST");
-              }}
+              onClick={() => sendToChat(buildStandardCmd(), "SCALE")}
             >
               <Send className="h-3.5 w-3.5" />
               إرسال للمساعد ↗
