@@ -2744,102 +2744,89 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       }
 
       // ── Step 2b: Expand any Google Drive FOLDER URLs into individual file creatives ─
+      // Strategy: fetch each unique folder ONCE (cached by folderId), then pair
+      // each video with the original creative at the SAME INDEX (position-based).
+      // This ensures N folder-creatives × M videos → M adsets, each creative
+      // matched by position: video[i] → original_creative[i % N].
       {
         const googleApiKey = process.env.GOOGLE_API_KEY;
-        const expanded: CreativeInput[] = [];
+
+        // 1. Fetch each unique folder once
+        type DriveFile = { id: string; mimeType: string; name: string };
+        const folderCache = new Map<string, DriveFile[]>();
+
         for (const creative of rawCreatives) {
           const rawUrl = creative.media_url?.trim() ?? "";
           const folderMatch = rawUrl.match(/\/folders\/([a-zA-Z0-9-_]+)/);
-          if (!folderMatch) {
-            expanded.push(creative);
-            continue;
-          }
-          // It's a folder link
+          if (!folderMatch) continue;
           const folderId = folderMatch[1]!;
-          logger.info(
-            { folderId },
-            "launch_pipeboard_campaign: detected Google Drive folder, expanding...",
-          );
+          if (folderCache.has(folderId)) continue;
+
+          logger.info({ folderId }, "launch_pipeboard_campaign: detected Google Drive folder, expanding...");
           if (!googleApiKey) {
             throw new Error(
               "GOOGLE_API_KEY مفقود في متغيرات البيئة — لا يمكن استخراج ملفات مجلد Drive بدونه",
             );
           }
           const apiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
-          const driveResp = await fetch(apiUrl, {
-            signal: AbortSignal.timeout(30_000),
-          });
+          const driveResp = await fetch(apiUrl, { signal: AbortSignal.timeout(30_000) });
           if (!driveResp.ok) {
             throw new Error(
               `فشل استعلام Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}`,
             );
           }
-          const driveData = (await driveResp.json()) as {
-            files?: Array<{ id: string; mimeType: string; name: string }>;
-          };
+          const driveData = (await driveResp.json()) as { files?: DriveFile[] };
           const validFiles = (driveData.files ?? []).filter(
-            (f) =>
-              f.mimeType.startsWith("video/") ||
-              f.mimeType.startsWith("image/"),
+            (f) => f.mimeType.startsWith("video/") || f.mimeType.startsWith("image/"),
           );
           if (validFiles.length === 0) {
             throw new Error(
               `مجلد Google Drive "${folderId}" فارغ أو لا يحتوي على فيديوهات أو صور صالحة`,
             );
           }
-          logger.info(
-            { folderId, count: validFiles.length },
-            "launch_pipeboard_campaign: folder expanded",
-          );
-          for (const file of validFiles) {
-            const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0`;
-            const mediaType = file.mimeType.startsWith("video/")
-              ? "video"
-              : "image";
-            expanded.push({
-              ...creative,
-              media_url: directUrl,
-              media_type: mediaType,
-            });
-          }
+          logger.info({ folderId, count: validFiles.length }, "launch_pipeboard_campaign: folder expanded");
+          folderCache.set(folderId, validFiles);
         }
-        rawCreatives = expanded;
-      }
 
-      // ── Dedup expanded creatives by normalised media URL ─────────────────────
-      // When the AI sends the same folder URL N times (once per ad/text
-      // combination), folder expansion creates N×M entries (M = videos in folder).
-      // Deduplicate to ONE entry per unique video URL, merging texts and headlines
-      // from all duplicates so every adset still gets all the copy variations.
-      {
-        type CreativeItem = typeof rawCreatives[0];
-        const urlOrder: string[] = [];
-        const urlMap = new Map<string, CreativeItem>();
-        for (const c of rawCreatives) {
-          const url = normaliseMediaUrl(c.media_url?.trim() ?? "");
-          if (!urlMap.has(url)) {
-            urlOrder.push(url);
-            urlMap.set(url, { ...c,
-              texts:     Array.isArray(c.texts)     ? [...c.texts as string[]]     : [],
-              headlines: Array.isArray(c.headlines) ? [...c.headlines as string[]] : [],
-            });
-          } else {
-            // Merge texts and headlines from duplicates (no duplicates within the list)
-            const existing = urlMap.get(url)!;
-            const existingTexts     = existing.texts     as string[];
-            const existingHeadlines = existing.headlines as string[];
-            for (const t of (c.texts     as string[] ?? [])) { if (!existingTexts.includes(t))     existingTexts.push(t); }
-            for (const h of (c.headlines as string[] ?? [])) { if (!existingHeadlines.includes(h)) existingHeadlines.push(h); }
-            // Keep last landing_page_url so all landing pages cycle through
-            if (c.landing_page_url) existing.landing_page_url = c.landing_page_url as string;
+        // 2. If any folder was found, rebuild rawCreatives with position-based pairing
+        if (folderCache.size > 0) {
+          // Separate direct creatives from folder creatives (per folder)
+          const directCreatives: (CreativeInput & { _origIdx: number })[] = [];
+          const folderCreativesMap = new Map<string, (CreativeInput & { _origIdx: number })[]>();
+
+          for (let i = 0; i < rawCreatives.length; i++) {
+            const c = rawCreatives[i]!;
+            const rawUrl = c.media_url?.trim() ?? "";
+            const folderMatch = rawUrl.match(/\/folders\/([a-zA-Z0-9-_]+)/);
+            if (!folderMatch) {
+              directCreatives.push({ ...c, _origIdx: i });
+            } else {
+              const folderId = folderMatch[1]!;
+              if (!folderCreativesMap.has(folderId)) folderCreativesMap.set(folderId, []);
+              folderCreativesMap.get(folderId)!.push({ ...c, _origIdx: i });
+            }
           }
-        }
-        if (urlMap.size < rawCreatives.length) {
+
+          // 3. For each folder: M videos × position-paired creative
+          const expanded: CreativeInput[] = [...directCreatives];
+          for (const [folderId, folderCreatives] of folderCreativesMap) {
+            const files = folderCache.get(folderId) ?? [];
+            const N = folderCreatives.length; // number of original creative templates for this folder
+            for (let vi = 0; vi < files.length; vi++) {
+              const file = files[vi]!;
+              // Pair video[vi] with original creative[vi % N]
+              const template = folderCreatives[vi % N]!;
+              const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0`;
+              const mediaType = file.mimeType.startsWith("video/") ? "video" : "image";
+              expanded.push({ ...template, media_url: directUrl, media_type: mediaType });
+            }
+          }
+
           logger.info(
-            { before: rawCreatives.length, after: urlMap.size },
-            "launch_pipeboard_campaign: deduped expanded creatives by media URL",
+            { before: rawCreatives.length, after: expanded.length },
+            "launch_pipeboard_campaign: folder expansion complete (position-paired)",
           );
-          rawCreatives = urlOrder.map(u => urlMap.get(u)!);
+          rawCreatives = expanded;
         }
       }
 
