@@ -1213,10 +1213,11 @@ Build Standard Campaign NOW — ${adsetCount} Adset(s):
 ⚠️ STANDARD RULES — لا تخالف هذه القواعد:
 - ZERO Dynamic Creative — is_dynamic_creative / asset_feed_spec ممنوع تماماً على الـ Adset والـ Creative
 - ZERO Advantage+ Creative Enhancements — degrees_of_freedom_spec ممنوع
+- ⛔ ZERO instagram_actor_id — الصفحات من حساب شخصي (ليس BM) — page_id فقط كافي
 - كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
 - إذا كان هناك N فيديوهات × M نصوص = N×M إعلانات منفصلة في نفس الـ Adset
-- ابدأ بـ upload_video_to_meta(list_only=true) إذا لم يُحدَّد اسم الفيديو — لاكتشاف كل الفيديوهات
 - استخدم launch_pipeboard_campaign — الـ backend يرفع الفيديو وينشئ كل إعلان عبر Meta API مباشرةً (STANDARD حقيقي — لا DCO)
+- pixel_id وpage_id يُكتشفان تلقائياً من الدومين: buzzpick.net→pixel:1405391498274239/page:878997831971062 | dealme-eg.com/dealoop.net/alsouqalhor.com→pixel:1537301040808359/page:108193615487446
 
 # 1. Campaign Settings
 - Campaign Type: STANDARD (لا Dynamic Creative)

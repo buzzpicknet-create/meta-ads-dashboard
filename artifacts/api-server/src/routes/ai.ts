@@ -814,15 +814,20 @@ PIXEL & DOMAIN MAPPING — خريطة البيكسل التلقائية
 - duplicate_campaign(campaign_id, name, name_suffix?, new_daily_budget?, new_status?) — نسخ حملة كاملة مع مجموعاتها وإعلاناتها
   - الأسرع لإنشاء نسخة موسمية أو تجريبية — وفّر الوقت بدل إنشاء من الصفر
   - new_status: PAUSED (افتراضي للمراجعة) أو ACTIVE
-- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, adsets[], creatives[], pixel_id?, page_id?, call_to_action?, angles?) — إنشاء حملة كاملة مع عدة AdSets وعدة Creatives دفعة واحدة عبر Pipeboard CMP
-  - adsets[]: مصفوفة [{name, budget}] — كل AdSet له ميزانية مستقلة
+- launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, adsets[], creatives[], pixel_id?, page_id?, call_to_action?, angles?) — إنشاء حملة STANDARD كاملة مع عدة AdSets وعدة Creatives دفعة واحدة
+  - adsets[]: مصفوفة [{name, budget}] — كل AdSet له ميزانية مستقلة (ABO)، أو budget=0 لـ CBO
   - creatives[]: مصفوفة [{media_url, media_type, primary_text, headline, landing_page_url?}] — يُنشأ كل creative داخل كل AdSet
-  - angles[]: (الأفضل للزوايا) مصفوفة [{name, landing_url, video_name, texts:[str,str], headlines:[str,str]}] — كل زاوية = AdSet منفصل + إعلان واحد بـ 2 نص و2 عنوان. استخدم هذا بدل adsets+creatives عند وجود زوايا إعلانية
-  - page_id: اختياري — الـ backend يجلبه تلقائياً. مرّره فقط إذا أعطاه المستخدم صراحةً
-  - pixel_id: OUTCOME_SALES بوجوده، OUTCOME_TRAFFIC بدونه
-  - media_url: Google Drive (أي شكل — يُحوَّل تلقائياً) أو رابط مباشر
+  - angles[]: (للزوايا) مصفوفة [{name, landing_url, video_name, texts:[str,str], headlines:[str,str]}] — كل زاوية = AdSet منفصل
+  - pixel_id: **اختياري** — الـ backend يكتشفه تلقائياً من landing_page_url:
+    · buzzpick.net → 1405391498274239
+    · dealme-eg.com / dealoop.net / alsouqalhor.com → 1537301040808359
+  - page_id: **اختياري** — الـ backend يكتشفه تلقائياً من landing_page_url:
+    · buzzpick.net → 878997831971062
+    · dealme-eg.com / dealoop.net / alsouqalhor.com → 108193615487446
+  - ⛔ instagram_actor_id: **لا تُرسله أبداً** — الصفحات من حساب شخصي وليس BM، Meta تقبل page_id مباشرةً
+  - media_url: رابط مجلد Google Drive (الـ backend يكتشف كل الفيديوهات تلقائياً) أو رابط مباشر
   - الاستهداف: Advantage+ Audience تلقائياً — لا تضف أعمار أو اهتمامات
-  - الناتج: campaign_id + تفاصيل كل ad (نجاح/فشل). راجع النتيجة بدقة: إذا كان ads_created=0 أخبر المستخدم بسبب الفشل بوضوح
+  - الناتج: campaign_id + تفاصيل كل ad. إذا كان ads_created=0 أخبر المستخدم بسبب الفشل بوضوح
 
 قواعد النصوص:
 - إذا كتب المستخدم النص → استخدمه **حرفياً** بدون تعديل أو "تحسين"
@@ -1825,15 +1830,15 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "launch_pipeboard_campaign",
-      description: "أنشئ حملة Meta Ads كاملة عبر Pipeboard CMP. تدعم إنشاء عدة AdSets وعدة Creatives (Ads) دفعة واحدة — لاختبار ABO أو تعدد الإعلانات. الحملة تُنشأ دائماً PAUSED للمراجعة. استخدم adsets[] وcreatives[] للإنشاء الجماعي. page_id اختياري — الـ backend يجلبه تلقائياً عبر Pipeboard إذا لم يُرسَل.",
+      description: "أنشئ حملة STANDARD Meta Ads كاملة. تدعم إنشاء عدة AdSets وعدة Creatives دفعة واحدة — STANDARD حقيقي بدون DCO. الحملة تُنشأ PAUSED للمراجعة. pixel_id وpage_id اختياريان — الـ backend يكتشفهما من landing_page_url تلقائياً. ⛔ لا تُرسل instagram_actor_id.",
       parameters: {
         type: "object",
         properties: {
           account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX)" },
           campaign_name: { type: "string", description: "اسم الحملة" },
           landing_page_url: { type: "string", description: "رابط الصفحة الهبوطية لجميع الإعلانات" },
-          pixel_id: { type: "string", description: "معرّف بيكسل Meta — يُنشئ OUTCOME_SALES. بدونه OUTCOME_TRAFFIC." },
-          page_id: { type: "string", description: "معرّف صفحة Facebook — اختياري. الـ backend يجلبه تلقائياً عبر Pipeboard. مرّره فقط إذا أعطاه المستخدم صراحةً." },
+          pixel_id: { type: "string", description: "اختياري — يُنشئ OUTCOME_SALES. الـ backend يكتشفه من الدومين تلقائياً: buzzpick→1405391498274239، dealme/dealoop/alsouqalhor→1537301040808359" },
+          page_id: { type: "string", description: "اختياري — الـ backend يكتشفه من الدومين: buzzpick→878997831971062، dealme/dealoop/alsouqalhor→108193615487446. ⛔ لا تُرسل instagram_actor_id" },
           call_to_action: { type: "string", description: "زر CTA — LEARN_MORE | SHOP_NOW | SIGN_UP | SUBSCRIBE. افتراضي: LEARN_MORE" },
           adsets: {
             type: "array",

@@ -2561,7 +2561,21 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       error?: string;
     }
 
-    const pixelId = String(args?.pixel_id ?? "").trim();
+    // ── Auto-detect pixel_id from domain map (personal account — no BM) ─────
+    const LPC_PIXEL_MAP: Record<string, string> = {
+      "buzzpick.net":    "1405391498274239",
+      "dealme-eg.com":   "1537301040808359",
+      "dealoop.net":     "1537301040808359",
+      "alsouqalhor.com": "1537301040808359",
+    };
+    const _lpcLandingUrl = String(args?.landing_page_url ?? "");
+    let pixelId = String(args?.pixel_id ?? "").trim();
+    if (!pixelId) {
+      for (const [domain, pid] of Object.entries(LPC_PIXEL_MAP)) {
+        if (_lpcLandingUrl.includes(domain)) { pixelId = pid; break; }
+      }
+      if (!pixelId) pixelId = "1537301040808359"; // default — dealme/dealoop/alsouqalhor
+    }
     const hasPixel = pixelId.length > 0;
     const campObjective = hasPixel ? "OUTCOME_SALES" : "OUTCOME_TRAFFIC";
     const optimizationGoal = hasPixel ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS";
@@ -2691,31 +2705,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           if (landingUrl.includes(domain)) { pageId = pid; break; }
         }
       }
+      // Pages are managed from personal account (not Business Manager) —
+      // get_account_pages (promote_pages) always returns empty for this setup.
+      // Use domain map as source of truth; fall back to default page.
       if (!pageId) {
-        try {
-          const pagesResult = await client.callTool({
-            name: "get_account_pages",
-            arguments: { account_id: accountId },
-          });
-          const pagesText = mcpText(pagesResult);
-          logger.info(
-            { pagesText: pagesText.slice(0, 300) },
-            "launch_pipeboard_campaign: get_account_pages",
-          );
-          const pageMatch =
-            pagesText.match(/"id"\s*:\s*"(\d+)"/) ??
-            pagesText.match(/\b(\d{10,})\b/);
-          pageId = pageMatch?.[1] ?? "";
-          if (!pageId)
-            logger.warn(
-              "launch_pipeboard_campaign: get_account_pages — no page_id found",
-            );
-        } catch (e) {
-          logger.warn(
-            { e },
-            "launch_pipeboard_campaign: get_account_pages threw",
-          );
-        }
+        pageId = _lpcLandingUrl.includes("buzzpick.net")
+          ? "878997831971062"
+          : "108193615487446"; // dealme-eg / dealoop / alsouqalhor default
+        logger.info({ pageId, landing: _lpcLandingUrl }, "launch_pipeboard_campaign: page_id fallback from default map");
       }
 
       // ── Step 2b: Expand any Google Drive FOLDER URLs into individual file creatives ─
