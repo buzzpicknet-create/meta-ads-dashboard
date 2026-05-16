@@ -722,7 +722,7 @@ Before proposing any scale or pause or budget update, check the updated_time of 
    - ابحث بالاسم الذي ذكره المستخدم وأحضر الـ ID تلقائياً قبل المتابعة
 ١. اجلب حالة العنصر الحالية:
    - قبل pause_campaign أو enable_campaign: استخدم get_campaign_status أولاً
-   - قبل update_campaign_budget: استخدم get_campaign_budget مرة واحدة فقط لكل حملة — لا تعيد استدعاءه. بعد الجلب يُخزَّن تلقائياً
+   - قبل update_campaign_budget: استخدم get_campaign_budget مرة واحدة فقط لكل حملة — لا تعيد استدعاءه. بعد الجلب يُخزَّن تلقائياً. ⚠️ يُمنع توليد update_campaign_budget في bulk_action بدون currentBudget — currentBudget مأخوذ من نتيجة get_campaign_budget ويُضاف كقيمة رقمية. إذا لم تجلب get_campaign_budget بعد، اجلبه أولاً.
    - قبل pause_adset أو enable_adset أو update_adset_budget: استخدم get_adset_status مرة واحدة فقط
    - قبل pause_ad أو enable_ad: استخدم get_ad_status مرة واحدة فقط
    - ⚠️ حملات ABO: لو get_campaign_budget أرجع "النوع: ABO" فالميزانية على المجموعات الإعلانية. الرد يتضمن adset_id وميزانية كل مجموعة تلقائياً — استخدم update_adset_budget مباشرةً بدون أي استدعاء إضافي
@@ -1113,11 +1113,11 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 
 الحقول المطلوبة لكل نوع:
 - pause_campaign / enable_campaign:      campaignId + name إلزاميان
-- update_campaign_budget:                   campaignId + name + currentBudget + newBudget + budgetType ("daily"|"lifetime") إلزامي
+- update_campaign_budget:                   campaignId + name + currentBudget + newBudget + budgetType ("daily"|"lifetime") إلزامي — currentBudget يجب أن يكون القيمة الفعلية الحالية بالـ EGP (رقم، ليس نص، ليس 0)
 - rename_campaign:                          campaignId + name (الاسم الحالي) + newName (الاسم الجديد) إلزاميان
 - duplicate_campaign:                       campaignId + name + nameSuffix? + newBudget? + newStatus ("PAUSED" افتراضياً)
 - pause_adset / enable_adset:               adsetId + name إلزاميان — أضف campaignName لتوضيح الحملة الأم
-- update_adset_budget:                      adsetId + name + currentBudget + newBudget إلزامي — أضف campaignName للـ ABO
+- update_adset_budget:                      adsetId + name + currentBudget + newBudget إلزامي — currentBudget القيمة الفعلية الحالية بالـ EGP — أضف campaignName للـ ABO
 - rename_adset:                             adsetId + name (الاسم الحالي) + newName (الاسم الجديد) إلزاميان
 - duplicate_adset:                          adsetId + name إلزاميان
 - pause_ad / enable_ad:                     adId + name إلزاميان

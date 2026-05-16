@@ -77,14 +77,22 @@ const FALLBACK_META = { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-m
 
 // Detect if budget is decreasing vs increasing; fallback for unknown types prevents crash
 function getBudgetMeta(item: BulkActionItem): { icon: React.ReactNode; badge: string; color: string } {
-  if ((item.type === "update_campaign_budget" || item.type === "update_adset_budget") &&
-      item.currentBudget !== undefined && item.newBudget !== undefined) {
-    const isDown = item.newBudget < item.currentBudget;
-    if (isDown) return {
-      icon: <TrendingDown className="h-3.5 w-3.5" />,
-      badge: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30",
-      color: "text-red-600 dark:text-red-400",
-    };
+  if (item.type === "update_campaign_budget" || item.type === "update_adset_budget") {
+    if (item.currentBudget !== undefined && item.newBudget !== undefined) {
+      const isDown = item.newBudget < item.currentBudget;
+      if (isDown) return {
+        icon: <TrendingDown className="h-3.5 w-3.5" />,
+        badge: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30",
+        color: "text-red-600 dark:text-red-400",
+      };
+      return {
+        icon: <TrendingUp className="h-3.5 w-3.5" />,
+        badge: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+        color: "text-emerald-600 dark:text-emerald-400",
+      };
+    }
+    // currentBudget unknown — show neutral edit icon so we never falsely imply direction
+    return { icon: <Pencil className="h-3.5 w-3.5" />, color: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" };
   }
   return TYPE_META[item.type] ?? FALLBACK_META;
 }
