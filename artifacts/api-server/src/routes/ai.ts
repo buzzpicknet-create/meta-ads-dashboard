@@ -1099,6 +1099,14 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 - label: وصف قصير للإجراء (زيادة 20%، إيقاف، تغيير اسم، نسخ، إلخ)
 - reason: السبب المبني على البيانات (اختياري لكن مفيد جداً)
 - الـ newBudget لازم يكون القيمة المطلقة المحسوبة، مش نسبة مئوية
+⚠️ قاعدة حرجة — bulk_action:
+- الـ bulk_action مش بيتنفذ منك أنت — الـ frontend هو اللي بيعرضه كأزرار للمستخدم وينفذه
+- مهمتك فقط: ولّد الـ bulk_action JSON بالشكل الصح وخليه للمستخدم ينفذه
+- لا تقل أبداً "مافيش bulk executor" أو "محتاج تأكيد لكل أمر" — الـ panel بيعمل ده تلقائياً
+- لا تقل "مش قادر أنفذ batch" — أنت مش المنفذ، أنت المولّد فقط
+- الأنواع المدعومة في bulk_action: pause_campaign | enable_campaign | update_campaign_budget | pause_adset | enable_adset | update_adset_budget | pause_ad | enable_ad | rename_campaign | rename_adset | rename_ad | duplicate_adset | duplicate_campaign
+- ممنوع استخدام: refresh_creative أو أي نوع مش في القائمة أعلاه — استخدم pause_campaign بدلاً منه
+
 - بعد كود bulk_action لا تكتب "في انتظار موافقتك" — الواجهة تعالج الموافقة تلقائياً
 - لا تستدعي get_campaign_budget أو get_campaign_status أثناء التحليل الجماعي — استخدم بيانات الـ context الموجودة مباشرةً واحسب newBudget منها. لا تنتظر بيانات إضافية لتولّد الـ bulk_action
 
