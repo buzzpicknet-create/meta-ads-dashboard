@@ -3110,6 +3110,8 @@ async function tryExecuteViaPipeboard(
         level: "campaign",
         time_breakdown: "day",
         time_range: timeRange,
+        compact: false,
+        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
     }
 
@@ -3123,6 +3125,8 @@ async function tryExecuteViaPipeboard(
         object_id: campaign_id,
         level: "adset",
         time_range: timeRange,
+        compact: false,
+        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
     }
 
@@ -3170,6 +3174,8 @@ async function tryExecuteViaPipeboard(
         object_id: ad_id,
         level: "ad",
         time_range: timeRange,
+        compact: false,
+        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
     }
 
@@ -3181,6 +3187,8 @@ async function tryExecuteViaPipeboard(
         object_id: adset_id,
         level: "ad",
         time_range: timeRange,
+        compact: false,
+        fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"],
       });
     }
 
