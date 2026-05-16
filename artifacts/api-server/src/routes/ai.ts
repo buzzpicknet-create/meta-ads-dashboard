@@ -3234,11 +3234,12 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
       const cvr         = lpViews      ? (purchases  / lpViews)     * 100 : 0;
       const cpa         = purchases    ? spend / purchases : 0;
 
+      const frequency = Number(row["frequency"] || 0);
       const id = String(row[idKey] || row["id"] || "");
       return {
         name: String(row[nameKey] || row["name"] || row["ad_name"] || row["adset_name"] || row["campaign_name"] || "—"),
         id,
-        impressions, spend, thruplay,
+        impressions, spend, thruplay, frequency,
         hookRate: impressions ? (videoPlays / impressions) * 100 : 0,
         holdRate: videoPlays  ? (v100 / videoPlays)       * 100 : 0,
         ctr, lpr, cvr, cpa, purchases, linkClicks, lpViews,
@@ -3252,17 +3253,32 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
     const fmt        = (n: number, dec = 1) => n.toFixed(dec);
     const fmtN       = (n: number)          => n.toFixed(0);
 
+    // For adset level: always include Frequency column (Saturation Check depends on it)
+    const hasFrequency = level === "adset" && summaryRows.some(r => r.frequency > 0);
     // Full funnel table when purchases/CTR data is available
     const hasFunnel = summaryRows.some(r => r.ctr > 0 || r.purchases > 0);
     const lines: string[] = [
       `## تحليل الأداء — ${level === "ad" ? "إعلانات" : level === "adset" ? "مجموعات" : "حملات"} (${summaryRows.length} | إنفاق: ${fmtN(totalSpend)} EGP)\n`,
     ];
     if (hasFunnel) {
+      const freqHeader = hasFrequency ? " Frequency |" : "";
+      const freqSep    = hasFrequency ? "-----------|" : "";
       lines.push(
-        `| الاسم (id) | الإنفاق | Hook% | Hold% | CTR% | LPR% | CVR% | Purchases | CPA |`,
-        `|-----------|---------|-------|-------|------|------|------|-----------|-----|`,
-        ...limited.map(r =>
-          `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${fmtN(r.spend)} EGP | ${r.hookRate > 0 ? fmt(r.hookRate) : "—"} | ${r.holdRate > 0 ? fmt(r.holdRate) : "—"} | ${r.ctr > 0 ? fmt(r.ctr) : "—"} | ${r.lpr > 0 ? fmt(r.lpr) : "—"} | ${r.cvr > 0 ? fmt(r.cvr) : "—"} | ${r.purchases > 0 ? Math.round(r.purchases) : 0} | ${r.cpa > 0 ? fmtN(r.cpa) + " EGP" : "—"} |`
+        `| الاسم (id) | الإنفاق | Hook% | Hold% | CTR% | LPR% | CVR% | Purchases | CPA |${freqHeader}`,
+        `|-----------|---------|-------|-------|------|------|------|-----------|-----|${freqSep}`,
+        ...limited.map(r => {
+          const freqCell = hasFrequency ? ` ${r.frequency > 0 ? fmt(r.frequency, 2) : "—"} |` : "";
+          return `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${fmtN(r.spend)} EGP | ${r.hookRate > 0 ? fmt(r.hookRate) : "—"} | ${r.holdRate > 0 ? fmt(r.holdRate) : "—"} | ${r.ctr > 0 ? fmt(r.ctr) : "—"} | ${r.lpr > 0 ? fmt(r.lpr) : "—"} | ${r.cvr > 0 ? fmt(r.cvr) : "—"} | ${r.purchases > 0 ? Math.round(r.purchases) : 0} | ${r.cpa > 0 ? fmtN(r.cpa) + " EGP" : "—"} |${freqCell}`;
+        }),
+      );
+    } else if (hasFrequency) {
+      // Adset-level without funnel data: show Frequency + CPM table (Saturation Check)
+      const cpmRows = limited.map(r => ({ ...r, cpm: r.impressions ? (r.spend / r.impressions) * 1000 : 0 }));
+      lines.push(
+        `| المجموعة (id) | الإنفاق | Frequency | CPM (EGP) | Hook% | Hold% |`,
+        `|--------------|---------|-----------|-----------|-------|-------|`,
+        ...cpmRows.map(r =>
+          `| ${r.name.substring(0, 35)}${r.id ? ` (id:${r.id})` : ""} | ${fmtN(r.spend)} EGP | **${fmt(r.frequency, 2)}** | ${fmtN(r.cpm)} | ${r.hookRate > 0 ? fmt(r.hookRate) : "—"} | ${r.holdRate > 0 ? fmt(r.holdRate) : "—"} |`
         ),
       );
     } else {
@@ -3322,7 +3338,7 @@ async function tryExecuteViaPipeboard(
         level: "adset",
         time_range: timeRange,
         compact: false,
-        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
+        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "frequency", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
       });
       return summarizePipeboardInsights(pbRaw1, "adset");
     }
