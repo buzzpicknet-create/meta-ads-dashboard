@@ -1810,16 +1810,50 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       res.status(400).json({ error: "adset_id مطلوب" });
       return;
     }
-    // Guard: adset_id must be numeric — reject names like "Angle 1"
+    // Guard: adset_id must be numeric — if name given, auto-resolve from DB
     if (!/^\d{10,}$/.test(adsetId)) {
-      res.status(400).json({
-        error:
-          `adset_id غير صالح: "${adsetId}" — يجب أن يكون الرقم الـ numeric المُعاد من create_adset ` +
-          `(مثال: 120244466063810554)، وليس اسم المجموعة. ` +
-          `ارجع إلى نتيجة create_adset واستخدم adset_id الرقمي منها.`,
-      });
-      return;
+      // Try to resolve adset name → numeric ID from recent pipeboard_actions
+      try {
+        const dbRows = await query<{ result_message: string }>(
+          `SELECT result_message FROM pipeboard_actions
+           WHERE tool_name = 'create_adset' AND success = true AND adset_name = $1
+           ORDER BY created_at DESC LIMIT 1`,
+          [adsetId],
+        );
+        const msg = dbRows[0]?.result_message ?? "";
+        const idMatch = msg.match(/adset_id:\s*(\d{10,})/);
+        if (idMatch?.[1]) {
+          logger.warn(
+            { passedName: adsetId, resolvedId: idMatch[1] },
+            "create_ad_from_creative_spec: adset_id was a name — auto-resolved from DB",
+          );
+          // Mutate adsetId to the resolved numeric ID
+          (args as Record<string, unknown>).adset_id = idMatch[1];
+          // Re-read the sanitized value
+          const resolvedAdsetId = idMatch[1];
+          // Override the local variable by falling through with the corrected value
+          // We'll just overwrite adsetId indirectly via a second param variable
+          Object.assign(args as object, { adset_id: resolvedAdsetId });
+        } else {
+          res.status(400).json({
+            error:
+              `adset_id غير صالح: "${adsetId}" — يجب أن يكون الرقم الـ numeric المُعاد من create_adset ` +
+              `(مثال: 120244466063810554)، وليس اسم المجموعة. ` +
+              `ارجع إلى نتيجة create_adset واستخدم adset_id الرقمي منها.`,
+          });
+          return;
+        }
+      } catch {
+        res.status(400).json({
+          error:
+            `adset_id غير صالح: "${adsetId}" — يجب أن يكون الرقم الـ numeric المُعاد من create_adset ` +
+            `(مثال: 120244466063810554)، وليس اسم المجموعة.`,
+        });
+        return;
+      }
     }
+    // Re-read adsetId in case it was resolved above
+    const resolvedAdsetId = String((args as Record<string, unknown>)?.adset_id ?? adsetId).replace(/,/g, "").trim();
     if (!linkUrl) {
       res.status(400).json({ error: "link_url مطلوب" });
       return;
@@ -1913,7 +1947,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const adArgsPb: Record<string, unknown> = {
           account_id: accountIdWithAct,
           name: adName,
-          adset_id: adsetId,
+          adset_id: resolvedAdsetId,
           creative_id: creativeId,
           status: "PAUSED",
           tracking_specs: [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }],
@@ -1932,7 +1966,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           `✅ create_ad_from_creative_spec نجح (via Pipeboard MCP)`,
           `new_ad_id: ${newAdId}`,
           `creative_id: ${creativeId}`,
-          `adset_id: ${adsetId}`,
+          `adset_id: ${resolvedAdsetId}`,
           `media_type: ${mediaType}`,
         ].join(" — ");
 
@@ -1947,7 +1981,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           message: pbMsg,
           new_ad_id: newAdId,
           creative_id: creativeId,
-          adset_id: adsetId,
+          adset_id: resolvedAdsetId,
           account_id: accountIdWithAct,
           status: "PAUSED",
           effective_status: "PAUSED",
