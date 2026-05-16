@@ -2830,6 +2830,28 @@ async function callPipeboardRead(
   }
 }
 
+// No truncation variant — used only before summarizePipeboardInsights so the full
+// JSON reaches the parser. The summary output is always <2 KB, so no need to cap.
+async function callPipeboardReadFull(
+  toolName: string,
+  toolArgs: Record<string, unknown>
+): Promise<string> {
+  try {
+    const client = await getPipeboardClient();
+    const result = await client.callTool({ name: toolName, arguments: toolArgs });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    return content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text ?? "")
+      .join("\n")
+      .trim();
+  } catch (err) {
+    _pbClient = null;
+    _pbConnecting = null;
+    throw err;
+  }
+}
+
 // ── Google Ads MCP singleton ──────────────────────────────────────────────────
 let _gaClient: Client | null = null;
 let _gaConnecting: Promise<Client> | null = null;
@@ -3180,7 +3202,7 @@ async function tryExecuteViaPipeboard(
     if (name === "get_campaign_daily") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return null;
-      const pbRaw0 = await callPipeboardRead("get_insights", {
+      const pbRaw0 = await callPipeboardReadFull("get_insights", {
         object_id: campaign_id,
         level: "campaign",
         time_breakdown: "day",
@@ -3197,7 +3219,7 @@ async function tryExecuteViaPipeboard(
     if (name === "get_adsets") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return null;
-      const pbRaw1 = await callPipeboardRead("get_insights", {
+      const pbRaw1 = await callPipeboardReadFull("get_insights", {
         object_id: campaign_id,
         level: "adset",
         time_range: timeRange,
@@ -3247,7 +3269,7 @@ async function tryExecuteViaPipeboard(
     if (name === "get_ad_performance") {
       const ad_id = String(args.ad_id ?? "");
       if (!ad_id) return null;
-      const pbRaw2 = await callPipeboardRead("get_insights", {
+      const pbRaw2 = await callPipeboardReadFull("get_insights", {
         object_id: ad_id,
         level: "ad",
         time_range: timeRange,
@@ -3261,7 +3283,7 @@ async function tryExecuteViaPipeboard(
     if (name === "get_ads_in_adset") {
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return null;
-      const pbRaw3 = await callPipeboardRead("get_insights", {
+      const pbRaw3 = await callPipeboardReadFull("get_insights", {
         object_id: adset_id,
         level: "ad",
         time_range: timeRange,
