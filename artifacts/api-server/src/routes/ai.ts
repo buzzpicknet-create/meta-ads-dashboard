@@ -4536,21 +4536,31 @@ router.post("/ai/chat", async (req: Request, res: Response): Promise<void> => {
   res.end();
 });
 
-// ── GET /ai/accounts — list ad accounts for AI chat selector ─────────────────
+// ── GET /ai/accounts — list ad accounts (Meta + Google) for AI chat selector ──
 router.get("/ai/accounts", async (req: Request, res: Response): Promise<void> => {
-  try {
-    const raw = await listAdAccounts();
-    const accounts = (raw ?? []).map((a: { id: string; name?: string; currency?: string }) => ({
-      id: a.id,
-      name: a.name ?? a.id,
-      type: "meta" as const,
-      currency: a.currency,
-    }));
-    res.json({ accounts });
-  } catch (err) {
-    req.log.error({ err }, "ai/accounts error");
-    res.status(500).json({ accounts: [] });
-  }
+  const [metaRaw, googleCustomers] = await Promise.allSettled([
+    listAdAccounts(),
+    getGoogleAdsCustomers(),
+  ]);
+
+  const metaAccounts = metaRaw.status === "fulfilled"
+    ? (metaRaw.value ?? []).map((a: { id: string; name?: string; currency?: string }) => ({
+        id: a.id,
+        name: a.name ?? a.id,
+        type: "meta" as const,
+        currency: a.currency,
+      }))
+    : [];
+
+  const googleAccounts = googleCustomers.status === "fulfilled"
+    ? (googleCustomers.value ?? []).map((c: { id: string; name: string }) => ({
+        id: c.id,
+        name: c.name,
+        type: "google" as const,
+      }))
+    : [];
+
+  res.json({ accounts: [...metaAccounts, ...googleAccounts] });
 });
 
 // ── Warm-up helper — pre-connect Pipeboard MCP singleton at startup ───────────
