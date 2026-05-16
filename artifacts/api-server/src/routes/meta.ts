@@ -19,6 +19,11 @@ import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
 import { query } from "../lib/db";
 import { upsertCampaignNameCache } from "../lib/campaign-name-cache";
+import {
+  pbListCampaigns,
+  pbGetAccountOverview,
+  pbGetCampaignInsights,
+} from "../lib/pipeboard-meta";
 
 const router: IRouter = Router();
 
@@ -349,12 +354,30 @@ router.get("/meta/campaigns", async (req, res) => {
     });
   }
 
-  // ② Call Meta API to get fresh data
+  // ② Try Pipeboard first (no expired-token risk)
+  try {
+    const campaigns = await pbListCampaigns(accountId, since, until);
+    if (campaigns.length > 0) {
+      if (accountId) await dbSetCampaignsCache(accountId, since, until, campaigns).catch(() => null);
+      CAMPAIGNS_CACHE.set(`${accountId}::${since}::${until}`, { data: campaigns, ts: Date.now() });
+      logger.info({ accountId, count: campaigns.length }, "Campaigns served from Pipeboard");
+      return res.json({
+        account_id: rawAccountId || undefined,
+        period: { since, until },
+        fetched_at: new Date().toISOString(),
+        campaigns,
+        source: "pipeboard",
+      });
+    }
+    logger.info({ accountId }, "Pipeboard returned 0 campaigns — falling back to native Meta");
+  } catch (pbErr) {
+    logger.warn({ err: pbErr, accountId }, "Pipeboard campaigns failed — falling back to native Meta");
+  }
+
+  // ③ Fall back to native Meta API
   try {
     const campaigns = await listCampaigns({ since, until, adAccountId: rawAccountId || undefined });
-    // Persist to DB immediately
     if (accountId) await dbSetCampaignsCache(accountId, since, until, campaigns).catch(() => null);
-    // Also update in-memory cache
     CAMPAIGNS_CACHE.set(`${accountId}::${since}::${until}`, { data: campaigns, ts: Date.now() });
     return res.json({
       account_id: rawAccountId || undefined,
@@ -364,7 +387,7 @@ router.get("/meta/campaigns", async (req, res) => {
     });
   } catch (err) {
     if (isRateLimitError(err)) {
-      // ③ Rate limited — serve DB cache regardless of age (permanent fallback)
+      // ④ Rate limited — serve DB cache regardless of age
       if (cached) {
         logger.warn({ accountId, age_s: Math.round(cacheAge / 1000) }, "Meta rate-limited — serving stale DB cache");
         return res.json({
@@ -376,7 +399,6 @@ router.get("/meta/campaigns", async (req, res) => {
           rate_limited: true,
         });
       }
-      // Also try in-memory as last resort
       const mem = CAMPAIGNS_CACHE.get(`${accountId}::${since}::${until}`);
       if (mem) {
         logger.warn({ accountId }, "Meta rate-limited — serving in-memory cache");
@@ -395,7 +417,18 @@ router.get("/meta/campaigns", async (req, res) => {
         rate_limited: true,
       });
     }
-    logger.error({ err }, "Campaigns fetch failed");
+    // Serve stale cache if both Pipeboard and Meta failed
+    if (cached) {
+      logger.warn({ err, accountId, age_s: Math.round(cacheAge / 1000) }, "Both Pipeboard and Meta failed — serving stale DB cache");
+      return res.json({
+        account_id: rawAccountId || undefined,
+        period: { since, until },
+        fetched_at: cached.fetched_at,
+        campaigns: cached.campaigns,
+        from_cache: true,
+      });
+    }
+    logger.error({ err }, "Campaigns fetch failed — no fallback available");
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
@@ -442,21 +475,38 @@ router.get("/meta/insights", async (req, res) => {
     return res.json({ ...(cached.data as object), account_id: accountId || undefined, from_cache: true });
   }
 
-  // ② Fetch from Meta — deduplicate concurrent identical requests
   const inflight_key = `${campaign_id}::${since}::${until}`;
+
+  // ② Try Pipeboard first
+  try {
+    const data = await pbGetCampaignInsights(campaign_id, since, until);
+    // Only trust Pipeboard result if it has real data (spend > 0 or adsets returned)
+    const hasData = data.totals.spend > 0 || data.by_adset.length > 0;
+    if (hasData) {
+      await dbSetInsightsCache(campaign_id, since, until, data).catch(() => null);
+      if (data.campaign.name && data.campaign.name !== campaign_id) {
+        upsertCampaignNameCache([{ id: campaign_id, name: data.campaign.name }]).catch(() => null);
+      }
+      logger.info({ campaign_id }, "Insights served from Pipeboard");
+      return res.json({ ...data, account_id: accountId || undefined, source: "pipeboard" });
+    }
+    logger.info({ campaign_id }, "Pipeboard insights empty — falling back to native Meta");
+  } catch (pbErr) {
+    logger.warn({ err: pbErr, campaign_id }, "Pipeboard insights failed — falling back to native Meta");
+  }
+
+  // ③ Fetch from native Meta — deduplicate concurrent identical requests
   try {
     let fetchPromise = INSIGHTS_IN_FLIGHT.get(inflight_key) as Promise<Awaited<ReturnType<typeof getCampaignInsights>>> | undefined;
     if (!fetchPromise) {
       fetchPromise = getCampaignInsights({ campaign_id, since, until });
       INSIGHTS_IN_FLIGHT.set(inflight_key, fetchPromise);
-      // Suppress unhandled-rejection on cleanup chain; real rejection is caught by `await fetchPromise`
       fetchPromise.finally(() => INSIGHTS_IN_FLIGHT.delete(inflight_key)).catch(() => {});
     } else {
       logger.info({ campaign_id }, "Insights request deduplicated (in-flight)");
     }
     const data = await fetchPromise;
     await dbSetInsightsCache(campaign_id, since, until, data).catch(() => null);
-    // Write-through: persist campaign name from insights response
     if (data.campaign.name) {
       upsertCampaignNameCache([{ id: campaign_id, name: data.campaign.name }]).catch(() => null);
     }
@@ -501,7 +551,21 @@ router.get("/meta/account-overview", async (req, res) => {
     return res.json({ ...(cached.data as object), from_cache: true });
   }
 
-  // ② Fetch from Meta
+  // ② Try Pipeboard first
+  try {
+    const data = await pbGetAccountOverview(accountId, since, until);
+    const hasData = data.totals.spend > 0 || data.campaigns.length > 0;
+    if (hasData) {
+      await dbSetOverviewCache(accountId, since, until, data).catch(() => null);
+      logger.info({ accountId, campaigns: data.campaigns.length }, "Overview served from Pipeboard");
+      return res.json({ ...data, source: "pipeboard" });
+    }
+    logger.info({ accountId }, "Pipeboard overview empty — falling back to native Meta");
+  } catch (pbErr) {
+    logger.warn({ err: pbErr, accountId }, "Pipeboard overview failed — falling back to native Meta");
+  }
+
+  // ③ Fetch from native Meta
   try {
     const data = await getAccountOverview({ adAccountId: accountId, since, until });
     await dbSetOverviewCache(accountId, since, until, data).catch(() => null);
@@ -518,7 +582,12 @@ router.get("/meta/account-overview", async (req, res) => {
         rate_limited: true,
       });
     }
-    logger.error({ err }, "Account overview fetch failed");
+    // Serve stale cache if both failed
+    if (cached) {
+      logger.warn({ err, accountId, age_s: Math.round(cacheAge / 1000) }, "Both Pipeboard and Meta failed — serving stale overview cache");
+      return res.json({ ...(cached.data as object), from_cache: true });
+    }
+    logger.error({ err }, "Account overview fetch failed — no fallback available");
     return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
