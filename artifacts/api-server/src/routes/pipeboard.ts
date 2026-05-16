@@ -1831,9 +1831,108 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     }
 
     const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+
+    // ── Pipeboard MCP fallback (no META_ACCESS_TOKEN) ──────────────────────
+    // When direct Meta API token is unavailable, create creative + ad via
+    // Pipeboard MCP tools (same path as launch_pipeboard_campaign).
     if (!metaTkn) {
-      res.status(500).json({ error: "META_ACCESS_TOKEN غير مضبوط" });
-      return;
+      // Resolve page_id from domain map (no API call possible without token)
+      if (!pageId) {
+        const lp = linkUrl;
+        if (lp.includes("buzzpick.net")) pageId = "878997831971062";
+        else if (lp.includes("dealme-eg.com") || lp.includes("alsouqalhor.com") || lp.includes("dealoop.net")) pageId = "108193615487446";
+        else pageId = "108193615487446";
+        logger.warn({ pageId, lp }, "create_ad_from_creative_spec: no token — domain-mapped page_id");
+      }
+
+      try {
+        const pbClient = await getPipeboardWriteClient();
+
+        // Detect pixel_id from domain if not provided
+        let pixelId = String(args?.pixel_id ?? "");
+        if (!pixelId) {
+          if (linkUrl.includes("buzzpick.net")) pixelId = "1405391498274239";
+          else pixelId = "1537301040808359";
+        }
+
+        // Step 1: create_ad_creative via Pipeboard
+        const creativeArgsPb: Record<string, unknown> = {
+          account_id: accountId,
+          name: `${adName} — creative`,
+          page_id: pageId,
+          link_url: linkUrl,
+          destination_url: linkUrl,
+          messages: primaryText ? [primaryText] : [""],
+          headlines: headline ? [headline] : [""],
+          call_to_action_type: callToAction,
+          pixel_id: pixelId,
+        };
+        if (mediaType === "video") creativeArgsPb.video_id = videoId;
+        else creativeArgsPb.image_hash = imageHash;
+
+        logger.info({ creativeArgsPb }, "create_ad_from_creative_spec: → Pipeboard create_ad_creative (no token)");
+        const creativeResult = await pbClient.callTool({ name: "create_ad_creative", arguments: creativeArgsPb });
+        const creativeText = ((creativeResult.content as Array<{ type: string; text?: string }>)
+          ?.filter(c => c.type === "text").map(c => c.text ?? "").join("") ?? "").trim();
+        logger.info({ creativeText }, "create_ad_from_creative_spec: ← Pipeboard create_ad_creative");
+
+        const creativeIdMatch = creativeText.match(/"id"\s*:\s*"(\d{10,})"/);
+        const creativeId = creativeIdMatch?.[1] ?? "";
+        if (!creativeId || (/"error"/.test(creativeText) && !creativeIdMatch)) {
+          throw new Error(`فشل create_ad_creative (Pipeboard) — ${creativeText.slice(0, 300)}`);
+        }
+
+        // Step 2: create_ad via Pipeboard
+        const adArgsPb: Record<string, unknown> = {
+          account_id: accountIdWithAct,
+          name: adName,
+          adset_id: adsetId,
+          creative_id: creativeId,
+          status: "PAUSED",
+          tracking_specs: [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }],
+        };
+        logger.info({ adArgsPb }, "create_ad_from_creative_spec: → Pipeboard create_ad (no token)");
+        const adResult = await pbClient.callTool({ name: "create_ad", arguments: adArgsPb });
+        const adText = ((adResult.content as Array<{ type: string; text?: string }>)
+          ?.filter(c => c.type === "text").map(c => c.text ?? "").join("") ?? "").trim();
+        logger.info({ adText }, "create_ad_from_creative_spec: ← Pipeboard create_ad");
+
+        const adIdMatch = adText.match(/"id"\s*:\s*"(\d+)"/) ?? adText.match(/\b(\d{10,})\b/);
+        const newAdId = adIdMatch?.[1] ?? "";
+        if (!newAdId) throw new Error(`فشل create_ad (Pipeboard) — ${adText.slice(0, 300)}`);
+
+        const pbMsg = [
+          `✅ create_ad_from_creative_spec نجح (via Pipeboard MCP)`,
+          `new_ad_id: ${newAdId}`,
+          `creative_id: ${creativeId}`,
+          `adset_id: ${adsetId}`,
+          `media_type: ${mediaType}`,
+        ].join(" — ");
+
+        await query(
+          `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [executedBy, tool, JSON.stringify(args ?? {}), true, pbMsg, "", adName, false],
+        ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (create_ad_from_creative_spec pb)"));
+
+        res.json({
+          success: true,
+          message: pbMsg,
+          new_ad_id: newAdId,
+          creative_id: creativeId,
+          adset_id: adsetId,
+          account_id: accountIdWithAct,
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          via: "pipeboard_mcp",
+        });
+        return;
+      } catch (pbErr) {
+        const msg = pbErr instanceof Error ? pbErr.message : String(pbErr);
+        logger.error({ pbErr }, "create_ad_from_creative_spec: Pipeboard fallback failed");
+        res.status(500).json({ error: `فشل create_ad_from_creative_spec (Pipeboard): ${msg}` });
+        return;
+      }
     }
 
     let csSuccess = false;
