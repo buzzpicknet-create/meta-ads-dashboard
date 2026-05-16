@@ -291,6 +291,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
   // Our AI uses friendly names; Pipeboard uses update_campaign / update_adset.
   // Budgets from the AI are in EGP (already divided by 100 by getCampaignDetails).
   // Pipeboard / Meta API expects cents → multiply by 100.
+  function sanitizeName(name: string): string {
+    return name
+      .replace(/[\u200f\u200e\u202a-\u202e\u2066-\u2069]/g, "")
+      .replace(/[|`\\/"<>]/g, "-")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
   function translateToMcp(
     t: string,
     a: Record<string, unknown>,
@@ -349,17 +357,17 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       case "rename_campaign":
         return {
           mcpTool: "update_campaign",
-          mcpArgs: { campaign_id: a.campaign_id, name: a.new_name },
+          mcpArgs: { campaign_id: a.campaign_id, name: sanitizeName(String(a.new_name ?? "")) },
         };
       case "rename_adset":
         return {
           mcpTool: "update_adset",
-          mcpArgs: { adset_id: a.adset_id, name: a.new_name },
+          mcpArgs: { adset_id: a.adset_id, name: sanitizeName(String(a.new_name ?? "")) },
         };
       case "rename_ad":
         return {
           mcpTool: "update_ad",
-          mcpArgs: { ad_id: a.ad_id, name: a.new_name },
+          mcpArgs: { ad_id: a.ad_id, name: sanitizeName(String(a.new_name ?? "")) },
         };
       case "create_campaign": {
         // Normalise account_id: Pipeboard expects the bare numeric ID (no act_ prefix)
