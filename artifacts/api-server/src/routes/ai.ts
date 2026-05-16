@@ -1134,6 +1134,22 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 
 ⚡ لا تقل أبداً "هذا النوع غير مدعوم in bulk_action" — كل الأنواع أعلاه مدعومة. إذا لم يكن لديك الـ ID → ابحث عنه بسلسلة البحث (get_campaigns → search_adsets → search_ads) ثم نفّذ.
 
+🔴 قاعدة scan_account_names = صفر:
+إذا أرجع scan_account_names نتيجة "0 حملات، 0 مجموعات، 0 إعلانات" → هذا خطأ API وليس حساباً فارغاً.
+الإجراء الفوري الإلزامي — لا استثناء، لا توقف، لا سؤال للمستخدم:
+١. استدعِ list_campaigns لكل حساب محدد في النقاش فوراً
+٢. ثم search_adsets لكل حملة تحصل عليها
+٣. ثم search_ads لكل مجموعة
+٤. اجمع كل الـ IDs وولّد الـ bulk_action المطلوب مباشرةً
+لا تطلب act_id من المستخدم — الحسابات المحددة في سياق المحادثة كافية.
+لا تذكر كلمة "صلاحيات" أو "development_access" للمستخدم — فقط نفّذ السلسلة البديلة.
+
+🔴 قاعدة جمع الـ IDs لأي bulk_action (rename / pause / enable / budget / duplicate):
+إذا طلب المستخدم أي عملية مجمعة ولم يكن لديك الـ IDs:
+- لا تستخدم scan_account_names إلا لمهام تنظيف الأسماء تحديداً
+- استخدم مباشرةً: list_campaigns → search_adsets → search_ads لتجميع الكيانات المطلوبة
+- بعد التجميع: ولّد الـ bulk_action فوراً بدون انتظار
+
 ⚠️ تنبيه حقول الـ rename — فرق حرج بين tool call وبين bulk_action:
 - عند استدعاء الأداة مباشرةً كـ tool call: تستخدم current_name و new_name (snake_case)
 - عند الكتابة داخل bulk_action JSON: تستخدم name (الاسم الحالي) و newName (الاسم الجديد) — CamelCase
@@ -4094,9 +4110,27 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
         const SPECIAL = /[|`\u200f\u200e\u202a-\u202e\u2066-\u2069\u0000-\u001f]/;
         const flagged = entries.filter(e => SPECIAL.test(e.name));
 
+        // ── Zero-results guard: API likely failed silently ─────────────────────
+        if (campaigns.length === 0 && adsets.length === 0 && ads.length === 0) {
+          return [
+            `## فحص الحساب ${rawAccId}`,
+            `⚠️ **لم يُعَد أي كيان (0 حملات، 0 مجموعات، 0 إعلانات).**`,
+            `هذا يعني غالباً أن الـ API لم يُرجع بيانات (مشكلة صلاحيات أو development_access tier).`,
+            ``,
+            `🔁 **الإجراء الفوري — لا تتوقف ولا تسأل المستخدم:**`,
+            `1. استدعِ \`list_campaigns\` لكل حساب محدد في النقاش`,
+            `2. ثم \`search_adsets\` لكل حملة تحصل عليها`,
+            `3. ثم \`search_ads\` لكل مجموعة`,
+            `4. ثم نفّذ الـ bulk_action المطلوب بناءً على ما جمعت`,
+            ``,
+            `الحسابات المحددة في السياق متوفرة — استخدمها مباشرةً.`,
+            usageNote,
+          ].join("\n");
+        }
+
         const rows: string[] = [
-          `## فحص الحساب ${rawAccId} — أسماء كل الكيانات (3 API calls فقط)`,
-          `- حملات: ${campaigns.length} | مجموعات: ${adsets.length} | إعلانات: ${ads.length} | **🚨 أسماء تحتاج تنظيف: ${flagged.length}**${usageNote}\n`,
+          `## فحص الحساب ${rawAccId} — كل الكيانات`,
+          `- حملات: ${campaigns.length} | مجموعات: ${adsets.length} | إعلانات: ${ads.length} | **🚨 تحتاج تنظيف: ${flagged.length}**${usageNote}\n`,
         ];
 
         if (flagged.length > 0) {
@@ -4124,7 +4158,21 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
           rows.push("\n```");
           if (flagged.length > 15) rows.push(`\n> عُرضت الدفعة الأولى (15) — الكيانات المتبقية: ${flagged.length - 15}`);
         } else {
-          rows.push("✅ لا توجد أسماء تحتوي على رموز غريبة in هذا الحساب.");
+          rows.push("✅ لا توجد أسماء تحتوي على رموز غريبة في هذا الحساب.");
+        }
+
+        // ── Always append compact full-entity list for non-rename bulk actions ─
+        const allEntities = entries.slice(0, 80);
+        if (allEntities.length > 0) {
+          rows.push(`\n---\n### 📋 كل الكيانات (جاهزة لأي bulk_action — pause/enable/budget/rename/duplicate):`);
+          rows.push("| النوع | id | الاسم | الحالة | parent_id |");
+          rows.push("|-------|-----|-------|--------|-----------|");
+          for (const e of allEntities) {
+            const safeN = e.name.replace(/\|/g, "¦");
+            rows.push(`| ${e.type} | ${e.id} | ${safeN} | ${e.effective_status} | ${e.parent_id ?? "—"} |`);
+          }
+          if (entries.length > 80) rows.push(`\n> عُرض أول 80 — إجمالي ${entries.length}`);
+          rows.push(`\n> استخدم الـ IDs أعلاه مباشرةً في bulk_action لأي نوع عملية.`);
         }
 
         return rows.join("\n");
