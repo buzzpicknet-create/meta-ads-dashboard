@@ -1,0 +1,32 @@
+ماشي. خليني أكتبلك البرومبت النهائي. لكن قبل ما تنسخه، اقرأ النقطتين دول — مهمين:
+ملاحظة صدق: الحل مؤكّد في جزئه الأساسي (تمرير fields + compact: false)، لكن الكود الحقيقي في ai.ts (الدوال get_adsets, get_ads_in_adset... إلخ) أنا مشفتوش بعينّي — شفت تقرير عنه بس. عشان كده البرومبت متعمّد إنه يخلّي Replit يعرضلك التعديل قبل ما يطبّقه، مش يطبّق على طول. ده الأمان الحقيقي.
+انسخ ده لـ Replit بالكامل:
+
+
+مهمة: إضافة مقاييس الفيديو (Hook Rate / Hold Rate / ThruPlay) إلى استدعاءات التحليلات في الـ AI chat.
+السياق المؤكَّد (تم التحقق منه باستدعاءات حقيقية لـ Pipeboard):
+
+أداة get_insights / bulk_get_insights عبر Pipeboard لا تُرجع أي حقول فيديو افتراضياً.
+تمرير fields للفيديو وحده غير كافٍ — لأن ad-level يُفعّل compact: true تلقائياً، وهو يقصّ كل الحقول المشتقة بما فيها الفيديو.
+الحل الصحيح: تمرير fields لحقول الفيديو مع compact: false معاً في نفس الاستدعاء.
+
+المطلوب — نفّذ بالترتيب:
+
+افتح artifacts/api-server/src/routes/ai.ts. حدّد كل المواضع التي تستدعي callPipeboardRead("get_insights", {...}) داخل الدوال التحليلية فقط: get_adsets (حوالي سطر 3122)، get_ads_in_adset، get_ad_performance، get_campaign_daily.
+اعرض لي أولاً كل موضع من دول كما هو الآن (الكود الحالي)، بدون أي تعديل، وانتظر موافقتي.
+بعد موافقتي فقط: في كل استدعاء من الأربعة، أضف للـ object المُمرَّر:
+
+compact: false
+fields: ["impressions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions", "video_thruplay_watched_actions", "spend", "clicks", "conversions"]
+
+
+تأكد أن منطق حساب Hook Rate / Hold Rate الموجود في الـ system prompt يبقى كما هو (Hook = video_play_actions ÷ impressions، Hold = video_p100 ÷ video_play_actions). لا تغيّر نص الـ system prompt.
+
+قيود صارمة — ممنوع تمامًا:
+
+لا تلمس create_campaign, launch_pipeboard, أي دالة فيها كلمة create أو update أو duplicate أو pause أو enable.
+لا تلمس BulkActionPanel.tsx ولا GlobalAiChat.tsx ولا أي listener لـ bulk-action-complete / CustomEvent.
+لا تعدّل أي استدعاء get_insights خارج الدوال الأربعة المذكورة.
+التعديل حصري على إضافة حقلين (compact, fields) للـ object داخل استدعاءات القراءة التحليلية. لا شيء آخر.
+
+بعد التعديل: شغّل npx tsc --noEmit وأكّد أنه نظيف، ثم اعرض لي الـ diff النهائي للملف.
