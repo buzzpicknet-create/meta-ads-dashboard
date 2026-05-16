@@ -1211,8 +1211,8 @@ Campaign Type: STANDARD
 Build Standard Campaign NOW — ${adsetCount} Adset(s):
 
 ⚠️ STANDARD RULES — لا تخالف هذه القواعد:
-- ZERO Dynamic Creative — is_dynamic_creative / asset_feed_spec ممنوع تماماً على الـ Adset والـ Creative
-- ZERO Advantage+ Creative Enhancements — degrees_of_freedom_spec ممنوع
+- ZERO Dynamic Creative (DCO) — is_dynamic_creative / asset_feed_spec ممنوع تماماً على الـ Adset والـ Creative
+- Advantage+ Creative Enhancements مفعّل ✅ — creative_features_spec: { standard_enhancements: OPT_IN } مسموح (مستقل عن DCO)
 - ⛔ ZERO instagram_actor_id — الصفحات من حساب شخصي (ليس BM) — page_id فقط كافي
 - كل إعلان = فيديو واحد + نص واحد + عنوان واحد (مستقل تماماً)
 - إذا كان هناك N فيديوهات × M نصوص = N×M إعلانات منفصلة في نفس الـ Adset

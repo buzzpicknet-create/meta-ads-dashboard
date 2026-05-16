@@ -1960,6 +1960,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       } else {
         pbCreativeArgs.image_hash = imageHash;
       }
+      // Advantage+ Creative Enhancements (Standard Enhancements — NOT DCO)
+      pbCreativeArgs.creative_features_spec = { standard_enhancements: { enroll_status: "OPT_IN" } };
 
       logger.info(
         { accountIdWithAct, mediaType, videoId, imageHash, linkUrl, pageId, adsetId,
@@ -3050,6 +3052,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               message: singleText,
               ...(firstHeadline ? { headline: firstHeadline } : {}),
               call_to_action_type: callToAction || "SHOP_NOW",
+              // Advantage+ Creative Enhancements — Standard Enhancements (NOT DCO)
+              // This is separate from is_dynamic_creative / asset_feed_spec which remain disabled.
+              creative_features_spec: { standard_enhancements: { enroll_status: "OPT_IN" } },
             };
             if (isVid) {
               lpcCreativeArgs.video_id = media.videoId;
