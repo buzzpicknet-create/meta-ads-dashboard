@@ -2835,6 +2835,71 @@ async function callGoogleAdsRead(toolName: string, toolArgs: Record<string, unkn
   }
 }
 
+// Like callGoogleAdsRead but returns the full raw string without truncation — for parsing before formatting
+async function callGoogleAdsReadRaw(toolName: string, toolArgs: Record<string, unknown>): Promise<string> {
+  try {
+    const client = await getGoogleAdsClient();
+    const result = await client.callTool({ name: toolName, arguments: toolArgs });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    return content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n").trim();
+  } catch (err) {
+    _gaClient = null;
+    _gaConnecting = null;
+    throw err;
+  }
+}
+
+// Parse a Pipeboard get_google_ads_campaigns response and format as compact markdown table.
+// Shows ALL enabled campaigns, up to MAX_PAUSED paused ones (sorted newest-first), no removed.
+// Keeps total output well under MAX_TOOL_RESULT_CHARS even for accounts with 200+ campaigns.
+const GA_MAX_PAUSED_ROWS = 25;
+
+function formatGACampaigns(
+  raw: string,
+  custName: string,
+  custId: string
+): string {
+  interface GACampaign { id: string; name: string; status: string; type?: string; budget?: number }
+  interface GAResponse { total_campaigns?: number; campaigns?: GACampaign[] }
+
+  let parsed: GAResponse;
+  try {
+    parsed = JSON.parse(raw) as GAResponse;
+  } catch {
+    return `### ${custName} (customer_id: ${custId})\n⚠️ استجابة غير مكتملة من Pipeboard (${raw.length} حرف) — استخدم ga_get_campaign_metrics للحصول على البيانات.\n`;
+  }
+
+  const campaigns = parsed.campaigns ?? [];
+  const total    = parsed.total_campaigns ?? campaigns.length;
+  const enabled  = campaigns.filter(c => c.status === "ENABLED");
+  const allPaused = campaigns.filter(c => c.status === "PAUSED");
+  const removed  = campaigns.filter(c => c.status === "REMOVED");
+
+  // Newest-first for paused (array usually oldest-first from API)
+  const pausedToShow = allPaused.slice(-GA_MAX_PAUSED_ROWS).reverse();
+  const pausedHidden = allPaused.length - pausedToShow.length;
+
+  const row = (c: GACampaign, status: string) =>
+    `| ${c.id} | ${c.name.slice(0, 45)} | ${status} | ${c.type ?? "—"} | ${c.budget ?? "—"} EGP |`;
+
+  const rows = [
+    ...enabled.map(c  => row(c, "✅ نشطة")),
+    ...pausedToShow.map(c => row(c, "⏸ موقوفة")),
+    ...(pausedHidden > 0 ? [`| — | _(و ${pausedHidden} حملة موقوفة أخرى — استخدم ga_get_campaign_metrics للكل)_ | ⏸ | — | — |`] : []),
+  ];
+
+  const lines = [
+    `### ${custName} (customer_id: ${custId})`,
+    `📊 الإجمالي: ${total} — ✅ ${enabled.length} نشطة | ⏸ ${allPaused.length} موقوفة | 🗑️ ${removed.length} محذوفة`,
+    "",
+    "| campaign_id | الاسم | الحالة | النوع | الميزانية/يوم |",
+    "|-------------|-------|--------|-------|---------------|",
+    ...rows,
+  ];
+
+  return lines.join("\n");
+}
+
 // In-memory customer cache (refreshed on server restart)
 let _gaCustomers: { id: string; name: string }[] | null = null;
 
@@ -2869,7 +2934,8 @@ function daysToGADateRange(days: number): string {
 // Maps ga_* tool names → Google Ads MCP calls via Pipeboard.
 async function tryExecuteViaGoogleAds(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  selectedAccFilter?: Set<string>
 ): Promise<string | null> {
   if (!process.env.PIPEBOARD_API_TOKEN) return null;
 
@@ -2878,12 +2944,18 @@ async function tryExecuteViaGoogleAds(
 
   try {
     if (name === "ga_get_campaigns") {
-      const customers = await getGoogleAdsCustomers();
-      if (customers.length === 0) return "لا توجد حسابات Google Ads مرتبطة بـ Pipeboard.";
+      const allCustomers = await getGoogleAdsCustomers();
+      if (allCustomers.length === 0) return "لا توجد حسابات Google Ads مرتبطة بـ Pipeboard.";
+      // Filter to only selected customers when the user has a specific account open
+      const filtered = selectedAccFilter?.size
+        ? allCustomers.filter(c => selectedAccFilter.has(c.id) || selectedAccFilter.has(c.id.replace(/-/g, "")))
+        : allCustomers;
+      const targetCustomers = filtered.length > 0 ? filtered : allCustomers;
       const results = await Promise.all(
-        customers.map(async (cust) => {
-          const r = await callGoogleAdsRead("get_google_ads_campaigns", { customer_id: cust.id });
-          return `### ${cust.name} (customer_id: ${cust.id})\n${r}`;
+        targetCustomers.map(async (cust) => {
+          // Use raw (untruncated) response so we can parse the full JSON before formatting
+          const raw = await callGoogleAdsReadRaw("get_google_ads_campaigns", { customer_id: cust.id });
+          return formatGACampaigns(raw, cust.name, cust.id);
         })
       );
       return results.join("\n\n---\n\n");
@@ -3204,7 +3276,7 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
 
   // ── Google Ads tools — route directly to Google Ads MCP ──────────────────
   if (name.startsWith("ga_")) {
-    const gaResult = await tryExecuteViaGoogleAds(name, args);
+    const gaResult = await tryExecuteViaGoogleAds(name, args, selectedAccFilter ?? undefined);
     if (gaResult !== null && gaResult.trim().length > 0) {
       logger.info({ tool: name }, "executeTool: served via Google Ads MCP");
       return gaResult;
@@ -4474,6 +4546,7 @@ router.post("/ai/chat-prepare", async (req: Request, res: Response): Promise<voi
       fileText?: string;
       fileName?: string;
       selectedAccounts?: string[];
+      selectedAccountIds?: string[];
     };
     const sessionId = randomUUID();
     pendingSessions.set(sessionId, {
@@ -4484,7 +4557,7 @@ router.post("/ai/chat-prepare", async (req: Request, res: Response): Promise<voi
       imageMimeType: body.imageMimeType,
       fileText: body.fileText,
       fileName: body.fileName,
-      selectedAccounts: body.selectedAccounts,
+      selectedAccounts: body.selectedAccountIds ?? body.selectedAccounts,
       userId: req.session.userId,
       username: req.session.username ?? "user",
       createdAt: Date.now(),
@@ -4523,6 +4596,7 @@ router.post("/ai/chat", async (req: Request, res: Response): Promise<void> => {
     fileText?: string;
     fileName?: string;
     selectedAccounts?: string[];
+    selectedAccountIds?: string[];
   };
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -4536,7 +4610,7 @@ router.post("/ai/chat", async (req: Request, res: Response): Promise<void> => {
     imageMimeType: body.imageMimeType,
     fileText: body.fileText,
     fileName: body.fileName,
-    selectedAccounts: body.selectedAccounts,
+    selectedAccounts: body.selectedAccountIds ?? body.selectedAccounts,
     userId: req.session.userId!,
     username: req.session.username ?? "user",
     createdAt: Date.now(),
@@ -4569,6 +4643,32 @@ router.get("/ai/accounts", async (req: Request, res: Response): Promise<void> =>
     : [];
 
   res.json({ accounts: [...metaAccounts, ...googleAccounts] });
+});
+
+// ── GET /ai/debug-google-ads — formatted Pipeboard campaign data for debugging ─
+router.get("/ai/debug-google-ads", async (req: Request, res: Response): Promise<void> => {
+  if (!req.session?.userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    const customers = await getGoogleAdsCustomers();
+    const results: Record<string, unknown> = { customers };
+    for (const cust of customers) {
+      try {
+        // Use raw (untruncated) + formatter — mirrors what ga_get_campaigns does in AI chat
+        const raw = await callGoogleAdsReadRaw("get_google_ads_campaigns", { customer_id: cust.id });
+        const formatted = formatGACampaigns(raw, cust.name, cust.id);
+        results[`campaigns_${cust.id}`] = {
+          raw_length: raw.length,
+          formatted_length: formatted.length,
+          formatted,
+        };
+      } catch (err) {
+        results[`campaigns_${cust.id}_error`] = String(err);
+      }
+    }
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // ── Warm-up helper — pre-connect Pipeboard MCP singleton at startup ───────────
