@@ -5627,6 +5627,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
             objective: "OUTCOME_SALES",
             status: "PAUSED",
             special_ad_categories: "[]",
+            is_adset_budget_sharing_enabled: "true",
             access_token: "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg",
           }).toString(),
         });
