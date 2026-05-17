@@ -1004,6 +1004,19 @@ runMigrations()
     // 180s timeout — AI streaming with multi-tool flows (get_adsets × 15 + get_ads_in_adset × 17+)
     // can exceed 90s. Must be larger than the 120s runAiStream abort signal.
     server.setTimeout(180_000);
+
+    // Graceful shutdown: close HTTP server before exiting so port is freed
+    const shutdown = (signal: string) => {
+      logger.info({ signal }, "Shutting down gracefully");
+      server.close(() => {
+        logger.info("HTTP server closed");
+        process.exit(0);
+      });
+      // Force-exit after 10s if still hanging
+      setTimeout(() => { process.exit(1); }, 10_000).unref();
+    };
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT",  () => shutdown("SIGINT"));
   })
   .catch((err) => {
     logger.error({ err }, "Failed to run migrations");

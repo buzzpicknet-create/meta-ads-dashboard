@@ -5609,17 +5609,31 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
         objective: "OUTCOME_SALES", status: "PAUSED",
         special_ad_categories: [],
       };
-      // دايماً نبعت budget — Pipeboard بيتطلبه حتى في ABO
-      if (new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
-      // CBO: budget على الحملة — ABO: بدون budget على الحملة
-      if (isCBO && new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
-      logger.info({ campArgs }, "scale-creative: create_campaign args");
-      const cr = await client.callTool({ name: "create_campaign", arguments: campArgs });
-      const ct = mcpTxtSc(cr);
-      logger.info({ ct }, "scale-creative: create_campaign result");
-      const cm = ct.match(/"id"\s*:\s*"(\d{10,})"/);
-      if (!cm) { res.status(500).json({ error: `فشل إنشاء الحملة — ${ct.slice(0, 200)}`, debug_args: campArgs }); return; }
-      finalCampaignId = cm[1];
+      // CBO: budget على الحملة عبر Pipeboard — ABO: حملة بدون budget عبر Meta API مباشرة
+      if (isCBO) {
+        if (new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+        const cr = await client.callTool({ name: "create_campaign", arguments: campArgs });
+        const ct = mcpTxtSc(cr);
+        const cm = ct.match(/"id"\s*:\s*"(\d{10,})"/);
+        if (!cm) { res.status(500).json({ error: `فشل إنشاء الحملة — ${ct.slice(0, 200)}` }); return; }
+        finalCampaignId = cm[1];
+      } else {
+        // ABO: نستخدم Meta API مباشرة بدون budget على الحملة
+        const aboRes = await fetch(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            name: new_campaign_name ?? "",
+            objective: "OUTCOME_SALES",
+            status: "PAUSED",
+            special_ad_categories: "[]",
+            access_token: "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg",
+          }).toString(),
+        });
+        const aboJson = await aboRes.json() as Record<string, unknown>;
+        if (!aboJson.id) { res.status(500).json({ error: `فشل إنشاء حملة ABO — ${JSON.stringify(aboJson).slice(0, 200)}` }); return; }
+        finalCampaignId = String(aboJson.id);
+      }
     }
 
     // ── 4. أنشئ الـ AdSet لو جديدة ──
