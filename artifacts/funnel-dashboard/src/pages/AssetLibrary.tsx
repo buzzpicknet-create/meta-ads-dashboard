@@ -2301,9 +2301,19 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
         if (resolvedDestType === "new_adset" && data.adset_id) {
           resolvedAdsetId = data.adset_id;
           resolvedDestType = "existing_adset";
+        } else if (resolvedDestType === "new_adset" && data.campaign_id && !data.adset_id) {
+          resolvedDestType = "existing_adset";
         }
         allResults.push({ ad_name: ad.name || ad.id, success: data.success, message: data.message, ad_id: data.ad_id });
-      } catch (e) {
+      } catch (e: unknown) {
+        // حتى لو فشل، نحاول نحفظ الـ adset_id لو موجود في الـ error response
+        try {
+          const errData = e as { adset_id?: string; campaign_id?: string };
+          if (resolvedDestType === "new_adset" && errData?.adset_id) {
+            resolvedAdsetId = errData.adset_id;
+            resolvedDestType = "existing_adset";
+          }
+        } catch { /* ignore */ }
         allResults.push({ ad_name: ad.name || ad.id, success: false, message: String(e) });
       }
     }

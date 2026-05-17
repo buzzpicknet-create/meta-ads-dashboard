@@ -5408,7 +5408,10 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
         name: new_campaign_name ?? `Scale — ${new Date().toLocaleDateString("en-GB")}`,
         objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [],
       };
-      if (isCBO && new_campaign_budget) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      // Budget على الحملة بس لو CBO — ABO الميزانية على الـ AdSet
+      // الـ create_campaign case بيعمل egpToCents تلقائياً — نبعت القيمة بالـ EGP مباشرة
+      // Pipeboard بيحتاج daily_budget حتى في ABO — نبعته للحملة وبعدين بنعمله override في الـ AdSet
+      if (new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = new_campaign_budget;
       const campResult = await client.callTool({ name: "create_campaign", arguments: campArgs });
       const campText = mcpTxtSa(campResult);
       logger.info({ campText }, "scale-adsets: create_campaign");
@@ -5535,7 +5538,13 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
     "838054421405431": "1537301040808359",
     "1714386865726065": "1537301040808359",
   };
+  const SCALE_PAGE_MAP: Record<string, string> = {
+    "898360605246408": "878997831971062",
+    "838054421405431": "108193615487446",
+    "1714386865726065": "108193615487446",
+  };
   const pixelId = providedPixelId || SCALE_PIXEL_MAP[accountId] || "1537301040808359";
+  const defaultPageId = SCALE_PAGE_MAP[accountId] || "";
   const META_TOKEN = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
 
   function mcpTxtSc(result: unknown): string {
@@ -5547,13 +5556,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
     const client = await getPipeboardWriteClient();
 
     // ── 1. جيب الـ page_id ──
-    let pageId = "";
-    try {
-      const pr = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
-      const pt = mcpTxtSc(pr);
-      const pm = pt.match(/"id"\s*:\s*"(\d+)"/) ?? pt.match(/(\d{10,})/);
-      pageId = pm?.[1] ?? "";
-    } catch { /* ignore */ }
+    const pageId = defaultPageId;
 
     // ── 2. جيب الـ creative details من Meta مباشرة ──
     let srcVideoId = source_ad.video_id ?? "";
@@ -5604,13 +5607,18 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
       const campArgs: Record<string, unknown> = {
         account_id: accountId, name: new_campaign_name,
         objective: "OUTCOME_SALES", status: "PAUSED",
-        special_ad_categories: [], buying_type: "AUCTION",
+        special_ad_categories: [],
       };
-      if (isCBO && new_campaign_budget) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      // دايماً نبعت budget — Pipeboard بيتطلبه حتى في ABO
+      if (new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      // CBO: budget على الحملة — ABO: بدون budget على الحملة
+      if (isCBO && new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      logger.info({ campArgs }, "scale-creative: create_campaign args");
       const cr = await client.callTool({ name: "create_campaign", arguments: campArgs });
       const ct = mcpTxtSc(cr);
+      logger.info({ ct }, "scale-creative: create_campaign result");
       const cm = ct.match(/"id"\s*:\s*"(\d{10,})"/);
-      if (!cm) { res.status(500).json({ error: `فشل إنشاء الحملة — ${ct.slice(0, 200)}` }); return; }
+      if (!cm) { res.status(500).json({ error: `فشل إنشاء الحملة — ${ct.slice(0, 200)}`, debug_args: campArgs }); return; }
       finalCampaignId = cm[1];
     }
 
@@ -5647,8 +5655,9 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
 
     // ── 5. أنشئ الـ Creative ──
     const adName = source_ad.name ?? "إعلان";
+    const uniqueSuffix = Date.now().toString().slice(-6);
     const creativeArgs: Record<string, unknown> = {
-      account_id: accountId, name: `${adName} — Scale`,
+      account_id: accountId, name: `${adName} — Scale — ${uniqueSuffix}`,
       page_id: pageId, message: srcBody, headline: srcTitle,
       call_to_action_type: srcCTA, pixel_id: pixelId,
     };
@@ -5660,7 +5669,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
     const crText = mcpTxtSc(crRes);
     logger.info({ crText }, "scale-creative: create_ad_creative");
     const crIdMatch = crText.match(/"id"\s*:\s*"(\d{10,})"/);
-    if (!crIdMatch) { res.status(500).json({ error: `فشل إنشاء Creative — ${crText.slice(0, 200)}` }); return; }
+    if (!crIdMatch) { res.status(500).json({ error: `فشل إنشاء Creative — ${crText.slice(0, 200)}`, adset_id: finalAdsetId || undefined, campaign_id: finalCampaignId || undefined }); return; }
     const creativeId = crIdMatch[1];
 
     // ── 6. أنشئ الـ Ad ──
