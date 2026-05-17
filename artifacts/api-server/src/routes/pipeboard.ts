@@ -5481,7 +5481,11 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
           targeting_automation: { advantage_audience: 1 },
           status: "PAUSED",
         };
-        if (!isCBO) { const db = Number(adsetDetails.daily_budget ?? 0); if (db > 0) newAdsetArgs.daily_budget = db; }
+        if (!isCBO) {
+          const db = Number(adsetDetails.daily_budget ?? 0);
+          const fallbackBudget = new_campaign_budget ? Math.round(new_campaign_budget * 100) : 0;
+          newAdsetArgs.daily_budget = db > 0 ? db : fallbackBudget;
+        }
         if (pixelId) newAdsetArgs.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
 
         const newAdsetRes = await client.callTool({ name: "create_adset", arguments: newAdsetArgs });
