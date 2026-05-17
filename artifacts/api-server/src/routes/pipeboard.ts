@@ -1788,7 +1788,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     const linkUrl = String(args?.link_url ?? "");
     const callToAction = String(args?.call_to_action ?? "SHOP_NOW");
     const mediaType = String(args?.media_type ?? "video");
-    const videoId = String(args?.video_id ?? "");
+    let videoId = String(args?.video_id ?? "");
     const imageHash = String(args?.image_hash ?? "");
     let pageId = String(args?.page_id ?? "").trim();
     let instagramActorId = String(args?.instagram_actor_id ?? "").trim();
@@ -1863,15 +1863,100 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       return;
     }
     if (mediaType === "video" && !videoId) {
-      res.status(400).json({
-        error:
-          "video_id مطلوب لـ media_type=video — " +
-          "video_id هو Meta Video ID (رقم مثل 1234567890)، وليس URL. " +
-          "احصل عليه بإحدى الطريقتين: " +
-          "(١) إذا كان لديك إعلان فيديو موجود → استدعِ get_ad_creative(source_ad_id) وستجد video_id في النتيجة، ثم أعِد استدعاء create_ad_from_creative_spec مع video_id الصحيح. " +
-          "(٢) إذا لم يكن لديك إعلان مصدر → استخدم launch_pipeboard_campaign مع media_url (URL الفيديو) بدلاً من create_ad_from_creative_spec — سيتولى الـ backend رفع الفيديو وإنشاء الإعلان تلقائياً.",
-      });
-      return;
+      // ── Auto-upload: if media_url or video_id looks like a URL, upload it ──
+      // The AI may pass a Google Drive URL or direct video URL instead of a numeric
+      // video_id. Detect this and auto-upload via Pipeboard upload_ad_video,
+      // exactly like upload_video_to_meta does, so the flow doesn't block.
+      const rawMediaUrl = String(
+        (args as Record<string, unknown>)?.media_url ?? ""
+      ).trim();
+      const rawVideoIdAsUrl = videoId.includes("://") ? videoId : "";
+      const autoUploadUrl = rawMediaUrl || rawVideoIdAsUrl;
+
+      if (autoUploadUrl) {
+        // ── Helper: normalise Drive file URL to direct download link ──────────
+        function normDriveUrlSpec(raw: string): string {
+          const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+          if (fileMatch) return `https://drive.usercontent.google.com/download?id=${fileMatch[1]}&export=download&authuser=0`;
+          const idMatch  = raw.match(/drive\.google\.com\/(?:open|uc)[^?]*\?(?:[^#]*&)?id=([^&#]+)/);
+          if (idMatch)   return `https://drive.usercontent.google.com/download?id=${idMatch[1]}&export=download&authuser=0`;
+          if (raw.includes("drive.usercontent.google.com")) return raw;
+          return raw;
+        }
+
+        // ── If it's a Drive folder URL, pick the first (or hinted) video ─────
+        let uploadUrl = "";
+        let resolvedFilename = "video";
+        const folderMatch = autoUploadUrl.match(/\/folders\/([a-zA-Z0-9-_]+)/);
+        if (folderMatch) {
+          const googleApiKey = process.env.GOOGLE_API_KEY;
+          if (!googleApiKey) {
+            res.status(400).json({ error: "create_ad_from_creative_spec: GOOGLE_API_KEY مفقود — لا يمكن استعراض مجلد Drive" });
+            return;
+          }
+          const folderId   = folderMatch[1]!;
+          const driveApiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
+          const driveResp  = await fetch(driveApiUrl, { signal: AbortSignal.timeout(30_000) });
+          if (!driveResp.ok) {
+            res.status(500).json({ error: `فشل Google Drive API: ${driveResp.status} ${driveResp.statusText}` });
+            return;
+          }
+          const driveData  = (await driveResp.json()) as { files?: Array<{ id: string; mimeType: string; name: string }> };
+          const videoFiles = (driveData.files ?? []).filter(f => f.mimeType.startsWith("video/"));
+          if (videoFiles.length === 0) {
+            res.status(400).json({ error: `مجلد Drive "${folderId}" لا يحتوي على فيديوهات` });
+            return;
+          }
+          const hint    = String((args as Record<string, unknown>)?.filename_hint ?? "").toLowerCase();
+          const matched = hint
+            ? (videoFiles.find(f => { const n = f.name.replace(/\.[^.]+$/, "").toLowerCase(); return n === hint || n.includes(hint) || hint.includes(n); }) ?? videoFiles[0]!)
+            : videoFiles[0]!;
+          resolvedFilename = matched.name;
+          uploadUrl        = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0`;
+        } else {
+          uploadUrl        = normDriveUrlSpec(autoUploadUrl);
+          resolvedFilename = String((args as Record<string, unknown>)?.filename_hint ?? "video");
+        }
+
+        logger.info({ uploadUrl, resolvedFilename, accountId }, "create_ad_from_creative_spec: auto-uploading video from URL");
+
+        try {
+          const uploadClient = await getPipeboardWriteClient();
+          const vidResult    = await uploadClient.callTool(
+            { name: "upload_ad_video", arguments: { account_id: accountId, video_url: uploadUrl, name: resolvedFilename || `video_${Date.now()}` } },
+            undefined,
+            { timeout: 120_000 },
+          );
+          const vidText = (
+            (vidResult.content as Array<{ type: string; text?: string }>)
+              ?.filter(c => c.type === "text")
+              .map(c => c.text ?? "")
+              .join("") ?? ""
+          ).trim();
+          const vidMatch = vidText.match(/"(?:video_id|id)"\s*:\s*"(\d+)"/) ?? vidText.match(/\b(\d{10,})\b/);
+          videoId        = vidMatch?.[1] ?? "";
+          if (!videoId) {
+            res.status(500).json({ error: `رفع الفيديو فشل — استجابة Pipeboard: ${vidText.slice(0, 300)}` });
+            return;
+          }
+          logger.info({ videoId, resolvedFilename }, "create_ad_from_creative_spec: auto-upload succeeded");
+        } catch (uploadErr) {
+          const uploadMsg = uploadErr instanceof Error ? uploadErr.message : String(uploadErr);
+          res.status(500).json({ error: `فشل رفع الفيديو تلقائياً: ${uploadMsg}` });
+          return;
+        }
+      } else {
+        // No URL provided either — return actionable guidance
+        res.status(400).json({
+          error:
+            "video_id مطلوب لـ media_type=video — " +
+            "video_id هو Meta Video ID (رقم مثل 1234567890)، وليس URL. " +
+            "احصل عليه بإحدى الطريقتين: " +
+            "(١) إذا كان لديك إعلان فيديو موجود → استدعِ get_ad_creative(source_ad_id) وستجد video_id في النتيجة، ثم أعِد استدعاء create_ad_from_creative_spec مع video_id الصحيح. " +
+            "(٢) إذا لديك رابط فيديو من Drive أو URL مباشر → أرسله في حقل media_url وسيرفع الـ backend الفيديو ويحصل على video_id تلقائياً.",
+        });
+        return;
+      }
     }
     if (mediaType === "image" && !imageHash) {
       res.status(400).json({ error: "image_hash مطلوب لـ media_type=image" });
