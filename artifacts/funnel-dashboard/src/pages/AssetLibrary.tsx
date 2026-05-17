@@ -915,8 +915,8 @@ Landing Page: ${landingPage.trim() || "—"}
 ⚠️ RULES (لا تخالف):
 - ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
 - page_id / pixel_id يُكتشفان تلقائياً من الدومين
-- استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في نفس الـ Adset (${selAdset?.id ?? "???"})
-- لو كانت الفيديوهات في فولدر Drive: مرر الـ folder URL مباشرة في media_url — الـ backend يرفع تلقائياً
+- استخدم create_ad_from_creative_spec لكل فيديو × نص في نفس الـ Adset (${selAdset?.id ?? "???"})
+- لو كانت الفيديوهات في فولدر Drive: مرر الـ folder URL في media_url مباشرة — الـ backend يرفع تلقائياً بدون استدعاء upload_ad_video
 
 Copy Pairs (${copyCount}):
   Texts:
