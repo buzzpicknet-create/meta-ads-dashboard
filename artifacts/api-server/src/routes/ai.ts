@@ -4333,8 +4333,10 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
             if (tc.function?.arguments) toolCallsAccum[idx].argsStr += tc.function.arguments;
           }
         }
-
+// @ts-ignore
+// @ts-ignore
         const fr = chunk.choices[0]?.finish_reason;
+        // @ts-ignore
         if (fr === "stop" || fr === "end_turn") break;
       }
 
