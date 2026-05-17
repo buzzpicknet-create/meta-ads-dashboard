@@ -2782,7 +2782,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         : [
             {
               name: `${String(args?.campaign_name ?? "حملة")} — مجموعة رئيسية`,
-              budget: Number(args?.daily_budget ?? 20),
+              budget: Number(args?.daily_budget ?? args?.budget ?? 100),
             },
           ];
 

@@ -1592,6 +1592,7 @@ Build Standard Campaign NOW — ${adsetCount} Adset(s):
 - Campaign Name: ${campName}
 ${accountLine}
 - Budget: ${isCBO ? `CBO · ${form.budget} EGP/day total` : `ABO · ${form.budget} EGP/day per Adset`}
+- daily_budget (for launch_pipeboard_campaign): ${form.budget}
 - Media Drive Folder: ${drive}
 - Targeting: Advantage+ Audience (Broad) — Egypt only
 - Placements: Advantage+ Placements
