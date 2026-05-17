@@ -3038,7 +3038,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           if (videoAdsetGroups.length > 0) {
             const baseAdset = rawAdsets[0] ?? { name: campaignName, budget: 100 };
             rawAdsets = videoAdsetGroups.map((group, i) => ({
-              name: `${group[0]?.name ?? `فيديو ${i + 1}`} — ${baseAdset.name}`,
+              name: `${group[0]?.name ?? `فيديو ${i + 1}`}`,
               budget: baseAdset.budget,
             }));
             // rawCreatives will be handled per-adset below
