@@ -545,7 +545,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     }
 
     // META_ACCESS_TOKEN used only for GET fallbacks in reconstruction — not required for primary path.
-    const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
+    const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
 
     let dupSuccess = false;
     let dupMsg = "";
@@ -5014,7 +5014,7 @@ router.get(
       // جلب الـ insights مباشرة من Meta API بالـ campaign_id (أدق وأضمن من Pipeboard get_insights)
       let insights: Record<string, unknown>[] = [];
       try {
-        const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
+        const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
         const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
           `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
           `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
@@ -5308,7 +5308,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
     // جلب الـ insights مباشرة من Meta API مع فلتر الـ campaign_id
     let insightsMap = new Map<string, Record<string, unknown>>();
     try {
-      const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
+      const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
       const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
         `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
         `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
@@ -5317,7 +5317,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const insArr = insJson.data ?? [];
       insightsMap = new Map(insArr.map(i => [String(i.ad_id), i]));
     } catch { /* ignore */ }
-    const metaTokenForCreative = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
+    const metaTokenForCreative = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
     const normalized = await Promise.all(ads.map(async ad => {
       let cr = (ad.creative as Record<string, unknown>) ?? {};
       // لو مفيش creative ID، نجيبه من الـ ad مباشرة من Meta
@@ -5599,7 +5599,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
     if (!srcVideoId && !srcImageHash) {
       const creativeIdToFetch = source_ad.creative_id || source_ad.id;
       try {
-        const metaTkn = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
+        const metaTkn = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
         // أولاً نجيب الـ creative_id من الـ ad
         const adInfoUrl = `https://graph.facebook.com/v21.0/${source_ad.id}?fields=creative{id,body,title,video_id,image_hash,link_url,call_to_action}&access_token=${encodeURIComponent(metaTkn)}`;
         const adInfoRes = await fetch(adInfoUrl);
