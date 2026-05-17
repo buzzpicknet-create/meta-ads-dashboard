@@ -3047,8 +3047,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       }
       const mediaCache = new Map<string, MediaCacheEntry>();
 
-      for (let ci = 0; ci < rawCreatives.length; ci++) {
-        const creative = rawCreatives[ci]!;
+      // Build upload list from both rawCreatives and videoGroups
+      const videoGroups: CreativeInput[][] | undefined = (rawAdsets as any)._videoGroups;
+      const allCreativesForUpload: CreativeInput[] = videoGroups
+        ? videoGroups.flat()
+        : rawCreatives;
+      for (let ci = 0; ci < allCreativesForUpload.length; ci++) {
+        const creative = allCreativesForUpload[ci]!;
         const rawUrl = creative.media_url?.trim() ?? "";
         const mediaUrl = normaliseMediaUrl(rawUrl);
         if (mediaCache.has(mediaUrl)) continue;
@@ -3150,7 +3155,6 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       //     N videos × M texts = N×M separate ads in the SAME adset (no split by video)
       //   • N adsets in blueprint → each adset paired to its position-matched creative
       // NO is_dynamic_creative — NO asset_feed_spec — each ad = 1 video + 1 text + 1 headline
-      const videoGroups: CreativeInput[][] | undefined = (rawAdsets as any)._videoGroups;
       effectiveAdsets = rawAdsets as AdsetInput[];
 
       let totalAdsExpected = 0;
