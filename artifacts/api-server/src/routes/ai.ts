@@ -1311,7 +1311,7 @@ const TOOLS = [
   {
     type: "function" as const,
     function: {
-      name: "upload_video_to_meta",
+      name: "upload_video_to_meta", // DISABLED_BEFORE_LAUNCH
       description: "ارفع فيديو واحد من Google Drive إلى Meta. ⛔ لا تستخدم هذه الأداة قبل launch_pipeboard_campaign — الـ backend يرفع الفيديوهات تلقائياً من Drive folder. استخدم هذه الأداة فقط عند طلب video_id لإعلان يدوي منفصل.",
       parameters: {
         type: "object",

@@ -916,7 +916,7 @@ Landing Page: ${landingPage.trim() || "—"}
 - ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
 - page_id / pixel_id يُكتشفان تلقائياً من الدومين
 - استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في نفس الـ Adset (${selAdset?.id ?? "???"})
-- لو كانت الفيديوهات في فولدر Drive: اكتشف الملفات بـ upload_video_to_meta(list_only=true) ثم ارفع كل واحد
+- لو كانت الفيديوهات في فولدر Drive: مرر الـ folder URL مباشرة في media_url — الـ backend يرفع تلقائياً
 
 Copy Pairs (${copyCount}):
   Texts:
@@ -1095,7 +1095,7 @@ Landing Page: ${landingPage.trim() || "—"}
 - ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
 - page_id / pixel_id يُكتشفان تلقائياً من الدومين
 - استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في الـ Adset الجديدة
-- لو كانت الفيديوهات في فولدر Drive: اكتشف الملفات بـ upload_video_to_meta(list_only=true) ثم ارفع كل واحد
+- لو كانت الفيديوهات في فولدر Drive: مرر الـ folder URL مباشرة في media_url — الـ backend يرفع تلقائياً
 
 Copy Pairs (${copyCount}):
   Texts:
@@ -1555,7 +1555,7 @@ ${allHeadlines}
           const hasVideoName = a.name.trim().length > 0;
           const videoSection = hasVideoName
             ? `- Video: find file named "${a.name.trim()}" in Drive folder (match by filename, ignore extension)\n- Ads (${creativesPerAdset} ads = 1 video × ${creativesPerAdset} copy pairs — NO Dynamic Creative):`
-            : `- Videos: call upload_video_to_meta(list_only=true) first to discover ALL videos in Drive folder, then upload each → Total ads = N_videos × ${creativesPerAdset} copy pairs (NO Dynamic Creative):`;
+            : `- Videos: Drive Folder URL أعلاه — الـ backend يكتشف ويرفع كل الفيديوهات تلقائياً — Total ads = N_videos × ${creativesPerAdset} copy pairs (NO Dynamic Creative) — لا تستدعي upload_video_to_meta:`;
           return `## Adset ${i + 1} — "${a.name || `Angle ${i + 1}`}"
 - Landing Page: ${lp}${!isCBO ? `\n- Budget: ${form.budget} EGP/day (ABO)` : ""}
 ${videoSection}
@@ -1566,7 +1566,7 @@ ${headlines}`;
         }).join("\n\n")
       : `## Adset 1 — Default
 - Landing Page: [add landing page]
-- Videos: call upload_video_to_meta(list_only=true) to discover all videos in Drive folder
+- Videos: Drive Folder URL أعلاه — الـ backend يرفع تلقائياً — لا تستدعي upload_video_to_meta
 - Ads: N_videos × ${creativesPerAdset} copy pairs`;
 
     const accountLine = form.quickAccountId
