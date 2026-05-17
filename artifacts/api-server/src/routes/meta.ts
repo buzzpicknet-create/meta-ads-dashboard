@@ -15,7 +15,7 @@ import {
   getCampaignDetails,
   getAdsetDetails,
 } from "../lib/meta-api";
-import { getTokenInfo, refreshLongLivedToken } from "../lib/meta-token";
+import { getTokenInfo, refreshLongLivedToken, validateTokenWithMeta, updateAccessToken } from "../lib/meta-token";
 import { logger } from "../lib/logger";
 import { query } from "../lib/db";
 import { upsertCampaignNameCache } from "../lib/campaign-name-cache";
@@ -248,10 +248,19 @@ function parseRange(q: {
   return { since, until };
 }
 
-router.get("/meta/health", (_req, res) => {
+router.get("/meta/health", async (_req, res) => {
   try {
     const info = getTokenInfo();
-    res.json({ ok: true, token: info });
+    const validation = await validateTokenWithMeta();
+    res.json({
+      ok: validation.valid,
+      token: {
+        ...info,
+        fb_valid: validation.valid,
+        fb_error: validation.error,
+        fb_user_id: validation.user_id,
+      },
+    });
   } catch (err) {
     res
       .status(500)
@@ -259,7 +268,7 @@ router.get("/meta/health", (_req, res) => {
   }
 });
 
-router.post("/meta/refresh-token", async (_req, res) => {
+router.post("/meta/refresh-token", requireAdmin, async (_req, res) => {
   try {
     const t = await refreshLongLivedToken();
     res.json({
@@ -269,6 +278,32 @@ router.post("/meta/refresh-token", async (_req, res) => {
     });
   } catch (err) {
     logger.error({ err }, "Token refresh failed");
+    res
+      .status(500)
+      .json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// POST /meta/token — admin only: save a new access token (e.g. after manual Facebook refresh)
+router.post("/meta/token", requireAdmin, async (req, res) => {
+  try {
+    const { access_token, app_id } = req.body as {
+      access_token?: string;
+      app_id?: string;
+    };
+    if (!access_token?.trim()) {
+      res.status(400).json({ ok: false, error: "access_token مطلوب" });
+      return;
+    }
+    const t = await updateAccessToken(access_token.trim(), app_id?.trim());
+    res.json({
+      ok: true,
+      expires_at: t.expires_at,
+      issued_at: t.issued_at,
+      app_id: t.app_id,
+    });
+  } catch (err) {
+    logger.error({ err }, "Token update failed");
     res
       .status(500)
       .json({ ok: false, error: err instanceof Error ? err.message : String(err) });

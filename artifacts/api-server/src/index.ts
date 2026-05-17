@@ -3,7 +3,7 @@ import { logger } from "./lib/logger";
 import { query } from "./lib/db";
 import { runMediaScan } from "./lib/media-scan";
 import { warmCreativeCache, proactiveInsightsRefresh, setLastWarmupStats, setWarmupInProgress, getLastWarmupStats, rehydrateWarmupHistory } from "./routes/meta";
-import { getAdAccountIds } from "./lib/meta-token";
+import { getAdAccountIds, initTokenFromDb, getTokenInfo, refreshLongLivedToken } from "./lib/meta-token";
 import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
 import { runScheduledReportsCron } from "./routes/scheduled-reports";
@@ -536,6 +536,18 @@ async function runMigrations() {
     )
   `);
 
+  // Meta access tokens — persistent storage survives autoscale restarts
+  await query(`
+    CREATE TABLE IF NOT EXISTS meta_tokens (
+      id SERIAL PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      app_id TEXT NOT NULL DEFAULT '',
+      expires_at TIMESTAMPTZ,
+      issued_at TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   // Account-level permissions per user (replaces single ad_account_id)
   await query(`
     CREATE TABLE IF NOT EXISTS user_account_permissions (
@@ -918,7 +930,58 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+// ── Token Health Auto-Refresh Cron ────────────────────────────────────────────
+// Runs once daily. If the token is still valid but has < 14 days left,
+// auto-extends it to a fresh 60-day token. If it's already expired or
+// the refresh fails, sends a push notification to admins.
+
+async function runTokenRefreshCron() {
+  try {
+    const info = getTokenInfo();
+    if (info.days_left > 14) {
+      logger.info({ days_left: info.days_left }, "Token refresh cron: token healthy, skipping");
+      return;
+    }
+    if (info.days_left <= 0) {
+      logger.warn("Token refresh cron: token already expired — manual refresh required");
+      await sendPushToRoles(["admin"], {
+        title: "⛔ Meta Token منتهي الصلاحية",
+        body: "الـ Token انتهى — افتح لوحة الإدارة وأضف Token جديداً من Meta Business",
+        url: "/admin",
+      }).catch(() => null);
+      return;
+    }
+    logger.info({ days_left: info.days_left }, "Token refresh cron: < 14 days left, auto-refreshing...");
+    const refreshed = await refreshLongLivedToken();
+    logger.info({ expires_at: refreshed.expires_at }, "Token refresh cron: success");
+    await sendPushToRoles(["admin"], {
+      title: "✅ Meta Token تم تجديده",
+      body: `الـ Token تجدد تلقائياً — صالح حتى ${new Date(refreshed.expires_at).toLocaleDateString("ar-EG")}`,
+      url: "/admin",
+    }).catch(() => null);
+  } catch (err) {
+    logger.error({ err }, "Token refresh cron failed");
+    await sendPushToRoles(["admin"], {
+      title: "⚠️ فشل تجديد Meta Token",
+      body: "فشل التجديد التلقائي — افتح لوحة الإدارة وجدّد الـ Token يدوياً",
+      url: "/admin",
+    }).catch(() => null);
+  }
+}
+
+function startTokenRefreshCron() {
+  // Run once at startup (after a 30s delay) then every 24 hours
+  setTimeout(() => {
+    runTokenRefreshCron().catch((err) => logger.error({ err }, "Initial token refresh cron failed"));
+    setInterval(() => {
+      runTokenRefreshCron().catch((err) => logger.error({ err }, "Token refresh cron failed"));
+    }, 24 * 60 * 60 * 1000);
+  }, 30_000);
+  logger.info("Token health cron scheduled (daily)");
+}
+
 runMigrations()
+  .then(() => initTokenFromDb())
   .then(() => rehydrateWarmupHistory())
   .then(() => initVapid())
   .then(() => {
@@ -936,6 +999,7 @@ runMigrations()
       startCreativeCacheWarmer();
       startWatchdogCron();
       startInventoryAlertCron();
+      startTokenRefreshCron();
     });
     // 180s timeout — AI streaming with multi-tool flows (get_adsets × 15 + get_ads_in_adset × 17+)
     // can exceed 90s. Must be larger than the 120s runAiStream abort signal.

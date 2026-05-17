@@ -6,7 +6,9 @@ import {
   Clock, WifiOff, Bell, BellOff, ChevronUp, Save, CheckSquare, Square,
   MousePointerClick, Eye, EyeOff, Send, SlidersHorizontal, Mail, Bot,
   DatabaseZap, RefreshCw, CheckCircle2, AlertCircle, AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
+import { fetchTokenHealth, saveNewToken, refreshTokenApi } from "@/lib/meta-api";
 import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, ReferenceDot } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility, useUpdatePageVisibility } from "@/hooks/use-page-visibility";
@@ -1430,6 +1432,15 @@ export default function AdminPage() {
         <ScheduledReportsSection />
       </div>
 
+      {/* Token Management section */}
+      <div className="mt-8 space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+          <KeyRound className="h-4 w-4" />
+          Meta Access Token
+        </h2>
+        <TokenManagementSection />
+      </div>
+
       {/* Cache warm-up diagnostics section */}
       <div className="mt-8 space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
@@ -1458,6 +1469,201 @@ export default function AdminPage() {
 
       {showAdd && <AddUserModal onClose={() => setShowAdd(false)} />}
       {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
+    </div>
+  );
+}
+
+// ── Token Management Section ───────────────────────────────────────────────────
+function TokenManagementSection() {
+  const qc = useQueryClient();
+  const [newToken, setNewToken] = useState("");
+  const [appId, setAppId] = useState("");
+  const [showTokenInput, setShowTokenInput] = useState(false);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["token-health-admin"],
+    queryFn: fetchTokenHealth,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const saveMut = useMutation({
+    mutationFn: () => saveNewToken({ access_token: newToken.trim(), app_id: appId.trim() || undefined }),
+    onSuccess: () => {
+      setNewToken("");
+      setShowTokenInput(false);
+      qc.invalidateQueries({ queryKey: ["token-health-admin"] });
+      qc.invalidateQueries({ queryKey: ["meta", "token-health"] });
+    },
+  });
+
+  const refreshMut = useMutation({
+    mutationFn: () => refreshTokenApi(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["token-health-admin"] });
+      qc.invalidateQueries({ queryKey: ["meta", "token-health"] });
+    },
+  });
+
+  const t = data?.token;
+  const isExpired = !t?.fb_valid || (t?.days_left ?? 0) <= 0;
+  const isWarning = !isExpired && (t?.days_left ?? 99) <= 14;
+  const canAutoRefresh = !isExpired && t?.app_id;
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      {/* Status row */}
+      <div className="px-5 py-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            جاري التحقق من حالة الـ Token...
+          </div>
+        ) : isError ? (
+          <div className="flex items-center gap-2 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4" />
+            تعذّر الاتصال بـ API — تأكد من تشغيل الخادم
+          </div>
+        ) : t ? (
+          <div className="space-y-3">
+            {/* Status badge + expiry */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                {isExpired ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-3 py-1 text-xs font-medium text-red-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                    منتهي الصلاحية
+                  </span>
+                ) : isWarning ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    ينتهي قريباً — {t.days_left} يوم
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    صالح — {t.days_left} يوم متبقٍ
+                  </span>
+                )}
+                {t.fb_valid ? (
+                  <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    مُتحقق من Meta
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-xs text-red-600">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {t.fb_error ?? "رفضه Meta"}
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {canAutoRefresh && (
+                  <button
+                    onClick={() => refreshMut.mutate()}
+                    disabled={refreshMut.isPending}
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-emerald-500/10 text-emerald-700 text-xs font-medium hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                  >
+                    {refreshMut.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    تجديد تلقائي (60 يوم)
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowTokenInput((v) => !v)}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors"
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  {showTokenInput ? "إلغاء" : "إدخال Token جديد"}
+                </button>
+              </div>
+            </div>
+
+            {/* Meta info */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                <span className="font-medium text-foreground">انتهاء:</span>{" "}
+                {t.expires_at ? new Date(t.expires_at).toLocaleDateString("ar-EG") : "—"}
+              </span>
+              <span>
+                <span className="font-medium text-foreground">App ID:</span>{" "}
+                {t.app_id || <span className="text-amber-500">غير محدد</span>}
+              </span>
+              {t.fb_user_id && (
+                <span>
+                  <span className="font-medium text-foreground">User ID:</span> {t.fb_user_id}
+                </span>
+              )}
+            </div>
+
+            {/* Error messages */}
+            {refreshMut.isError && (
+              <p className="text-xs text-red-600 bg-red-500/5 rounded-lg px-3 py-2">
+                {refreshMut.error instanceof Error ? refreshMut.error.message : "فشل التجديد"}
+              </p>
+            )}
+            {refreshMut.isSuccess && (
+              <p className="text-xs text-emerald-600 bg-emerald-500/5 rounded-lg px-3 py-2">
+                ✓ تم التجديد بنجاح — الـ Token صالح 60 يوماً إضافية
+              </p>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      {/* New token form */}
+      {showTokenInput && (
+        <div className="border-t border-border px-5 py-4 space-y-3 bg-muted/20">
+          <p className="text-xs text-muted-foreground">
+            احصل على token جديد من{" "}
+            <a
+              href="https://developers.facebook.com/tools/explorer/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline text-primary"
+            >
+              Meta Graph API Explorer
+            </a>{" "}
+            أو من Pipeboard، ثم الصقه هنا.
+          </p>
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={appId}
+              onChange={(e) => setAppId(e.target.value)}
+              placeholder="Meta App ID (مطلوب للتجديد التلقائي)"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <textarea
+              value={newToken}
+              onChange={(e) => setNewToken(e.target.value)}
+              placeholder="الصق الـ Access Token هنا..."
+              rows={3}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+            />
+          </div>
+          {saveMut.isError && (
+            <p className="text-xs text-red-600">
+              {saveMut.error instanceof Error ? saveMut.error.message : "فشل الحفظ"}
+            </p>
+          )}
+          <button
+            onClick={() => saveMut.mutate()}
+            disabled={!newToken.trim() || saveMut.isPending}
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {saveMut.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            حفظ Token الجديد
+          </button>
+        </div>
+      )}
     </div>
   );
 }

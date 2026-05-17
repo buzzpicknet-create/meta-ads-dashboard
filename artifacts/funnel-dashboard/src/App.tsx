@@ -16,7 +16,8 @@ import LandingPageGenerator from "@/pages/LandingPage";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityLogger } from "@/hooks/use-activity-logger";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
-import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library, Package, ShieldAlert, AlertTriangle, Pause, X, CalendarDays, Globe } from "lucide-react";
+import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library, Package, ShieldAlert, AlertTriangle, Pause, X, CalendarDays, Globe, KeyRound } from "lucide-react";
+import { useTokenHealth } from "@/hooks/use-meta";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
 import { GlobalAiChat } from "@/components/GlobalAiChat";
 import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
@@ -303,6 +304,33 @@ function NotificationBell() {
   );
 }
 
+function TokenStatusBadge() {
+  const { data, isLoading } = useTokenHealth();
+  if (isLoading || !data) return null;
+  const t = data.token;
+  const isExpired = !t.fb_valid || t.days_left <= 0;
+  const isWarning = !isExpired && t.days_left <= 14;
+  if (!isExpired && !isWarning) return null;
+  return (
+    <a
+      href="/admin"
+      title={
+        isExpired
+          ? `Token منتهي: ${t.fb_error ?? "غير صالح"}`
+          : `Token ينتهي خلال ${t.days_left} يوم — اضغط للتجديد`
+      }
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+        isExpired
+          ? "bg-red-500/15 text-red-600 hover:bg-red-500/25"
+          : "bg-amber-500/15 text-amber-600 hover:bg-amber-500/25"
+      }`}
+    >
+      <KeyRound className="h-3 w-3" />
+      {isExpired ? "Token منتهي" : `${t.days_left}ي`}
+    </a>
+  );
+}
+
 function NavBar() {
   const { user, logout } = useAuth();
   const role = user?.role ?? "media_manager";
@@ -394,6 +422,7 @@ function NavBar() {
 
             {/* User + Notifications + Logout */}
             <div className="hidden sm:flex items-center gap-2 shrink-0">
+              {role === "admin" && <TokenStatusBadge />}
               {hasConversationUI && <NavSearchButton onOpen={openSearch} />}
               <span className="text-xs text-muted-foreground hidden md:block">
                 {user?.username}

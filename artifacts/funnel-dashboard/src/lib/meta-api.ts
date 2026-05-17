@@ -199,6 +199,7 @@ export function fetchAccountOverview(opts: {
 
 export interface TokenHealth {
   ok: boolean;
+  error?: string;
   token: {
     issued_at: string;
     expires_at: string;
@@ -206,6 +207,9 @@ export interface TokenHealth {
     app_id: string;
     ad_account_id: string;
     needs_refresh: boolean;
+    fb_valid: boolean;
+    fb_error?: string;
+    fb_user_id?: string;
   };
 }
 
@@ -242,6 +246,43 @@ export function fetchAccounts(): Promise<AccountsResponse> {
 
 export function fetchTokenHealth(): Promise<TokenHealth> {
   return jsonFetch<TokenHealth>(`${API_BASE}/meta/health`);
+}
+
+export async function saveNewToken(payload: {
+  access_token: string;
+  app_id?: string;
+}): Promise<{ ok: boolean; expires_at: string; issued_at: string; app_id: string }> {
+  const res = await fetch(`${API_BASE}/meta/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as {
+    ok: boolean;
+    expires_at: string;
+    issued_at: string;
+    app_id: string;
+    error?: string;
+  };
+  if (!res.ok || !data.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  return data;
+}
+
+export async function refreshTokenApi(): Promise<{ ok: boolean; expires_at: string; issued_at: string }> {
+  const res = await fetch(`${API_BASE}/meta/refresh-token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+  const data = (await res.json()) as {
+    ok: boolean;
+    expires_at: string;
+    issued_at: string;
+    error?: string;
+  };
+  if (!res.ok || !data.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  return data;
 }
 
 export function fetchCampaigns(opts: {

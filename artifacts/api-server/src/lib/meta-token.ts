@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { logger } from "./logger";
+import { query } from "./db";
 
 interface TokenCache {
   access_token: string;
@@ -27,26 +28,20 @@ const TOKEN_FILE = path.join(WORKSPACE_ROOT, ".local/meta/token-cache.json");
 
 let cached: TokenCache | null = null;
 
-function loadFromDisk(): TokenCache | null {
-  if (!fs.existsSync(TOKEN_FILE)) return null;
-  try {
-    const raw = fs.readFileSync(TOKEN_FILE, "utf-8");
-    return JSON.parse(raw) as TokenCache;
-  } catch {
-    return null;
-  }
-}
-
 function writeToDisk(token: TokenCache): void {
-  fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(token, null, 2), { mode: 0o600 });
+  try {
+    fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
+    fs.writeFileSync(TOKEN_FILE, JSON.stringify(token, null, 2), { mode: 0o600 });
+  } catch {
+    // disk write is best-effort — DB is the real store in production
+  }
 }
 
 function buildFromEnv(): TokenCache {
   const token = process.env["META_ACCESS_TOKEN"];
   if (!token) {
     throw new Error(
-      "No Meta token available. Set META_ACCESS_TOKEN environment variable or run setup first.",
+      "No Meta token available. Set META_ACCESS_TOKEN environment variable or use the admin panel to save a new token.",
     );
   }
   return {
@@ -60,15 +55,66 @@ function buildFromEnv(): TokenCache {
   };
 }
 
+// ── DB persistence ─────────────────────────────────────────────────────────────
+
+/**
+ * Called once after DB migrations complete.
+ * Loads the most recent token from meta_tokens table into the in-memory cache.
+ * Falls back to ENV if table is empty.
+ */
+export async function initTokenFromDb(): Promise<void> {
+  try {
+    const rows = await query<{
+      access_token: string;
+      app_id: string;
+      expires_at: string;
+      issued_at: string;
+    }>(
+      `SELECT access_token, app_id, expires_at, issued_at
+       FROM meta_tokens
+       ORDER BY id DESC
+       LIMIT 1`,
+    );
+    if (rows.length > 0 && rows[0]!.access_token) {
+      const row = rows[0]!;
+      cached = {
+        access_token: row.access_token,
+        token_type: "bearer",
+        expires_in: 0,
+        expires_at:
+          row.expires_at ??
+          new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+        issued_at: row.issued_at ?? new Date().toISOString(),
+        app_id: row.app_id ?? process.env["META_APP_ID"] ?? "",
+        ad_account_id: "1714386865726065",
+      };
+      logger.info(
+        { expires_at: cached.expires_at },
+        "Meta token loaded from DB",
+      );
+    } else {
+      logger.info(
+        "meta_tokens table empty — falling back to META_ACCESS_TOKEN env var",
+      );
+    }
+  } catch (err) {
+    logger.warn({ err }, "initTokenFromDb: failed, falling back to env var");
+  }
+}
+
+async function storeTokenInDb(token: TokenCache): Promise<void> {
+  await query(
+    `INSERT INTO meta_tokens (access_token, app_id, expires_at, issued_at)
+     VALUES ($1, $2, $3, $4)`,
+    [token.access_token, token.app_id, token.expires_at, token.issued_at],
+  );
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────────
+
 export function getToken(): TokenCache {
   if (!cached) {
-    // ENV secret always wins over disk cache — so updating META_ACCESS_TOKEN
-    // in Replit Secrets immediately takes effect without clearing token-cache.json
-    if (process.env["META_ACCESS_TOKEN"]) {
-      cached = buildFromEnv();
-    } else {
-      cached = loadFromDisk() ?? buildFromEnv();
-    }
+    cached = buildFromEnv();
   }
   return cached;
 }
@@ -106,47 +152,127 @@ export function getTokenInfo() {
   };
 }
 
+/**
+ * Validate the token against the real Facebook API.
+ * Calls GET /me?fields=id — succeeds if token is valid, fails if expired.
+ */
+export async function validateTokenWithMeta(): Promise<{
+  valid: boolean;
+  user_id?: string;
+  error?: string;
+}> {
+  const token = getToken();
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v21.0/me?fields=id&access_token=${encodeURIComponent(token.access_token)}`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    const data = (await res.json()) as Record<string, unknown>;
+    if (data["error"]) {
+      const err = data["error"] as Record<string, unknown>;
+      return {
+        valid: false,
+        error: String(err["message"] ?? err["type"] ?? "Token invalid"),
+      };
+    }
+    return { valid: true, user_id: String(data["id"] ?? "") };
+  } catch (err) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Admin endpoint: save a brand-new access token (e.g. after manual refresh).
+ * Stores in DB and updates in-memory cache.
+ */
+export async function updateAccessToken(
+  accessToken: string,
+  appId?: string,
+  expiresAt?: string,
+): Promise<TokenCache> {
+  const resolvedAppId =
+    appId?.trim() ||
+    cached?.app_id ||
+    process.env["META_APP_ID"] ||
+    "";
+  const resolvedExpiresAt =
+    expiresAt ??
+    new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+  const issuedAt = new Date().toISOString();
+  const newToken: TokenCache = {
+    access_token: accessToken,
+    token_type: "bearer",
+    expires_in: 60 * 24 * 60 * 60,
+    expires_at: resolvedExpiresAt,
+    issued_at: issuedAt,
+    app_id: resolvedAppId,
+    ad_account_id: "1714386865726065",
+  };
+  await storeTokenInDb(newToken);
+  cached = newToken;
+  writeToDisk(newToken);
+  logger.info({ expires_at: newToken.expires_at }, "Meta token updated by admin");
+  return newToken;
+}
+
+/**
+ * Exchange the current token for a new long-lived token (60 days).
+ * Requires META_APP_SECRET in env AND app_id stored in DB or META_APP_ID env.
+ * Only works if the current token is still VALID — cannot revive an expired token.
+ */
 export async function refreshLongLivedToken(): Promise<TokenCache> {
   const current = getToken();
   const appSecret = process.env["META_APP_SECRET"];
   if (!appSecret) {
-    throw new Error("META_APP_SECRET environment variable is not set.");
+    throw new Error(
+      "META_APP_SECRET غير موجود في متغيرات البيئة — لا يمكن تجديد الـ token.",
+    );
+  }
+
+  const appId = current.app_id || process.env["META_APP_ID"] || "";
+  if (!appId) {
+    throw new Error(
+      "App ID غير متاح — أدخل الـ Meta App ID في لوحة الإدارة أولاً ثم أعِد المحاولة.",
+    );
   }
 
   const url = new URL("https://graph.facebook.com/v21.0/oauth/access_token");
   url.searchParams.set("grant_type", "fb_exchange_token");
-  url.searchParams.set("client_id", current.app_id);
+  url.searchParams.set("client_id", appId);
   url.searchParams.set("client_secret", appSecret);
   url.searchParams.set("fb_exchange_token", current.access_token);
 
-  logger.info("Refreshing Meta long-lived token...");
-  const res = await fetch(url.toString());
+  logger.info({ appId }, "Refreshing Meta long-lived token...");
+  const res = await fetch(url.toString(), { signal: AbortSignal.timeout(15_000) });
   const data = (await res.json()) as {
     access_token?: string;
     token_type?: string;
     expires_in?: number;
-    error?: { message: string; code: number };
+    error?: { message: string; code: number; error_subcode?: number };
   };
 
   if (data.error || !data.access_token) {
-    throw new Error(
-      `Failed to refresh token: ${JSON.stringify(data.error || data)}`,
-    );
+    const errMsg = data.error?.message ?? JSON.stringify(data);
+    throw new Error(`فشل تجديد الـ token: ${errMsg}`);
   }
 
-  const expiresIn = data.expires_in || 60 * 24 * 60 * 60;
+  const expiresIn = data.expires_in ?? 60 * 24 * 60 * 60;
   const newToken: TokenCache = {
     access_token: data.access_token,
-    token_type: data.token_type || "bearer",
+    token_type: data.token_type ?? "bearer",
     expires_in: expiresIn,
     expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
     issued_at: new Date().toISOString(),
-    app_id: current.app_id,
+    app_id: appId,
     ad_account_id: current.ad_account_id,
   };
 
-  writeToDisk(newToken);
+  await storeTokenInDb(newToken);
   cached = newToken;
-  logger.info({ expires_at: newToken.expires_at }, "Token refreshed");
+  writeToDisk(newToken);
+  logger.info({ expires_at: newToken.expires_at }, "Token refreshed successfully");
   return newToken;
 }
