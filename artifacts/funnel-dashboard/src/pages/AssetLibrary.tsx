@@ -148,7 +148,6 @@ ${textsStr}
 - Headlines:
 ${headsStr}
 
-بعد تحديد الرابحين، اطلب الموافقة على إنشاء الحملة فوراً بدون جمع بيانات إضافية.
 [END_COMMAND]`;
   }
 
@@ -177,7 +176,6 @@ ${pageLine}
 ${textsStr}
 - Headlines (Use ALL):
 ${headsStr}
-- Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
 
 [END_COMMAND]`;
 }
@@ -1387,7 +1385,6 @@ ${anglesSection}
 # 3. إعدادات عامة
 - Targeting: Advantage+ Audience (Broad) — مصر فقط
 - Placements: Advantage+ Placements
-- Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
 [END_COMMAND]`;
 
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
@@ -1404,7 +1401,6 @@ ${anglesSection}
 # 3. إعدادات عامة
 - Targeting: Advantage+ Audience (Broad) — مصر فقط
 - Placements: Advantage+ Placements
-- Enable: Advantage+ Creative Enhancements (MUST BE TRUE)
 [END_COMMAND]`;
   }
 
@@ -1451,7 +1447,6 @@ ${anglesSection}
 ${allTexts}
 - Headlines:
 ${allHeadlines}
-- Enable: Advantage+ Creative Enhancements
 [END_COMMAND]`;
 
     if (type === "RETARGETING") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
@@ -1473,7 +1468,6 @@ ${allHeadlines}
 ${allTexts}
 - Headlines:
 ${allHeadlines}
-- Enable: Advantage+ Creative Enhancements
 [END_COMMAND]`;
 
     if (type === "LOOKALIKE") return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
@@ -1496,7 +1490,6 @@ ${allHeadlines}
 ${allTexts}
 - Headlines:
 ${allHeadlines}
-- Enable: Advantage+ Creative Enhancements
 [END_COMMAND]`;
 
     return `[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]
@@ -1519,7 +1512,6 @@ ${allHeadlines}
 ${allTexts}
 - Headlines:
 ${allHeadlines}
-- Enable: Advantage+ Creative Enhancements
 الخطوة 3: بعد الإنشاء، استخدم update_adset لتحديث targeting بالـ Interest IDs
 [END_COMMAND]`;
   }
