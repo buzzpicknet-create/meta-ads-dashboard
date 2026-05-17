@@ -3584,7 +3584,55 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // ── PHASE 2: OPTIONAL enhancements (non-fatal — failures silently skipped) ─
       } // closes if (campFetchOk)
       try {
-        const campForEnhance = campFetchOk ? campObjJson : {};
+        let campForEnhance: Record<string, unknown> = campFetchOk ? campObjJson : {};
+
+        // ── Pipeboard CBO Fallback: when Meta token expired, fetch campaign via Pipeboard ──
+        // campFetchOk is false when Meta returned Error 190 (token expired).
+        // Without this fallback, campForEnhance = {} → campHasBudget = false → adset daily_budget
+        // is passed to Pipeboard → Pipeboard correctly rejects with "Budget conflict (CBO)".
+        // Fix: use Pipeboard write client to get campaign details and detect CBO budget.
+        if (!campFetchOk && salesCampaignId && (effectiveArgs.daily_budget != null || effectiveArgs.lifetime_budget != null)) {
+          try {
+            const pbCBOClient = await getPipeboardWriteClient();
+            const pbCBORes = await pbCBOClient.callTool({
+              name: "get_campaign_details",
+              arguments: { campaign_id: salesCampaignId },
+            });
+            const pbCBOText = (
+              (pbCBORes as { content?: Array<{ type: string; text?: string }> }).content ?? []
+            )
+              .filter((c) => c.type === "text")
+              .map((c) => c.text ?? "")
+              .join("")
+              .trim();
+            try {
+              const pbCBOParsed = JSON.parse(pbCBOText) as unknown;
+              if (
+                pbCBOParsed &&
+                typeof pbCBOParsed === "object" &&
+                !Array.isArray(pbCBOParsed)
+              ) {
+                campForEnhance = pbCBOParsed as Record<string, unknown>;
+                logger.info(
+                  {
+                    salesCampaignId,
+                    pb_daily_budget: campForEnhance.daily_budget,
+                    pb_objective: campForEnhance.objective,
+                  },
+                  "create_adset: Pipeboard CBO fallback succeeded — campForEnhance populated",
+                );
+              }
+            } catch {
+              /* Pipeboard response not JSON — campForEnhance stays {} */
+            }
+          } catch (pbCBOErr) {
+            logger.warn(
+              { pbCBOErr },
+              "create_adset: Pipeboard CBO fallback fetch failed — proceeding without budget strip",
+            );
+          }
+        }
+
         const objective = String(campForEnhance.objective ?? "").toUpperCase();
 
         // ── CBO Budget Fix ────────────────────────────────────────────────
@@ -3793,6 +3841,52 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
       } catch {
         /* not JSON — will fall back to regex */
+      }
+
+      // ── Detect Pipeboard-level error responses BEFORE extracting IDs ──────────
+      // Shape: { "data": "<json string with 'error' field>" } — budget conflict etc.
+      // Shape: { "error": "..." }                              — top-level server error
+      // If we don't detect this early, the regex below will match the campaign_id
+      // from inside the error text and incorrectly treat it as the new adset_id.
+      if (parsedJson) {
+        let pipeboardLevelError: string | null = null;
+        let pipeboardDetails: string | null = null;
+        let pipeboardFix: string | null = null;
+
+        if (typeof parsedJson.error === "string" && parsedJson.error.length > 0) {
+          pipeboardLevelError = parsedJson.error;
+        } else if (typeof parsedJson.data === "string" && parsedJson.data.length > 10) {
+          try {
+            const innerRaw = JSON.parse(parsedJson.data) as unknown;
+            if (innerRaw && typeof innerRaw === "object" && !Array.isArray(innerRaw)) {
+              const inner = innerRaw as Record<string, unknown>;
+              if (typeof inner.error === "string" && inner.error.length > 0) {
+                pipeboardLevelError = inner.error;
+                pipeboardDetails = typeof inner.details === "string" ? inner.details : null;
+                pipeboardFix = typeof inner.fix === "string" ? inner.fix : null;
+              }
+            }
+          } catch { /* data is not JSON — fall through to ID extraction */ }
+        }
+
+        if (pipeboardLevelError) {
+          logger.warn(
+            { pipeboardLevelError, pipeboardFix, salesCampaignId },
+            "create_adset: Pipeboard returned error response — returning 400 without ID extraction",
+          );
+          const msg = [
+            `❌ Pipeboard رفض إنشاء المجموعة الإعلانية: ${pipeboardLevelError}`,
+            pipeboardDetails ? `📋 التفاصيل: ${pipeboardDetails}` : null,
+            pipeboardFix ? `💡 الحل: ${pipeboardFix}` : null,
+          ].filter(Boolean).join("\n");
+          return res.status(400).json({
+            success: false,
+            error: pipeboardLevelError,
+            message: msg,
+            details: pipeboardDetails,
+            fix: pipeboardFix,
+          });
+        }
       }
 
       // ── Dynamic ID mapping — handle all known Pipeboard response shapes ─────
