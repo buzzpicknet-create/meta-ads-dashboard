@@ -1040,7 +1040,7 @@ FLEX_SCALE PROTOCOL — نقل الرابحين بـ Advantage+
 
 إذا بدأت رسالة المستخدم بـ [SYSTEM COMMAND: FLEX_SCALE] فأنت in وضع التنفيذ الفوري:
 
-🚫 لا تسأل. لا تستفسر. نفّذ الخطوات بالترتيب وانتظر موافقة المستخدم على كل خطوة.
+🚫 لا تسأل. لا تستفسر. نفّذ الخطوات بالترتيب مباشرةً — الموافقة تأتي تلقائياً عبر الواجهة عند الحاجة، لا تتوقف لطلبها يدوياً.
 
 الخطوات الإلزامية:
 ١. استدعِ get_adsets للحملة المصدر
@@ -1074,8 +1074,8 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - landing_page_url: Destination URL (أساس خريطة الـ Pixel)
    - media_url: Media URL (Drive link أو رابط مباشر)
    - pixel_id: الرقم بعد "Pixel ID:" — **إلزامي. إذا لم يُذكر: طبّق خريطة الدومين تلقائياً**
-   - primary texts → creatives[].primary_text (النص الأول فقط — نص واحد بس)
-   - headlines → creatives[].headline (العنوان الأول فقط — عنوان واحد بس)
+   - primary texts → (لـ STANDARD: creatives[].texts[] = كل النصوص كمصفوفة | لـ TESTING/SCALING: creatives[].primary_text = النص الأول فقط)
+   - headlines → (لـ STANDARD: creatives[].headlines[] = كل العناوين كمصفوفة | لـ TESTING/SCALING: creatives[].headline = العنوان الأول فقط)
    - budget: الرقم المذكور (EGP)
 ٣. لـ TESTING (ABO):
    - adsets: كل الـ AdSets المذكورة in البرومبت — كل AdSet له name وbudget من البرومبت. لا تستخدم "Broad Test" كاسم افتراضي
@@ -1094,7 +1094,7 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - **المعاملات المطلوبة لـ launch_pipeboard_campaign:**
      - campaign_name, landing_page_url (رابط افتراضي), account_id
      - adsets[]: كل adset له name + budget (ABO) أو بدون budget (CBO)
-     - creatives[]: مصفوفة الإعلانات — كل عنصر يمثّل إعلاناً مسمّى
+     - creatives[]: مصفوفة الإعلانات — كل عنصر يمثّل إعلاناً مسمّى، ويجب أن يحتوي على: media_url + **media_type: "video" (إلزامي دائماً لا تنساه)** + texts[] (كل النصوص كمصفوفة) + headlines[] (كل العناوين كمصفوفة) + name (اسم الإعلان)
      - pixel_id إلزامي
    - page_id و pixel_id: طبّق خريطة الدومين تلقائياً
    - **قاعدة بناء creatives[] — حرجة جداً:**
@@ -1110,12 +1110,12 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - **مثال Blueprint (1 adset + 3 إعلانات مسمّاة × 2 نصوص):**
      - adsets: [{ name: "Secret Lift Pro" }]
      - creatives: [
-         { media_url: "drive_folder", link_url: "?utm_content=instant-lift", texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Instant Lift" },
-         { media_url: "drive_folder", link_url: "?utm_content=event-ready",  texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Event Ready" },
-         { media_url: "drive_folder", link_url: "?utm_content=fresh-look",   texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Fresh Look" }
+         { media_url: "drive_folder", media_type: "video", link_url: "?utm_content=instant-lift", texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Instant Lift" },
+         { media_url: "drive_folder", media_type: "video", link_url: "?utm_content=event-ready",  texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Event Ready" },
+         { media_url: "drive_folder", media_type: "video", link_url: "?utm_content=fresh-look",   texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Fresh Look" }
        ]
      - النتيجة: 1 adset × 6 إعلانات (فيديو1+نص1، فيديو1+نص2، فيديو2+نص1 ...)
-٦. استدعِ get_campaigns أولاً للحصول على account_id، ثم استدعِ الأدوات المناسبة فوراً بدون أي سؤال إضافي
+٦. إذا لم يكن account_id موجوداً في الـ context: استدعِ fetch_account_metadata أولاً (يجلب pixel_id + page_id + الحملات الأخيرة دفعة واحدة بدون أي سؤال). إذا كان account_id محدداً من الواجهة → استدعِ الأدوات المناسبة فوراً بدون أي سؤال إضافي
 ٧. بعد الاستدعاء رد فقط بـ:
    - TESTING: "🧪 حملة الاختبار قيد الإطلاق — ABO [Budget] EGP — in انتظار موافقتك للتنفيذ."
    - SCALING: "🚀 حملة التوسع قيد الإطلاق — CBO [Budget] EGP — in انتظار موافقتك للتنفيذ."
@@ -2078,7 +2078,7 @@ const TOOLS = [
           },
           creatives: {
             type: "array",
-            description: "مصفوفة Creatives (إعلانات). كل creative يُنشأ داخل كل AdSet. لاختبار إعلانين: مصفوفة بعنصرين.",
+            description: "مصفوفة الإعلانات. لـ STANDARD: كل عنصر = إعلان مستقل (فيديو واحد + نصوصه). الـ backend يزاوج creative[i] مع الفيديو[i] من مجلد Drive — N عناصر × M نصوص = N×M إعلانات داخل نفس الـ adset. media_type إلزامي في كل عنصر (video/image). لـ TESTING: كل عنصر يُطبَّق على كل adset بشكل مستقل.",
             items: {
               type: "object",
               properties: {
@@ -5011,7 +5011,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
         tools: TOOLS,
         tool_choice: "auto",
         stream: true,
-        max_completion_tokens: 4096,
+        max_completion_tokens: 16384,
       });
 
       let assistantContent = "";
