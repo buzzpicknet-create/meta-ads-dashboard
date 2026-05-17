@@ -1094,8 +1094,8 @@ Landing Page: ${landingPage.trim() || "—"}
 - أنشئ الـ Adset في الحملة ${selCampaign?.id ?? "???"} باستخدام create_adset${isCBO ? " (لا تحدد daily_budget على الـ Adset — الحملة CBO)" : ` (daily_budget: ${budget} EGP — الحملة ABO)`}
 - ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
 - page_id / pixel_id يُكتشفان تلقائياً من الدومين
-- استخدم upload_ad_video ثم create_ad_creative + create_ad لكل فيديو × نص في الـ Adset الجديدة
-- لو كانت الفيديوهات في فولدر Drive: مرر الـ folder URL مباشرة في media_url — الـ backend يرفع تلقائياً
+- استخدم create_ad_from_creative_spec لكل فيديو × نص في الـ Adset الجديدة
+- لو كانت الفيديوهات في فولدر Drive: مرر الـ folder URL في media_url مباشرة — الـ backend يرفع تلقائياً بدون استدعاء upload_ad_video
 
 Copy Pairs (${copyCount}):
   Texts:
@@ -1379,6 +1379,8 @@ function QuickLaunchSection() {
 - Campaign Name: ${campName}
 ${accountLine}
 - Budget Optimization: ABO (Adset Level Budget)
+- budget_type (for launch_pipeboard_campaign): ABO
+- daily_budget (for launch_pipeboard_campaign): ${form.budget}
 - Media Drive Folder: ${drive}
 # 2. الزوايا الإعلانية (كل زاوية = AdSet + إعلان منفصل)
 ${anglesSection}
@@ -1395,6 +1397,8 @@ ${anglesSection}
 ${accountLine}
 - Budget Optimization: CBO (Campaign Budget Optimization)
 - Campaign Budget: ${form.budget} EGP daily
+- budget_type (for launch_pipeboard_campaign): CBO
+- daily_budget (for launch_pipeboard_campaign): ${form.budget}
 - Media Drive Folder: ${drive}
 # 2. الزوايا الإعلانية (كل زاوية = AdSet + إعلان منفصل)
 ${anglesSection}
@@ -2275,21 +2279,29 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
     if (destType === "new_adset" && !isNewCampaign && !destCampaignId) { toast({ title: "❌ اختار الحملة الهدف", variant: "destructive" }); return; }
     setSubmitting(true); setResults([]);
     const allResults: Array<{ ad_name: string; success: boolean; message: string; ad_id?: string }> = [];
+    // For new_adset: create adset once with first ad, then reuse adset_id for rest
+    let resolvedAdsetId = destType === "existing_adset" ? destAdsetId : "";
+    let resolvedDestType = destType;
     for (const ad of selectedAds) {
       try {
         const data = await apiFetch<{ success: boolean; message: string; campaign_id?: string; adset_id?: string; creative_id?: string; ad_id?: string }>("/pipeboard/scale-creative", {
           method: "POST",
           body: JSON.stringify({
-            account_id: accountId, source_ad: ad, dest_type: destType,
-            dest_adset_id: destType === "existing_adset" ? destAdsetId : undefined,
-            dest_campaign_id: destType === "new_adset" && !isNewCampaign ? destCampaignId : undefined,
-            new_adset_name: destType === "new_adset" ? newAdsetName.trim() : undefined,
-            new_campaign_name: destType === "new_adset" && isNewCampaign ? newCampaignName.trim() : undefined,
-            new_campaign_budget: destType === "new_adset" ? Number(newCampaignBudget) : undefined,
-            new_campaign_is_cbo: destType === "new_adset" ? newCampaignIsCBO : undefined,
+            account_id: accountId, source_ad: ad, dest_type: resolvedDestType,
+            dest_adset_id: resolvedAdsetId || undefined,
+            dest_campaign_id: resolvedDestType === "new_adset" && !isNewCampaign ? destCampaignId : undefined,
+            new_adset_name: resolvedDestType === "new_adset" ? newAdsetName.trim() : undefined,
+            new_campaign_name: resolvedDestType === "new_adset" && isNewCampaign ? newCampaignName.trim() : undefined,
+            new_campaign_budget: resolvedDestType === "new_adset" ? Number(newCampaignBudget) : undefined,
+            new_campaign_is_cbo: resolvedDestType === "new_adset" ? newCampaignIsCBO : undefined,
             pixel_id: pixelId || undefined,
           }),
         });
+        // After first new_adset creation, reuse the adset_id for subsequent ads
+        if (resolvedDestType === "new_adset" && data.adset_id) {
+          resolvedAdsetId = data.adset_id;
+          resolvedDestType = "existing_adset";
+        }
         allResults.push({ ad_name: ad.name || ad.id, success: data.success, message: data.message, ad_id: data.ad_id });
       } catch (e) {
         allResults.push({ ad_name: ad.name || ad.id, success: false, message: String(e) });

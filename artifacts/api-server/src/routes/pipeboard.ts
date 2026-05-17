@@ -5458,7 +5458,7 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
             sse({ type: "progress", message: `جاري إنشاء الإعلان "${adName}"...` });
             const creativeArgs: Record<string, unknown> = {
               account_id: accountId, name: `${adName} — Scale`, page_id: pageId,
-              messages: body ? [body] : [], headlines: title ? [title] : [], call_to_action_type: cta,
+              message: body || "", headline: title || "", call_to_action_type: cta,
             };
             if (videoId) creativeArgs.video_id = videoId; else if (imageHash) creativeArgs.image_hash = imageHash;
             if (linkUrl) { creativeArgs.link_url = linkUrl; creativeArgs.destination_url = linkUrl; }
@@ -5552,7 +5552,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
     const adName = source_ad.name ?? "إعلان";
     const creativeArgs: Record<string, unknown> = {
       account_id: accountId, name: `${adName} — Scale`, page_id: pageId,
-      messages: source_ad.body ? [source_ad.body] : [], headlines: source_ad.title ? [source_ad.title] : [],
+      message: source_ad.body || "", headline: source_ad.title || "",
       call_to_action_type: source_ad.call_to_action_type ?? "LEARN_MORE",
     };
     if (source_ad.video_id) creativeArgs.video_id = source_ad.video_id;
