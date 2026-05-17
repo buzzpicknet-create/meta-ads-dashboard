@@ -1558,6 +1558,7 @@ ${allHeadlines}
             : `- Videos: Drive Folder URL أعلاه — الـ backend يكتشف ويرفع كل الفيديوهات تلقائياً — Total ads = N_videos × ${creativesPerAdset} copy pairs (NO Dynamic Creative) — لا تستدعي upload_video_to_meta:`;
           return `## Adset ${i + 1} — "${a.name || `Angle ${i + 1}`}"
 - Landing Page: ${lp}${!isCBO ? `\n- Budget: ${form.budget} EGP/day (ABO)` : ""}
+- link_url (for this adset creatives): ${lp}
 ${videoSection}
   Primary Texts (one per ad):
 ${texts}
@@ -1592,6 +1593,7 @@ Build Standard Campaign NOW — ${adsetCount} Adset(s):
 - Campaign Name: ${campName}
 ${accountLine}
 - Budget: ${isCBO ? `CBO · ${form.budget} EGP/day total` : `ABO · ${form.budget} EGP/day per Adset`}
+- budget_type (for launch_pipeboard_campaign): ${isCBO ? "CBO" : "ABO"}
 - daily_budget (for launch_pipeboard_campaign): ${form.budget}
 - Media Drive Folder: ${drive}
 - Targeting: Advantage+ Audience (Broad) — Egypt only

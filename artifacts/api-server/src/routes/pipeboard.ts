@@ -2862,6 +2862,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       // Meta minimum daily budget for EGP accounts is ~30 EGP per adset.
       // Default to 50 EGP per adset if not specified; enforce 30 EGP minimum.
       const MIN_BUDGET_PER_ADSET_EGP = 100;
+      // Detect budget type: CBO = campaign-level budget, ABO = adset-level budget
+      const budgetType = String(args?.budget_type ?? "CBO").toUpperCase();
+      const isCBO = budgetType !== "ABO";
       const perAdsetBudgets = rawAdsets.map((a) => Math.max(a.budget ?? 100, MIN_BUDGET_PER_ADSET_EGP));
       const tooSmall = perAdsetBudgets.filter((b) => b < MIN_BUDGET_PER_ADSET_EGP);
       if (tooSmall.length > 0) {
@@ -2870,17 +2873,21 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           `يُنصح باستخدام ${MIN_BUDGET_PER_ADSET_EGP * rawAdsets.length} EGP أو أكثر للحملة الحالية (${rawAdsets.length} مجموعة).`,
         );
       }
-      const totalBudget = egpToCents(perAdsetBudgets.reduce((s, b) => s + b, 0));
+      // CBO: use daily_budget arg directly on campaign | ABO: no campaign budget
+      const cboBudget = isCBO
+        ? egpToCents(Number(args?.daily_budget ?? perAdsetBudgets[0] ?? 100))
+        : null;
+      const campArgs: Record<string, unknown> = {
+        account_id: accountId,
+        name: campaignName,
+        objective: campObjective,
+        status: "PAUSED",
+        special_ad_categories: [],
+      };
+      if (cboBudget !== null) campArgs.daily_budget = cboBudget;
       const campResult = await client.callTool({
         name: "create_campaign",
-        arguments: {
-          account_id: accountId,
-          name: campaignName,
-          objective: campObjective,
-          status: "PAUSED",
-          special_ad_categories: [],
-          daily_budget: totalBudget,
-        },
+        arguments: campArgs,
       });
       const campText = mcpText(campResult);
       logger.info({ campText }, "launch_pipeboard_campaign: create_campaign");
@@ -3224,8 +3231,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const adsetName = adset.name;
 
         try {
-          // NOTE: Budget lives on the CAMPAIGN (CBO mode). Do NOT set daily_budget on
-          // adsets — it conflicts with CBO and causes Meta to ignore the campaign budget.
+          // CBO: budget on campaign only | ABO: budget on each adset
+          const adsetBudgetCents = !isCBO ? egpToCents(perAdsetBudgets[ai] ?? 100) : null;
           const adsetArgs: Record<string, unknown> = {
             account_id: accountId,
             campaign_id: campaignId,
@@ -3240,6 +3247,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               { event_type: "VIEW_THROUGH", window_days: 1 },
             ],
           };
+          if (adsetBudgetCents !== null) adsetArgs.daily_budget = adsetBudgetCents;
           if (hasPixel) {
             adsetArgs.promoted_object = {
               pixel_id: pixelId,
@@ -3489,6 +3497,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         adsFailed > 0
           ? `\n⚠️ إعلانات فشلت (${adsFailed}):\n${failedDetails}`
           : "",
+        `\n🔴 STOP IMMEDIATELY — الحملة كاملة 100% — لا تستدعِ create_adset أو create_ad أو publish_winners أو أي tool آخر — كل الـ adsets والإعلانات أُنشئت بالفعل داخل launch_pipeboard_campaign`,
       ]
         .filter(Boolean)
         .join(" ");
