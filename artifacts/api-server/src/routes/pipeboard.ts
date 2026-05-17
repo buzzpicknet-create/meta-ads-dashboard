@@ -545,7 +545,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     }
 
     // META_ACCESS_TOKEN used only for GET fallbacks in reconstruction — not required for primary path.
-    const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+    const metaToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
 
     let dupSuccess = false;
     let dupMsg = "";
@@ -1190,7 +1190,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const cafpVerify = await verifyMetaEntityDirect(
         newAdId,
         "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
-        process.env.META_ACCESS_TOKEN ?? "",
+        "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg",
       );
       if (!cafpVerify.verified) {
         const ve = cafpVerify.meta_error ?? {};
@@ -1309,7 +1309,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     // ── Step 2: Always derive account_id if missing — independent of object_story_id ──
     // Priority: ad_id → adset_id → object_story_id (last resort, page_id only)
     if (!accountId) {
-      const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+      const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
 
       // Try from ad_id first (richest source — also gives object_story_id)
       if (sourceAdId) {
@@ -1373,7 +1373,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     } else if (sourceAdId && !objectStoryId) {
       // account_id present but object_story_id missing — fetch object_story_id only
       try {
-        const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+        const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
         const u = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
         u.searchParams.set("fields", "id,creative{id,object_story_id}");
         u.searchParams.set("access_token", metaTkn);
@@ -1703,7 +1703,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const efpVerify = await verifyMetaEntityDirect(
           newAdId,
           "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
-          process.env.META_ACCESS_TOKEN ?? "",
+          "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg",
         );
         if (!efpVerify.verified) {
           const ve = efpVerify.meta_error ?? {};
@@ -1979,7 +1979,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     // META_ACCESS_TOKEN used only for page_id and thumbnail GET requests (optional fallbacks).
     // Creative + Ad creation now routes through Pipeboard MCP (which has its own Meta token with ads_management).
-    const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+    const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
 
     let csSuccess = false;
     let csMsg = "";
@@ -2238,7 +2238,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     // metaTkn may be empty/expired — Pipeboard duplicate_ad path doesn't need it.
     // Social Proof / Rebuild fallback paths will use it if available.
-    const metaTkn = process.env.META_ACCESS_TOKEN ?? "";
+    const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
 
     interface AdPublishResult {
       source_ad_id: string;
@@ -5014,7 +5014,7 @@ router.get(
       // جلب الـ insights مباشرة من Meta API بالـ campaign_id (أدق وأضمن من Pipeboard get_insights)
       let insights: Record<string, unknown>[] = [];
       try {
-        const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+        const metaToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
         const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
           `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
           `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
@@ -5308,7 +5308,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
     // جلب الـ insights مباشرة من Meta API مع فلتر الـ campaign_id
     let insightsMap = new Map<string, Record<string, unknown>>();
     try {
-      const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+      const metaToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
       const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
         `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
         `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
@@ -5317,7 +5317,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const insArr = insJson.data ?? [];
       insightsMap = new Map(insArr.map(i => [String(i.ad_id), i]));
     } catch { /* ignore */ }
-    const metaTokenForCreative = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+    const metaTokenForCreative = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
     const normalized = await Promise.all(ads.map(async ad => {
       let cr = (ad.creative as Record<string, unknown>) ?? {};
       // لو مفيش creative ID، نجيبه من الـ ad مباشرة من Meta
@@ -5519,7 +5519,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
     new_adset_name, new_campaign_name, new_campaign_budget, new_campaign_is_cbo, pixel_id: providedPixelId,
   } = req.body as {
     account_id: string;
-    source_ad: { id: string; name: string; video_id?: string; image_hash?: string; body?: string; title?: string; link_url?: string; call_to_action_type?: string };
+    source_ad: { id: string; name: string; video_id?: string; image_hash?: string; body?: string; title?: string; link_url?: string; call_to_action_type?: string; creative_id?: string };
     dest_type: "existing_adset" | "new_adset";
     dest_adset_id?: string; dest_campaign_id?: string;
     new_adset_name?: string; new_campaign_name?: string;
@@ -5528,116 +5528,150 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
   if (!rawAccountId || !source_ad || !dest_type) { res.status(400).json({ error: "account_id, source_ad, dest_type مطلوبة" }); return; }
   const accountId = rawAccountId.replace(/^act_/, "");
   const accountIdWithAct = `act_${accountId}`;
+
+  // Pixel map
   const SCALE_PIXEL_MAP: Record<string, string> = {
     "898360605246408": "1405391498274239",
     "838054421405431": "1537301040808359",
     "1714386865726065": "1537301040808359",
   };
-  const pixelId = providedPixelId || SCALE_PIXEL_MAP[accountId] || "1405391498274239";
-  const isCBO = new_campaign_is_cbo ?? false;
+  const pixelId = providedPixelId || SCALE_PIXEL_MAP[accountId] || "1537301040808359";
+  const META_TOKEN = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+
   function mcpTxtSc(result: unknown): string {
     return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
       .filter((c: { type: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("").trim();
   }
+
   try {
     const client = await getPipeboardWriteClient();
+
+    // ── 1. جيب الـ page_id ──
     let pageId = "";
     try {
       const pr = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
-      const pt = mcpTxtSc(pr); const pm = pt.match(/"id"\s*:\s*"(\d+)"/) ?? pt.match(/(\d{10,})/); pageId = pm?.[1] ?? "";
+      const pt = mcpTxtSc(pr);
+      const pm = pt.match(/"id"\s*:\s*"(\d+)"/) ?? pt.match(/(\d{10,})/);
+      pageId = pm?.[1] ?? "";
     } catch { /* ignore */ }
 
-    let finalCampaignId = dest_campaign_id ?? "";
-    if (dest_type === "new_adset" && !dest_campaign_id && new_campaign_name) {
-      const campArgs: Record<string, unknown> = { account_id: accountId, name: new_campaign_name, objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [], buying_type: "AUCTION" };
-      if (isCBO && new_campaign_budget) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
-      const cr = await client.callTool({ name: "create_campaign", arguments: campArgs });
-      const ct = mcpTxtSc(cr); logger.info({ ct }, "scale-creative: create_campaign");
-      const cm = ct.match(/"id"\s*:\s*"(\d{10,})"/);
-      if (!cm) { res.status(500).json({ error: `فشل إنشاء الحملة — ${ct.slice(0, 200)}` }); return; }
-      finalCampaignId = cm[1];
-    }
-
-    let finalAdsetId = dest_adset_id ?? "";
-    if (dest_type === "new_adset") {
-      // detect if existing campaign is CBO
-      let effectiveIsCBO = isCBO;
-      if (finalCampaignId && !new_campaign_name) {
-        try {
-          const campInfoRes = await client.callTool({ name: "get_campaign_details", arguments: { campaign_id: finalCampaignId } });
-          const campInfoTxt = mcpTxtSc(campInfoRes);
-          if (campInfoTxt.includes("daily_budget") || campInfoTxt.includes("CBO") || campInfoTxt.includes("campaign_budget_optimization")) {
-            effectiveIsCBO = true;
-          }
-        } catch { /* ignore, assume ABO */ }
-      }
-      const adsetArgs: Record<string, unknown> = {
-        account_id: accountId, campaign_id: finalCampaignId,
-        name: new_adset_name ?? `Scale Creative — ${new Date().toLocaleDateString("en-GB")}`,
-        optimization_goal: "OFFSITE_CONVERSIONS",
-        billing_event: "IMPRESSIONS", targeting: { geo_locations: { countries: ["EG"] } },
-        status: "PAUSED",
-      };
-      if (!effectiveIsCBO && new_campaign_budget) adsetArgs.daily_budget = Math.round(new_campaign_budget * 100);
-      const effectivePixelId = pixelId || "1405391498274239";
-      adsetArgs.promoted_object = { pixel_id: effectivePixelId, custom_event_type: "PURCHASE" };
-      const ar = await client.callTool({ name: "create_adset", arguments: adsetArgs });
-      const at = mcpTxtSc(ar); logger.info({ at }, "scale-creative: create_adset");
-      const am = at.match(/"id"\s*:\s*"(\d{10,})"/);
-      if (!am) { res.status(500).json({ error: `فشل إنشاء الـ AdSet — ${at.slice(0, 200)}` }); return; }
-      finalAdsetId = am[1];
-    }
-
-    const adName = source_ad.name ?? "إعلان";
-    // لو مفيش media، نجيب الـ creative details من Meta مباشرة
+    // ── 2. جيب الـ creative details من Meta مباشرة ──
     let srcVideoId = source_ad.video_id ?? "";
     let srcImageHash = source_ad.image_hash ?? "";
     let srcBody = source_ad.body ?? "";
     let srcTitle = source_ad.title ?? "";
     let srcLinkUrl = source_ad.link_url ?? "";
-    let srcCTA = source_ad.call_to_action_type ?? "LEARN_MORE";
+    let srcCTA = source_ad.call_to_action_type ?? "SHOP_NOW";
+
+    // دايماً نجيب من Meta لنضمن البيانات صح
+    try {
+      // خطوة 1: جيب creative_id من الـ ad
+      const adRes = await fetch(`https://graph.facebook.com/v21.0/${source_ad.id}?fields=id,creative&access_token=${META_TOKEN}`);
+      const adJson = await adRes.json() as Record<string, unknown>;
+      const crId = (adJson.creative as Record<string, unknown>)?.id ?? source_ad.creative_id ?? "";
+      logger.info({ crId, adJson }, "scale-creative: got creative_id");
+
+      if (crId) {
+        // خطوة 2: جيب تفاصيل الـ creative
+        const crRes = await fetch(`https://graph.facebook.com/v21.0/${crId}?fields=id,body,title,video_id,image_hash,link_url,call_to_action&access_token=${META_TOKEN}`);
+        const crJson = await crRes.json() as Record<string, unknown>;
+        logger.info({ crJson }, "scale-creative: got creative details");
+
+        if (crJson.video_id) srcVideoId = String(crJson.video_id);
+        if (crJson.image_hash) srcImageHash = String(crJson.image_hash);
+        if (crJson.body) srcBody = String(crJson.body);
+        if (crJson.title) srcTitle = String(crJson.title);
+        if (crJson.link_url) srcLinkUrl = String(crJson.link_url);
+        const cta = (crJson.call_to_action as Record<string, unknown>)?.type;
+        if (cta) srcCTA = String(cta);
+      }
+    } catch (e) { logger.warn({ e }, "scale-creative: failed to fetch from Meta"); }
+
     if (!srcVideoId && !srcImageHash) {
-      const creativeIdToFetch = source_ad.creative_id || source_ad.id;
-      try {
-        const metaTkn = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
-        // أولاً نجيب الـ creative_id من الـ ad
-        const adInfoUrl = `https://graph.facebook.com/v21.0/${source_ad.id}?fields=creative{id,body,title,video_id,image_hash,link_url,call_to_action}&access_token=${encodeURIComponent(metaTkn)}`;
-        const adInfoRes = await fetch(adInfoUrl);
-        const adInfoJson = await adInfoRes.json() as Record<string, unknown>;
-        const fetchedCr = (adInfoJson.creative as Record<string, unknown>) ?? {};
-        if (fetchedCr.video_id) srcVideoId = String(fetchedCr.video_id);
-        if (fetchedCr.image_hash) srcImageHash = String(fetchedCr.image_hash);
-        if (fetchedCr.body) srcBody = String(fetchedCr.body);
-        if (fetchedCr.title) srcTitle = String(fetchedCr.title);
-        if (fetchedCr.link_url) srcLinkUrl = String(fetchedCr.link_url);
-        const fetchedCTA = (fetchedCr.call_to_action as Record<string, unknown>)?.type;
-        if (fetchedCTA) srcCTA = String(fetchedCTA);
-        logger.info({ fetchedCr, creativeIdToFetch }, "scale-creative: fetched creative from Meta");
-      } catch (e) { logger.warn({ e }, "scale-creative: failed to fetch creative from Meta"); }
+      res.status(400).json({ error: "لم يتم العثور على media (video_id أو image_hash) للإعلان المصدر" });
+      return;
     }
+
+    // ── 3. أنشئ الحملة لو جديدة ──
+    let finalCampaignId = dest_campaign_id ?? "";
+    if (dest_type === "new_adset" && !dest_campaign_id && new_campaign_name) {
+      const isCBO = new_campaign_is_cbo ?? false;
+      const campArgs: Record<string, unknown> = {
+        account_id: accountId, name: new_campaign_name,
+        objective: "OUTCOME_SALES", status: "PAUSED",
+        special_ad_categories: [], buying_type: "AUCTION",
+      };
+      if (isCBO && new_campaign_budget) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      const cr = await client.callTool({ name: "create_campaign", arguments: campArgs });
+      const ct = mcpTxtSc(cr);
+      const cm = ct.match(/"id"\s*:\s*"(\d{10,})"/);
+      if (!cm) { res.status(500).json({ error: `فشل إنشاء الحملة — ${ct.slice(0, 200)}` }); return; }
+      finalCampaignId = cm[1];
+    }
+
+    // ── 4. أنشئ الـ AdSet لو جديدة ──
+    let finalAdsetId = dest_adset_id ?? "";
+    if (dest_type === "new_adset") {
+      // اكتشف لو الحملة CBO
+      let effectiveIsCBO = new_campaign_is_cbo ?? false;
+      if (finalCampaignId && !new_campaign_name) {
+        try {
+          const campInfoRes = await client.callTool({ name: "get_campaign_details", arguments: { campaign_id: finalCampaignId } });
+          const campInfoTxt = mcpTxtSc(campInfoRes);
+          if (campInfoTxt.includes("daily_budget") || campInfoTxt.includes("campaign_budget_optimization")) {
+            effectiveIsCBO = true;
+          }
+        } catch { /* ignore */ }
+      }
+      const adsetArgs: Record<string, unknown> = {
+        account_id: accountId, campaign_id: finalCampaignId,
+        name: new_adset_name ?? `Scale — ${new Date().toLocaleDateString("en-GB")}`,
+        optimization_goal: "OFFSITE_CONVERSIONS",
+        billing_event: "IMPRESSIONS",
+        targeting: { geo_locations: { countries: ["EG"] } },
+        promoted_object: { pixel_id: pixelId, custom_event_type: "PURCHASE" },
+        status: "PAUSED",
+      };
+      if (!effectiveIsCBO && new_campaign_budget) adsetArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      const ar = await client.callTool({ name: "create_adset", arguments: adsetArgs });
+      const at = mcpTxtSc(ar);
+      const am = at.match(/"id"\s*:\s*"(\d{10,})"/);
+      if (!am) { res.status(500).json({ error: `فشل إنشاء الـ AdSet — ${at.slice(0, 200)}` }); return; }
+      finalAdsetId = am[1];
+    }
+
+    // ── 5. أنشئ الـ Creative ──
+    const adName = source_ad.name ?? "إعلان";
     const creativeArgs: Record<string, unknown> = {
-      account_id: accountId, name: `${adName} — Scale`, page_id: pageId,
-      message: srcBody, headline: srcTitle,
-      call_to_action_type: srcCTA,
+      account_id: accountId, name: `${adName} — Scale`,
+      page_id: pageId, message: srcBody, headline: srcTitle,
+      call_to_action_type: srcCTA, pixel_id: pixelId,
     };
+    if (srcLinkUrl) { creativeArgs.link_url = srcLinkUrl; creativeArgs.destination_url = srcLinkUrl; }
     if (srcVideoId) creativeArgs.video_id = srcVideoId;
     else if (srcImageHash) creativeArgs.image_hash = srcImageHash;
-    if (source_ad.link_url) { creativeArgs.link_url = source_ad.link_url; creativeArgs.destination_url = source_ad.link_url; }
-    if (pixelId) creativeArgs.pixel_id = pixelId;
+
     const crRes = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
-    const crText = mcpTxtSc(crRes); logger.info({ crText }, "scale-creative: create_ad_creative");
+    const crText = mcpTxtSc(crRes);
+    logger.info({ crText }, "scale-creative: create_ad_creative");
     const crIdMatch = crText.match(/"id"\s*:\s*"(\d{10,})"/);
     if (!crIdMatch) { res.status(500).json({ error: `فشل إنشاء Creative — ${crText.slice(0, 200)}` }); return; }
     const creativeId = crIdMatch[1];
 
-    const newAdArgs: Record<string, unknown> = { account_id: accountIdWithAct, name: `${adName} — Scale`, adset_id: finalAdsetId, creative_id: creativeId, status: "PAUSED" };
-    if (pixelId) newAdArgs.tracking_specs = [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }];
+    // ── 6. أنشئ الـ Ad ──
+    const newAdArgs: Record<string, unknown> = {
+      account_id: accountIdWithAct, name: `${adName} — Scale`,
+      adset_id: finalAdsetId, creative_id: creativeId, status: "PAUSED",
+      tracking_specs: [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }],
+    };
     const newAdRes = await client.callTool({ name: "create_ad", arguments: newAdArgs });
-    const newAdText = mcpTxtSc(newAdRes); logger.info({ newAdText }, "scale-creative: create_ad");
+    const newAdText = mcpTxtSc(newAdRes);
     const newAdIdMatch = newAdText.match(/"id"\s*:\s*"(\d{10,})"/);
+
     res.json({
-      success: true, campaign_id: finalCampaignId || undefined, adset_id: finalAdsetId,
-      creative_id: creativeId, ad_id: newAdIdMatch?.[1] ?? "",
+      success: true, campaign_id: finalCampaignId || undefined,
+      adset_id: finalAdsetId, creative_id: creativeId,
+      ad_id: newAdIdMatch?.[1] ?? "",
       message: `✅ تم نسخ "${adName}" بنجاح`,
     });
   } catch (err) { res.status(500).json({ error: String(err) }); }

@@ -1,0 +1,25 @@
+nohup: ignoring input
+[19:47:35.598] [32mINFO[39m (664): [36mDatabase migrations complete[39m
+[19:47:35.599] [32mINFO[39m (664): [36mMeta token loaded from DB[39m
+    [35mexpires_at[39m: "2026-07-16T08:45:16.874Z"
+[19:47:35.601] [32mINFO[39m (664): [36mWarm-up history rehydrated from DB[39m
+    [35mcount[39m: 10
+[19:47:35.602] [32mINFO[39m (664): [36mVAPID initialized[39m
+[19:47:35.603] [32mINFO[39m (664): [36mServer listening[39m
+    [35mport[39m: 3000
+[19:47:35.603] [32mINFO[39m (664): [36mMedia scan cron scheduled[39m
+    [35minterval_hours[39m: 6
+[19:47:35.603] [32mINFO[39m (664): [36mCPA alert cron scheduled[39m
+    [35minterval_hours[39m: 2
+[19:47:35.603] [32mINFO[39m (664): [36mProactive cache refresh cron scheduled[39m
+    [35minterval_min[39m: 30
+[19:47:35.604] [32mINFO[39m (664): [36mScheduled reports cron started[39m
+    [35minterval_min[39m: 15
+[19:47:35.604] [32mINFO[39m (664): [36mWatchdog cron scheduled[39m
+    [35minterval_hours[39m: 3
+[19:47:35.604] [32mINFO[39m (664): [36mInventory alert cron scheduled[39m
+    [35minterval_min[39m: 30
+[19:47:35.604] [32mINFO[39m (664): [36mToken health cron scheduled (daily)[39m
+[19:47:35.605] [32mINFO[39m (664): [36mCreative cache warmup skipped — ran recently[39m
+    [35mage_min[39m: 52
+[19:47:36.053] [32mINFO[39m (664): [36mPipeboard singleton connected[39m
