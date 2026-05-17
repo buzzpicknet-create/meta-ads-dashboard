@@ -5317,8 +5317,18 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const insArr = insJson.data ?? [];
       insightsMap = new Map(insArr.map(i => [String(i.ad_id), i]));
     } catch { /* ignore */ }
-    const normalized = ads.map(ad => {
-      const cr = (ad.creative as Record<string, unknown>) ?? {};
+    const metaTokenForCreative = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
+    const normalized = await Promise.all(ads.map(async ad => {
+      let cr = (ad.creative as Record<string, unknown>) ?? {};
+      // لو مفيش video_id أو image_hash، نجيب Creative details من Meta مباشرة
+      if (!cr.video_id && !cr.image_hash && cr.id) {
+        try {
+          const crUrl = `https://graph.facebook.com/v21.0/${cr.id}?fields=id,body,title,video_id,image_hash,link_url,call_to_action&access_token=${encodeURIComponent(metaTokenForCreative)}`;
+          const crRes = await fetch(crUrl);
+          const crJson = await crRes.json() as Record<string, unknown>;
+          if (!crJson.error) cr = { ...cr, ...crJson };
+        } catch { /* ignore */ }
+      }
       const ins = insightsMap.get(String(ad.id)) ?? {} as Record<string, unknown>;
       const spendRaw = Number(ins.spend ?? 0);
       const spend = spendRaw > 0 ? spendRaw : null;
@@ -5337,7 +5347,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
         creative_id: cr.id ?? null,
         spend, cpa, ctr, purchases,
       };
-    });
+    }));
     res.json({ ads: normalized });
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
