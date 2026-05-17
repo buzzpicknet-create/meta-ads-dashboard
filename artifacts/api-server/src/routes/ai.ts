@@ -1049,8 +1049,8 @@ FLEX_SCALE PROTOCOL — نقل الرابحين بـ Advantage+
    - objective: OUTCOME_SALES
    - daily_budget: الميزانية المذكورة
    - status: PAUSED
-٤. بعد الموافقة على الحملة، استدعِ create_adset فوراً (tool call مباشر — ليس bulk_action)
-٥. بعد الموافقة على الـ adset، استدعِ publish_winners_to_destination مع flex_mode=true
+٤. بمجرد وصول campaign_id في نتيجة create_campaign → استدعِ create_adset فوراً بدون أي انتظار (tool call مباشر — ليس bulk_action) — **مرة واحدة فقط لكل FLEX_SCALE**
+٥. بمجرد وصول adset_id في نتيجة create_adset → استدعِ publish_winners_to_destination مع flex_mode=true فوراً بدون أي انتظار
 
 ⚠️ قواعد حرجة:
 - create_adset يجب أن يكون tool call مباشر — ممنوع منعاً باتاً in bulk_action
@@ -1058,6 +1058,7 @@ FLEX_SCALE PROTOCOL — نقل الرابحين بـ Advantage+
 - لا تطلب link_url من المستخدم — يُجلب تلقائياً من الـ winner ad
 - لا تطلب page_id من المستخدم — يُجلب تلقائياً
 - قاعدة Cooldown لا تنطبق على الكيانات المنشأة in نفس المحادثة
+- 🔴 لا تعيد استدعاء create_adset إذا ظهر adset_id في المحادثة مسبقاً — الإعادة تُنشئ مجموعة مكررة
 
 ══════════════════════════════════════
 BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
