@@ -5479,7 +5479,7 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
           optimization_goal: optGoal, billing_event: billingEvent,
           targeting: { ...targeting, geo_locations: { countries: ["EG"] } },
           targeting_automation: { advantage_audience: 1 },
-          attribution_spec: attributionSpec, status: "PAUSED",
+          status: "PAUSED",
         };
         if (!isCBO) { const db = Number(adsetDetails.daily_budget ?? 0); if (db > 0) newAdsetArgs.daily_budget = db; }
         if (pixelId) newAdsetArgs.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
