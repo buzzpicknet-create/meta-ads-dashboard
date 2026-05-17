@@ -1090,15 +1090,31 @@ BLUEPRINT EXECUTION PROTOCOL — وضع التنفيذ الأعمى
    - **🚫 ممنوع تماماً: Dynamic Creative / is_dynamic_creative / asset_feed_spec / Advantage+ Creative Enhancements**
    - **الطريقة الوحيدة الصحيحة: launch_pipeboard_campaign**
      - الـ backend يرفع الفيديوهات ويُنشئ كل إعلان عبر Meta API مباشرةً (STANDARD حقيقي — لا Pipeboard في الـ Creative)
-     - N فيديوهات × M copy pairs = N×M إعلانات في كل Adset
      - استدعِ مرة واحدة فقط بكل الـ adsets والـ creatives — الـ backend يتولى الباقي
    - **المعاملات المطلوبة لـ launch_pipeboard_campaign:**
-     - campaign_name, landing_page_url, account_id
+     - campaign_name, landing_page_url (رابط افتراضي), account_id
      - adsets[]: كل adset له name + budget (ABO) أو بدون budget (CBO)
-     - creatives[]: primary_text + headline لكل copy pair — pixel_id إلزامي
-     - media_url: رابط مجلد Google Drive (الـ backend يكتشف كل الفيديوهات تلقائياً)
+     - creatives[]: مصفوفة الإعلانات — كل عنصر يمثّل إعلاناً مسمّى
+     - pixel_id إلزامي
    - page_id و pixel_id: طبّق خريطة الدومين تلقائياً
-   - **مثال:** 3 فيديوهات في Drive × 2 copy pairs = 6 إعلانات STANDARD في كل Adset
+   - **قاعدة بناء creatives[] — حرجة جداً:**
+     - **1 adset + N إعلانات مسمّاة بلاندينج مختلفة:** أنشئ N عنصر في creatives[]، كل عنصر يحتوي على:
+       - "media_url": رابط مجلد Drive (نفسه لكل العناصر — الـ backend يُزاوج الفيديو رقم i مع creative رقم i)
+       - "link_url": رابط الـ landing page الخاص بهذا الإعلان (مختلف لكل إعلان)
+       - "texts[]": كل النصوص الأساسية لهذا الإعلان
+       - "headlines[]": كل العناوين لهذا الإعلان
+       - "name": اسم الإعلان (مثل "Instant Lift")
+     - **1 adset + نفس اللاندينج لكل الفيديوهات:** أنشئ عنصراً واحداً في creatives[] مع "media_url" = رابط المجلد و"texts[]" = كل النصوص
+     - **N adsets × N فيديوهات:** أنشئ N adset و N عنصر في creatives[] (كل adset يأخذ creative بنفس الفهرس)
+   - **النتيجة دائماً:** 1 adset يحتوي على N×M إعلانات (N فيديوهات × M نصوص) — لا تقسيم بالفيديو
+   - **مثال Blueprint (1 adset + 3 إعلانات مسمّاة × 2 نصوص):**
+     - adsets: [{ name: "Secret Lift Pro" }]
+     - creatives: [
+         { media_url: "drive_folder", link_url: "?utm_content=instant-lift", texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Instant Lift" },
+         { media_url: "drive_folder", link_url: "?utm_content=event-ready",  texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Event Ready" },
+         { media_url: "drive_folder", link_url: "?utm_content=fresh-look",   texts: ["نص١","نص٢"], headlines: ["عنوان١"], name: "Fresh Look" }
+       ]
+     - النتيجة: 1 adset × 6 إعلانات (فيديو1+نص1، فيديو1+نص2، فيديو2+نص1 ...)
 ٦. استدعِ get_campaigns أولاً للحصول على account_id، ثم استدعِ الأدوات المناسبة فوراً بدون أي سؤال إضافي
 ٧. بعد الاستدعاء رد فقط بـ:
    - TESTING: "🧪 حملة الاختبار قيد الإطلاق — ABO [Budget] EGP — in انتظار موافقتك للتنفيذ."

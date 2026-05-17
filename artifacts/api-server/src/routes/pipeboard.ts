@@ -3083,58 +3083,44 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         }
       }
 
-      // ── Step 4: One AdSet per angle, N separate ads (one per text) ──────────
-      // Each angle = 1 AdSet. Each text within that angle = 1 separate ad.
-      // Video is matched by filename (without extension) to angle name,
-      // falling back to same-index creative or rawCreatives[0].
-      // NO is_dynamic_creative — NO asset_feed_spec — each ad has exactly
-      // one video_id, one text, one headline.
-
-      // ── Auto-expand: 1 adset template × N videos → N adsets (1 per video) ──
-      // When user specifies 1 angle but N videos were uploaded from a Drive folder,
-      // replicate the adset config so each video gets its own AdSet.
+      // ── Step 4: Adsets + ads (NO dynamic creative, NO asset_feed_spec) ────────
+      // Rules:
+      //   • 1 adset in blueprint → ALL rawCreatives go into that ONE adset
+      //     N videos × M texts = N×M separate ads in the SAME adset (no split by video)
+      //   • N adsets in blueprint → each adset paired to its position-matched creative
+      // NO is_dynamic_creative — NO asset_feed_spec — each ad = 1 video + 1 text + 1 headline
       effectiveAdsets = rawAdsets as AdsetInput[];
-      if (rawAdsets.length === 1 && rawCreatives.length > 1) {
-        const uploadedCreatives = rawCreatives.filter(c => {
-          const url = normaliseMediaUrl(c.media_url?.trim() ?? "");
-          const cached = mediaCache.get(url);
-          return cached && !cached.error && (cached.videoId ?? cached.imageHash);
-        });
-        if (uploadedCreatives.length > 1) {
-          const template = rawAdsets[0]!;
-          effectiveAdsets = uploadedCreatives.map((_, i) => ({
-            ...template,
-            name: `${template.name} — فيديو ${i + 1}`,
-          }));
-          logger.info(
-            { from: 1, to: effectiveAdsets.length },
-            "launch_pipeboard_campaign: auto-expanded adsets (1 template → N videos)",
-          );
-        }
-      }
 
       let totalAdsExpected = 0;
       for (let ai = 0; ai < effectiveAdsets.length; ai++) {
         const adset = effectiveAdsets[ai]!;
 
-        // ── Find matching creative by filename ↔ angle name ────────────────
-        const angleName = adset.name.toLowerCase().trim();
-        const matchingCreative =
-          rawCreatives.find((c) => {
-            const url = (c.media_url ?? "").toLowerCase();
-            const filename =
-              url.split("/").pop()?.split("?")[0]?.split("#")[0] ?? "";
-            const nameWithoutExt = filename.replace(/\.[^.]+$/, "");
-            return (
-              nameWithoutExt === angleName ||
-              nameWithoutExt.includes(angleName) ||
-              angleName.includes(nameWithoutExt)
-            );
-          }) ??
-          rawCreatives[ai] ??
-          rawCreatives[0];
+        // ── Determine which creatives belong to this adset ────────────────
+        // Single-adset mode: ALL creatives → one adset (N videos × M texts = N×M ads)
+        // Multi-adset mode: each adset matched to its position-paired creative
+        const adsetCreatives: CreativeInput[] =
+          effectiveAdsets.length === 1
+            ? rawCreatives
+            : (() => {
+                const angleName = adset.name.toLowerCase().trim();
+                const matched =
+                  rawCreatives.find((c) => {
+                    const url = (c.media_url ?? "").toLowerCase();
+                    const filename =
+                      url.split("/").pop()?.split("?")[0]?.split("#")[0] ?? "";
+                    const nameWithoutExt = filename.replace(/\.[^.]+$/, "");
+                    return (
+                      nameWithoutExt === angleName ||
+                      nameWithoutExt.includes(angleName) ||
+                      angleName.includes(nameWithoutExt)
+                    );
+                  }) ??
+                  rawCreatives[ai] ??
+                  rawCreatives[0];
+                return matched ? [matched] : [];
+              })();
 
-        if (!matchingCreative) {
+        if (adsetCreatives.length === 0) {
           adResults.push({
             adset_name: adset.name,
             creative_index: 0,
@@ -3143,18 +3129,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           continue;
         }
 
-        const texts =
-          Array.isArray(matchingCreative.texts) &&
-          matchingCreative.texts.length > 0
-            ? (matchingCreative.texts as string[])
-            : [""];
-        const headlines =
-          Array.isArray(matchingCreative.headlines) &&
-          matchingCreative.headlines.length > 0
-            ? (matchingCreative.headlines as string[])
-            : [""];
-        const firstHeadline = headlines[0]!;
-        totalAdsExpected += texts.length;
+        totalAdsExpected += adsetCreatives.reduce(
+          (sum, c) =>
+            sum +
+            (Array.isArray(c.texts) && c.texts.length > 0 ? c.texts.length : 1),
+          0,
+        );
 
         // ── Create ONE AdSet for this angle ───────────────────────────────
         let adsetId = "";
@@ -3216,139 +3196,192 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           continue;
         }
 
-        // ── Resolve media once per angle ──────────────────────────────────
-        const rawUrl = matchingCreative.media_url?.trim() ?? "";
-        const mediaUrl = normaliseMediaUrl(rawUrl);
-        const media = mediaCache.get(mediaUrl);
-
-        if (!media || media.error) {
-          adResults.push({
-            adset_name: adset.name,
-            adset_id: adsetId,
-            creative_index: 0,
-            error: media?.error ?? "رابط الميديا مفقود",
-          });
-          continue;
-        }
-
-        const isVid = isVideoType(mediaUrl, matchingCreative.media_type ?? "");
-        const hasMedia = isVid
-          ? Boolean(media.videoId)
-          : Boolean(media.imageHash);
-        if (!hasMedia) {
-          adResults.push({
-            adset_name: adset.name,
-            adset_id: adsetId,
-            creative_index: 0,
-            error: "الميديا لم تُرفع بنجاح",
-          });
-          continue;
-        }
-
-        // ── Create N ads — one per text via Pipeboard MCP ────────────────
-        // Pipeboard has create_ad_creative + create_ad tools using its own Meta token with ads_management.
-        // Direct Meta API (META_ACCESS_TOKEN) fails with error_subcode:33 (missing permissions).
+        // ── Create ads for ALL creatives assigned to this adset ──────────
+        // Each creative: media_url, texts[], headlines[], optional link_url + name
+        // Result: 1 ad per (creative × text) → N videos × M texts = N×M ads
         const lpcPbClient = await getPipeboardWriteClient();
-        for (let ti = 0; ti < texts.length; ti++) {
-          const singleText = texts[ti]!;
-          let creativeId = "";
-          let adIdFromSpec = "";
-          try {
-            // Step 1: Build flat Pipeboard args (Pipeboard does NOT accept object_story_spec)
-            const lpcCreativeArgs: Record<string, unknown> = {
-              account_id: `act_${accountId}`,
-              name: `${adset.name} — نص ${ti + 1} — creative`,
-              page_id: pageId,
-              link_url: landingPageUrl,
-              message: singleText,
-              ...(firstHeadline ? { headline: firstHeadline } : {}),
-              call_to_action_type: callToAction || "SHOP_NOW",
-            };
-            if (isVid) {
-              lpcCreativeArgs.video_id = media.videoId;
-            } else {
-              lpcCreativeArgs.image_hash = media.imageHash;
-            }
 
-            // Step 2: create_ad_creative via Pipeboard MCP
-            logger.info({ adset: adset.name, ti: ti + 1, isVid }, "launch_pipeboard_campaign: → Pipeboard create_ad_creative");
-            const lpcCreativeResult = await lpcPbClient.callTool(
-              {
-                name: "create_ad_creative",
-                arguments: lpcCreativeArgs,
-              },
-              undefined,
-              { timeout: 60_000 },
-            );
-            const lpcCreativeText = (
-              (lpcCreativeResult as { content?: Array<{ type: string; text?: string }> })
-                ?.content ?? []
-            ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
-            logger.info({ lpcCreativeText: lpcCreativeText.slice(0, 400) }, "launch_pipeboard_campaign: ← Pipeboard create_ad_creative");
+        for (let ci = 0; ci < adsetCreatives.length; ci++) {
+          const matchingCreative = adsetCreatives[ci]!;
 
-            const lpcCreativeIdMatch =
-              lpcCreativeText.match(/"id"\s*:\s*"(\d{10,})"/) ??
-              lpcCreativeText.match(/\b(\d{10,})\b/);
-            creativeId = lpcCreativeIdMatch?.[1] ?? "";
-            if (!creativeId) {
-              adResults.push({
-                adset_name: adset.name,
-                adset_id: adsetId,
-                creative_index: ti,
-                error: `فشل إنشاء Creative — ${lpcCreativeText.slice(0, 300)}`,
-              });
-              continue;
-            }
+          // Resolve media from upload cache
+          const rawUrl = matchingCreative.media_url?.trim() ?? "";
+          const mediaUrl = normaliseMediaUrl(rawUrl);
+          const media = mediaCache.get(mediaUrl);
 
-            // Step 3: create_ad via Pipeboard MCP
-            logger.info({ adset: adset.name, ti: ti + 1, creativeId }, "launch_pipeboard_campaign: → Pipeboard create_ad");
-            const lpcAdResult = await lpcPbClient.callTool(
-              {
-                name: "create_ad",
-                arguments: {
-                  account_id: `act_${accountId}`,
-                  name: `${adset.name} — نص ${ti + 1}`,
+          if (!media || media.error) {
+            adResults.push({
+              adset_name: adsetName,
+              adset_id: adsetId,
+              creative_index: ci,
+              error: media?.error ?? "رابط الميديا مفقود",
+            });
+            continue;
+          }
+
+          const isVid = isVideoType(mediaUrl, matchingCreative.media_type ?? "");
+          const hasMedia = isVid
+            ? Boolean(media.videoId)
+            : Boolean(media.imageHash);
+          if (!hasMedia) {
+            adResults.push({
+              adset_name: adsetName,
+              adset_id: adsetId,
+              creative_index: ci,
+              error: "الميديا لم تُرفع بنجاح",
+            });
+            continue;
+          }
+
+          const texts =
+            Array.isArray(matchingCreative.texts) &&
+            matchingCreative.texts.length > 0
+              ? (matchingCreative.texts as string[])
+              : [""];
+          const headlines =
+            Array.isArray(matchingCreative.headlines) &&
+            matchingCreative.headlines.length > 0
+              ? (matchingCreative.headlines as string[])
+              : [""];
+          const firstHeadline = headlines[0]!;
+
+          // Per-creative landing page overrides global landing_page_url
+          const creativeLinkUrl =
+            String(
+              (matchingCreative as Record<string, unknown>).link_url ?? "",
+            ).trim() || landingPageUrl;
+
+          // Per-creative name (e.g. "Instant Lift") used for ad/creative naming
+          const creativeName =
+            String(
+              (matchingCreative as Record<string, unknown>).name ?? "",
+            ).trim() ||
+            (adsetCreatives.length > 1
+              ? `${adsetName} — فيديو ${ci + 1}`
+              : adsetName);
+
+          // Create one ad per text variant
+          for (let ti = 0; ti < texts.length; ti++) {
+            const singleText = texts[ti]!;
+            let creativeId = "";
+            let adIdFromSpec = "";
+            try {
+              // Step 1: Build flat Pipeboard creative args (no object_story_spec)
+              const lpcCreativeArgs: Record<string, unknown> = {
+                account_id: `act_${accountId}`,
+                name: `${creativeName} — نص ${ti + 1} — creative ${Date.now().toString(36)}`,
+                page_id: pageId,
+                link_url: creativeLinkUrl,
+                message: singleText,
+                ...(firstHeadline ? { headline: firstHeadline } : {}),
+                call_to_action_type: callToAction || "SHOP_NOW",
+              };
+              if (isVid) {
+                lpcCreativeArgs.video_id = media.videoId;
+              } else {
+                lpcCreativeArgs.image_hash = media.imageHash;
+              }
+
+              // Step 2: create_ad_creative via Pipeboard MCP
+              logger.info(
+                { adset: adsetName, ci: ci + 1, ti: ti + 1, isVid },
+                "launch_pipeboard_campaign: → Pipeboard create_ad_creative",
+              );
+              const lpcCreativeResult = await lpcPbClient.callTool(
+                { name: "create_ad_creative", arguments: lpcCreativeArgs },
+                undefined,
+                { timeout: 60_000 },
+              );
+              const lpcCreativeText = (
+                (lpcCreativeResult as {
+                  content?: Array<{ type: string; text?: string }>;
+                })?.content ?? []
+              )
+                .filter((c) => c.type === "text")
+                .map((c) => (c as { text?: string }).text ?? "")
+                .join("")
+                .trim();
+              logger.info(
+                { lpcCreativeText: lpcCreativeText.slice(0, 400) },
+                "launch_pipeboard_campaign: ← Pipeboard create_ad_creative",
+              );
+
+              const lpcCreativeIdMatch =
+                lpcCreativeText.match(/"id"\s*:\s*"(\d{10,})"/) ??
+                lpcCreativeText.match(/\b(\d{10,})\b/);
+              creativeId = lpcCreativeIdMatch?.[1] ?? "";
+              if (!creativeId) {
+                adResults.push({
+                  adset_name: adsetName,
                   adset_id: adsetId,
-                  creative_id: creativeId,
-                  status: "PAUSED",
-                },
-              },
-              undefined,
-              { timeout: 30_000 },
-            );
-            const lpcAdText = (
-              (lpcAdResult as { content?: Array<{ type: string; text?: string }> })
-                ?.content ?? []
-            ).filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
-            logger.info({ lpcAdText: lpcAdText.slice(0, 400) }, "launch_pipeboard_campaign: ← Pipeboard create_ad");
+                  creative_index: ci * 100 + ti,
+                  error: `فشل إنشاء Creative — ${lpcCreativeText.slice(0, 300)}`,
+                });
+                continue;
+              }
 
-            const lpcAdIdMatch =
-              lpcAdText.match(/"id"\s*:\s*"(\d+)"/) ?? lpcAdText.match(/\b(\d{10,})\b/);
-            adIdFromSpec = lpcAdIdMatch?.[1] ?? "";
-            if (!adIdFromSpec) {
+              // Step 3: create_ad via Pipeboard MCP
+              logger.info(
+                { adset: adsetName, ci: ci + 1, ti: ti + 1, creativeId },
+                "launch_pipeboard_campaign: → Pipeboard create_ad",
+              );
+              const lpcAdResult = await lpcPbClient.callTool(
+                {
+                  name: "create_ad",
+                  arguments: {
+                    account_id: `act_${accountId}`,
+                    name: `${creativeName} — نص ${ti + 1}`,
+                    adset_id: adsetId,
+                    creative_id: creativeId,
+                    status: "PAUSED",
+                  },
+                },
+                undefined,
+                { timeout: 30_000 },
+              );
+              const lpcAdText = (
+                (lpcAdResult as {
+                  content?: Array<{ type: string; text?: string }>;
+                })?.content ?? []
+              )
+                .filter((c) => c.type === "text")
+                .map((c) => (c as { text?: string }).text ?? "")
+                .join("")
+                .trim();
+              logger.info(
+                { lpcAdText: lpcAdText.slice(0, 400) },
+                "launch_pipeboard_campaign: ← Pipeboard create_ad",
+              );
+
+              const lpcAdIdMatch =
+                lpcAdText.match(/"id"\s*:\s*"(\d+)"/) ??
+                lpcAdText.match(/\b(\d{10,})\b/);
+              adIdFromSpec = lpcAdIdMatch?.[1] ?? "";
+              if (!adIdFromSpec) {
+                adResults.push({
+                  adset_name: adsetName,
+                  adset_id: adsetId,
+                  creative_index: ci * 100 + ti,
+                  creative_id: creativeId,
+                  error: `فشل إنشاء Ad — ${lpcAdText.slice(0, 300)}`,
+                });
+                continue;
+              }
               adResults.push({
-                adset_name: adset.name,
+                adset_name: adsetName,
                 adset_id: adsetId,
-                creative_index: ti,
+                creative_index: ci * 100 + ti,
                 creative_id: creativeId,
-                error: `فشل إنشاء Ad — ${lpcAdText.slice(0, 300)}`,
+                ad_id: adIdFromSpec,
               });
-              continue;
+            } catch (e) {
+              adResults.push({
+                adset_name: adsetName,
+                adset_id: adsetId,
+                creative_index: ci * 100 + ti,
+                error: `Pipeboard MCP: ${e instanceof Error ? e.message : String(e)}`,
+              });
             }
-            adResults.push({
-              adset_name: adset.name,
-              adset_id: adsetId,
-              creative_index: ti,
-              creative_id: creativeId,
-              ad_id: adIdFromSpec,
-            });
-          } catch (e) {
-            adResults.push({
-              adset_name: adset.name,
-              adset_id: adsetId,
-              creative_index: ti,
-              error: `Pipeboard MCP: ${e instanceof Error ? e.message : String(e)}`,
-            });
           }
         }
       }
