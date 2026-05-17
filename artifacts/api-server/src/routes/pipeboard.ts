@@ -2776,7 +2776,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     let effectiveAdsets: AdsetInput[] = [];
 
     // ── Parse inputs: support both array and single-item (backward compat) ─
-    const rawAdsets: AdsetInput[] =
+    let rawAdsets: AdsetInput[] =
       Array.isArray(args?.adsets) && (args.adsets as AdsetInput[]).length > 0
         ? (args.adsets as AdsetInput[])
         : [
@@ -2994,19 +2994,41 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             }
           }
 
-          // 3. For each folder: M videos × position-paired creative
+          // 3. New logic: each video = 1 Adset, each text = 1 Ad inside that Adset
+          // Result: N videos → N Adsets, each Adset has M ads (one per text)
+          // We encode this by creating N groups of M creatives
+          // The adset creation loop below will create 1 adset per group
           const expanded: CreativeInput[] = [...directCreatives];
+          const videoAdsetGroups: CreativeInput[][] = [];
+
           for (const [folderId, folderCreatives] of folderCreativesMap) {
             const files = folderCache.get(folderId) ?? [];
-            const N = folderCreatives.length; // number of original creative templates for this folder
             for (let vi = 0; vi < files.length; vi++) {
               const file = files[vi]!;
-              // Pair video[vi] with original creative[vi % N]
-              const template = folderCreatives[vi % N]!;
               const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0`;
               const mediaType = file.mimeType.startsWith("video/") ? "video" : "image";
-              expanded.push({ ...template, media_url: directUrl, media_type: mediaType });
+              // One group per video — each group has M creatives (one per text)
+              const group: CreativeInput[] = folderCreatives.map(template => ({
+                ...template,
+                media_url: directUrl,
+                media_type: mediaType,
+                name: file.name.replace(/\.[^.]+$/, ""),
+              }));
+              videoAdsetGroups.push(group);
             }
+          }
+
+          // If we have video groups, rebuild rawAdsets and rawCreatives
+          if (videoAdsetGroups.length > 0) {
+            const baseAdset = rawAdsets[0] ?? { name: campaignName, budget: 100 };
+            rawAdsets = videoAdsetGroups.map((group, i) => ({
+              name: `${group[0]?.name ?? `فيديو ${i + 1}`} — ${baseAdset.name}`,
+              budget: baseAdset.budget,
+            }));
+            // rawCreatives will be handled per-adset below
+            (rawAdsets as any)._videoGroups = videoAdsetGroups;
+          } else {
+            expanded.forEach(c => rawCreatives.push(c));
           }
 
           logger.info(
@@ -3128,6 +3150,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       //     N videos × M texts = N×M separate ads in the SAME adset (no split by video)
       //   • N adsets in blueprint → each adset paired to its position-matched creative
       // NO is_dynamic_creative — NO asset_feed_spec — each ad = 1 video + 1 text + 1 headline
+      const videoGroups: CreativeInput[][] | undefined = (rawAdsets as any)._videoGroups;
       effectiveAdsets = rawAdsets as AdsetInput[];
 
       let totalAdsExpected = 0;
@@ -3138,7 +3161,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // Single-adset mode: ALL creatives → one adset (N videos × M texts = N×M ads)
         // Multi-adset mode: each adset matched to its position-paired creative
         const adsetCreatives: CreativeInput[] =
-          effectiveAdsets.length === 1
+          videoGroups ? (videoGroups[ai] ?? []) : effectiveAdsets.length === 1
             ? rawCreatives
             : (() => {
                 const angleName = adset.name.toLowerCase().trim();
