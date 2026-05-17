@@ -5509,7 +5509,12 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
   if (!rawAccountId || !source_ad || !dest_type) { res.status(400).json({ error: "account_id, source_ad, dest_type مطلوبة" }); return; }
   const accountId = rawAccountId.replace(/^act_/, "");
   const accountIdWithAct = `act_${accountId}`;
-  const pixelId = providedPixelId ?? "";
+  const SCALE_PIXEL_MAP: Record<string, string> = {
+    "898360605246408": "1405391498274239",
+    "838054421405431": "1537301040808359",
+    "1714386865726065": "1537301040808359",
+  };
+  const pixelId = providedPixelId || SCALE_PIXEL_MAP[accountId] || "1405391498274239";
   const isCBO = new_campaign_is_cbo ?? false;
   function mcpTxtSc(result: unknown): string {
     return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
@@ -5550,12 +5555,13 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
       const adsetArgs: Record<string, unknown> = {
         account_id: accountId, campaign_id: finalCampaignId,
         name: new_adset_name ?? `Scale Creative — ${new Date().toLocaleDateString("en-GB")}`,
-        optimization_goal: pixelId ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS",
+        optimization_goal: "OFFSITE_CONVERSIONS",
         billing_event: "IMPRESSIONS", targeting: { geo_locations: { countries: ["EG"] } },
         status: "PAUSED",
       };
       if (!effectiveIsCBO && new_campaign_budget) adsetArgs.daily_budget = Math.round(new_campaign_budget * 100);
-      if (pixelId) adsetArgs.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
+      const effectivePixelId = pixelId || "1405391498274239";
+      adsetArgs.promoted_object = { pixel_id: effectivePixelId, custom_event_type: "PURCHASE" };
       const ar = await client.callTool({ name: "create_adset", arguments: adsetArgs });
       const at = mcpTxtSc(ar); logger.info({ at }, "scale-creative: create_adset");
       const am = at.match(/"id"\s*:\s*"(\d{10,})"/);
