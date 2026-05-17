@@ -5320,6 +5320,15 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
     const metaTokenForCreative = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
     const normalized = await Promise.all(ads.map(async ad => {
       let cr = (ad.creative as Record<string, unknown>) ?? {};
+      // لو مفيش creative ID، نجيبه من الـ ad مباشرة من Meta
+      if (!cr.id && ad.id) {
+        try {
+          const adUrl = `https://graph.facebook.com/v21.0/${ad.id}?fields=creative{id,body,title,video_id,image_hash,link_url,call_to_action}&access_token=${encodeURIComponent(metaTokenForCreative)}`;
+          const adRes = await fetch(adUrl);
+          const adJson = await adRes.json() as Record<string, unknown>;
+          if (!adJson.error && adJson.creative) cr = adJson.creative as Record<string, unknown>;
+        } catch { /* ignore */ }
+      }
       // لو مفيش video_id أو image_hash، نجيب Creative details من Meta مباشرة
       if (!cr.video_id && !cr.image_hash && cr.id) {
         try {
@@ -5580,13 +5589,39 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
     }
 
     const adName = source_ad.name ?? "إعلان";
+    // لو مفيش media، نجيب الـ creative details من Meta مباشرة
+    let srcVideoId = source_ad.video_id ?? "";
+    let srcImageHash = source_ad.image_hash ?? "";
+    let srcBody = source_ad.body ?? "";
+    let srcTitle = source_ad.title ?? "";
+    let srcLinkUrl = source_ad.link_url ?? "";
+    let srcCTA = source_ad.call_to_action_type ?? "LEARN_MORE";
+    if (!srcVideoId && !srcImageHash) {
+      const creativeIdToFetch = source_ad.creative_id || source_ad.id;
+      try {
+        const metaTkn = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
+        // أولاً نجيب الـ creative_id من الـ ad
+        const adInfoUrl = `https://graph.facebook.com/v21.0/${source_ad.id}?fields=creative{id,body,title,video_id,image_hash,link_url,call_to_action}&access_token=${encodeURIComponent(metaTkn)}`;
+        const adInfoRes = await fetch(adInfoUrl);
+        const adInfoJson = await adInfoRes.json() as Record<string, unknown>;
+        const fetchedCr = (adInfoJson.creative as Record<string, unknown>) ?? {};
+        if (fetchedCr.video_id) srcVideoId = String(fetchedCr.video_id);
+        if (fetchedCr.image_hash) srcImageHash = String(fetchedCr.image_hash);
+        if (fetchedCr.body) srcBody = String(fetchedCr.body);
+        if (fetchedCr.title) srcTitle = String(fetchedCr.title);
+        if (fetchedCr.link_url) srcLinkUrl = String(fetchedCr.link_url);
+        const fetchedCTA = (fetchedCr.call_to_action as Record<string, unknown>)?.type;
+        if (fetchedCTA) srcCTA = String(fetchedCTA);
+        logger.info({ fetchedCr, creativeIdToFetch }, "scale-creative: fetched creative from Meta");
+      } catch (e) { logger.warn({ e }, "scale-creative: failed to fetch creative from Meta"); }
+    }
     const creativeArgs: Record<string, unknown> = {
       account_id: accountId, name: `${adName} — Scale`, page_id: pageId,
-      message: source_ad.body || "", headline: source_ad.title || "",
-      call_to_action_type: source_ad.call_to_action_type ?? "LEARN_MORE",
+      message: srcBody, headline: srcTitle,
+      call_to_action_type: srcCTA,
     };
-    if (source_ad.video_id) creativeArgs.video_id = source_ad.video_id;
-    else if (source_ad.image_hash) creativeArgs.image_hash = source_ad.image_hash;
+    if (srcVideoId) creativeArgs.video_id = srcVideoId;
+    else if (srcImageHash) creativeArgs.image_hash = srcImageHash;
     if (source_ad.link_url) { creativeArgs.link_url = source_ad.link_url; creativeArgs.destination_url = source_ad.link_url; }
     if (pixelId) creativeArgs.pixel_id = pixelId;
     const crRes = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
