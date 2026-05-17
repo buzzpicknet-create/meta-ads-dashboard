@@ -5408,16 +5408,33 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
         name: new_campaign_name ?? `Scale — ${new Date().toLocaleDateString("en-GB")}`,
         objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [],
       };
-      // Budget على الحملة بس لو CBO — ABO الميزانية على الـ AdSet
-      // الـ create_campaign case بيعمل egpToCents تلقائياً — نبعت القيمة بالـ EGP مباشرة
-      // Pipeboard بيحتاج daily_budget حتى في ABO — نبعته للحملة وبعدين بنعمله override في الـ AdSet
-      if (new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = new_campaign_budget;
-      const campResult = await client.callTool({ name: "create_campaign", arguments: campArgs });
-      const campText = mcpTxtSa(campResult);
-      logger.info({ campText }, "scale-adsets: create_campaign");
-      const campIdMatch = campText.match(/"id"\s*:\s*"(\d{10,})"/);
-      if (!campIdMatch) { sse({ type: "error", message: `فشل إنشاء الحملة — ${campText.slice(0, 200)}` }); res.end(); return; }
-      destCampaignId = campIdMatch[1];
+      const ABO_META_TOKEN = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+      if (isCBO) {
+        if (new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
+        const campResult = await client.callTool({ name: "create_campaign", arguments: campArgs });
+        const campText = mcpTxtSa(campResult);
+        logger.info({ campText }, "scale-adsets: create_campaign CBO");
+        const campIdMatch = campText.match(/"id"\s*:\s*"(\d{10,})"/);
+        if (!campIdMatch) { sse({ type: "error", message: `فشل إنشاء الحملة — ${campText.slice(0, 200)}` }); res.end(); return; }
+        destCampaignId = campIdMatch[1];
+      } else {
+        const aboParams = new URLSearchParams();
+        aboParams.append("name", new_campaign_name ?? `Scale — ${new Date().toLocaleDateString("en-GB")}`);
+        aboParams.append("objective", "OUTCOME_SALES");
+        aboParams.append("status", "PAUSED");
+        aboParams.append("special_ad_categories", JSON.stringify([]));
+        aboParams.append("is_adset_budget_sharing_enabled", "true");
+        aboParams.append("bid_strategy", "LOWEST_COST_WITHOUT_CAP");
+        aboParams.append("access_token", ABO_META_TOKEN);
+        const aboRes = await fetch(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: aboParams.toString(),
+        });
+        const aboJson = await aboRes.json() as Record<string, unknown>;
+        if (!aboJson.id) { sse({ type: "error", message: `فشل إنشاء حملة ABO — ${JSON.stringify(aboJson).slice(0, 200)}` }); res.end(); return; }
+        destCampaignId = String(aboJson.id);
+      }
       sse({ type: "campaign_created", campaign_id: destCampaignId, message: `✅ الحملة الجديدة (${destCampaignId})` });
     }
 
