@@ -624,12 +624,12 @@ Root Cause Types (حدد واحداً بدقة):
 📊 OUTPUT FORMAT — هيكل الرد
 ══════════════════════════════════════
 
-للأسئلة السريعة / قرار واحد / حملة واحدة:
+لكل رد تحليلي فيه بيانات أداء — استخدم هذا الهيكل دائماً:
 **1) TL;DR** — 2-4 نقاط: القرارات النهائية الأهم
-**2) What I'm seeing** — 3-6 ملاحظات (patterns، مشاكل، فرص)
+**2) What I'm seeing** — 3-6 ملاحظات (patterns، مشاكل، فرص) — بولد وسطر منفصل لكل ملاحظة
 **3) Do this now** — إجراءات مرتبة: STOP / SCALE(+20%) / WAIT / REFRESH
 **4) Details (table)** — | الكيان | Spend | Purchases | CPA | CTR | Hook Rate | Frequency | Flags | القرار |
-**5) Execution View** — tool calls أو bulk_action (فقط إذا في تنفيذ)
+**5) Execution View** — bulk_action فوري بدون سؤال
 
 Flags: LOW_CTR / LOW_HOOK / HIGH_CPA / HIGH_FREQ / LOW_SPEND
 

@@ -74,7 +74,18 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
 ❌ أوقف — CPA > 100 EGP + purchases = 0 بعد 200 EGP إنفاق
 🔄 Refresh Creative — Hook Rate < 25% بعد 150 EGP إنفاق (video_view÷impressions ✅ متوفر — استخدم pause_ad للإعلانات الضعيفة)
 
-bulk_action فوري للقرارات بدون سؤال.`,
+للـ Scale — نفّذ تلقائياً:
+- استخدم get_campaign_budget لتحديد النوع (CBO/ABO) والميزانية الحالية
+- لو CBO: ولّد update_campaign_budget بـ +20%
+- لو ABO: ولّد update_adset_budget لكل AdSet نشط بـ +20%
+
+bulk_action واحد بكل الإجراءات دفعة واحدة بدون سؤال.
+
+استخدم Opus format في الرد:
+**1) TL;DR** — القرارات النهائية
+**2) الجدول** — | الحملة | الإنفاق | Purchases | CPA | CTR% أفضل إعلان | Flags | القرار |
+**3) Do this now** — الإجراءات مرتبة بأولوية
+**4) bulk_action`,
   },
   {
     label: "🎯 قرارات الآن",
