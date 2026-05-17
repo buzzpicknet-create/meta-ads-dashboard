@@ -264,6 +264,15 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     "create_ad_from_existing_post",
     "publish_winners_to_destination",
     "create_ad_from_creative_spec",
+    // Read/search tools
+    "search_adsets",
+    "search_ads",
+    "get_adsets",
+    "get_ads",
+    "get_ad_details",
+    "get_campaign_details",
+    "get_ad_creative",
+    "get_ads_in_adset",
     // Google Ads
     "ga_pause_campaign",
     "ga_enable_campaign",
@@ -4545,6 +4554,34 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       res.status(500).json({ error: `فشل رفع الفيديو: ${msg}` });
       return;
     }
+  }
+
+  // ── Read-only Pipeboard tools — pass args directly, return raw content ────
+  const READ_TOOLS = new Set([
+    "get_adsets",
+    "get_ads",
+    "get_ads_in_adset",
+    "get_campaign_details",
+    "get_ad_details",
+    "get_ad_creative",
+    "search_adsets",
+    "search_ads",
+  ]);
+  if (READ_TOOLS.has(tool)) {
+    try {
+      const client = await getPipeboardWriteClient();
+      const result = await client.callTool({ name: tool, arguments: args ?? {} });
+      const data = (result.content as Array<{ type: string; text?: string }>)
+        ?.filter((c) => c.type === "text")
+        .map((c) => c.text ?? "")
+        .join("\n")
+        .trim();
+      res.json({ success: true, data });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ success: false, error: msg });
+    }
+    return;
   }
 
   const isGaTool = GA_WRITE_TOOLS.has(tool);
