@@ -4953,6 +4953,11 @@ router.get("/pipeboard/campaigns", async (req: Request, res: Response) => {
       campaigns = matches.map((m) => ({ id: m[1], name: m[2] }));
     }
 
+    // إضافة is_cbo لكل حملة
+    campaigns = (campaigns as Record<string, unknown>[]).map((c) => ({
+      ...c,
+      is_cbo: !!(c.daily_budget && String(c.daily_budget).length > 0) || c.campaign_budget_optimization === true || c.campaign_budget_optimization === "CAMPAIGN_BUDGET_OPTIMIZATION",
+    }));
     res.json({ campaigns });
   } catch (err) {
     res.status(500).json({ error: String(err) });
@@ -5520,7 +5525,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
 
     let finalCampaignId = dest_campaign_id ?? "";
     if (dest_type === "new_adset" && !dest_campaign_id && new_campaign_name) {
-      const campArgs: Record<string, unknown> = { account_id: accountId, name: new_campaign_name, objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [] };
+      const campArgs: Record<string, unknown> = { account_id: accountId, name: new_campaign_name, objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [], buying_type: "AUCTION" };
       if (isCBO && new_campaign_budget) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
       const cr = await client.callTool({ name: "create_campaign", arguments: campArgs });
       const ct = mcpTxtSc(cr); logger.info({ ct }, "scale-creative: create_campaign");
@@ -5531,6 +5536,17 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
 
     let finalAdsetId = dest_adset_id ?? "";
     if (dest_type === "new_adset") {
+      // detect if existing campaign is CBO
+      let effectiveIsCBO = isCBO;
+      if (finalCampaignId && !new_campaign_name) {
+        try {
+          const campInfoRes = await client.callTool({ name: "get_campaign_details", arguments: { campaign_id: finalCampaignId } });
+          const campInfoTxt = mcpTxtSc(campInfoRes);
+          if (campInfoTxt.includes("daily_budget") || campInfoTxt.includes("CBO") || campInfoTxt.includes("campaign_budget_optimization")) {
+            effectiveIsCBO = true;
+          }
+        } catch { /* ignore, assume ABO */ }
+      }
       const adsetArgs: Record<string, unknown> = {
         account_id: accountId, campaign_id: finalCampaignId,
         name: new_adset_name ?? `Scale Creative — ${new Date().toLocaleDateString("en-GB")}`,
@@ -5540,7 +5556,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
         attribution_spec: [{ event_type: "CLICK_THROUGH", window_days: 7 }, { event_type: "VIEW_THROUGH", window_days: 1 }],
         status: "PAUSED",
       };
-      if (!isCBO && new_campaign_budget) adsetArgs.daily_budget = Math.round(new_campaign_budget * 100);
+      if (!effectiveIsCBO && new_campaign_budget) adsetArgs.daily_budget = Math.round(new_campaign_budget * 100);
       if (pixelId) adsetArgs.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
       const ar = await client.callTool({ name: "create_adset", arguments: adsetArgs });
       const at = mcpTxtSc(ar); logger.info({ at }, "scale-creative: create_adset");
