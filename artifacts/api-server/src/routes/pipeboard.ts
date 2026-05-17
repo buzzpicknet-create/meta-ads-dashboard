@@ -1907,7 +1907,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           const driveApiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
           const driveResp  = await fetch(driveApiUrl, { signal: AbortSignal.timeout(30_000) });
           if (!driveResp.ok) {
-            res.status(500).json({ error: `فشل Google Drive API: ${driveResp.status} ${driveResp.statusText}` });
+            const hint = driveResp.status === 404
+              ? " — تأكد أن المجلد مشارك بـ \"أي شخص لديه الرابط\" (Share → Anyone with the link → Viewer)"
+              : driveResp.status === 403
+              ? " — الوصول مرفوض؛ غيّر صلاحية المجلد إلى \"أي شخص لديه الرابط\""
+              : "";
+            res.status(500).json({ error: `فشل Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}${hint}` });
             return;
           }
           const driveData  = (await driveResp.json()) as { files?: Array<{ id: string; mimeType: string; name: string }> };
@@ -2928,8 +2933,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           const apiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
           const driveResp = await fetch(apiUrl, { signal: AbortSignal.timeout(30_000) });
           if (!driveResp.ok) {
+            const hint = driveResp.status === 404
+              ? ` — تأكد أن المجلد مشارك بـ "أي شخص لديه الرابط" (Share → Anyone with the link → Viewer)`
+              : driveResp.status === 403
+              ? ` — الوصول مرفوض؛ غيّر صلاحية المجلد إلى "أي شخص لديه الرابط" في إعدادات المشاركة`
+              : "";
             throw new Error(
-              `فشل استعلام Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}`,
+              `فشل استعلام Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}${hint}`,
             );
           }
           const driveData = (await driveResp.json()) as { files?: DriveFile[] };
@@ -4463,7 +4473,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const folderId = folderMatch[1]!;
         const apiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
         const driveResp = await fetch(apiUrl, { signal: AbortSignal.timeout(30_000) });
-        if (!driveResp.ok) throw new Error(`فشل Google Drive API: ${driveResp.status} ${driveResp.statusText}`);
+        if (!driveResp.ok) {
+          const hint = driveResp.status === 404
+            ? " — تأكد أن المجلد مشارك بـ \"أي شخص لديه الرابط\" (Share → Anyone with the link → Viewer)"
+            : driveResp.status === 403
+            ? " — الوصول مرفوض؛ غيّر صلاحية المجلد إلى \"أي شخص لديه الرابط\""
+            : "";
+          throw new Error(`فشل Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}${hint}`);
+        }
         const driveData = (await driveResp.json()) as { files?: Array<{ id: string; mimeType: string; name: string }> };
         const videoFiles = (driveData.files ?? []).filter(f => f.mimeType.startsWith("video/"));
 
