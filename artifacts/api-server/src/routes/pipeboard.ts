@@ -5584,6 +5584,11 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
         if (crJson.link_url) srcLinkUrl = String(crJson.link_url);
         const cta = (crJson.call_to_action as Record<string, unknown>)?.type;
         if (cta) srcCTA = String(cta);
+        // جيب الـ link من call_to_action.value.link لو مفيش link_url
+        if (!srcLinkUrl) {
+          const ctaLink = ((crJson.call_to_action as Record<string, unknown>)?.value as Record<string, unknown>)?.link;
+          if (ctaLink) srcLinkUrl = String(ctaLink);
+        }
       }
     } catch (e) { logger.warn({ e }, "scale-creative: failed to fetch from Meta"); }
 
