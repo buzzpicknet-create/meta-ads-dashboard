@@ -5626,6 +5626,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
         aboParams.append("status", "PAUSED");
         aboParams.append("special_ad_categories", JSON.stringify([]));
         aboParams.append("is_adset_budget_sharing_enabled", "true");
+        aboParams.append("bid_strategy", "LOWEST_COST_WITHOUT_CAP");
         aboParams.append("access_token", aboToken);
         const aboRes = await fetch(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
           method: "POST",
