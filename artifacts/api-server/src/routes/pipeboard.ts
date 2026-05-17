@@ -3007,8 +3007,24 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               const file = files[vi]!;
               const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0`;
               const mediaType = file.mimeType.startsWith("video/") ? "video" : "image";
+              const fileNameNoExt = file.name.replace(/\.[^.]+$/, "").toLowerCase().trim();
+              // Match video to angle by filename — if multiple adsets, find matching angle
+              let matchedCreatives = folderCreatives;
+              if (rawAdsets.length > 1) {
+                const angleIdx = rawAdsets.findIndex(a => {
+                  const n = a.name.toLowerCase().trim();
+                  return n === fileNameNoExt || n.includes(fileNameNoExt) || fileNameNoExt.includes(n);
+                });
+                if (angleIdx >= 0) {
+                  // Get only creatives for this angle (based on index)
+                  const perAngle = Math.ceil(folderCreatives.length / rawAdsets.length);
+                  const start = angleIdx * perAngle;
+                  matchedCreatives = folderCreatives.slice(start, start + perAngle);
+                  if (matchedCreatives.length === 0) matchedCreatives = folderCreatives;
+                }
+              }
               // One group per video — each group has M creatives (one per text)
-              const group: CreativeInput[] = folderCreatives.map(template => ({
+              const group: CreativeInput[] = matchedCreatives.map(template => ({
                 ...template,
                 media_url: directUrl,
                 media_type: mediaType,
