@@ -1361,10 +1361,10 @@ export default function AiChatPage() {
                     <button
                       key={q.label}
                       onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }}
-                      className="group text-right px-3 py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all"
+                      className="group text-right px-3 py-3 sm:py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-[0.97]"
                     >
-                      <span className="block font-medium text-foreground text-xs">{q.label}</span>
-                      <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
+                      <span className="block font-semibold text-foreground text-[13px] sm:text-xs leading-snug">{q.label}</span>
+                      <span className="hidden sm:block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
                         {q.prompt.slice(0, 45)}...
                       </span>
                     </button>
@@ -1383,10 +1383,10 @@ export default function AiChatPage() {
                     <button
                       key={q.label}
                       onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }}
-                      className="group text-right px-3 py-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/30 dark:bg-emerald-950/10 hover:border-emerald-400/60 hover:bg-emerald-50/60 transition-all"
+                      className="group text-right px-3 py-3 sm:py-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/30 dark:bg-emerald-950/10 hover:border-emerald-400/60 hover:bg-emerald-50/60 transition-all active:scale-[0.97]"
                     >
-                      <span className="block font-medium text-foreground text-xs">{q.label}</span>
-                      <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
+                      <span className="block font-semibold text-foreground text-[13px] sm:text-xs leading-snug">{q.label}</span>
+                      <span className="hidden sm:block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
                         {q.prompt.slice(0, 45)}...
                       </span>
                     </button>
@@ -1398,17 +1398,17 @@ export default function AiChatPage() {
           ) : (
 
             /* ── Chat messages ── */
-            <div className="w-full px-4 sm:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6">
+            <div className="w-full px-3 sm:px-8 py-3 sm:py-6 space-y-4 sm:space-y-6">
               {msgs.map((m,i)=>(
-                <div key={i} className={`flex gap-3 ${m.role==="user"?"flex-row-reverse":""}`}>
-                  <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${m.role==="user"?"bg-primary text-primary-foreground":"bg-muted"}`}>
-                    {m.role==="user" ? <User className="h-4 w-4"/> : <Bot className="h-4 w-4 text-primary"/>}
+                <div key={i} className={`flex gap-2 sm:gap-3 ${m.role==="user"?"flex-row-reverse":""}`}>
+                  <div className={`h-7 w-7 sm:h-8 sm:w-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${m.role==="user"?"bg-primary text-primary-foreground":"bg-muted"}`}>
+                    {m.role==="user" ? <User className="h-3.5 w-3.5 sm:h-4 sm:w-4"/> : <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary"/>}
                   </div>
                   <div className={`flex-1 min-w-0 ${m.role==="user"?"flex flex-col items-end":""}`}>
                     {m.role==="user" ? (
                       <>
                         {m.imagePreviewUrl && <img src={m.imagePreviewUrl} alt="" className="mb-2 max-h-48 rounded-lg border border-border" />}
-                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 sm:px-5 py-3 text-base max-w-[90%] sm:max-w-[85%] whitespace-pre-wrap" dir="auto">
+                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3.5 sm:px-5 py-2.5 sm:py-3 text-[15px] sm:text-base max-w-[92%] sm:max-w-[85%] whitespace-pre-wrap leading-relaxed" dir="auto">
                           {m.content}
                         </div>
                       </>
@@ -1431,9 +1431,9 @@ export default function AiChatPage() {
 
               {/* Streaming assistant message */}
               {streamTxt && (
-                <div className="flex gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="h-4 w-4 text-primary" />
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                    <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0 ai-msg-body text-foreground">
                     <RenderMarkdown text={streamTxt} />
@@ -1443,13 +1443,13 @@ export default function AiChatPage() {
 
               {/* Tool call labels (in progress) */}
               {toolLabels.length>0 && !streamTxt && (
-                <div className="flex gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                    <Bot className="h-4 w-4 text-primary" />
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
                   </div>
-                  <div className="flex-1 bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3 space-y-1.5">
+                  <div className="flex-1 bg-muted/50 rounded-2xl rounded-tl-sm px-3 sm:px-4 py-2.5 sm:py-3 space-y-1.5">
                     {toolLabels.map((l,i)=>(
-                      <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-3 w-3 animate-spin shrink-0 text-primary" />{l}
                       </div>
                     ))}
@@ -1459,9 +1459,9 @@ export default function AiChatPage() {
 
               {/* Typing indicator */}
               {streaming && !streamTxt && toolLabels.length===0 && (
-                <div className="flex gap-3">
-                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                    <Bot className="h-4 w-4 text-primary" />
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
                   </div>
                   <div className="bg-muted/50 rounded-2xl rounded-tl-sm px-4 py-3">
                     <div className="flex gap-1 items-center h-4">
@@ -1598,12 +1598,12 @@ export default function AiChatPage() {
                 const f=img.getAsFile(); if(!f)return;
                 try{setAtt(await readFile(f));}catch{}
               }}
-              onInput={e=>{const t=e.currentTarget;t.style.height="auto";t.style.height=Math.min(t.scrollHeight,240)+"px";}}
+              onInput={e=>{const t=e.currentTarget;t.style.height="auto";t.style.height=Math.min(t.scrollHeight,200)+"px";}}
               placeholder="اكتب رسالتك..."
-              rows={3}
+              rows={2}
               disabled={streaming}
-              className="flex-1 resize-none bg-card border border-border/60 rounded-2xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 min-h-[88px] max-h-[240px] leading-relaxed disabled:opacity-50 transition-all"
-              style={{height:"88px"}}
+              className="flex-1 resize-none bg-card border border-border/60 rounded-2xl px-4 py-3 text-[15px] sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 min-h-[60px] sm:min-h-[88px] max-h-[200px] sm:max-h-[240px] leading-relaxed disabled:opacity-50 transition-all"
+              style={{height:"60px"}}
             />
 
             {streaming ? (

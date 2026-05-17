@@ -374,6 +374,48 @@
   font-family: 'Readex Pro', 'IBM Plex Sans Arabic', sans-serif;
 }
 
+.ai-msg-body {
+  font-size: 15.5px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+.ai-msg-body p {
+  font-size: 15.5px;
+  line-height: 1.8;
+  margin-bottom: 0.6em;
+}
+.ai-msg-body p:last-child { margin-bottom: 0; }
+.ai-msg-body li {
+  font-size: 15px;
+  line-height: 1.75;
+}
+.ai-msg-body h1, .ai-msg-body h2, .ai-msg-body h3 {
+  line-height: 1.4;
+  margin-top: 0.9em;
+  margin-bottom: 0.4em;
+}
+.ai-msg-body code {
+  font-size: 13px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: hsl(var(--muted) / 0.7);
+}
+.ai-msg-body pre code {
+  font-size: 13px;
+  padding: 0;
+  background: transparent;
+}
+.ai-msg-body strong { font-weight: 700; }
+.ai-msg-body ul, .ai-msg-body ol { padding-right: 1.4em; margin-bottom: 0.5em; }
+.ai-msg-body ul { list-style-type: disc; }
+.ai-msg-body ol { list-style-type: decimal; }
+@media (max-width: 640px) {
+  .ai-msg-body,
+  .ai-msg-body p { font-size: 15px; line-height: 1.75; }
+  .ai-msg-body li { font-size: 14.5px; }
+  .ai-obs-card   { font-size: 14.5px; }
+}
+
 /* ── Observation Cards (إنجاز / تراجع / ملاحظة) ── */
 .ai-obs-card {
   margin: 0.75rem 0;
