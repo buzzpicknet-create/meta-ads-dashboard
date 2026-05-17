@@ -5619,17 +5619,18 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
         finalCampaignId = cm[1];
       } else {
         // ABO: نستخدم Meta API مباشرة بدون budget على الحملة
+        const aboToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+        const aboParams = new URLSearchParams();
+        aboParams.append("name", new_campaign_name ?? "");
+        aboParams.append("objective", "OUTCOME_SALES");
+        aboParams.append("status", "PAUSED");
+        aboParams.append("special_ad_categories", JSON.stringify([]));
+        aboParams.append("is_adset_budget_sharing_enabled", "true");
+        aboParams.append("access_token", aboToken);
         const aboRes = await fetch(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            name: new_campaign_name ?? "",
-            objective: "OUTCOME_SALES",
-            status: "PAUSED",
-            special_ad_categories: "[]",
-            is_adset_budget_sharing_enabled: "true",
-            access_token: "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg",
-          }).toString(),
+          body: aboParams.toString(),
         });
         const aboJson = await aboRes.json() as Record<string, unknown>;
         if (!aboJson.id) { res.status(500).json({ error: `فشل إنشاء حملة ABO — ${JSON.stringify(aboJson).slice(0, 200)}` }); return; }
