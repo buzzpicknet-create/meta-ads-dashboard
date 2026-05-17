@@ -533,7 +533,7 @@ READ (قراءة — بدون Pipeboard):
 - search_campaigns(account_id, query?) → بحث بالاسم (يعرض حتى 0-spend)
 - search_adsets(campaign_id, query?) → بحث مجموعات (يعرض حتى 0-spend)
 - search_ads(adset_id, query?) → بحث إعلانات (يعرض حتى 0-spend)
-- upload_video_to_meta(drive_folder_url, account_id?, filename_hint?, list_only?) → رفع فيديو أو عرض قائمة
+- upload_video_to_meta(drive_folder_url, account_id?, filename_hint?, list_only?) → رفع فيديو يدوي فقط ⛔ لا تستخدمها قبل launch_pipeboard_campaign — الـ backend يرفع تلقائياً
 
 Google Ads:
 - ga_get_campaigns | ga_get_campaign_metrics | ga_get_ad_groups | ga_get_keywords | ga_get_search_terms
@@ -1312,7 +1312,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "upload_video_to_meta",
-      description: "ارفع فيديو من Google Drive إلى Meta أو اعرض قائمة الفيديوهات في المجلد. للحملات STANDARD متعددة الفيديوهات: استدعِ أولاً مع list_only=true لمعرفة أسماء جميع الفيديوهات، ثم استدعِ مرة لكل فيديو مع filename_hint. يقبل رابط مجلد Drive أو رابط ملف مباشر.",
+      description: "ارفع فيديو واحد من Google Drive إلى Meta. ⛔ لا تستخدم هذه الأداة قبل launch_pipeboard_campaign — الـ backend يرفع الفيديوهات تلقائياً من Drive folder. استخدم هذه الأداة فقط عند طلب video_id لإعلان يدوي منفصل.",
       parameters: {
         type: "object",
         properties: {
