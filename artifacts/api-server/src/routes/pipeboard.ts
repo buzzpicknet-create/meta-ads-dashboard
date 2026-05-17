@@ -2861,8 +2861,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       // ── Step 1: Create campaign ──────────────────────────────────────────
       // Meta minimum daily budget for EGP accounts is ~30 EGP per adset.
       // Default to 50 EGP per adset if not specified; enforce 30 EGP minimum.
-      const MIN_BUDGET_PER_ADSET_EGP = 30;
-      const perAdsetBudgets = rawAdsets.map((a) => Math.max(a.budget ?? 50, MIN_BUDGET_PER_ADSET_EGP));
+      const MIN_BUDGET_PER_ADSET_EGP = 100;
+      const perAdsetBudgets = rawAdsets.map((a) => Math.max(a.budget ?? 100, MIN_BUDGET_PER_ADSET_EGP));
       const tooSmall = perAdsetBudgets.filter((b) => b < MIN_BUDGET_PER_ADSET_EGP);
       if (tooSmall.length > 0) {
         throw new Error(
@@ -3546,7 +3546,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // Budget too small — give actionable Arabic message
         if (sub === 2446375 || textContent.includes("Budget Is Too Small") || textContent.includes("budget is too sma")) {
           throw new Error(
-            `الميزانية صغيرة جداً — الحد الأدنى للـ daily_budget هو 30 EGP/يوم لكل مجموعة إعلانية حسب متطلبات Meta. ` +
+            `الميزانية صغيرة جداً — الحد الأدنى للـ daily_budget هو 100 EGP/يوم لكل مجموعة إعلانية حسب متطلبات Meta. ` +
             `أعِد الإنشاء مع daily_budget لا يقل عن 30 EGP. ` +
             (userFacing ? `رسالة Meta: ${userFacing}` : ""),
           );

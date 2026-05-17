@@ -1411,6 +1411,9 @@ ${anglesSection}
     const campNameStrategy = `${prod} - ${type} - ${today3}`;
     const lp    = addUtm(form.landingPage.trim() || "—", campNameStrategy, "");
     const drive = form.driveLink.trim() || "—";
+    const accountLine = form.quickAccountId
+      ? `- Ad Account ID: ${form.quickAccountId}`
+      : `- Ad Account ID: [لم يتم اختيار حساب — اسأل المستخدم]`;
     const allTexts     = form.texts.length     ? form.texts.map((t,i) => `  ${i+1}. ${t}`).join("\n") : "  [النص الإعلاني]";
     const allHeadlines = form.headlines.length ? form.headlines.map((h,i) => `  ${i+1}. ${h}`).join("\n") : "  [العنوان]";
     // Angles with UTM
@@ -1433,6 +1436,7 @@ ${anglesSection}
 # 1. Campaign Settings
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${prod} - Cost Cap - ${today}
+${accountLine}
 - Budget Optimization: CBO
 - Campaign Budget: ${form.budget} EGP daily
 - Bid Strategy: COST_CAP
@@ -1454,6 +1458,7 @@ ${allHeadlines}
 # 1. Campaign Settings
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${prod} - Retargeting - ${today}
+${accountLine}
 - Budget Optimization: ABO
 # 2. AdSet Settings
 - Budget: ${form.budget} EGP daily
@@ -1475,6 +1480,7 @@ ${allHeadlines}
 # 1. Campaign Settings
 - Objective: OUTCOME_SALES · Event: PURCHASE
 - Campaign Name: ${prod} - Lookalike - ${today}
+${accountLine}
 - Budget Optimization: CBO
 - Campaign Budget: ${form.budget} EGP daily
 # 2. AdSet Settings
