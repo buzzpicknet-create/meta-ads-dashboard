@@ -359,7 +359,7 @@ STRATEGIC DECISION RULES
   account_id    — من الواجهة
   name          — اسم الحملة
   objective     — OUTCOME_SALES | OUTCOME_LEADS | OUTCOME_TRAFFIC | OUTCOME_AWARENESS
-  daily_budget  — بالـ EGP (للـ CBO فقط — للـ ABO اتركه للـ AdSet)
+  daily_budget  — بالـ EGP (للـ CBO فقط — للـ ABO اتركه للـ AdSet) — الحد الأدنى 30 EGP/يوم لكل مجموعة إعلانية
   status        — PAUSED (افتراضي — للمراجعة قبل التشغيل)
 
 بعد النجاح → تحقق: search_campaigns(account_id, campaign_name)
@@ -1126,7 +1126,7 @@ const TOOLS = [
             enum: ["OUTCOME_LEADS", "OUTCOME_SALES", "OUTCOME_AWARENESS", "OUTCOME_TRAFFIC", "OUTCOME_ENGAGEMENT", "OUTCOME_APP_PROMOTION"],
             description: "هدف الحملة: OUTCOME_SALES (مبيعات)، OUTCOME_LEADS (عملاء محتملين)، OUTCOME_TRAFFIC (زيارات)، OUTCOME_AWARENESS (وعي)، OUTCOME_ENGAGEMENT (تفاعل)",
           },
-          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP" },
+          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — الحد الأدنى 30 EGP/يوم (متطلب Meta). للحملات CBO: الإجمالي = 30 × عدد المجموعات على الأقل." },
           status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة الحملة عند الإنشاء — PAUSED (موقوفة، للمراجعة) أو ACTIVE (نشطة مباشرةً)" },
           special_ad_categories: { type: "string", description: "فئات الإعلانات الخاصة — اتركها فارغة إذا لم تكن إعلانات عقارية أو ائتمانية أو سياسية. افتراضي: NONE" },
         },
@@ -1385,7 +1385,7 @@ const TOOLS = [
               required: ["media_url", "media_type"],
             },
           },
-          daily_budget: { type: "number", description: "الميزانية اليومية الإجمالية للحملة بـ EGP (مثال: 50). استخدم هذا للحملات بمجموعة واحدة. للمجموعات المتعددة ضع الميزانية in adsets[].budget لكل مجموعة." },
+          daily_budget: { type: "number", description: "الميزانية اليومية الإجمالية للحملة بـ EGP — الحد الأدنى 30 EGP/مجموعة. للمجموعات المتعددة ضع الميزانية في adsets[].budget لكل مجموعة (لا يقل عن 30 EGP/مجموعة)." },
           media_url: { type: "string", description: "(للتوافق) رابط ميديا واحد — استخدم creatives[] بدلاً منه" },
           media_type: { type: "string", enum: ["image", "video"], description: "(للتوافق) نوع الميديا" },
           primary_text: { type: "string", description: "(للتوافق) نص إعلاني" },

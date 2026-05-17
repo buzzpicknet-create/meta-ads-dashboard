@@ -2859,9 +2859,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const callToAction = String(args?.call_to_action ?? "LEARN_MORE");
 
       // ── Step 1: Create campaign ──────────────────────────────────────────
-      const totalBudget = egpToCents(
-        rawAdsets.reduce((s, a) => s + (a.budget ?? 20), 0),
-      );
+      // Meta minimum daily budget for EGP accounts is ~30 EGP per adset.
+      // Default to 50 EGP per adset if not specified; enforce 30 EGP minimum.
+      const MIN_BUDGET_PER_ADSET_EGP = 30;
+      const perAdsetBudgets = rawAdsets.map((a) => Math.max(a.budget ?? 50, MIN_BUDGET_PER_ADSET_EGP));
+      const tooSmall = perAdsetBudgets.filter((b) => b < MIN_BUDGET_PER_ADSET_EGP);
+      if (tooSmall.length > 0) {
+        throw new Error(
+          `الميزانية صغيرة جداً — الحد الأدنى لكل مجموعة إعلانية هو ${MIN_BUDGET_PER_ADSET_EGP} EGP/يوم حسب متطلبات Meta. ` +
+          `يُنصح باستخدام ${MIN_BUDGET_PER_ADSET_EGP * rawAdsets.length} EGP أو أكثر للحملة الحالية (${rawAdsets.length} مجموعة).`,
+        );
+      }
+      const totalBudget = egpToCents(perAdsetBudgets.reduce((s, b) => s + b, 0));
       const campResult = await client.callTool({
         name: "create_campaign",
         arguments: {
@@ -2878,8 +2887,19 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const campIdMatch =
         campText.match(/"id"\s*:\s*"(\d+)"/) ?? campText.match(/\b(\d{10,})\b/);
       campaignId = campIdMatch?.[1] ?? "";
-      if (!campaignId)
-        throw new Error(`فشل إنشاء الحملة — ${campText.slice(0, 300)}`);
+      if (!campaignId) {
+        const sub = campText.match(/"error_subcode"\s*:\s*(\d+)/)?.[1];
+        const userMsg = campText.match(/"error_user_msg"\s*:\s*"([^"]+)"/)?.[1]
+          ?? campText.match(/"error_user_title"\s*:\s*"([^"]+)"/)?.[1];
+        if (sub === "2446375" || campText.includes("Budget Is Too Small") || campText.includes("budget is too sma")) {
+          throw new Error(
+            `الميزانية صغيرة جداً — الحد الأدنى لإنشاء الحملة هو ${MIN_BUDGET_PER_ADSET_EGP} EGP/يوم لكل مجموعة إعلانية. ` +
+            `المطلوب لهذه الحملة على الأقل: ${MIN_BUDGET_PER_ADSET_EGP * rawAdsets.length} EGP/يوم. ` +
+            `رسالة Meta: ${userMsg ?? campText.slice(0, 200)}`,
+          );
+        }
+        throw new Error(`فشل إنشاء الحملة — ${userMsg ?? campText.slice(0, 300)}`);
+      }
 
       // ── Step 2: Get page_id — domain map first, then auto-fetch ──────────
       const PAGE_ID_MAP: Record<string, string> = {
@@ -3516,13 +3536,26 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           textContent.match(/"error"\s*:\s*"([^"]+)"/);
         const codeMatch = textContent.match(/"code"\s*:\s*(\d+)/);
         const subMatch = textContent.match(/"error_subcode"\s*:\s*(\d+)/);
+        const userMsgMatch = textContent.match(/"error_user_msg"\s*:\s*"([^"]+)"/);
+        const userTitleMatch = textContent.match(/"error_user_title"\s*:\s*"([^"]+)"/);
         const errMsg = errMatch?.[1] ?? textContent.slice(0, 400);
         const code = codeMatch?.[1] ? Number(codeMatch[1]) : undefined;
         const sub = subMatch?.[1] ? Number(subMatch[1]) : undefined;
+        const userFacing = userMsgMatch?.[1] ?? userTitleMatch?.[1];
+
+        // Budget too small — give actionable Arabic message
+        if (sub === 2446375 || textContent.includes("Budget Is Too Small") || textContent.includes("budget is too sma")) {
+          throw new Error(
+            `الميزانية صغيرة جداً — الحد الأدنى للـ daily_budget هو 30 EGP/يوم لكل مجموعة إعلانية حسب متطلبات Meta. ` +
+            `أعِد الإنشاء مع daily_budget لا يقل عن 30 EGP. ` +
+            (userFacing ? `رسالة Meta: ${userFacing}` : ""),
+          );
+        }
+
         const detail = [
           code ? `code: ${code}` : null,
           sub ? `error_subcode: ${sub}` : null,
-          `message: ${errMsg}`,
+          `message: ${userFacing ?? errMsg}`,
         ]
           .filter(Boolean)
           .join(" | ");
