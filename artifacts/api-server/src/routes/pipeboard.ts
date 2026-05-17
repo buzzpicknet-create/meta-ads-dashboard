@@ -5552,8 +5552,6 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
         name: new_adset_name ?? `Scale Creative — ${new Date().toLocaleDateString("en-GB")}`,
         optimization_goal: pixelId ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS",
         billing_event: "IMPRESSIONS", targeting: { geo_locations: { countries: ["EG"] } },
-        targeting_automation: { advantage_audience: 1 },
-        attribution_spec: [{ event_type: "CLICK_THROUGH", window_days: 7 }, { event_type: "VIEW_THROUGH", window_days: 1 }],
         status: "PAUSED",
       };
       if (!effectiveIsCBO && new_campaign_budget) adsetArgs.daily_budget = Math.round(new_campaign_budget * 100);
