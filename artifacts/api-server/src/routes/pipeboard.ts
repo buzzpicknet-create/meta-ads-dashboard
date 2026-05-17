@@ -545,7 +545,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     }
 
     // META_ACCESS_TOKEN used only for GET fallbacks in reconstruction — not required for primary path.
-    const metaToken = process.env.META_ACCESS_TOKEN ?? "";
+    const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
 
     let dupSuccess = false;
     let dupMsg = "";
@@ -5014,7 +5014,7 @@ router.get(
       // جلب الـ insights مباشرة من Meta API بالـ campaign_id (أدق وأضمن من Pipeboard get_insights)
       let insights: Record<string, unknown>[] = [];
       try {
-        const metaToken = process.env.META_ACCESS_TOKEN ?? "";
+        const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
         const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
           `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
           `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
@@ -5308,7 +5308,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
     // جلب الـ insights مباشرة من Meta API مع فلتر الـ campaign_id
     let insightsMap = new Map<string, Record<string, unknown>>();
     try {
-      const metaToken = process.env.META_ACCESS_TOKEN ?? "";
+      const metaToken = process.env.META_ACCESS_TOKEN ?? "EAASlctzrYjUBRefSI1ouqAG4TYr8gvsZBZBraZCF35HbLM5aViR0OjgwIPxHckVVHMK4zrAhhJ2ADwAUhAL72AZAZCdiGZCbdDHFPAo3v64mhzfsHdXVJyvcgvvL3egVyhBJZB0NFezR5xW6ifwntl8Mw19ULxlQzEz9Xu6WhfTzmsgZB2mN6U2hHe7lAb9czsSQKkwTuJ1dOC3R3C7FQttp3ZBQZCzU2lb3cWiqcdTMEZD";
       const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
         `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
         `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
