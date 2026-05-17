@@ -62,7 +62,13 @@ function buildFromEnv(): TokenCache {
 
 export function getToken(): TokenCache {
   if (!cached) {
-    cached = loadFromDisk() ?? buildFromEnv();
+    // ENV secret always wins over disk cache — so updating META_ACCESS_TOKEN
+    // in Replit Secrets immediately takes effect without clearing token-cache.json
+    if (process.env["META_ACCESS_TOKEN"]) {
+      cached = buildFromEnv();
+    } else {
+      cached = loadFromDisk() ?? buildFromEnv();
+    }
   }
   return cached;
 }
