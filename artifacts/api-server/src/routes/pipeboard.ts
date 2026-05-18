@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { query } from "../lib/db";
 import { logger } from "../lib/logger";
 import { sendPushForEvent } from "../lib/push";
+import { getAccessToken } from "../lib/meta-token";
 
 const router = Router();
 
@@ -559,7 +560,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     }
 
     // META_ACCESS_TOKEN used only for GET fallbacks in reconstruction — not required for primary path.
-    const metaToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+    const metaToken = getAccessToken();
 
     let dupSuccess = false;
     let dupMsg = "";
@@ -1204,7 +1205,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const cafpVerify = await verifyMetaEntityDirect(
         newAdId,
         "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
-        "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg",
+        getAccessToken(),
       );
       if (!cafpVerify.verified) {
         const ve = cafpVerify.meta_error ?? {};
@@ -1323,7 +1324,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     // ── Step 2: Always derive account_id if missing — independent of object_story_id ──
     // Priority: ad_id → adset_id → object_story_id (last resort, page_id only)
     if (!accountId) {
-      const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+      const metaTkn = getAccessToken();
 
       // Try from ad_id first (richest source — also gives object_story_id)
       if (sourceAdId) {
@@ -1387,7 +1388,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     } else if (sourceAdId && !objectStoryId) {
       // account_id present but object_story_id missing — fetch object_story_id only
       try {
-        const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+        const metaTkn = getAccessToken();
         const u = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}`);
         u.searchParams.set("fields", "id,creative{id,object_story_id}");
         u.searchParams.set("access_token", metaTkn);
@@ -1717,7 +1718,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         const efpVerify = await verifyMetaEntityDirect(
           newAdId,
           "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time",
-          "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg",
+          getAccessToken(),
         );
         if (!efpVerify.verified) {
           const ve = efpVerify.meta_error ?? {};
@@ -1993,7 +1994,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     // META_ACCESS_TOKEN used only for page_id and thumbnail GET requests (optional fallbacks).
     // Creative + Ad creation now routes through Pipeboard MCP (which has its own Meta token with ads_management).
-    const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+    const metaTkn = getAccessToken();
 
     let csSuccess = false;
     let csMsg = "";
@@ -2252,7 +2253,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
     // metaTkn may be empty/expired — Pipeboard duplicate_ad path doesn't need it.
     // Social Proof / Rebuild fallback paths will use it if available.
-    const metaTkn = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+    const metaTkn = getAccessToken();
 
     interface AdPublishResult {
       source_ad_id: string;
@@ -5028,7 +5029,7 @@ router.get(
       // جلب الـ insights مباشرة من Meta API بالـ campaign_id (أدق وأضمن من Pipeboard get_insights)
       let insights: Record<string, unknown>[] = [];
       try {
-        const metaToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+        const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
           `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
           `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
@@ -5322,7 +5323,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
     // جلب الـ insights مباشرة من Meta API مع فلتر الـ campaign_id
     let insightsMap = new Map<string, Record<string, unknown>>();
     try {
-      const metaToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+      const metaToken = getAccessToken();
       const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
         `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
         `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
@@ -5331,7 +5332,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const insArr = insJson.data ?? [];
       insightsMap = new Map(insArr.map(i => [String(i.ad_id), i]));
     } catch { /* ignore */ }
-    const metaTokenForCreative = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+    const metaTokenForCreative = getAccessToken();
     const normalized = await Promise.all(ads.map(async ad => {
       let cr = (ad.creative as Record<string, unknown>) ?? {};
       // لو مفيش creative ID، نجيبه من الـ ad مباشرة من Meta
@@ -5422,7 +5423,7 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
         name: new_campaign_name ?? `Scale — ${new Date().toLocaleDateString("en-GB")}`,
         objective: "OUTCOME_SALES", status: "PAUSED", special_ad_categories: [],
       };
-      const ABO_META_TOKEN = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+      const ABO_META_TOKEN = getAccessToken();
       if (isCBO) {
         if (new_campaign_budget && new_campaign_budget > 0) campArgs.daily_budget = Math.round(new_campaign_budget * 100);
         const campResult = await client.callTool({ name: "create_campaign", arguments: campArgs });
@@ -5481,7 +5482,7 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
         try { const p = JSON.parse(adsText); ads = Array.isArray(p) ? p : (p?.data ?? []); } catch { ads = []; }
 
         // جيب creative details من Meta لكل ad لو مفيش video_id
-        const META_TKN = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+        const META_TKN = getAccessToken();
         ads = await Promise.all(ads.map(async (ad) => {
           const cr = (ad.creative as Record<string, unknown>) ?? {};
           if (!cr.video_id && !cr.image_hash) {
@@ -5603,7 +5604,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
   };
   const pixelId = providedPixelId || SCALE_PIXEL_MAP[accountId] || "1537301040808359";
   const defaultPageId = SCALE_PAGE_MAP[accountId] || "";
-  const META_TOKEN = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+  const META_TOKEN = getAccessToken();
 
   function mcpTxtSc(result: unknown): string {
     return ((result as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
@@ -5677,7 +5678,7 @@ router.post("/pipeboard/scale-creative", async (req: Request, res: Response) => 
         finalCampaignId = cm[1];
       } else {
         // ABO: نستخدم Meta API مباشرة بدون budget على الحملة
-        const aboToken = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+        const aboToken = getAccessToken();
         const aboParams = new URLSearchParams();
         aboParams.append("name", new_campaign_name ?? "");
         aboParams.append("objective", "OUTCOME_SALES");
