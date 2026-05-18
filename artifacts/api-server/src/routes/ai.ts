@@ -142,8 +142,12 @@ create_campaign / create_adset / create_ad / pause / enable / budget / duplicate
 - CPA أعلى من الهدف → شخّص أولاً (Creative Fatigue / Frequency / CTR) قبل الإيقاف
 
 🗓️ بيانات اليوم (Today):
-- إذا طلب "اليوم": اعرض بيانات Today كما هي من Meta
-- أضف تنبيه: "بيانات اليوم قد تكون غير مكتملة — للمقارنة اطلب Yesterday"
+- إذا طلب "اليوم": استدعِ get_campaigns(since=today, until=today) فوراً بلا تردد
+- بعدها مباشرة: استدعِ search_campaigns(account_id) → قارن النتيجتين
+- أي حملة في search_campaigns بحالة ACTIVE ومش في get_campaigns → أضفها للجدول
+- اعرض الجدول كامل — كل الحملات النشطة حتى لو Spend قليل أو Purchases = 0
+- بعد الجدول سطر واحد فقط: "⚠️ بيانات اليوم حتى الآن — الأرقام ستزيد مع تقدم اليوم"
+- ممنوع حذف أي حملة بسبب انخفاض الإنفاق اليومي
 
 ══════════════════════════════════════
 السياق الاقتصادي — مصر (COD)
