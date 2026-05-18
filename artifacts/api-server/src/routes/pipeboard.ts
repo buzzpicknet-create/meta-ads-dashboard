@@ -5031,8 +5031,8 @@ router.get(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
-          `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
-          `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+          `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click` +
+          `&action_attribution_windows=%5B%22click_7d%22%2C%22view_1d%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
         insights = insJson.data ?? [];
@@ -5325,8 +5325,8 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
     try {
       const metaToken = getAccessToken();
       const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
-        `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions` +
-        `&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click` +
+        `&action_attribution_windows=%5B%22click_7d%22%2C%22view_1d%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
       const insRes = await fetch(insUrl);
       const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
       const insArr = insJson.data ?? [];
@@ -5363,13 +5363,15 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const purchases = purchasesVal ? Number(purchasesVal) : null;
       const cpa = purchases && spend ? Number((spend / purchases).toFixed(2)) : null;
       const ctr = impressions ? Number(((clicks / impressions) * 100).toFixed(2)) : null;
+      const linkClicks = Number(ins.inline_link_clicks ?? 0) || null;
+      const costPerLinkClick = linkClicks && spend ? Number((spend / linkClicks).toFixed(2)) : null;
       return {
         id: ad.id, name: ad.name, adset_id: ad.adset_id,
         video_id: cr.video_id ?? null, image_hash: cr.image_hash ?? null,
         body: cr.body ?? null, title: cr.title ?? null, link_url: cr.link_url ?? null,
         call_to_action_type: (cr.call_to_action as Record<string, unknown>)?.type ?? "LEARN_MORE",
         creative_id: cr.id ?? null,
-        spend, cpa, ctr, purchases,
+        spend, cpa, ctr, purchases, link_clicks: linkClicks, cost_per_link_click: costPerLinkClick,
       };
     }));
     res.json({ ads: normalized });
