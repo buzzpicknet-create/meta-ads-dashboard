@@ -2377,10 +2377,6 @@ async function callPipeboardRead(
 ): Promise<string> {
   try {
     const client = await getPipeboardClient();
-    // إضافة attribution window 7-day click تلقائياً لكل get_insights
-    if (toolName === "get_insights" && !toolArgs.action_attribution_windows) {
-      toolArgs = { ...toolArgs, action_attribution_windows: ["click_7d", "view_1d"] };
-    }
     const result = await client.callTool({ name: toolName, arguments: toolArgs });
     const content = result.content as Array<{ type: string; text?: string }>;
     const raw = content
@@ -2420,10 +2416,6 @@ async function callPipeboardReadFull(
 ): Promise<string> {
   try {
     const client = await getPipeboardClient();
-    // إضافة attribution window 7-day click تلقائياً لكل get_insights
-    if (toolName === "get_insights" && !toolArgs.action_attribution_windows) {
-      toolArgs = { ...toolArgs, action_attribution_windows: ["click_7d", "view_1d"] };
-    }
     const result = await client.callTool({ name: toolName, arguments: toolArgs });
     const content = result.content as Array<{ type: string; text?: string }>;
     const text = content
