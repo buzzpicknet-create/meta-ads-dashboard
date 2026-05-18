@@ -1146,6 +1146,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         m.role !== "assistant" || (m.content.trim().length > 5 && !JUNK_PATTERNS.test(m.content.trim()))
       );
       const body: Record<string, unknown> = { campaignContext: buildContext(), messages: cleanMessages, conversation_id: activeCid };
+      if (defaultAccountId) body.selectedAccountIds = [defaultAccountId];
       if (att?.isImage) { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)    { body.fileText = att.text; body.fileName = att.name; }
 
