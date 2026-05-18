@@ -2898,8 +2898,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         objective: campObjective,
         status: "PAUSED",
         special_ad_categories: [],
+        buying_type: "AUCTION",
       };
       if (cboBudget !== null) campArgs.daily_budget = cboBudget;
+      if (!isCBO) campArgs.is_adset_budget_sharing_enabled = false;
       const campResult = await client.callTool({
         name: "create_campaign",
         arguments: campArgs,
