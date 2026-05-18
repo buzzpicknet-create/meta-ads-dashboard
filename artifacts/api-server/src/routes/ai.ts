@@ -2891,20 +2891,41 @@ async function tryExecuteViaPipeboard(
       return summarizePipeboardInsights(pbRaw0, "campaign");
     }
 
-    // get_adsets — via Pipeboard (primary). Native Meta path is fallback when Pipeboard fails.
-    // Raw Pipeboard data is returned directly; the AI parses spend/CPA/CTR from it.
-    // Hook Rate / Hold Rate won't be pre-computed, but data is available when Meta token expires.
     if (name === "get_adsets") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return null;
-      const pbRaw1 = await callPipeboardReadFull("get_insights", {
-        object_id: campaign_id,
-        level: "adset",
-        time_range: timeRange,
-        compact: false,
-        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "frequency", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
-      });
-      return summarizePipeboardInsights(pbRaw1, "adset");
+      // Meta API مباشرة مع 7-day attribution
+      try {
+        const metaToken = getAccessToken();
+        const insUrl = `https://graph.facebook.com/v21.0/${campaign_id}/insights?` +
+          `level=adset&fields=adset_id,adset_name,spend,impressions,clicks,actions,video_play_actions,frequency` +
+          `&action_attribution_windows=%5B%227d_click%22%2C%221d_view%22%5D&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        const insRes = await fetch(insUrl);
+        const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
+        if (insJson.error) throw new Error(JSON.stringify(insJson.error));
+        const rows = insJson.data ?? [];
+        if (rows.length === 0) return "لا توجد بيانات للمجموعات الإعلانية في هذه الفترة.";
+        const lines = ["## المجموعات الإعلانية (7-day click attribution):\n",
+          "| المجموعة | الإنفاق | Purchases | CPA | CTR% | Hook% | Frequency |",
+          "|----------|---------|-----------|-----|------|-------|-----------|"];
+        for (const r of rows) {
+          const spend = Number(r.spend ?? 0);
+          const impressions = Number(r.impressions ?? 0);
+          const clicks = Number(r.clicks ?? 0);
+          const actions = Array.isArray(r.actions) ? r.actions as Array<{action_type:string;value:string}> : [];
+          const videoPlays = Array.isArray(r.video_play_actions) ? r.video_play_actions as Array<{action_type:string;value:string}> : [];
+          const purchases = Number(actions.find(a => a.action_type === "offsite_conversion.fb_pixel_purchase" || a.action_type === "purchase" || a.action_type === "web_in_store_purchase")?.value ?? 0);
+          const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
+          const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
+          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
+          const freq = Number(r.frequency ?? 0).toFixed(2);
+          lines.push(`| ${r.adset_name} (id:${r.adset_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${freq} |`);
+        }
+        return lines.join("\n");
+      } catch (e) {
+        return `فشل جلب بيانات المجموعات: ${String(e).slice(0, 200)}`;
+      }
     }
 
     if (name === "get_campaign_status") {
@@ -2957,35 +2978,40 @@ async function tryExecuteViaPipeboard(
       return summarizePipeboardInsights(pbRaw2, "ad");
     }
 
-    // get_ads_in_adset — via Pipeboard (primary). Fetches full funnel at ad level under the adset.
-    // Now includes actions (link_click, landing_page_view, purchase) + outbound_clicks
-    // so summarizePipeboardInsights can compute CTR, LPR, CVR, CPA, Purchases.
     if (name === "get_ads_in_adset") {
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return null;
+      // Meta API مباشرة مع 7-day attribution
       try {
-        const pbRaw3 = await callPipeboardReadFull("get_insights", {
-          object_id: adset_id,
-          level: "ad",
-          time_range: timeRange,
-          compact: false,
-          fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
-        });
-        return summarizePipeboardInsights(pbRaw3, "ad");
-      } catch (e) {
-        // Fallback: try without video fields
-        try {
-          const pbRaw3b = await callPipeboardReadFull("get_insights", {
-            object_id: adset_id,
-            level: "ad",
-            time_range: timeRange,
-            compact: false,
-            fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions"],
-          });
-          return summarizePipeboardInsights(pbRaw3b, "ad");
-        } catch (e2) {
-          return `[META_RATE_LIMIT] فشل جلب بيانات الإعلانات للـ adset ${adset_id} — ${String(e2).slice(0, 100)}`;
+        const metaToken = getAccessToken();
+        const insUrl = `https://graph.facebook.com/v21.0/${adset_id}/insights?` +
+          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,video_play_actions,outbound_clicks` +
+          `&action_attribution_windows=%5B%227d_click%22%2C%221d_view%22%5D&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        const insRes = await fetch(insUrl);
+        const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
+        if (insJson.error) throw new Error(JSON.stringify(insJson.error));
+        const rows = insJson.data ?? [];
+        if (rows.length === 0) return "لا توجد بيانات إعلانات في هذه الفترة.";
+        const lines = ["## الإعلانات (7-day click attribution):\n",
+          "| الإعلان | الإنفاق | Purchases | CPA | CTR% | Hook% | LPV |",
+          "|---------|---------|-----------|-----|------|-------|-----|"];
+        for (const r of rows) {
+          const spend = Number(r.spend ?? 0);
+          const impressions = Number(r.impressions ?? 0);
+          const clicks = Number(r.clicks ?? 0);
+          const actions = Array.isArray(r.actions) ? r.actions as Array<{action_type:string;value:string}> : [];
+          const videoPlays = Array.isArray(r.video_play_actions) ? r.video_play_actions as Array<{action_type:string;value:string}> : [];
+          const purchases = Number(actions.find(a => ["offsite_conversion.fb_pixel_purchase","purchase","web_in_store_purchase"].includes(a.action_type))?.value ?? 0);
+          const lpViews = Number(actions.find(a => a.action_type === "landing_page_view")?.value ?? 0);
+          const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
+          const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
+          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
+          lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${lpViews} |`);
         }
+        return lines.join("\n");
+      } catch (e) {
+        return `[META_RATE_LIMIT] فشل جلب بيانات الإعلانات: ${String(e).slice(0, 200)}`;
       }
     }
 
