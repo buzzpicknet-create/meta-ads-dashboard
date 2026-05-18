@@ -43,7 +43,7 @@ interface PbRow {
 const PB_FIELDS = [
   "campaign_id", "campaign_name", "adset_id", "adset_name", "ad_id", "ad_name",
   "impressions", "spend", "reach", "frequency", "ctr", "cpm", "clicks",
-  "actions", "cost_per_action_type",
+  "actions", "cost_per_action_type", "video_play_actions",
 ];
 
 // Purchase action types — SAME event, use avFirst (never sum)
@@ -119,7 +119,8 @@ function rowToMetrics(row: PbRow): DerivedMetrics {
   const cpaFromMeta  = avPurchase(row.cost_per_action_type);
   const cpa          = cpaFromMeta > 0 ? cpaFromMeta : (purchases ? spend / purchases : 0);
 
-  const video_plays  = av(row.actions, "video_view");
+  const videoPlayActions = Array.isArray(row.video_play_actions) ? row.video_play_actions as Array<{action_type:string;value:string}> : [];
+  const video_plays  = videoPlayActions.length > 0 ? Number(videoPlayActions.find((a) => a.action_type === "video_view")?.value ?? 0) : av(row.actions, "video_view");
   const frequency    = reach > 0 ? impressions / reach : Number(row.frequency || 0);
   const cpm          = impressions ? (spend / impressions) * 1000 : cpmRow;
   const cpc          = link_clicks ? spend / link_clicks : 0;
