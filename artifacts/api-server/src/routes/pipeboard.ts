@@ -7,6 +7,20 @@ import { sendPushForEvent } from "../lib/push";
 
 const router = Router();
 
+// ── Page & Pixel map helpers ──────────────────────────────────────────────────
+const ACCOUNT_PAGE_MAP: Record<string, string> = {
+  "898360605246408": "878997831971062",  // buzzpick
+  "838054421405431": "108193615487446",  // dealme/dealoop/alsouqalhor
+  "1714386865726065": "108193615487446",
+};
+const ACCOUNT_PIXEL_MAP: Record<string, string> = {
+  "898360605246408": "1405391498274239",
+  "838054421405431": "1537301040808359",
+  "1714386865726065": "1537301040808359",
+};
+function getPageId(accountId: string): string { return ACCOUNT_PAGE_MAP[accountId] ?? "108193615487446"; }
+function getPixelId(accountId: string, provided?: string): string { return provided || ACCOUNT_PIXEL_MAP[accountId] || "1537301040808359"; }
+
 // ── Singleton Pipeboard client for Meta Ads write actions ─────────────────────
 let _pbWriteClient: Client | null = null;
 let _pbWriteConnecting: Promise<Client> | null = null;
@@ -5392,7 +5406,7 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
 
   try {
     const client = await getPipeboardWriteClient();
-    let pageId = "";
+    let pageId = getPageId(accountId);
     try {
       const pr = await client.callTool({ name: "get_account_pages", arguments: { account_id: accountId } });
       const pt = mcpTxtSa(pr); const pm = pt.match(/"id"\s*:\s*"(\d+)"/) ?? pt.match(/(\d{10,})/); pageId = pm?.[1] ?? "";
