@@ -2920,7 +2920,7 @@ async function tryExecuteViaPipeboard(
           const purchases = Number((purchaseAction as Record<string,string> | undefined)?.["7d_click"] ?? purchaseAction?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
-          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const videoViews = Number(actions.find(a => a.action_type === "video_view")?.["7d_click"] ?? actions.find(a => a.action_type === "video_view")?.value ?? 0);
           const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
           const freq = Number(r.frequency ?? 0).toFixed(2);
           lines.push(`| ${r.adset_name} (id:${r.adset_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${freq} |`);
@@ -3009,7 +3009,7 @@ async function tryExecuteViaPipeboard(
           const lpViews = Number(actions.find(a => a.action_type === "landing_page_view")?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
-          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const videoViews = Number(actions.find(a => a.action_type === "video_view")?.["7d_click"] ?? actions.find(a => a.action_type === "video_view")?.value ?? 0);
           const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
           lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${lpViews} |`);
         }
