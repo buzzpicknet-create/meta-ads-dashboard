@@ -8,6 +8,7 @@ import { initVapid, sendPushToRoles, sendPushForCpaAlert } from "./lib/push";
 import { getCpaAlerts, type CpaAlertsResult } from "./lib/meta-api";
 import { runScheduledReportsCron } from "./routes/scheduled-reports";
 import { startWatchdogCron } from "./routes/watchdog";
+import { sendTelegramAlert } from "./lib/telegram.js";
 import { checkInventoryAlerts } from "./routes/inventory";
 import { initJobsTable } from "./lib/job-runner";
 import "./lib/job-handlers"; // registers all job handlers
@@ -781,6 +782,12 @@ async function runCpaAlertCron() {
           body: `${w.name} — CPA ${w.cpa.toFixed(0)} ج.م (${w.purchases} أوردر) — ضاعف الميزانية الآن`,
           url: "/decisions",
         });
+        await sendTelegramAlert(
+          `🚀 <b>حملة جاهزة للـ Scale</b>\n` +
+          `📌 ${w.name}\n` +
+          `💰 CPA: ${w.cpa.toFixed(0)} EGP | طلبات: ${w.purchases}\n` +
+          `✅ ضاعف الميزانية الآن`
+        );
         await query(
           `INSERT INTO cpa_alert_log (campaign_id, account_id, alert_type, campaign_name, cpa) VALUES ($1,$2,'winner',$3,$4)`,
           [w.id, accountId, w.name, w.cpa]
@@ -801,6 +808,12 @@ async function runCpaAlertCron() {
           body: `${w.name} — ${cpaText} — راجع الحملة وقلل الميزانية`,
           url: "/decisions",
         });
+        await sendTelegramAlert(
+          `⚠️ <b>تحذير — حملة تحتاج تدخل</b>\n` +
+          `📌 ${w.name}\n` +
+          `💸 ${cpaText}\n` +
+          `❌ راجع الحملة وقلل الميزانية فوراً`
+        );
         await query(
           `INSERT INTO cpa_alert_log (campaign_id, account_id, alert_type, campaign_name, cpa) VALUES ($1,$2,'warning',$3,$4)`,
           [w.id, accountId, w.name, w.cpa]
