@@ -3173,6 +3173,33 @@ async function tryExecuteViaPipeboard(
         )
       );
       const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
+
+      // ── لما يطلب اليوم: أضف الحملات النشطة اللي Pipeboard حذفها (Spend قليل جداً) ──
+      const isToday = since === until;
+      if (isToday) {
+        const activeCampaignNames: string[] = [];
+        for (const acc of filtered) {
+          try {
+            const allCampaigns = await searchCampaignsByName(acc.account_id, "");
+            const activeMissing = allCampaigns.filter(c =>
+              c.effective_status === "ACTIVE" &&
+              !successes.some(s => s.includes(c.id))
+            );
+            if (activeMissing.length > 0) {
+              const missingRows = activeMissing.map(c =>
+                `- ${c.name} (id: ${c.id}) — نشطة لكن بيانات اليوم أقل من حد Pipeboard (إنفاق منخفض جداً)`
+              ).join("\n");
+              activeCampaignNames.push(`\n⚠️ حملات نشطة بإنفاق منخفض اليوم (غير مدرجة في الأرقام أعلاه):\n${missingRows}`);
+            }
+          } catch (_e) { /* ignore */ }
+        }
+        if (successes.length === 0 && activeCampaignNames.length === 0) return null;
+        const base = successes.length > 0
+          ? `## الحملات الإعلانية (مصدر: Pipeboard — اليوم):\n\n` + successes.join("\n\n---\n\n")
+          : `## الحملات الإعلانية — اليوم:\n(لا إنفاق كافٍ بعد لعرض أرقام)`;
+        return base + activeCampaignNames.join("\n");
+      }
+
       if (successes.length === 0) return null;
       return `## الحملات الإعلانية (مصدر: Pipeboard — آخر ${(args.days as number | undefined) ?? 30} يوم):\n\n` + successes.join("\n\n---\n\n");
     }
