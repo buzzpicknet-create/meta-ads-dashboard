@@ -2900,8 +2900,8 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${campaign_id}/insights?` +
-          `level=adset&fields=adset_id,adset_name,spend,impressions,clicks,actions,video_play_actions,frequency` +
-          `&action_attribution_windows=%5B%227d_click%22%2C%221d_view%22%5D&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+          `level=adset&fields=adset_id,adset_name,spend,impressions,clicks,actions,action_values,video_play_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
         if (insJson.error) throw new Error(JSON.stringify(insJson.error));
@@ -2987,8 +2987,8 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${adset_id}/insights?` +
-          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,video_play_actions,outbound_clicks` +
-          `&action_attribution_windows=%5B%227d_click%22%2C%221d_view%22%5D&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,action_values,video_play_actions,outbound_clicks&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
         if (insJson.error) throw new Error(JSON.stringify(insJson.error));
