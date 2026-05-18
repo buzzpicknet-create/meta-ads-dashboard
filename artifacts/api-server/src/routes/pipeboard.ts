@@ -2892,6 +2892,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const cboBudget = isCBO
         ? egpToCents(Number(args?.daily_budget ?? perAdsetBudgets[0] ?? 100))
         : null;
+      // ABO: create campaign via Meta API directly (Pipeboard adds budget by default which breaks ABO)
+      // Same fix applied in scale-adsets and scale-creative
       let campText = "";
       if (isCBO) {
         const campArgs: Record<string, unknown> = {
@@ -2913,6 +2915,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         aboParams.append("status", "PAUSED");
         aboParams.append("special_ad_categories", JSON.stringify([]));
         aboParams.append("buying_type", "AUCTION");
+        aboParams.append("is_adset_budget_sharing_enabled", "false");
         aboParams.append("access_token", aboToken);
         const aboRes = await fetch(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
           method: "POST",
