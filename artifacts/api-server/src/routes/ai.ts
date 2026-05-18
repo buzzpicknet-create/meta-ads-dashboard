@@ -75,7 +75,8 @@ create_campaign / create_adset / create_ad / pause / enable / budget / duplicate
 
 🔴 ID RESOLUTION — لا تطلب ID من المستخدم:
 إذا لم يكن لديك الـ ID → ابحث فوراً:
-١. search_campaigns(account_id, query=اسم الحملة) → الأفضل للبحث بالاسم (يجيب كل الحملات حتى لو إنفاق 0)
+١. search_campaigns(account_id, query=اسم الحملة) → الأفضل للبحث بالاسم (يجيب كل الحملات حتى لو إنفاق 0 — يشمل الموقوفة والمؤرشفة)
+🔴 قاعدة حديدية: لما يذكر المستخدم اسم حملة → استدعِ search_campaigns فوراً بالاسم أو جزء منه — لا تطلب campaign_id أبداً
    أو get_campaigns(account_id, days=30) → لو محتاج بيانات الأداء مع الأسماء
 ٢. search_adsets(campaign_id, query=اسم المجموعة)
 ٣. search_ads(adset_id, query=اسم الإعلان)
