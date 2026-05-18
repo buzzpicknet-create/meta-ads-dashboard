@@ -2892,21 +2892,36 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       const cboBudget = isCBO
         ? egpToCents(Number(args?.daily_budget ?? perAdsetBudgets[0] ?? 100))
         : null;
-      const campArgs: Record<string, unknown> = {
-        account_id: accountId,
-        name: campaignName,
-        objective: campObjective,
-        status: "PAUSED",
-        special_ad_categories: [],
-        buying_type: "AUCTION",
-      };
-      if (cboBudget !== null) campArgs.daily_budget = cboBudget;
-      if (!isCBO) campArgs.is_adset_budget_sharing_enabled = false;
-      const campResult = await client.callTool({
-        name: "create_campaign",
-        arguments: campArgs,
-      });
-      const campText = mcpText(campResult);
+      let campText = "";
+      if (isCBO) {
+        const campArgs: Record<string, unknown> = {
+          account_id: accountId,
+          name: campaignName,
+          objective: campObjective,
+          status: "PAUSED",
+          special_ad_categories: [],
+          buying_type: "AUCTION",
+        };
+        if (cboBudget !== null) campArgs.daily_budget = cboBudget;
+        const campResult = await client.callTool({ name: "create_campaign", arguments: campArgs });
+        campText = mcpText(campResult);
+      } else {
+        const aboToken = getAccessToken();
+        const aboParams = new URLSearchParams();
+        aboParams.append("name", campaignName);
+        aboParams.append("objective", campObjective);
+        aboParams.append("status", "PAUSED");
+        aboParams.append("special_ad_categories", JSON.stringify([]));
+        aboParams.append("buying_type", "AUCTION");
+        aboParams.append("access_token", aboToken);
+        const aboRes = await fetch(`https://graph.facebook.com/v21.0/act_${accountId}/campaigns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: aboParams.toString(),
+        });
+        const aboJson = await aboRes.json() as Record<string, unknown>;
+        campText = JSON.stringify(aboJson);
+      }
       logger.info({ campText }, "launch_pipeboard_campaign: create_campaign");
       const campIdMatch =
         campText.match(/"id"\s*:\s*"(\d+)"/) ?? campText.match(/\b(\d{10,})\b/);
