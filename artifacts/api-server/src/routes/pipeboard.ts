@@ -3281,6 +3281,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               { event_type: "CLICK_THROUGH", window_days: 7 },
               { event_type: "VIEW_THROUGH", window_days: 1 },
             ],
+            bid_strategy: "LOWEST_COST_WITHOUT_CAP",
           };
           if (adsetBudgetCents !== null) adsetArgs.daily_budget = adsetBudgetCents;
           if (hasPixel) {
