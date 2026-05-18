@@ -2916,7 +2916,8 @@ async function tryExecuteViaPipeboard(
           const clicks = Number(r.clicks ?? 0);
           const actions = Array.isArray(r.actions) ? r.actions as Array<{action_type:string;value:string}> : [];
           const videoPlays = Array.isArray(r.video_play_actions) ? r.video_play_actions as Array<{action_type:string;value:string}> : [];
-          const purchases = Number(actions.find(a => a.action_type === "offsite_conversion.fb_pixel_purchase" || a.action_type === "purchase" || a.action_type === "web_in_store_purchase")?.value ?? 0);
+          const purchaseAction = actions.find(a => a.action_type === "offsite_conversion.fb_pixel_purchase" || a.action_type === "purchase" || a.action_type === "web_in_store_purchase");
+          const purchases = Number((purchaseAction as Record<string,string> | undefined)?.["7d_click"] ?? purchaseAction?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
           const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
@@ -3003,7 +3004,8 @@ async function tryExecuteViaPipeboard(
           const clicks = Number(r.clicks ?? 0);
           const actions = Array.isArray(r.actions) ? r.actions as Array<{action_type:string;value:string}> : [];
           const videoPlays = Array.isArray(r.video_play_actions) ? r.video_play_actions as Array<{action_type:string;value:string}> : [];
-          const purchases = Number(actions.find(a => ["offsite_conversion.fb_pixel_purchase","purchase","web_in_store_purchase"].includes(a.action_type))?.value ?? 0);
+          const purchaseAction = actions.find(a => ["offsite_conversion.fb_pixel_purchase","purchase","web_in_store_purchase"].includes(a.action_type));
+          const purchases = Number((purchaseAction as Record<string,string> | undefined)?.["7d_click"] ?? purchaseAction?.value ?? 0);
           const lpViews = Number(actions.find(a => a.action_type === "landing_page_view")?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
