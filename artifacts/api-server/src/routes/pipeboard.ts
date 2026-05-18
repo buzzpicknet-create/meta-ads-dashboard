@@ -5547,7 +5547,7 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
             const crText = mcpTxtSa(crRes);
             logger.info({ crText: crText.slice(0, 200) }, "scale-adsets: create_ad_creative");
             const crIdMatch = crText.match(/"id"\s*:\s*"(\d{10,})"/);
-            if (!crIdMatch) { sse({ type: "progress", message: `⚠️ فشل creative لـ "${adName}"` }); continue; }
+            if (!crIdMatch) { sse({ type: "progress", message: `⚠️ فشل creative لـ "${adName}" — ${crText.slice(0, 150)}` }); continue; }
             const newAdArgs: Record<string, unknown> = { account_id: accountIdWithAct, name: adName, adset_id: newAdsetId, creative_id: crIdMatch[1], status: "PAUSED" };
             if (pixelId) newAdArgs.tracking_specs = [{ "action.type": ["offsite_conversion"], fb_pixel: [pixelId] }];
             const newAdRes = await client.callTool({ name: "create_ad", arguments: newAdArgs });
