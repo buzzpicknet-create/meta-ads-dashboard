@@ -2967,14 +2967,30 @@ async function tryExecuteViaPipeboard(
     if (name === "get_ads_in_adset") {
       const adset_id = String(args.adset_id ?? "");
       if (!adset_id) return null;
-      const pbRaw3 = await callPipeboardReadFull("get_insights", {
-        object_id: adset_id,
-        level: "ad",
-        time_range: timeRange,
-        compact: false,
-        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
-      });
-      return summarizePipeboardInsights(pbRaw3, "ad");
+      try {
+        const pbRaw3 = await callPipeboardReadFull("get_insights", {
+          object_id: adset_id,
+          level: "ad",
+          time_range: timeRange,
+          compact: false,
+          fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
+        });
+        return summarizePipeboardInsights(pbRaw3, "ad");
+      } catch (e) {
+        // Fallback: try without video fields
+        try {
+          const pbRaw3b = await callPipeboardReadFull("get_insights", {
+            object_id: adset_id,
+            level: "ad",
+            time_range: timeRange,
+            compact: false,
+            fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions"],
+          });
+          return summarizePipeboardInsights(pbRaw3b, "ad");
+        } catch (e2) {
+          return `[META_RATE_LIMIT] فشل جلب بيانات الإعلانات للـ adset ${adset_id} — ${String(e2).slice(0, 100)}`;
+        }
+      }
     }
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────
