@@ -1635,8 +1635,7 @@ ${adsetBlocks}
     { id: "STANDARD",          emoji: "📋", label: "حملة Standard",          hint: "ABO أو CBO · فيديوهات × Copy Pairs · لا DCO",     color: "emerald" },
     { id: "SCALEADSETS",       emoji: "📦", label: "Scale AdSets",           hint: "نسخ AdSets رابحة لحملة جديدة",                    color: "rose"    },
     { id: "SCALECREATIVE",     emoji: "🎨", label: "Scale Creative",         hint: "نسخ Creative وينر لـ AdSet جديد",                 color: "cyan"    },
-    { id: "ADD_EXISTING_ADSET",emoji: "➕", label: "كريتف في Adset موجودة", hint: "رفع فيديو + نص جديد في AdSet قائمة",              color: "violet"  },
-    { id: "ADD_NEW_ADSET",     emoji: "🆕", label: "كريتف في Adset جديدة",  hint: "AdSet جديدة في حملة قائمة · ABO ميزانية / CBO لا", color: "amber"   },
+
   ];
 
   const colorMap: Record<string,{border:string;bg:string;activeBorder:string;activeBg:string;badge:string;btn:string}> = {

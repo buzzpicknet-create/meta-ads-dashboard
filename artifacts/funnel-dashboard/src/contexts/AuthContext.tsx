@@ -20,13 +20,23 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function safeJson(r: Response): Promise<Record<string, unknown>> {
+  try {
+    const text = await r.text();
+    if (!text || !text.trim()) return {};
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(`${API}/auth/me`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? safeJson(r) : null))
       .then((data) => {
         if (data?.user) setUser(data.user as AuthUser);
       })
@@ -35,14 +45,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function login(username: string, password: string) {
-    const r = await fetch(`${API}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error ?? "فشل تسجيل الدخول");
+    let r: Response;
+    try {
+      r = await fetch(`${API}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username, password }),
+      });
+    } catch {
+      throw new Error("لا يمكن الوصول للخادم. تحقق من الاتصال وحاول مرة أخرى.");
+    }
+    const data = await safeJson(r);
+    if (!r.ok) throw new Error((data.error as string | undefined) ?? "فشل تسجيل الدخول");
+    if (!data.user) throw new Error("لم يستجب الخادم. حاول مرة أخرى.");
     setUser(data.user as AuthUser);
   }
 
