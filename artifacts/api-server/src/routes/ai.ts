@@ -252,6 +252,13 @@ CPA = (CPM ÷ 1000) ÷ (CTR/100) ÷ (LPR/100) ÷ (CR/100)
 
 الخطوة 3 — Hook Rate (الجذب):
 - ≥ 35%: ممتاز | 25-35%: مقبول | 15-25%: ضعيف | < 15%: كارثة
+الخطوة 3.5 — Hold Rate (الاستمرارية) = ThruPlay ÷ Impressions × 100:
+- > 25%: ممتاز | 15-25%: مقبول | 8-15%: ضعيف | < 8%: كارثة
+تشخيصات Hold Rate:
+- Hook عالي + Hold منخفض → البداية كويسة بس الفيديو مملّ — غيّر محتوى المنتصف
+- Hook منخفض + Hold عالي → اللي بيشوف بيكمل بس قليلين — غيّر أول ثانية
+- Hook عالي + Hold عالي + CTR منخفض → الفيديو ممتاز بس CTA ضعيف
+- Hook عالي + Hold عالي + CTR عالي + CVR منخفض → مشكلة في الـ Offer أو السعر
 
 الخطوة 4 — CTR (النقر):
 - ≥ 2.5%: ممتاز | 1.5-2.5%: كويس | 0.8-1.5%: ضعيف | < 0.8%: مشكلة كبيرة
@@ -2900,17 +2907,16 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${campaign_id}/insights?` +
-          `level=adset&fields=adset_id,adset_name,spend,impressions,clicks,actions,action_values,video_play_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `level=adset&fields=adset_id,adset_name,spend,impressions,clicks,actions,action_values,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
           `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
         if (insJson.error) throw new Error(JSON.stringify(insJson.error));
         const rows = insJson.data ?? [];
         if (rows.length === 0) return "لا توجد بيانات للمجموعات الإعلانية في هذه الفترة.";
-        logger.info({ sample: JSON.stringify(rows[0]).slice(0, 500) }, "get_adsets: sample row");
         const lines = ["## المجموعات الإعلانية (7-day click attribution):\n",
-          "| المجموعة | الإنفاق | Purchases | CPA | CTR% | Hook% | Frequency |",
-          "|----------|---------|-----------|-----|------|-------|-----------|"];
+          "| المجموعة | الإنفاق | Purchases | CPA | CTR% | Hook% | Hold% | Frequency |",
+          "|----------|---------|-----------|-----|------|-------|-------|-----------|"];
         for (const r of rows) {
           const spend = Number(r.spend ?? 0);
           const impressions = Number(r.impressions ?? 0);
@@ -2923,8 +2929,11 @@ async function tryExecuteViaPipeboard(
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
           const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
           const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
+          const thruPlays = Array.isArray(r.video_thruplay_watched_actions) ? r.video_thruplay_watched_actions as Array<{action_type:string;value:string}> : [];
+          const thruPlay = Number(thruPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const holdRate = impressions > 0 ? ((thruPlay / impressions) * 100).toFixed(1) : "—";
           const freq = Number(r.frequency ?? 0).toFixed(2);
-          lines.push(`| ${r.adset_name} (id:${r.adset_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${freq} |`);
+          lines.push(`| ${r.adset_name} (id:${r.adset_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${holdRate} | ${freq} |`);
         }
         return lines.join("\n");
       } catch (e) {
@@ -2989,7 +2998,7 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${adset_id}/insights?` +
-          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,action_values,video_play_actions,outbound_clicks&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,action_values,video_play_actions,video_thruplay_watched_actions,outbound_clicks&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
           `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
@@ -2997,8 +3006,8 @@ async function tryExecuteViaPipeboard(
         const rows = insJson.data ?? [];
         if (rows.length === 0) return "لا توجد بيانات إعلانات في هذه الفترة.";
         const lines = ["## الإعلانات (7-day click attribution):\n",
-          "| الإعلان | الإنفاق | Purchases | CPA | CTR% | Hook% | LPV |",
-          "|---------|---------|-----------|-----|------|-------|-----|"];
+          "| الإعلان | الإنفاق | Purchases | CPA | CTR% | Hook% | Hold% | LPV |",
+          "|---------|---------|-----------|-----|------|-------|-------|-----|"];
         for (const r of rows) {
           const spend = Number(r.spend ?? 0);
           const impressions = Number(r.impressions ?? 0);
@@ -3012,7 +3021,10 @@ async function tryExecuteViaPipeboard(
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
           const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
           const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
-          lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${lpViews} |`);
+          const thruPlays = Array.isArray(r.video_thruplay_watched_actions) ? r.video_thruplay_watched_actions as Array<{action_type:string;value:string}> : [];
+          const thruPlay = Number(thruPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const holdRate = impressions > 0 ? ((thruPlay / impressions) * 100).toFixed(1) : "—";
+          lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${holdRate} | ${lpViews} |`);
         }
         return lines.join("\n");
       } catch (e) {
