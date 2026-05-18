@@ -3441,13 +3441,32 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
                 lpcCreativeText.match(/\b(\d{10,})\b/);
               creativeId = lpcCreativeIdMatch?.[1] ?? "";
               if (!creativeId) {
-                adResults.push({
-                  adset_name: adsetName,
-                  adset_id: adsetId,
-                  creative_index: ci * 100 + ti,
-                  error: `فشل إنشاء Creative — ${lpcCreativeText.slice(0, 300)}`,
-                });
-                continue;
+                // Retry if video is still being processed
+                if (lpcCreativeText.includes("still being processed") || lpcCreativeText.includes("1885252") || lpcCreativeText.includes("Video not ready")) {
+                  logger.info({ adset: adsetName }, "launch_pipeboard_campaign: video still processing — waiting 15s before retry");
+                  await new Promise(r => setTimeout(r, 15000));
+                  const retryResult = await lpcPbClient.callTool(
+                    { name: "create_ad_creative", arguments: lpcCreativeArgs },
+                    undefined,
+                    { timeout: 60_000 },
+                  );
+                  const retryText = ((retryResult as { content?: Array<{ type: string; text?: string }> })?.content ?? [])
+                    .filter(c => c.type === "text").map(c => (c as { text?: string }).text ?? "").join("").trim();
+                  const retryMatch = retryText.match(/"id"\s*:\s*"(\d{10,})"/) ?? retryText.match(/\b(\d{10,})\b/);
+                  creativeId = retryMatch?.[1] ?? "";
+                  if (!creativeId) {
+                    adResults.push({ adset_name: adsetName, adset_id: adsetId, creative_index: ci * 100 + ti, error: `فشل إنشاء Creative بعد retry — ${retryText.slice(0, 300)}` });
+                    continue;
+                  }
+                } else {
+                  adResults.push({
+                    adset_name: adsetName,
+                    adset_id: adsetId,
+                    creative_index: ci * 100 + ti,
+                    error: `فشل إنشاء Creative — ${lpcCreativeText.slice(0, 300)}`,
+                  });
+                  continue;
+                }
               }
 
               // Step 3: create_ad via Pipeboard MCP
