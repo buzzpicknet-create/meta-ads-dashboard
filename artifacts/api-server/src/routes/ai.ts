@@ -2907,6 +2907,7 @@ async function tryExecuteViaPipeboard(
         if (insJson.error) throw new Error(JSON.stringify(insJson.error));
         const rows = insJson.data ?? [];
         if (rows.length === 0) return "لا توجد بيانات للمجموعات الإعلانية في هذه الفترة.";
+        logger.info({ sample: JSON.stringify(rows[0]).slice(0, 500) }, "get_adsets: sample row");
         const lines = ["## المجموعات الإعلانية (7-day click attribution):\n",
           "| المجموعة | الإنفاق | Purchases | CPA | CTR% | Hook% | Frequency |",
           "|----------|---------|-----------|-----|------|-------|-----------|"];
@@ -2920,7 +2921,7 @@ async function tryExecuteViaPipeboard(
           const purchases = Number((purchaseAction as Record<string,string> | undefined)?.["7d_click"] ?? purchaseAction?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
-          const videoViews = Number(actions.find(a => a.action_type === "video_view")?.["7d_click"] ?? actions.find(a => a.action_type === "video_view")?.value ?? 0);
+          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
           const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
           const freq = Number(r.frequency ?? 0).toFixed(2);
           lines.push(`| ${r.adset_name} (id:${r.adset_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${freq} |`);
@@ -3009,7 +3010,7 @@ async function tryExecuteViaPipeboard(
           const lpViews = Number(actions.find(a => a.action_type === "landing_page_view")?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
-          const videoViews = Number(actions.find(a => a.action_type === "video_view")?.["7d_click"] ?? actions.find(a => a.action_type === "video_view")?.value ?? 0);
+          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
           const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
           lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${lpViews} |`);
         }
