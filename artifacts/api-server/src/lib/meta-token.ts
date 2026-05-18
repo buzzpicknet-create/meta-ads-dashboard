@@ -92,10 +92,40 @@ export async function initTokenFromDb(): Promise<void> {
         { expires_at: cached.expires_at },
         "Meta token loaded from DB",
       );
+
+      // If DB token looks short-lived (issued recently but expires_at is <24h away or issued_at = expires_at region)
+      // try to auto-exchange for a long-lived token
+      const expiresAt = new Date(cached.expires_at);
+      const hoursLeft = (expiresAt.getTime() - Date.now()) / (1000 * 60 * 60);
+      if (hoursLeft < 24 && cached.app_id && process.env["META_APP_SECRET"]) {
+        logger.info("DB token expires soon — attempting auto-exchange for long-lived token");
+        try {
+          await refreshLongLivedToken();
+          logger.info({ expires_at: cached!.expires_at }, "Auto-exchange on startup succeeded");
+        } catch (err) {
+          logger.warn({ err }, "Auto-exchange on startup failed — using token as-is");
+        }
+      }
     } else {
       logger.info(
         "meta_tokens table empty — falling back to META_ACCESS_TOKEN env var",
       );
+      // Try to auto-exchange the env token for a long-lived token right away
+      const envToken = process.env["META_ACCESS_TOKEN"];
+      const appId = process.env["META_APP_ID"] ?? "";
+      const appSecret = process.env["META_APP_SECRET"] ?? "";
+      if (envToken && appId && appSecret) {
+        logger.info("Auto-exchanging ENV token for long-lived token on first startup");
+        try {
+          // Temporarily set cached so refreshLongLivedToken can read it
+          cached = buildFromEnv();
+          await refreshLongLivedToken();
+          logger.info({ expires_at: cached!.expires_at }, "ENV token auto-exchange succeeded — stored in DB");
+        } catch (err) {
+          logger.warn({ err }, "ENV token auto-exchange failed — using short-lived token");
+          cached = buildFromEnv();
+        }
+      }
     }
   } catch (err) {
     logger.warn({ err }, "initTokenFromDb: failed, falling back to env var");
@@ -186,6 +216,7 @@ export async function validateTokenWithMeta(): Promise<{
 
 /**
  * Admin endpoint: save a brand-new access token (e.g. after manual refresh).
+ * Automatically exchanges for a long-lived token (60 days) if app_id + app_secret are available.
  * Stores in DB and updates in-memory cache.
  */
 export async function updateAccessToken(
@@ -198,24 +229,42 @@ export async function updateAccessToken(
     cached?.app_id ||
     process.env["META_APP_ID"] ||
     "";
-  const resolvedExpiresAt =
-    expiresAt ??
-    new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
   const issuedAt = new Date().toISOString();
-  const newToken: TokenCache = {
+
+  // Temporarily set cache so refreshLongLivedToken() can use it
+  cached = {
     access_token: accessToken,
     token_type: "bearer",
-    expires_in: 60 * 24 * 60 * 60,
-    expires_at: resolvedExpiresAt,
+    expires_in: 0,
+    expires_at: expiresAt ?? new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
     issued_at: issuedAt,
     app_id: resolvedAppId,
     ad_account_id: "1714386865726065",
   };
-  await storeTokenInDb(newToken);
-  cached = newToken;
-  writeToDisk(newToken);
-  logger.info({ expires_at: newToken.expires_at }, "Meta token updated by admin");
-  return newToken;
+
+  // Auto-exchange for long-lived token if possible (avoids 2-hour expiry)
+  const appSecret = process.env["META_APP_SECRET"];
+  if (resolvedAppId && appSecret) {
+    logger.info({ appId: resolvedAppId }, "Auto-exchanging new token for long-lived (60d)");
+    try {
+      const longLived = await refreshLongLivedToken();
+      logger.info({ expires_at: longLived.expires_at }, "Token auto-exchange succeeded");
+      return longLived; // already stored in DB by refreshLongLivedToken
+    } catch (err) {
+      logger.warn({ err }, "Auto-exchange failed — storing token as-is");
+    }
+  } else {
+    logger.warn(
+      { hasAppId: !!resolvedAppId, hasAppSecret: !!appSecret },
+      "Cannot auto-exchange: missing app_id or META_APP_SECRET — token may expire in 2h",
+    );
+  }
+
+  // Fallback: store as-is
+  await storeTokenInDb(cached);
+  writeToDisk(cached);
+  logger.info({ expires_at: cached.expires_at }, "Meta token updated by admin (no exchange)");
+  return cached;
 }
 
 /**
