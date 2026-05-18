@@ -1980,6 +1980,7 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [srcCampaignId, setSrcCampaignId] = useState("");
   const [adsets, setAdsets] = useState<AdsetRow[]>([]);
+  const [srcCampaignSearch, setSrcCampaignSearch] = useState("");
   const [loadingAdsets, setLoadingAdsets] = useState(false);
   const [selectedAdsets, setSelectedAdsets] = useState<string[]>([]);
 
@@ -2072,9 +2073,10 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
       {accountId && (
         <div className="space-y-1.5">
           <label className="text-sm font-semibold">① الحملة المصدر</label>
+          <Input placeholder="🔍 ابحث عن حملة..." value={srcCampaignSearch} onChange={e => setSrcCampaignSearch(e.target.value)} className="h-8 text-sm mb-1" dir="rtl" />
           <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
             {loadingCampaigns && <div className="text-sm text-center py-3 text-muted-foreground">جاري الجلب...</div>}
-            {campaigns.map(c => (
+            {campaigns.filter(c => !srcCampaignSearch || c.name?.toLowerCase().includes(srcCampaignSearch.toLowerCase())).map(c => (
               <button key={c.id} onClick={() => fetchAdsets(c.id)}
                 className={`w-full text-right text-sm px-3 py-2.5 rounded-md transition-colors flex justify-between items-center ${srcCampaignId === c.id ? "bg-rose-100 dark:bg-rose-900/30 text-rose-700 font-semibold" : "hover:bg-muted"}`}>
                 <span>{c.name}</span>
@@ -2218,6 +2220,7 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [srcCampaignId, setSrcCampaignId] = useState("");
   const [ads, setAds] = useState<AdCreativeRow[]>([]);
+  const [srcCampaignSearch, setSrcCampaignSearch] = useState("");
   const [loadingAds, setLoadingAds] = useState(false);
   const [selectedAds, setSelectedAds] = useState<AdCreativeRow[]>([]);
 
@@ -2347,9 +2350,10 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
       {accountId && (
         <div className="space-y-1.5">
           <label className="text-sm font-semibold">① الحملة المصدر</label>
+          <Input placeholder="🔍 ابحث عن حملة..." value={srcCampaignSearch} onChange={e => setSrcCampaignSearch(e.target.value)} className="h-8 text-sm mb-1" dir="rtl" />
           <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background p-1.5 space-y-0.5">
             {loadingCampaigns && <div className="text-sm text-center py-3 text-muted-foreground">جاري الجلب...</div>}
-            {campaigns.map(c => (
+            {campaigns.filter(c => !srcCampaignSearch || c.name?.toLowerCase().includes(srcCampaignSearch.toLowerCase())).map(c => (
               <button key={c.id} onClick={() => fetchCampaignAds(c.id)}
                 className={`w-full text-right text-sm px-3 py-2.5 rounded-md transition-colors flex justify-between items-center ${srcCampaignId === c.id ? "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 font-semibold" : "hover:bg-muted"}`}>
                 <span>{c.name}</span>
