@@ -5480,8 +5480,26 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
         let ads: Record<string, unknown>[] = [];
         try { const p = JSON.parse(adsText); ads = Array.isArray(p) ? p : (p?.data ?? []); } catch { ads = []; }
 
+        // جيب creative details من Meta لكل ad لو مفيش video_id
+        const META_TKN = "EAASlctzrYjUBRdmpq5GmEJCrNjZAyYzuZCtKo5WWpc4muT3cwZCzFkMMEdJSA9E5S6zHw0w9sOr3nzufekHVlEKKzrcWcUndL4hQnHIXLbn73l2VZAic4kFU0elZAGXtR1Dm2ZCsZBdYkTbCGmib2PfFHsU4yNMSZAuEPGTBzHCRfJfWZCDw29auBhLkZARCWZByRQg";
+        ads = await Promise.all(ads.map(async (ad) => {
+          const cr = (ad.creative as Record<string, unknown>) ?? {};
+          if (!cr.video_id && !cr.image_hash) {
+            try {
+              const adR = await fetch(`https://graph.facebook.com/v21.0/${ad.id}?fields=creative&access_token=${META_TKN}`);
+              const adJ = await adR.json() as Record<string, unknown>;
+              const crId = (adJ.creative as Record<string, unknown>)?.id ?? cr.id ?? "";
+              if (crId) {
+                const crR = await fetch(`https://graph.facebook.com/v21.0/${crId}?fields=id,body,title,video_id,image_hash,link_url,call_to_action&access_token=${META_TKN}`);
+                const crJ = await crR.json() as Record<string, unknown>;
+                if (!crJ.error) return { ...ad, creative: { ...cr, ...crJ } };
+              }
+            } catch { /* ignore */ }
+          }
+          return ad;
+        }));
         const promotedObj = adsetDetails.promoted_object as Record<string, unknown> | undefined;
-        const pixelId = String(promotedObj?.pixel_id ?? "");
+        const pixelId = getPixelId(accountId, String(promotedObj?.pixel_id ?? ""));
         const targeting = (adsetDetails.targeting as Record<string, unknown>) ?? {};
         const attributionSpec = adsetDetails.attribution_spec ?? [{ event_type: "CLICK_THROUGH", window_days: 7 }, { event_type: "VIEW_THROUGH", window_days: 1 }];
         const optGoal = String(adsetDetails.optimization_goal ?? (pixelId ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS"));
