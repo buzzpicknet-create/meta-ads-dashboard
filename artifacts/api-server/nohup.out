@@ -1,25 +1,25 @@
 nohup: ignoring input
-[22:54:58.829] [32mINFO[39m (6027): [36mDatabase migrations complete[39m
-[22:54:58.831] [32mINFO[39m (6027): [36mMeta token loaded from DB[39m
+[00:23:05.962] [32mINFO[39m (13174): [36mDatabase migrations complete[39m
+[00:23:05.964] [32mINFO[39m (13174): [36mMeta token loaded from DB[39m
     [35mexpires_at[39m: "2026-07-16T08:45:16.874Z"
-[22:54:58.833] [32mINFO[39m (6027): [36mWarm-up history rehydrated from DB[39m
+[00:23:05.965] [32mINFO[39m (13174): [36mWarm-up history rehydrated from DB[39m
     [35mcount[39m: 10
-[22:54:58.834] [32mINFO[39m (6027): [36mVAPID initialized[39m
-[22:54:58.837] [32mINFO[39m (6027): [36mServer listening[39m
+[00:23:05.967] [32mINFO[39m (13174): [36mVAPID initialized[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mServer listening[39m
     [35mport[39m: 3000
-[22:54:58.837] [32mINFO[39m (6027): [36mMedia scan cron scheduled[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mMedia scan cron scheduled[39m
     [35minterval_hours[39m: 6
-[22:54:58.837] [32mINFO[39m (6027): [36mCPA alert cron scheduled[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mCPA alert cron scheduled[39m
     [35minterval_hours[39m: 2
-[22:54:58.837] [32mINFO[39m (6027): [36mProactive cache refresh cron scheduled[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mProactive cache refresh cron scheduled[39m
     [35minterval_min[39m: 30
-[22:54:58.837] [32mINFO[39m (6027): [36mScheduled reports cron started[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mScheduled reports cron started[39m
     [35minterval_min[39m: 15
-[22:54:58.837] [32mINFO[39m (6027): [36mWatchdog cron scheduled[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mWatchdog cron scheduled[39m
     [35minterval_hours[39m: 3
-[22:54:58.838] [32mINFO[39m (6027): [36mInventory alert cron scheduled[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mInventory alert cron scheduled[39m
     [35minterval_min[39m: 30
-[22:54:58.838] [32mINFO[39m (6027): [36mToken health cron scheduled (daily)[39m
-[22:54:58.839] [32mINFO[39m (6027): [36mCreative cache warmup skipped — ran recently[39m
-    [35mage_min[39m: 7
-[22:54:59.232] [32mINFO[39m (6027): [36mPipeboard singleton connected[39m
+[00:23:05.969] [32mINFO[39m (13174): [36mToken health cron scheduled (daily)[39m
+[00:23:05.970] [32mINFO[39m (13174): [36mCreative cache warmup skipped — ran recently[39m
+    [35mage_min[39m: 22
+[00:23:06.360] [32mINFO[39m (13174): [36mPipeboard singleton connected[39m
