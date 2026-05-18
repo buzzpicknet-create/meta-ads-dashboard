@@ -2780,13 +2780,9 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
         "purchase", "omni_purchase", "onsite_web_purchase",
         "onsite_web_app_purchase", "web_app_in_store_purchase");
 
-      // CPA: prefer pre-computed cost_per_action_type (avFirst — same reason as purchases).
-      // Fall back to spend/purchases if none available.
-      const cpaFromMeta = avFirst(row["cost_per_action_type"],
-        "web_in_store_purchase", "offsite_conversion.fb_pixel_purchase",
-        "purchase", "omni_purchase", "onsite_web_purchase",
-        "onsite_web_app_purchase", "web_app_in_store_purchase");
-      const cpa = cpaFromMeta || (purchases ? spend / purchases : 0);
+      // CPA: احسبها دايماً من spend/purchases (7-day attribution)
+      // لا نستخدم cost_per_action_type من Pipeboard لأنه مش بيدعم attribution windows
+      const cpa = purchases > 0 ? spend / purchases : 0;
 
       // Link clicks: use link_click from actions (confirmed in live call) or fallback unique_clicks
       const linkClicksFromActions = av(row["actions"], "link_click");
