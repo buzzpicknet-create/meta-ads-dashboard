@@ -5534,14 +5534,19 @@ router.post("/pipeboard/scale-adsets", async (req: Request, res: Response) => {
           const body = String(cr.body ?? ""), title = String(cr.title ?? "");
           const linkUrl = String(cr.link_url ?? ""), cta = String((cr.call_to_action as Record<string, unknown>)?.type ?? "LEARN_MORE");
           const adName = String(ad.name ?? "إعلان");
+          // جيب link من call_to_action.value.link لو مفيش link_url
+          const ctaObj = cr.call_to_action as Record<string, unknown> | undefined;
+          const ctaLink = String((ctaObj?.value as Record<string, unknown>)?.link ?? "");
+          const finalLinkUrl = linkUrl || ctaLink;
           try {
             sse({ type: "progress", message: `جاري إنشاء الإعلان "${adName}"...` });
+            const uniqueSuffix = Date.now().toString().slice(-6);
             const creativeArgs: Record<string, unknown> = {
-              account_id: accountId, name: `${adName} — Scale`, page_id: pageId,
+              account_id: accountId, name: `${adName} — Scale — ${uniqueSuffix}`, page_id: pageId,
               message: body || "", headline: title || "", call_to_action_type: cta,
             };
             if (videoId) creativeArgs.video_id = videoId; else if (imageHash) creativeArgs.image_hash = imageHash;
-            if (linkUrl) { creativeArgs.link_url = linkUrl; creativeArgs.destination_url = linkUrl; }
+            if (finalLinkUrl) { creativeArgs.link_url = finalLinkUrl; creativeArgs.destination_url = finalLinkUrl; }
             if (pixelId) creativeArgs.pixel_id = pixelId;
             const crRes = await client.callTool({ name: "create_ad_creative", arguments: creativeArgs });
             const crText = mcpTxtSa(crRes);
