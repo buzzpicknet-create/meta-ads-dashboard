@@ -39,6 +39,8 @@ import { upsertCampaignNameCache } from "../lib/campaign-name-cache.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { logger } from "../lib/logger.js";
+import { getAccessToken } from "../lib/meta-token.js";
+import { getAccessToken } from "../lib/meta-token.js";
 
 const router = Router();
 
