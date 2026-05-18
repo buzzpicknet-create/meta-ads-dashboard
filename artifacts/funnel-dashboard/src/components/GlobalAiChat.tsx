@@ -916,7 +916,11 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         let anySuccess = false;
 
         // Fetch campaigns (7d + 30d) and daily overview in parallel for each account
-        await Promise.all(accounts.map(async (acc) => {
+        // لو في حساب مختار، نجيب بس حملاته
+        const accountsToFetch = defaultAccountId
+          ? accounts.filter(acc => acc.id.replace(/^act_/, "") === defaultAccountId.replace(/^act_/, ""))
+          : accounts;
+        await Promise.all(accountsToFetch.map(async (acc) => {
           try {
             const [r30, r7, rDaily] = await Promise.all([
               fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s30}&until=${u}`, { credentials: "include" }),
@@ -948,7 +952,10 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       })
       .catch(() => { setCampaignsCtx(GENERAL_CONTEXT); })
       .finally(() => setCampaignsLoading(false));
-  }, [open, campaignsCtx, campaignsLoading]);
+  }, [open, campaignsCtx, campaignsLoading, defaultAccountId]);
+
+  // Reset context when account changes
+  useEffect(() => { setCampaignsCtx(null); }, [defaultAccountId]);
 
   // Load conversation list; when autoLoadLatest=true, also restores the most recent conversation
   const loadConversations = useCallback((autoLoadLatest = false) => {
