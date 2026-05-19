@@ -287,11 +287,13 @@ ${hasRealContent ? scrapedContext : `لم يُتمكن من جلب محتوى ا
 // ── Quick Generate (no DB save) ───────────────────────────────────────────────
 
 router.post("/library/quick-generate", async (req, res) => {
-  const { productName, landingPageUrl, textCount, headlineCount } = req.body as {
+  const { productName, landingPageUrl, textCount, headlineCount, notes, angleName } = req.body as {
     productName?: string;
     landingPageUrl?: string;
     textCount?: number;
     headlineCount?: number;
+    notes?: string;
+    angleName?: string;
   };
   if (!landingPageUrl?.trim()) {
     return res.status(400).json({ error: "رابط صفحة الهبوط مطلوب" });
@@ -314,7 +316,14 @@ router.post("/library/quick-generate", async (req, res) => {
   const textsTemplate  = Array.from({length: nTexts},    () => `{"title":"وصف الهوك","content":"النص الكامل"}`).join(",");
   const headsTemplate  = Array.from({length: nHeadlines}, () => `{"content":"عنوان"}`).join(",");
 
-  const userPrompt = `المنتج: ${productName ?? "منتج"}
+  const notesSection = notes?.trim()
+    ? `\n⚠️ ملاحظات أساسية يجب مراعاتها في النصوص والعناوين:\n${notes.trim()}\n`
+    : "";
+  const angleSection = angleName?.trim()
+    ? `\nزاوية الإعلان (Angle): ${angleName.trim()}\n`
+    : "";
+
+  const userPrompt = `المنتج: ${productName ?? "منتج"}${angleSection}${notesSection}
 ══ محتوى صفحة الهبوط ══
 ${context}
 

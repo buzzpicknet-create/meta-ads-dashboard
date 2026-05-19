@@ -796,8 +796,11 @@ interface QuickAngle {
 interface StdAngle {
   name: string;
   landing: string;
+  notes: string;
   texts: string[];
   headlines: string[];
+  selTexts: number[];
+  selHeadlines: number[];
   generating?: boolean;
 }
 interface QuickForm {
@@ -820,7 +823,7 @@ interface QuickForm {
   quickAccountId: string;
 }
 const INIT_ANGLE: QuickAngle = { name: "", landing: "", texts: ["", ""], headlines: ["", ""] };
-const INIT_STD_ANGLE: StdAngle = { name: "", landing: "", texts: [], headlines: [] };
+const INIT_STD_ANGLE: StdAngle = { name: "", landing: "", notes: "", texts: [], headlines: [], selTexts: [], selHeadlines: [] };
 const INIT_FORM: QuickForm = {
   product: "", budget: "180", landingPage: "", driveLink: "",
   texts: [], headlines: [], selText: 0, selHeadline: 0,
@@ -1229,7 +1232,7 @@ function QuickLaunchSection() {
   async function generateStdAngle(idx: number) {
     const angle = form.stdAngles[idx];
     if (!angle.landing.trim()) {
-      toast({ title: "Add a Landing Page URL for this angle first", variant: "destructive" }); return;
+      toast({ title: "أضف Landing Page URL للـ Angle أولاً", variant: "destructive" }); return;
     }
     const updated = [...form.stdAngles];
     updated[idx] = { ...updated[idx], generating: true };
@@ -1245,6 +1248,7 @@ function QuickLaunchSection() {
           textCount: form.stdCreativesPerAdset,
           headlineCount: form.stdCreativesPerAdset,
           angleName: angle.name.trim() || `Angle ${idx + 1}`,
+          notes: angle.notes.trim() || undefined,
         }),
       });
       const d = await r.json() as { texts?: {content:string}[]; headlines?: {content:string}[]; error?: string };
@@ -1252,15 +1256,51 @@ function QuickLaunchSection() {
       const texts     = (d.texts     ?? []).map(t => t.content).filter(Boolean);
       const headlines = (d.headlines ?? []).map(h => h.content).filter(Boolean);
       const upd2 = [...form.stdAngles];
-      upd2[idx] = { ...upd2[idx], texts, headlines, generating: false };
+      // Reset selections — empty = all selected (default)
+      upd2[idx] = { ...upd2[idx], texts, headlines, selTexts: [], selHeadlines: [], generating: false };
       upd("stdAngles", upd2);
-      toast({ title: `✅ Generated!`, description: `${texts.length} texts · ${headlines.length} headlines` });
+      toast({ title: `✅ تم التوليد!`, description: `${texts.length} نص · ${headlines.length} عنوان` });
     } catch (err) {
       const upd2 = [...form.stdAngles];
       upd2[idx] = { ...upd2[idx], generating: false };
       upd("stdAngles", upd2);
-      toast({ title: "Generation failed", description: String(err), variant: "destructive" });
+      toast({ title: "فشل التوليد", description: String(err), variant: "destructive" });
     }
+  }
+
+  function toggleStdText(angleIdx: number, tIdx: number) {
+    const a = [...form.stdAngles];
+    const angle = a[angleIdx]!;
+    const total = angle.texts.length;
+    const cur = angle.selTexts;
+    // empty cur = all selected
+    if (cur.length === 0) {
+      a[angleIdx] = { ...angle, selTexts: angle.texts.map((_, i) => i).filter(i => i !== tIdx) };
+    } else if (cur.includes(tIdx)) {
+      const next = cur.filter(i => i !== tIdx);
+      a[angleIdx] = { ...angle, selTexts: next.length === total ? [] : next };
+    } else {
+      const next = [...cur, tIdx].sort((x, y) => x - y);
+      a[angleIdx] = { ...angle, selTexts: next.length === total ? [] : next };
+    }
+    upd("stdAngles", a);
+  }
+
+  function toggleStdHeadline(angleIdx: number, hIdx: number) {
+    const a = [...form.stdAngles];
+    const angle = a[angleIdx]!;
+    const total = angle.headlines.length;
+    const cur = angle.selHeadlines;
+    if (cur.length === 0) {
+      a[angleIdx] = { ...angle, selHeadlines: angle.headlines.map((_, i) => i).filter(i => i !== hIdx) };
+    } else if (cur.includes(hIdx)) {
+      const next = cur.filter(i => i !== hIdx);
+      a[angleIdx] = { ...angle, selHeadlines: next.length === total ? [] : next };
+    } else {
+      const next = [...cur, hIdx].sort((x, y) => x - y);
+      a[angleIdx] = { ...angle, selHeadlines: next.length === total ? [] : next };
+    }
+    upd("stdAngles", a);
   }
 
   async function generateTexts() {
@@ -1550,11 +1590,18 @@ ${allHeadlines}
     const adsetBlocks = angles.length > 0
       ? angles.map((a, i) => {
           const lp = addUtm(a.landing.trim() || "—", campName, a.name || `angle-${i+1}`);
-          const texts = a.texts.length
-            ? a.texts.slice(0, creativesPerAdset).map((t, ti) => `    ${ti + 1}. ${t}`).join("\n")
+          // Use selected texts/headlines; empty selTexts = all selected
+          const allTexts = a.texts;
+          const allHeadlines = a.headlines;
+          const selTIndices = a.selTexts.length > 0 ? a.selTexts : allTexts.map((_, idx) => idx);
+          const selHIndices = a.selHeadlines.length > 0 ? a.selHeadlines : allHeadlines.map((_, idx) => idx);
+          const chosenTexts = selTIndices.map(idx => allTexts[idx]).filter(Boolean) as string[];
+          const chosenHeadlines = selHIndices.map(idx => allHeadlines[idx]).filter(Boolean) as string[];
+          const texts = chosenTexts.length
+            ? chosenTexts.slice(0, creativesPerAdset).map((t, ti) => `    ${ti + 1}. ${t}`).join("\n")
             : `    [enter texts for Angle ${i + 1}]`;
-          const headlines = a.headlines.length
-            ? a.headlines.slice(0, creativesPerAdset).map((h, hi) => `    ${hi + 1}. ${h}`).join("\n")
+          const headlines = chosenHeadlines.length
+            ? chosenHeadlines.slice(0, creativesPerAdset).map((h, hi) => `    ${hi + 1}. ${h}`).join("\n")
             : `    [enter headlines for Angle ${i + 1}]`;
           const hasVideoName = a.name.trim().length > 0;
           const videoSection = hasVideoName
@@ -1872,28 +1919,108 @@ ${adsetBlocks}
                       />
                     </div>
 
-                    {/* Generated copy display */}
+                    {/* Notes / hints for AI generation */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+                        <span>💡</span> ملاحظات للـ AI
+                        <span className="text-muted-foreground/60 font-normal">(اختياري — نقاط يركز عليها في النصوص والعناوين)</span>
+                      </label>
+                      <textarea
+                        dir="rtl"
+                        placeholder="مثال: ركز على السعر المنافس · منتج للبشرة الجافة · اذكر الشحن المجاني · استخدم كلمة &quot;حصري&quot;"
+                        value={angle.notes}
+                        onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], notes: e.target.value}; upd("stdAngles", a); }}
+                        rows={2}
+                        className="w-full text-xs rounded-md border border-border bg-background/60 p-2 resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-muted-foreground/50"
+                      />
+                    </div>
+
+                    {/* Generated copy display with checkboxes */}
                     {(angle.texts.length > 0 || angle.headlines.length > 0) && (
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {angle.texts.length > 0 && (
                           <div className="space-y-1">
-                            <span className="text-[10px] text-muted-foreground font-medium">Texts ({angle.texts.length})</span>
-                            {angle.texts.slice(0, form.stdCreativesPerAdset).map((t, ti) => (
-                              <div key={ti} className="text-xs rounded border border-emerald-200/40 dark:border-emerald-800/30 bg-background/60 px-2 py-1.5 leading-relaxed" dir="rtl">
-                                <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-emerald-500 text-white text-[8px] font-bold ml-1.5 shrink-0 align-middle">{ti + 1}</span>
-                                {t}
-                              </div>
-                            ))}
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-muted-foreground font-medium">
+                                النصوص ({angle.selTexts.length > 0 ? `${angle.selTexts.length} مختار من ` : "الكل مختار — "}
+                                {angle.texts.length})
+                              </span>
+                              {angle.selTexts.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => { const a = [...form.stdAngles]; a[idx] = {...a[idx], selTexts: []}; upd("stdAngles", a); }}
+                                  className="text-[9px] text-emerald-600 dark:text-emerald-400 hover:underline"
+                                >
+                                  اختر الكل
+                                </button>
+                              )}
+                            </div>
+                            {angle.texts.map((t, ti) => {
+                              const isSel = angle.selTexts.length === 0 || angle.selTexts.includes(ti);
+                              return (
+                                <div
+                                  key={ti}
+                                  onClick={() => toggleStdText(idx, ti)}
+                                  className={`text-xs rounded border bg-background/60 px-2 py-1.5 leading-relaxed cursor-pointer select-none flex items-start gap-2 transition-opacity ${
+                                    isSel
+                                      ? "border-emerald-200/60 dark:border-emerald-800/40"
+                                      : "border-border/40 opacity-40"
+                                  }`}
+                                  dir="rtl"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSel}
+                                    readOnly
+                                    className="mt-0.5 shrink-0 accent-emerald-600 cursor-pointer"
+                                    style={{ direction: "ltr" }}
+                                  />
+                                  <span>
+                                    <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-emerald-500 text-white text-[8px] font-bold ml-1.5 shrink-0 align-middle">{ti + 1}</span>
+                                    {t}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                         {angle.headlines.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            <span className="text-[10px] text-muted-foreground font-medium w-full">Headlines ({angle.headlines.length})</span>
-                            {angle.headlines.slice(0, form.stdCreativesPerAdset).map((h, hi) => (
-                              <span key={hi} className="text-[11px] rounded-full px-2 py-0.5 border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300 font-medium">
-                                {hi + 1}. {h}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-muted-foreground font-medium">
+                                العناوين ({angle.selHeadlines.length > 0 ? `${angle.selHeadlines.length} مختار من ` : "الكل مختار — "}
+                                {angle.headlines.length})
                               </span>
-                            ))}
+                              {angle.selHeadlines.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => { const a = [...form.stdAngles]; a[idx] = {...a[idx], selHeadlines: []}; upd("stdAngles", a); }}
+                                  className="text-[9px] text-emerald-600 dark:text-emerald-400 hover:underline"
+                                >
+                                  اختر الكل
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {angle.headlines.map((h, hi) => {
+                                const isSel = angle.selHeadlines.length === 0 || angle.selHeadlines.includes(hi);
+                                return (
+                                  <button
+                                    key={hi}
+                                    type="button"
+                                    onClick={() => toggleStdHeadline(idx, hi)}
+                                    className={`text-[11px] rounded-full px-2 py-0.5 border font-medium flex items-center gap-1 transition-opacity ${
+                                      isSel
+                                        ? "border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-800 dark:text-emerald-300"
+                                        : "border-border/40 bg-muted/30 text-muted-foreground opacity-40"
+                                    }`}
+                                  >
+                                    <span className={`inline-flex items-center justify-center h-3 w-3 rounded-full text-[8px] font-bold shrink-0 ${isSel ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"}`}>{hi + 1}</span>
+                                    {h}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1903,7 +2030,7 @@ ${adsetBlocks}
                     {angle.texts.length === 0 && (
                       <textarea
                         dir="rtl"
-                        placeholder="Ad text (or click ✨ Generate Copy above)"
+                        placeholder="نص الإعلان (أو اضغط ✨ Generate Copy أعلاه)"
                         value=""
                         onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], texts: [e.target.value]}; upd("stdAngles", a); }}
                         rows={2}
