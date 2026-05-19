@@ -441,7 +441,7 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
     lpvRate: m.link_clicks ? (m.lpv / m.link_clicks) * 100 : 0,
     crLpv: m.lpv ? (m.purchases / m.lpv) * 100 : 0,
     crClick: m.link_clicks ? (m.purchases / m.link_clicks) * 100 : 0,
-    hookRate: m.impressions ? (m.video_plays / m.impressions) * 100 : 0,
+    hookRate: m.impressions ? (m.v25 / m.impressions) * 100 : 0,  // video_p25 ÷ Impressions ≈ Hook Rate (أقرب حاجة لـ 3s views في Meta API)
     holdRate: m.video_plays > 0 ? (m.v100 / m.video_plays) * 100 : 0,
     frequency: m.reach > 0 ? m.impressions / m.reach : 0,
   };

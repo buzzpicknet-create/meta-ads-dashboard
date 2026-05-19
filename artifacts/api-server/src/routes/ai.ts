@@ -3558,15 +3558,16 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
           `{name:"${c.name}", id:${c.id}, status:${c.effective_status}, spend:${fmt(c.spend)}, cpa:${c.cpa > 0 ? fmt(c.cpa) : "—"}}`
         );
         rows.push(`\nقائمة الحملات المختصرة:\n${summary.join("\n")}\n`);
-        rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | نسبة الجذب% | Hold Rate% | CTR% |");
-        rows.push("|--------|--------|--------------|---------|-----------|-------------|-----------|------|");
+        rows.push("| الحملة | الحالة | الإنفاق (EGP) | الطلبات | CPA (EGP) | CPM (EGP) | FREQ | نسبة الجذب% | CTR% |");
+        rows.push("|--------|--------|--------------|---------|-----------|-----------|------|-------------|------|");
         const limited = sorted.slice(0, PAGE_LIMIT);
         const hasMore = sorted.length > PAGE_LIMIT;
         for (const c of limited) {
           const statusAr = c.effective_status === "ACTIVE" ? "✅ نشطة" : "⏸ متوقفة";
           const hookR = (c.hookRate ?? 0) > 0 ? fmt(c.hookRate, 1) : "—";
-          const holdR = (c.holdRate ?? 0) > 0 ? fmt(c.holdRate, 1) : "—";
-          rows.push(`| ${c.name} (id:${c.id}) | ${statusAr} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${hookR} | ${holdR} | ${fmt(c.ctr, 2)} |`);
+          const cpmR = (c.cpm ?? 0) > 0 ? fmt(c.cpm, 1) : "—";
+          const freqR = (c.frequency ?? 0) > 0 ? fmt(c.frequency, 2) : "—";
+          rows.push(`| ${c.name} (id:${c.id}) | ${statusAr} | ${fmt(c.spend)} | ${c.purchases} | ${c.cpa > 0 ? fmt(c.cpa) : "—"} | ${cpmR} | ${freqR} | ${hookR} | ${fmt(c.ctr, 2)} |`);
           totalShown++;
         }
         if (hasMore) rows.push(`\n> has_more: true — إجمالي ${sorted.length} حملة موجودة، يُعرض أحدث ${PAGE_LIMIT} حملة تعديلاً. لرؤية المزيد: ضيّق الفترة أو حدد حساباً بعينه.`);
