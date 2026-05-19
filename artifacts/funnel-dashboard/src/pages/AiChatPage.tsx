@@ -752,6 +752,16 @@ export default function AiChatPage() {
   // ── Conversations ──
   const [showQAMenu, setShowQAMenu] = useState(false);
   const qaMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showQAMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (qaMenuRef.current && !qaMenuRef.current.contains(e.target as Node)) {
+        setShowQAMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showQAMenu]);
   const [convs, setConvs]           = useState<ConvRow[]>([]);
   const [convId, setConvId]         = useState<number|null>(null);
   const [convLoad, setConvLoad]     = useState(false);
@@ -1522,8 +1532,7 @@ export default function AiChatPage() {
             </div>
           )}
           {/* Quick actions strip (when chat has messages) — hidden on mobile to save space */}
-          {!isEmpty && (
-            <div className="relative mb-2" ref={qaMenuRef}>
+          <div className="relative mb-2" ref={qaMenuRef}>
               <button
                 onClick={() => setShowQAMenu(v => !v)}
                 disabled={streaming}
@@ -1575,7 +1584,6 @@ export default function AiChatPage() {
                 </div>
               )}
             </div>
-          )}
 
           {/* Input row */}
           <div className="relative flex gap-2 items-end">
