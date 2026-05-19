@@ -126,12 +126,11 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
    — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد جلب البيانات — صنّف كل إعلان:
-🎬 Media Problem: Hook Rate < 25% → الفيديو مش بيوقف الناس (Hook Rate = video_view ÷ impressions ✅ متوفر)
+🎬 Media Problem: Hook Rate < 25% → الفيديو مش بيوقف الناس (Hook Rate = video_p25 ÷ impressions ✅ متوفر)
 📝 Funnel Leak: Hook جيد + CTR < 2% → النص أو CTA ضعيف
 🌐 Landing Page: CTR > 2% + LPR < 70% → الصفحة بطيئة
 💸 Conversion: CTR + LPR كويسين + CVR < 1.5% → السعر مش مقنع
 💀 Dead: 0 Purchases بعد 3 أيام + 200 EGP إنفاق → أوقف فوراً
-ℹ️ Hold Rate غير متوفر (thruplay مش بيرجع من Pipeboard) — تجاهله.
 
 أعرض جدول واحد موحّد لكل الإعلانات:
 | الإعلان | الحملة | Hook% | CTR% | LPR% | CVR% | Purchases | CPA | التشخيص | الإجراء |`,
@@ -167,15 +166,14 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
    — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد الجلب — فلتر الرابحين فقط:
-- Hook Rate > 25% (video_view ÷ impressions ✅ متوفر)
+- Hook Rate > 25% (video_p25 ÷ impressions ✅ متوفر)
 - CTR > 2%
-- CPA < 50 EGP
+- CPA أقل من متوسط الحساب (أو < 50 EGP لو مفيش متوسط)
 - Purchases ≥ 2
 - إنفاق > 100 EGP
 
 أعرض جدول الرابحين مرتب من أعلى Hook Rate:
 | اسم الإعلان | الحملة | المجموعة | Hook% | CTR% | LPR% | CVR% | CPA (EGP) | Purchases | الإنفاق (EGP) |
-ℹ️ Hold Rate غير متوفر (Pipeboard لا يُرجع thruplay).
 
 هؤلاء مرشحون للـ Flex Scale — قولي لو تريد نقلهم.`,
   },
@@ -190,11 +188,10 @@ bulk_action واحد بكل الإجراءات دفعة واحدة بدون ما
    — لو رجّعت [META_RATE_LIMIT] انتقل للتالية وأعد المحاولة في النهاية
 
 بعد الجلب — فلتر الإعلانات الميتة:
-- Hook Rate < 15% بعد 100 EGP إنفاق (video_view ÷ impressions ✅ متوفر)
+- Hook Rate < 15% بعد 100 EGP إنفاق (video_p25 ÷ impressions ✅ متوفر)
 - أو CTR < 0.8% بعد 200 EGP إنفاق
 - أو 0 Purchases بعد 3 أيام + 150 EGP إنفاق
 - أو CPA > 100 EGP بعد 200 EGP إنفاق
-ℹ️ Hold Rate غير متوفر (Pipeboard لا يُرجع thruplay).
 
 أعرض جدول مرتب من أعلى إنفاق للأقل:
 | اسم الإعلان | الحملة | Hook% | CTR% | Purchases | CPA | الإنفاق (EGP) | سبب الموت |
@@ -753,6 +750,8 @@ export default function AiChatPage() {
   const { user, logout } = useAuth();
 
   // ── Conversations ──
+  const [showQAMenu, setShowQAMenu] = useState(false);
+  const qaMenuRef = useRef<HTMLDivElement>(null);
   const [convs, setConvs]           = useState<ConvRow[]>([]);
   const [convId, setConvId]         = useState<number|null>(null);
   const [convLoad, setConvLoad]     = useState(false);
@@ -1351,49 +1350,8 @@ export default function AiChatPage() {
                 )}
               </div>
 
-              {/* ── Meta Section ── */}
-              <div className="w-full max-w-3xl space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Meta Ads</span>
-                  <div className="flex-1 h-px bg-border/60" />
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                  {QUICK_ACTIONS_META.map(q => (
-                    <button
-                      key={q.label}
-                      onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }}
-                      className="group text-right px-3 py-3 sm:py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-[0.97]"
-                    >
-                      <span className="block font-semibold text-foreground text-[13px] sm:text-xs leading-snug">{q.label}</span>
-                      <span className="hidden sm:block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
-                        {q.prompt.slice(0, 45)}...
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Google Section ── */}
-              <div className="w-full max-w-3xl space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Google Ads</span>
-                  <div className="flex-1 h-px bg-border/60" />
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {QUICK_ACTIONS_GOOGLE.map(q => (
-                    <button
-                      key={q.label}
-                      onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }}
-                      className="group text-right px-3 py-3 sm:py-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 bg-emerald-50/30 dark:bg-emerald-950/10 hover:border-emerald-400/60 hover:bg-emerald-50/60 transition-all active:scale-[0.97]"
-                    >
-                      <span className="block font-semibold text-foreground text-[13px] sm:text-xs leading-snug">{q.label}</span>
-                      <span className="hidden sm:block text-[11px] text-muted-foreground mt-0.5 line-clamp-2 group-hover:text-foreground/70">
-                        {q.prompt.slice(0, 45)}...
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* hint */}
+              <p className="text-xs text-muted-foreground/60 text-center">استخدم زر ⚡ إجراء سريع أدناه للوصول للأوامر الجاهزة</p>
             </div>
 
           ) : (
@@ -1565,17 +1523,57 @@ export default function AiChatPage() {
           )}
           {/* Quick actions strip (when chat has messages) — hidden on mobile to save space */}
           {!isEmpty && (
-            <div className="hidden sm:flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
-              {QA_ALL.map((q, idx) => (
-                <button key={q.label} onClick={() => { setInput(q.prompt); setTimeout(() => inputRef.current?.focus(), 50); }} disabled={streaming}
-                  className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 whitespace-nowrap ${
-                    idx < QUICK_ACTIONS_META.length
-                      ? "border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
-                      : "border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:border-emerald-500/60"
-                  }`}>
-                  {q.label}
-                </button>
-              ))}
+            <div className="relative mb-2" ref={qaMenuRef}>
+              <button
+                onClick={() => setShowQAMenu(v => !v)}
+                disabled={streaming}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all disabled:opacity-50"
+              >
+                <span>⚡</span>
+                <span>إجراء سريع</span>
+                <span className="text-[10px]">{showQAMenu ? "▲" : "▼"}</span>
+              </button>
+
+              {showQAMenu && (
+                <div className="absolute bottom-full mb-2 right-0 z-50 w-64 rounded-2xl border border-border/60 bg-card shadow-xl overflow-hidden">
+                  {/* Meta Section */}
+                  <div className="px-3 pt-3 pb-1">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">📘 Meta Ads</span>
+                  </div>
+                  {[
+                    { group: "📊 التحليل اليومي", items: ["📊 افتتاحية اليوم", "🔁 نبض منتصف اليوم", "🎯 قرارات الآن"] },
+                    { group: "🎯 التيست والقرار", items: ["⚡ قرار التيست", "🔬 فين المشكلة؟"] },
+                    { group: "🚀 Scale & Kill", items: ["🚀 Scale الرابحين", "🔴 Punishment", "📺 Saturation Check"] },
+                    { group: "🎬 الكريتف", items: ["🕵️ صياد الكريتف", "💀 قبر الكريتف"] },
+                  ].map(group => (
+                    <div key={group.group} className="px-2 pb-1">
+                      <div className="text-[10px] text-muted-foreground px-2 py-1 font-semibold">{group.group}</div>
+                      {group.items.map(label => {
+                        const q = QUICK_ACTIONS_META.find(a => a.label === label);
+                        if (!q) return null;
+                        return (
+                          <button key={label} onClick={() => { setInput(q.prompt); setShowQAMenu(false); setTimeout(() => inputRef.current?.focus(), 50); }}
+                            className="w-full text-right text-sm px-3 py-2 rounded-xl hover:bg-primary/8 hover:text-foreground text-foreground/80 transition-all">
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                  {/* Google Section */}
+                  <div className="border-t border-border/40 px-3 pt-2 pb-1">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">🟢 Google Ads</span>
+                  </div>
+                  <div className="px-2 pb-2">
+                    {QUICK_ACTIONS_GOOGLE.map(q => (
+                      <button key={q.label} onClick={() => { setInput(q.prompt); setShowQAMenu(false); setTimeout(() => inputRef.current?.focus(), 50); }}
+                        className="w-full text-right text-sm px-3 py-2 rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 transition-all">
+                        {q.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
