@@ -1331,7 +1331,7 @@ export default function AiChatPage() {
           {isEmpty ? (
 
             /* ── Welcome screen ── */
-            <div className="flex flex-col items-center justify-center h-full px-4 sm:px-6 pb-6 sm:pb-16 gap-5 sm:gap-8">
+            <div className="flex flex-col items-center justify-end h-full px-4 sm:px-6 pb-6 gap-4">
               <div className="flex flex-col items-center gap-3 sm:gap-4 text-center">
                 <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-2xl bg-primary/10 flex items-center justify-center shadow-sm">
                   <Bot className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
