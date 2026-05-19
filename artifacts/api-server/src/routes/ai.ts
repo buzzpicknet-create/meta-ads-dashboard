@@ -3161,18 +3161,10 @@ async function tryExecuteViaPipeboard(
 
     // ── Account-level tools: pull account IDs from DB cache ──────────────────
 
-    // get_campaigns — via Pipeboard (primary). Pipeboard get_insights at campaign level
-    // returns all campaigns with spend in the period. Zero-spend campaigns are omitted,
-    // which is acceptable since the user wants ACTIVE campaigns with real data.
-    // The native Meta path runs as fallback if Pipeboard returns empty/fails.
+    // get_campaigns — skip Pipeboard (it only returns campaigns with spend, missing ACTIVE zero-spend).
+    // Route directly to native Meta API which fetches all ACTIVE campaigns regardless of spend.
     if (name === "get_campaigns") {
-      const accRows = await query<{ account_id: string }>(
-        `SELECT DISTINCT account_id FROM meta_overview_cache LIMIT 5`
-      ).catch(() => [] as { account_id: string }[]);
-      const filtered = selectedAccFilter
-        ? accRows.filter(r => selectedAccFilter.has(r.account_id))
-        : accRows;
-      if (filtered.length === 0) return null;
+      return null;
       const results = await Promise.all(
         filtered.map(r =>
           callPipeboardRead("get_insights", {
