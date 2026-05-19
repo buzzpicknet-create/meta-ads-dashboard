@@ -3444,8 +3444,8 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               if (!creativeId) {
                 // Retry if video is still being processed
                 if (lpcCreativeText.includes("still being processed") || lpcCreativeText.includes("1885252") || lpcCreativeText.includes("Video not ready")) {
-                  logger.info({ adset: adsetName }, "launch_pipeboard_campaign: video still processing — waiting 15s before retry");
-                  await new Promise(r => setTimeout(r, 15000));
+                  logger.info({ adset: adsetName }, "launch_pipeboard_campaign: video still processing — waiting 30s before retry");
+                  await new Promise(r => setTimeout(r, 30000));
                   const retryResult = await lpcPbClient.callTool(
                     { name: "create_ad_creative", arguments: lpcCreativeArgs },
                     undefined,
