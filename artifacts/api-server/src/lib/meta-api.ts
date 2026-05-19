@@ -344,12 +344,19 @@ function actionVal1dClick(actions: FbActionEntry[] | undefined, type: string): n
   return Number(e["1d_click"]) || 0;
 }
 
+function actionVal7dClick(actions: FbActionEntry[] | undefined, type: string): number {
+  if (!actions) return 0;
+  const e = actions.find((a) => a.action_type === type);
+  if (!e) return 0;
+  if (e["7d_click"] !== undefined) return Number(e["7d_click"]) || 0;
+  return Number(e.value) || 0;
+}
 function purchaseCount(row: FbInsightRow): number {
-  // Use 1d_click attribution for all purchase-type conversions
+  // Use 7d_click attribution for purchases (matches Meta Ads Manager default)
   return (
-    actionVal1dClick(row.actions, "purchase") ||
-    actionVal1dClick(row.actions, "omni_purchase") ||
-    actionVal1dClick(row.actions, "offsite_conversion.fb_pixel_purchase") ||
+    actionVal7dClick(row.actions, "offsite_conversion.fb_pixel_purchase") ||
+    actionVal7dClick(row.actions, "purchase") ||
+    actionVal7dClick(row.actions, "omni_purchase") ||
     0
   );
 }
@@ -2005,7 +2012,6 @@ export async function getAdsetAdsInsights(opts: {
     fbGet<FbInsightRow>(`/${adset_id}/insights`, {
       level: "ad",
       time_range,
-      time_increment: "1",
       fields: INSIGHT_FIELDS,
       action_attribution_windows: ATTRIBUTION_WINDOW,
       limit: "1000",
