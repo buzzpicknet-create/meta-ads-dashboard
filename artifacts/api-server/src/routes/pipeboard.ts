@@ -1952,7 +1952,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         try {
           const uploadClient = await getPipeboardWriteClient();
           const vidResult    = await uploadClient.callTool(
-            { name: "upload_ad_video", arguments: { account_id: accountId, video_url: uploadUrl, name: resolvedFilename || `video_${Date.now()}` } },
+            { name: "upload_ad_video", arguments: { account_id: accountId, video_url: uploadUrl, name: resolvedFilename || `video_${Date.now()}`, access_token: getAccessToken() } },
             undefined,
             { timeout: 120_000 },
           );
@@ -3145,6 +3145,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
                   account_id: accountId,
                   video_url: mediaUrl,
                   name: `${campaignName}-v${ci}`,
+                  access_token: getAccessToken(),
                 },
               },
               undefined,
@@ -4671,6 +4672,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         {
           name: "upload_ad_video",
           arguments: {
+            access_token: getAccessToken(),
             account_id: accountId_uv,
             video_url: uploadUrl,
             name: resolvedFilename || `video_${Date.now()}`,
