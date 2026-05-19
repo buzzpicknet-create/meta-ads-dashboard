@@ -842,7 +842,7 @@ const INIT_FORM: QuickForm = {
 };
 
 // ── Shared types (used by Scale + AddCreative forms) ──────────────────────────
-type AdsetRow = { id: string; name: string; ctr: number | null; cpa: number | null; spend: number | null };
+type AdsetRow = { id: string; name: string; ctr: number | null; cpa: number | null; spend: number | null; cvr?: number | null };
 type CampaignRow = { id: string; name: string; is_cbo?: boolean };
 type SseEvent = { type: string; message?: string; adset_name?: string; new_adset_id?: string; ads_created?: number; total_ads?: number; ad_ids?: string[]; campaign_id?: string; success?: number; failed?: number; adset_id?: string };
 
@@ -1392,6 +1392,7 @@ ${adsetBlocks}
                         {a.spend && <span>💰 {Number(a.spend).toFixed(0)} EGP</span>}
                         {a.cpa && <span>· CPA: {Number(a.cpa).toFixed(0)} EGP</span>}
                         {a.ctr && <span>· CTR: {Number(a.ctr).toFixed(1)}%</span>}
+                        {a.cvr && <span>· CVR: {Number(a.cvr).toFixed(1)}%</span>}
                       </div>
                     )}
                   </button>

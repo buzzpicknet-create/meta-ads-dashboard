@@ -5072,10 +5072,9 @@ router.get(
       let insights: Record<string, unknown>[] = [];
       try {
         const metaToken = getAccessToken();
-        const insUrl = `https://graph.facebook.com/v21.0/act_${accountId}/insights?` +
+        const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
           `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click` +
-          `&filtering=%5B%7B%22field%22%3A%22adset.campaign_id%22%2C%22operator%22%3A%22EQUAL%22%2C%22value%22%3A%22${campaignId}%22%7D%5D` +
-          `&action_attribution_windows=%5B%22click_7d%22%2C%22view_1d%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+          `&action_attribution_windows=%5B%221d_click%22%2C%227d_click%22%2C%221d_view%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
         insights = insJson.data ?? [];
@@ -5124,12 +5123,14 @@ router.get(
         const purchases = actions.find(x => x.action_type === "offsite_conversion.fb_pixel_purchase")?.value;
         const cpa = purchases && spend ? (spend / Number(purchases)).toFixed(2) : null;
         const ctr = impressions ? ((clicks / impressions) * 100).toFixed(2) : null;
+        const cvr = clicks && purchases ? ((Number(purchases) / clicks) * 100).toFixed(2) : null;
         return {
           ...a,
           insights: ins,
           spend: spend || null,
           ctr,
           cpa,
+          cvr,
           hookRate: null,
           texts: adsMap.get(String(a.id))?.texts ?? [],
           headlines: adsMap.get(String(a.id))?.headlines ?? [],
