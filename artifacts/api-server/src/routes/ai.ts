@@ -4520,6 +4520,28 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     if (fileText) systemContent += `\n\n══════════ ATTACHED FILE: ${fileName ?? "file"} ══════════\n${fileText}`;
 
     type ApiMsg = Parameters<typeof openai.chat.completions.create>[0]["messages"][0];
+    // ── Blueprint compression ──────────────────────────────────────────────────
+    function compressBlueprint(msg: string): string {
+      if (!msg.includes("[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]")) return msg;
+      const lines = msg.split("\n");
+      const compressed: string[] = [];
+      let inAdset = false;
+      for (const line of lines) {
+        const l = line.trim();
+        if (l.startsWith("## Adset")) { inAdset = true; compressed.push(l); continue; }
+        if (l.startsWith("Primary Texts") || l.startsWith("Headlines")) { compressed.push(l); continue; }
+        if (/^\d+\./.test(l) && inAdset) { compressed.push(l.substring(0, 300) + (l.length > 300 ? "…" : "")); continue; }
+        if (l.startsWith("- Landing Page:") || l.startsWith("- Video:") || l.startsWith("- link_url") ||
+            l.startsWith("- Budget:") || l.startsWith("- Campaign Name:") || l.startsWith("- Ad Account") ||
+            l.startsWith("- daily_budget") || l.startsWith("- budget_type") || l.startsWith("Campaign Type:") ||
+            l.startsWith("Objective:") || l.startsWith("- Media Drive") || l.startsWith("[SYSTEM") || l.startsWith("[END")) {
+          compressed.push(l); continue;
+        }
+        if (!inAdset) compressed.push(l);
+      }
+      return compressed.join("\n");
+    }
+
     const apiMessages: ApiMsg[] = [{ role: "system", content: systemContent }];
 
     const lastIdx = messages.length - 1;
