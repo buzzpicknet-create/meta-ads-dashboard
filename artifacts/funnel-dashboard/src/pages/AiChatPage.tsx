@@ -1377,7 +1377,7 @@ export default function AiChatPage() {
                     {m.role==="user" ? (
                       <>
                         {m.imagePreviewUrl && <img src={m.imagePreviewUrl} alt="" className="mb-2 max-h-48 rounded-lg border border-border" />}
-                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3.5 sm:px-5 py-2.5 sm:py-3 text-[15px] sm:text-base max-w-[92%] sm:max-w-[85%] whitespace-pre-wrap leading-relaxed" dir="auto">
+                        <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-3.5 sm:px-5 py-2.5 sm:py-3 text-[13px] sm:text-base max-w-[92%] sm:max-w-[85%] whitespace-pre-wrap leading-relaxed" dir="auto">
                           {m.content}
                         </div>
                       </>
@@ -1609,7 +1609,7 @@ export default function AiChatPage() {
               placeholder="اكتب رسالتك..."
               rows={2}
               disabled={streaming}
-              className="flex-1 resize-none bg-card border border-border/60 rounded-2xl px-4 py-3 text-[15px] sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 min-h-[60px] sm:min-h-[88px] max-h-[200px] sm:max-h-[240px] leading-relaxed disabled:opacity-50 transition-all"
+              className="flex-1 resize-none bg-card border border-border/60 rounded-2xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 min-h-[60px] sm:min-h-[88px] max-h-[200px] sm:max-h-[240px] leading-relaxed disabled:opacity-50 transition-all"
               style={{height:"60px"}}
             />
 

@@ -419,9 +419,12 @@
 .ai-msg-body ol { list-style-type: decimal; }
 @media (max-width: 640px) {
   .ai-msg-body,
-  .ai-msg-body p { font-size: 15px; line-height: 1.75; }
-  .ai-msg-body li { font-size: 14.5px; }
-  .ai-obs-card   { font-size: 14.5px; }
+  .ai-msg-body p,
+  .ai-msg-body li,
+  .ai-msg-body span { font-size: 13px !important; line-height: 1.7 !important; }
+  .ai-msg-body h1, .ai-msg-body h2, .ai-msg-body h3 { font-size: 14.5px !important; }
+  .ai-obs-card   { font-size: 13px !important; }
+  .ai-msg-body .space-y-0\.5 > * { font-size: 13px; }
 }
 
 /* ── Observation Cards (إنجاز / تراجع / ملاحظة) ── */
