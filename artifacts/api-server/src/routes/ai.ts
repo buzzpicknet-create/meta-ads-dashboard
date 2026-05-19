@@ -3536,9 +3536,9 @@ async function executeTool(name: string, args: Record<string, unknown>, selected
       for (const acc of accounts) {
         const result = await fetchCampaignsCached(acc.id);
         if (result.fromCache) { anyFromCache = true; maxCacheAgeMs = Math.max(maxCacheAgeMs, result.cacheAgeMs); }
-        // Filter out campaigns with $0 spend over the full period (old dead campaigns).
-        // Keep all campaigns with spend > 0 — both ACTIVE and recently-PAUSED.
-        const withSpend = result.data.filter(c => c.spend > 0);
+        // Keep ACTIVE campaigns always (even zero spend) + any campaign with spend > 0.
+        // This ensures newly-launched or low-spend ACTIVE campaigns are never hidden.
+        const withSpend = result.data.filter(c => c.spend > 0 || c.effective_status === "ACTIVE");
         // Sort by updated_time desc (most recently edited first), fallback to spend desc.
         const sorted = [...withSpend].sort((a, b) => {
           const tA = a.updated_time ? new Date(a.updated_time).getTime() : 0;
