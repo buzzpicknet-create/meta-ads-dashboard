@@ -784,7 +784,7 @@ function FlexScaleForm({
 
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
-type QuickCardType = "STANDARD" | "STANDARD_V2" | "SCALEADSETS" | "SCALECREATIVE" | "ADD_EXISTING_ADSET" | "ADD_NEW_ADSET";
+type QuickCardType = "STANDARD" | "STANDARD_V2" | "SCALEADSETS" | "SCALECREATIVE" | "ADD_EXISTING_ADSET" | "ADD_NEW_ADSET" | "ADD_TO_CAMPAIGN";
 
 interface QuickAngle {
   name: string;
@@ -1205,6 +1205,242 @@ ${hdls}
             <Send className="h-3.5 w-3.5" /> إرسال للمساعد ↗
           </Button>
         </div>
+      )}
+    </div>
+  );
+}
+
+
+function AddToCampaignForm({
+  accountId, onAccountChange, onSend,
+}: { accountId: string; onAccountChange: (v: string) => void; onSend: (cmd: string) => void }) {
+  const { data: accountsData } = useAccounts();
+  const accounts = accountsData?.accounts ?? [];
+  const { toast } = useToast();
+
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [selCampaign, setSelCampaign] = useState<CampaignRow | null>(null);
+  const [driveLink, setDriveLink] = useState("");
+  const [adsetStructure, setAdsetStructure] = useState<"ONE_ADSET" | "PER_VIDEO">("ONE_ADSET");
+  const [isCBO, setIsCBO] = useState(false);
+  const [budget, setBudget] = useState("180");
+  const [creativesPerAdset, setCreativesPerAdset] = useState(3);
+  const [angles, setAngles] = useState<StdAngle[]>([{ ...INIT_STD_ANGLE, name: "Angle 1" }]);
+
+  useEffect(() => {
+    if (!accountId) return;
+    setLoadingCampaigns(true);
+    setCampaigns([]); setSelCampaign(null);
+    apiFetch<{ campaigns: CampaignRow[] }>(`/pipeboard/campaigns?account_id=${accountId}`)
+      .then(d => { setCampaigns(d.campaigns ?? []); })
+      .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
+      .finally(() => setLoadingCampaigns(false));
+  }, [accountId]);
+
+  async function generateAngle(idx: number) {
+    const angle = angles[idx];
+    if (!angle.landing.trim()) { toast({ title: "أضف Landing Page أولاً", variant: "destructive" }); return; }
+    const a = [...angles]; a[idx] = { ...a[idx], generating: true }; setAngles(a);
+    try {
+      const r = await fetch(`${API}/library/quick-generate`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ productName: selCampaign?.name ?? "منتج", landingPageUrl: angle.landing.trim(), textCount: creativesPerAdset, headlineCount: creativesPerAdset, notes: angle.notes }),
+      });
+      const d = await r.json() as { texts?: { content: string }[]; headlines?: { content: string }[]; error?: string };
+      if (!r.ok) throw new Error(d.error ?? "خطأ");
+      const a2 = [...angles];
+      a2[idx] = { ...a2[idx], texts: (d.texts ?? []).map(t => t.content).filter(Boolean), headlines: (d.headlines ?? []).map(h => h.content).filter(Boolean), selTexts: [], selHeadlines: [], generating: false };
+      setAngles(a2);
+      toast({ title: "✅ تم التوليد!" });
+    } catch (e) { const a2 = [...angles]; a2[idx] = { ...a2[idx], generating: false }; setAngles(a2); toast({ title: "خطأ", description: String(e), variant: "destructive" }); }
+  }
+
+  function buildCmd(): string {
+    const acctLine = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+    const adsetStructureLine = adsetStructure === "ONE_ADSET"
+      ? "ONE_ADSET — اجمع كل الفيديوهات في Adset واحد لكل Angle"
+      : "PER_VIDEO — كل فيديو في Adset مستقل باسم الفيديو";
+    const campIsCBO = selCampaign?.is_cbo ?? isCBO;
+    const adsetBlocks = angles.filter(a => a.name.trim() || a.landing.trim()).map((a, i) => {
+      const selTIndices = a.selTexts.length > 0 ? a.selTexts : a.texts.map((_, idx) => idx);
+      const selHIndices = a.selHeadlines.length > 0 ? a.selHeadlines : a.headlines.map((_, idx) => idx);
+      const chosenTexts = selTIndices.map(idx => a.texts[idx]).filter(Boolean);
+      const chosenHeadlines = selHIndices.map(idx => a.headlines[idx]).filter(Boolean);
+      const texts = chosenTexts.length ? chosenTexts.slice(0, creativesPerAdset).map((t, ti) => `    ${ti + 1}. ${t}`).join("\n") : `    [enter texts for Angle ${i + 1}]`;
+      const headlines = chosenHeadlines.length ? chosenHeadlines.slice(0, creativesPerAdset).map((h, hi) => `    ${hi + 1}. ${h}`).join("\n") : `    [enter headlines for Angle ${i + 1}]`;
+      const hasVideoName = a.name.trim().length > 0;
+      const videoSection = hasVideoName
+        ? `- Video: find file named "${a.name.trim()}" in Drive folder\n- Ads (${creativesPerAdset} ads = 1 video x ${creativesPerAdset} copy pairs — NO DCO):`
+        : `- Videos: Drive Folder URL — backend يرفع تلقائياً — Total ads = N_videos x ${creativesPerAdset} copy pairs (NO DCO):`;
+      return `## Adset ${i + 1} — "${a.name || `Angle ${i + 1}`}"
+- Landing Page: ${a.landing.trim() || "—"}${!campIsCBO ? `\n- Budget: ${budget} EGP/day (ABO)` : ""}
+- link_url: ${a.landing.trim() || "—"}
+${videoSection}
+  Primary Texts:
+${texts}
+  Headlines:
+${headlines}`;
+    }).join("\n\n");
+
+    return `[SYSTEM COMMAND: ADD_TO_EXISTING_CAMPAIGN]
+Action: إضافة Adsets جديدة في حملة موجودة
+
+Ad Account ID: ${acctLine}
+Campaign ID: ${selCampaign?.id ?? ""} (Name: ${selCampaign?.name ?? ""})
+Media Drive Folder: ${driveLink.trim() || "—"}
+
+⚠️ RULES:
+- لا تنشئ Campaign جديدة — استخدم الحملة الموجودة ${selCampaign?.id ?? ""}
+- ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
+- page_id / pixel_id يُكتشفان تلقائياً من الدومين
+- pixel_id وpage_id: buzzpick.net→pixel:1405391498274239/page:878997831971062 | dealme-eg.com/dealoop.net/alsouqalhor.com→pixel:1537301040808359/page:108193615487446
+- Adset Structure: ${adsetStructureLine}
+- Budget Type: ${campIsCBO ? "CBO — لا تحدد budget على الـ Adset" : `ABO — ${budget} EGP/day per Adset`}
+
+# Adsets & Ads:
+
+${adsetBlocks}
+[END_COMMAND]`;
+  }
+
+  function handleSend() {
+    if (!selCampaign) { toast({ title: "❌ اختار الحملة أولاً", variant: "destructive" }); return; }
+    if (!driveLink.trim()) { toast({ title: "❌ أضف Drive Folder Link", variant: "destructive" }); return; }
+    onSend(buildCmd());
+  }
+
+  return (
+    <div className="rounded-xl border border-teal-200 dark:border-teal-800 bg-background p-4 space-y-3 animate-in fade-in duration-150">
+      {/* Account */}
+      <div className="space-y-1">
+        <label className="text-xs font-medium text-muted-foreground">Ad Account</label>
+        <select value={accountId} onChange={e => { if (e.target.value) onAccountChange(e.target.value); }}
+          className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" dir="ltr">
+          <option value="">— اختر الحساب —</option>
+          {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name ?? acc.id}</option>)}
+        </select>
+      </div>
+      {/* Campaign selector */}
+      {accountId && (
+        <div className="space-y-1">
+          <label className="text-xs font-semibold">① اختار الحملة</label>
+          <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+            {loadingCampaigns && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
+            {campaigns.map(c => (
+              <button key={c.id} onClick={() => { setSelCampaign(c); setIsCBO(c.is_cbo ?? false); }}
+                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selCampaign?.id === c.id ? "bg-teal-100 dark:bg-teal-900/30 text-teal-700 font-semibold" : "hover:bg-muted"}`}>
+                <span className="truncate">{c.name}</span>
+                <span className={`shrink-0 ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${selCampaign?.id === c.id ? "bg-teal-200 dark:bg-teal-800 text-teal-700" : "bg-muted text-muted-foreground"}`}>{c.is_cbo ? "CBO" : "ABO"}</span>
+              </button>
+            ))}
+          </div>
+          {selCampaign && <div className="text-[11px] text-teal-600 font-medium">✓ {selCampaign.name} · {selCampaign.is_cbo ? "CBO" : "ABO"}</div>}
+        </div>
+      )}
+      {selCampaign && (
+        <>
+          {/* Drive */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FolderOpen className="h-3 w-3" /> رابط مجلد الميديا (Drive)</label>
+            <Input placeholder="https://drive.google.com/drive/folders/..." value={driveLink} onChange={e => setDriveLink(e.target.value)} className="h-9 text-xs font-mono" dir="ltr" />
+          </div>
+          {/* Campaign Settings */}
+          <div className="rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50/30 dark:bg-teal-950/10 p-3 space-y-2.5">
+            <div className="text-xs font-semibold text-teal-700 dark:text-teal-400">Campaign Settings</div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Budget Type</label>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => setIsCBO(false)} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${!isCBO ? "border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-700 font-semibold" : "border-border text-muted-foreground hover:border-teal-400"}`}>ABO</button>
+                  <button type="button" onClick={() => setIsCBO(true)} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${isCBO ? "border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-700 font-semibold" : "border-border text-muted-foreground hover:border-teal-400"}`}>CBO</button>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Copy Pairs / Adset</label>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setCreativesPerAdset(c => Math.max(1, c - 1))} className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
+                  <span className="flex-1 text-center text-sm font-bold tabular-nums text-teal-700 dark:text-teal-300">{creativesPerAdset}</span>
+                  <button type="button" onClick={() => setCreativesPerAdset(c => Math.min(10, c + 1))} className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Adset Structure</label>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => setAdsetStructure("ONE_ADSET")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${adsetStructure === "ONE_ADSET" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-700 font-semibold" : "border-border text-muted-foreground hover:border-teal-400"}`}>واحد</button>
+                  <button type="button" onClick={() => setAdsetStructure("PER_VIDEO")} className={`flex-1 h-8 text-xs rounded-lg border transition-all ${adsetStructure === "PER_VIDEO" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-700 font-semibold" : "border-border text-muted-foreground hover:border-teal-400"}`}>لكل فيديو</button>
+                </div>
+              </div>
+            </div>
+            {!isCBO && (
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">الميزانية لكل Adset (EGP/يوم)</label>
+                <Input type="number" min={1} value={budget} onChange={e => setBudget(e.target.value)} className="h-8 text-xs w-32" />
+              </div>
+            )}
+          </div>
+          {/* Angles */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Angles (1 Angle = 1 Adset)</span>
+              <button type="button" onClick={() => setAngles([...angles, { ...INIT_STD_ANGLE, name: `Angle ${angles.length + 1}` }])} className="text-xs text-teal-700 dark:text-teal-400 hover:underline font-medium">+ Add Angle</button>
+            </div>
+            {angles.map((angle, idx) => (
+              <div key={idx} className="rounded-lg border border-teal-200/60 dark:border-teal-800/40 bg-teal-50/20 dark:bg-teal-950/10 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-400">Adset {idx + 1}</span>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => generateAngle(idx)} disabled={angle.generating || !angle.landing.trim()} className="text-[11px] text-teal-700 dark:text-teal-400 hover:underline disabled:opacity-40 font-medium">
+                      {angle.generating ? "Generating..." : "✨ Generate Copy"}
+                    </button>
+                    {angles.length > 1 && <button type="button" onClick={() => setAngles(angles.filter((_, i) => i !== idx))} className="text-[11px] text-destructive hover:underline">Remove</button>}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder='Video filename (e.g. "hook1")' value={angle.name} onChange={e => { const a = [...angles]; a[idx] = {...a[idx], name: e.target.value}; setAngles(a); }} className="h-8 text-xs" dir="ltr" />
+                  <Input placeholder="https://landing-page.com/..." value={angle.landing} onChange={e => { const a = [...angles]; a[idx] = {...a[idx], landing: e.target.value}; setAngles(a); }} className="h-8 text-xs font-mono" dir="ltr" />
+                </div>
+                <textarea dir="rtl" placeholder="ملاحظات للـ AI (اختياري)" value={angle.notes}
+                  onChange={e => { const a = [...angles]; a[idx] = {...a[idx], notes: e.target.value}; setAngles(a); }}
+                  rows={2} className="w-full text-xs rounded-md border border-border bg-background/60 p-2 resize-none focus:outline-none focus:ring-1 focus:ring-teal-500 placeholder:text-muted-foreground/50" />
+                {(angle.texts.length > 0 || angle.headlines.length > 0) && (
+                  <div className="space-y-2">
+                    {angle.texts.map((t, ti) => {
+                      const isSel = angle.selTexts.length === 0 || angle.selTexts.includes(ti);
+                      return (
+                        <div key={ti} onClick={() => { const a = [...angles]; const sel = a[idx].selTexts; a[idx] = {...a[idx], selTexts: sel.includes(ti) ? sel.filter(x => x !== ti) : [...sel, ti]}; setAngles(a); }}
+                          className={`text-xs rounded border bg-background/60 px-2 py-1.5 cursor-pointer select-none flex items-start gap-2 transition-opacity ${isSel ? "border-teal-200/60" : "border-border/40 opacity-40"}`} dir="rtl">
+                          <input type="checkbox" checked={isSel} readOnly className="mt-0.5 shrink-0 accent-teal-600 cursor-pointer" style={{ direction: "ltr" }} />
+                          <span><span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded-full bg-teal-500 text-white text-[8px] font-bold ml-1.5">{ti + 1}</span>{t}</span>
+                        </div>
+                      );
+                    })}
+                    <div className="flex flex-wrap gap-1">
+                      {angle.headlines.map((h, hi) => {
+                        const isSel = angle.selHeadlines.length === 0 || angle.selHeadlines.includes(hi);
+                        return (
+                          <button key={hi} type="button" onClick={() => { const a = [...angles]; const sel = a[idx].selHeadlines; a[idx] = {...a[idx], selHeadlines: sel.includes(hi) ? sel.filter(x => x !== hi) : [...sel, hi]}; setAngles(a); }}
+                            className={`text-[11px] rounded-full px-2 py-0.5 border font-medium flex items-center gap-1 transition-opacity ${isSel ? "border-teal-200/60 bg-teal-50/50 text-teal-800" : "border-border/40 bg-muted/30 text-muted-foreground opacity-40"}`}>
+                            <span className={`inline-flex items-center justify-center h-3 w-3 rounded-full text-[8px] font-bold ${isSel ? "bg-teal-500 text-white" : "bg-muted text-muted-foreground"}`}>{hi + 1}</span>{h}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Send */}
+          <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
+            <div className="flex-1 min-w-0 text-xs text-muted-foreground">
+              ➕ {angles.length} Adset(s) · {adsetStructure === "ONE_ADSET" ? "Adset واحد" : "Adset لكل فيديو"} · {isCBO ? "CBO" : "ABO"}
+            </div>
+            <Button size="sm" className="gap-1.5 h-9 text-xs shrink-0 bg-teal-600 hover:bg-teal-700 text-white" onClick={handleSend}>
+              <Send className="h-3.5 w-3.5" /> إرسال للمساعد ↗
+            </Button>
+          </div>
+        </>
       )}
     </div>
   );
@@ -1699,6 +1935,7 @@ ${adsetBlocks}
   const CARDS: { id: QuickCardType; emoji: string; label: string; hint: string; color: string }[] = [
     { id: "STANDARD",          emoji: "📋", label: "حملة Standard",          hint: "ABO أو CBO · فيديوهات × Copy Pairs · لا DCO",     color: "emerald" },
     { id: "STANDARD_V2", emoji: "📋✨", label: "Standard V2", hint: "تحكم في هيكل الـ Adsets · ONE_ADSET أو PER_VIDEO", color: "blue" },
+    { id: "ADD_TO_CAMPAIGN", emoji: "➕📋", label: "إضافة لحملة موجودة", hint: "Standard V2 · حملة موجودة · Adset جديد", color: "teal" },
     { id: "SCALEADSETS",       emoji: "📦", label: "Scale AdSets",           hint: "نسخ AdSets رابحة لحملة جديدة",                    color: "rose"    },
     { id: "SCALECREATIVE",     emoji: "🎨", label: "Scale Creative",         hint: "نسخ Creative وينر لـ AdSet جديد",                 color: "cyan"    },
 
@@ -2216,6 +2453,13 @@ ${adsetBlocks}
       {/* ── Add Creative to New AdSet ── */}
       {activeCard === "ADD_NEW_ADSET" && (
         <AddCreativeNewAdsetForm
+          accountId={form.quickAccountId}
+          onAccountChange={v => upd("quickAccountId", v)}
+          onSend={cmd => sendToChat(cmd, "SCALE")}
+        />
+      )}
+      {activeCard === "ADD_TO_CAMPAIGN" && (
+        <AddToCampaignForm
           accountId={form.quickAccountId}
           onAccountChange={v => upd("quickAccountId", v)}
           onSend={cmd => sendToChat(cmd, "SCALE")}
