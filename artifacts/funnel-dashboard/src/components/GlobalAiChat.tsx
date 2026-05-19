@@ -1208,9 +1208,13 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
       const capturedLabels = localLabels.slice();
       // If accumulated is empty or junk (e.g. "?"), show a friendly fallback
+      // لو الـ AI بعت pending_action بدون text — مش error، انتظر الموافقة
+      const hasPendingAction = messages.some(m => m.role === "assistant" && (m as any).pending_action);
       const finalContent = accumulated.trim().length > 3
         ? accumulated
-        : "عذراً، لم أتمكن من الإجابة. حاول مرة أخرى.";
+        : localLabels.length > 0
+          ? "⏳ جاري تنفيذ الإجراء…"
+          : "عذراً، لم أتمكن من الإجابة. حاول مرة أخرى.";
       const assistantMsg: ChatMessage = { role: "assistant", content: finalContent };
       if (capturedLabels.length > 0) assistantMsg.tool_calls = capturedLabels;
       setMessages((prev) => [...prev, assistantMsg]);
