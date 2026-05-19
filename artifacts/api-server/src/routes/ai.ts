@@ -4544,9 +4544,15 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
 
     const apiMessages: ApiMsg[] = [{ role: "system", content: systemContent }];
 
-    const lastIdx = messages.length - 1;
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
+    // ── Limit conversation history to last 20 messages to avoid context overflow ──
+    const MAX_HISTORY = 20;
+    const trimmedMessages = messages.length > MAX_HISTORY
+      ? messages.slice(-MAX_HISTORY)
+      : messages;
+
+    const lastIdx = trimmedMessages.length - 1;
+    for (let i = 0; i < trimmedMessages.length; i++) {
+      const m = trimmedMessages[i];
       if (m.role === "user") {
         if (imageBase64 && i === lastIdx) {
           apiMessages.push({
