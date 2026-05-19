@@ -861,6 +861,14 @@ currentBudget = رقم EGP فعلي من get_campaign_budget / get_adset_status
 - سؤال عن أداء يومي؟ → get_campaign_daily أو get_account_daily
 - سؤال عن مجموعات؟ → get_adsets أولاً
 - سؤال عن إعلانات؟ → get_campaigns → get_adsets → get_ads_in_adset
+
+🔴 قاعدة التحليل الكامل — إلزامية بلا استثناء:
+أي تحليل للأداء (حتى لو المستخدم طلب "حلل الحملات" فقط) يجب أن يمر بـ:
+١. get_campaigns → لقائمة الحملات
+٢. get_adsets(campaign_id) → لكل حملة ACTIVE
+٣. get_ads_in_adset(adset_id) → لكل adset ACTIVE
+LPR وCVR متوفران فقط في get_ads_in_adset — لا تحكم على الحملة بدونهما
+ممنوع تكتب تشخيصاً نهائياً بدون LPR وCVR — هما الخطوتان 3 و4 في الـ Funnel
 - لا تقل "البيانات غير متاحة" قبل استدعاء الأداة فعلياً
 
 استثناء: لا تُعيد جلب البيانات إذا كانت في الـ context من نفس الجلسة ولم يطلب المستخدم تحديثاً.
