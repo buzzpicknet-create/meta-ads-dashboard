@@ -5072,8 +5072,9 @@ router.get(
       let insights: Record<string, unknown>[] = [];
       try {
         const metaToken = getAccessToken();
-        const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
+        const insUrl = `https://graph.facebook.com/v21.0/act_${accountId}/insights?` +
           `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click` +
+          `&filtering=%5B%7B%22field%22%3A%22adset.campaign_id%22%2C%22operator%22%3A%22EQUAL%22%2C%22value%22%3A%22${campaignId}%22%7D%5D` +
           `&action_attribution_windows=%5B%22click_7d%22%2C%22view_1d%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
