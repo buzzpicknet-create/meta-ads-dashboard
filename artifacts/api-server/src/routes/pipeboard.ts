@@ -1901,9 +1901,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         // ── Helper: normalise Drive file URL to direct download link ──────────
         function normDriveUrlSpec(raw: string): string {
           const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
-          if (fileMatch) return `https://drive.usercontent.google.com/download?id=${fileMatch[1]}&export=download&authuser=0`;
+          if (fileMatch) return `https://drive.usercontent.google.com/download?id=${fileMatch[1]}&export=download&authuser=0&confirm=t`;
           const idMatch  = raw.match(/drive\.google\.com\/(?:open|uc)[^?]*\?(?:[^#]*&)?id=([^&#]+)/);
-          if (idMatch)   return `https://drive.usercontent.google.com/download?id=${idMatch[1]}&export=download&authuser=0`;
+          if (idMatch)   return `https://drive.usercontent.google.com/download?id=${idMatch[1]}&export=download&authuser=0&confirm=t`;
           if (raw.includes("drive.usercontent.google.com")) return raw;
           return raw;
         }
@@ -1941,7 +1941,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             ? (videoFiles.find(f => { const n = f.name.replace(/\.[^.]+$/, "").toLowerCase(); return n === hint || n.includes(hint) || hint.includes(n); }) ?? videoFiles[0]!)
             : videoFiles[0]!;
           resolvedFilename = matched.name;
-          uploadUrl        = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0`;
+          uploadUrl        = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0&confirm=t`;
         } else {
           uploadUrl        = normDriveUrlSpec(autoUploadUrl);
           resolvedFilename = String((args as Record<string, unknown>)?.filename_hint ?? "video");
@@ -2824,13 +2824,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         /drive\.google\.com\/file\/d\/([^/?#]+)/,
       );
       if (driveFileMatch) {
-        return `https://drive.usercontent.google.com/download?id=${driveFileMatch[1]}&export=download&authuser=0`;
+        return `https://drive.usercontent.google.com/download?id=${driveFileMatch[1]}&export=download&authuser=0&confirm=t`;
       }
       const driveIdMatch = raw.match(
         /drive\.google\.com\/(?:open|uc)[^?]*\?(?:[^#]*&)?id=([^&#]+)/,
       );
       if (driveIdMatch) {
-        return `https://drive.usercontent.google.com/download?id=${driveIdMatch[1]}&export=download&authuser=0`;
+        return `https://drive.usercontent.google.com/download?id=${driveIdMatch[1]}&export=download&authuser=0&confirm=t`;
       }
       if (raw.includes("drive.usercontent.google.com")) return raw;
       return raw;
@@ -3047,7 +3047,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             const files = folderCache.get(folderId) ?? [];
             for (let vi = 0; vi < files.length; vi++) {
               const file = files[vi]!;
-              const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0`;
+              const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0&confirm=t`;
               const mediaType = file.mimeType.startsWith("video/") ? "video" : "image";
               const fileNameNoExt = file.name.replace(/\.[^.]+$/, "").toLowerCase().trim();
               // Match video to angle by filename — if multiple adsets, find matching angle
@@ -4598,9 +4598,9 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       // ── Helper: normalise a Drive file URL to download link ────────────────
       function normDriveUrl(raw: string): string {
         const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
-        if (fileMatch) return `https://drive.usercontent.google.com/download?id=${fileMatch[1]}&export=download&authuser=0`;
+        if (fileMatch) return `https://drive.usercontent.google.com/download?id=${fileMatch[1]}&export=download&authuser=0&confirm=t`;
         const idMatch = raw.match(/drive\.google\.com\/(?:open|uc)[^?]*\?(?:[^#]*&)?id=([^&#]+)/);
-        if (idMatch) return `https://drive.usercontent.google.com/download?id=${idMatch[1]}&export=download&authuser=0`;
+        if (idMatch) return `https://drive.usercontent.google.com/download?id=${idMatch[1]}&export=download&authuser=0&confirm=t`;
         if (raw.includes("drive.usercontent.google.com")) return raw;
         return raw;
       }
@@ -4657,7 +4657,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         if (!matched) matched = videoFiles[0]!;
 
         resolvedFilename = matched.name;
-        uploadUrl = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0`;
+        uploadUrl = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0&confirm=t`;
         logger.info({ resolvedFilename, uploadUrl }, "upload_video_to_meta: file resolved");
       } else {
         // ── Direct file URL (Drive file or other direct URL) ─────────────────
