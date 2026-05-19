@@ -4602,6 +4602,10 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
 // @ts-ignore
         const fr = chunk.choices[0]?.finish_reason;
         // @ts-ignore
+        if (fr === "content_filter") { logger.error({ fr }, "CONTENT_FILTER triggered"); send({ error: "المحتوى تم رفضه من النموذج — content_filter" }); send({ done: true }); return; }
+        // @ts-ignore
+        if (fr === "length") { logger.warn({ fr }, "MAX_TOKENS reached"); }
+        // @ts-ignore
         if (fr === "stop" || fr === "end_turn") break;
       }
 
