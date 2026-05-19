@@ -1248,7 +1248,8 @@ function AddToCampaignForm({
     setAdsets([]); setSelAdset(null); setLoadingAdsets(true);
     try {
       const d = await apiFetch<{ adsets: (AdsetRow & { ctr: string | null; cpa: string | null })[] }>(`/pipeboard/campaigns/${camp.id}/adsets?account_id=${accountId}`);
-      setAdsets((d.adsets ?? []).map(a => ({ ...a, ctr: a.ctr ? Number(a.ctr) : null, cpa: a.cpa ? Number(a.cpa) : null })));
+      setAdsets((d.adsets ?? []).map(a => ({ ...a, ctr: a.ctr ? Number(a.ctr) : null, cpa: a.cpa ? Number(a.cpa) : null, spend: a.spend ? Number(a.spend) : null })));
+      console.log("adsets raw:", JSON.stringify(d.adsets?.slice(0,2)));
     } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
     finally { setLoadingAdsets(false); }
   }
@@ -1363,7 +1364,7 @@ ${adsetBlocks}
           <div className="space-y-1">
             <label className="text-xs font-semibold">② نوع الـ Adset</label>
             <div className="flex gap-2">
-              <button type="button" onClick={() => { setAdsetType("new"); setSelAdset(null); }}
+              <button type="button" onClick={() => { setAdsetType("new"); setSelAdset(null); setAdsets([]); }}
                 className={`flex-1 h-8 text-xs rounded-lg border transition-all ${adsetType === "new" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-700 font-semibold" : "border-border text-muted-foreground hover:border-teal-400"}`}>
                 🆕 Adset جديد
               </button>
@@ -1381,9 +1382,18 @@ ${adsetBlocks}
                 {loadingAdsets && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
                 {adsets.map(a => (
                   <button key={a.id} onClick={() => setSelAdset(a)}
-                    className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selAdset?.id === a.id ? "bg-teal-100 dark:bg-teal-900/30 text-teal-700 font-semibold" : "hover:bg-muted"}`}>
-                    <span className="truncate">{a.name}</span>
-                    <span className="shrink-0 ml-2 text-[10px] font-mono text-muted-foreground">{a.id}</span>
+                    className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex flex-col gap-0.5 ${selAdset?.id === a.id ? "bg-teal-100 dark:bg-teal-900/30 text-teal-700 font-semibold" : "hover:bg-muted"}`}>
+                    <div className="flex justify-between items-center w-full">
+                      <span className="truncate">{a.name}</span>
+                      <span className="shrink-0 ml-2 text-[10px] font-mono text-muted-foreground">{a.id}</span>
+                    </div>
+                    {(a.spend || a.cpa || a.ctr) && (
+                      <div className="flex gap-2 text-[10px] text-muted-foreground font-normal">
+                        {a.spend && <span>💰 {Number(a.spend).toFixed(0)} EGP</span>}
+                        {a.cpa && <span>· CPA: {Number(a.cpa).toFixed(0)} EGP</span>}
+                        {a.ctr && <span>· CTR: {Number(a.ctr).toFixed(1)}%</span>}
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
