@@ -303,6 +303,13 @@ CBO vs ABO — قاعدة الميزانية
 🚀 SCALE & REPORT COMMANDS
 ══════════════════════════════════════
 
+"شغل الحملة" / "تشغيل" / "activate" بعد إنشاء حملة جديدة:
+🔴 تشغيل حملة جديدة = 3 مستويات في bulk_action واحد:
+١. enable_campaign(campaign_id)
+٢. enable_adset لكل adset في الحملة
+٣. enable_ad لكل ad في كل adset
+لا تشغل الحملة بدون المجموعات والإعلانات — الـ 3 مستويات إلزامية دفعة واحدة
+
 "اعمل Scale" / "Scale this":
 ١. get_campaign_budget أو get_adset_status — مرة واحدة فقط
 ٢. احسب +20% وأخرج bulk_action فوراً بدون انتظار
