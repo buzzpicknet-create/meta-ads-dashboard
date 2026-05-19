@@ -1264,30 +1264,30 @@ export default function AiChatPage() {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* ── Mobile header ── */}
-        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-border/60 bg-background shrink-0">
+        <div className="md:hidden flex items-center gap-1.5 px-2 py-1.5 border-b border-border/60 bg-background shrink-0">
           <button
             onClick={()=>setSidebarOpen(true)}
-            className="h-9 w-9 flex items-center justify-center rounded-xl hover:bg-muted text-muted-foreground"
+            className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground shrink-0"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-4 w-4" />
           </button>
           <div className="flex-1 flex items-center justify-center gap-1.5">
-            <Bot className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">مساعد الإعلانات</span>
+            <Bot className="h-3.5 w-3.5 text-primary" />
+            <span className="text-[13px] font-semibold">مساعد الإعلانات</span>
           </div>
           <button
             onClick={()=>{ newChat(); setSidebarOpen(false); }}
-            className="h-9 w-9 flex items-center justify-center rounded-xl hover:bg-muted text-muted-foreground"
+            className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground shrink-0"
           >
-            <SquarePen className="h-4 w-4" />
+            <SquarePen className="h-3.5 w-3.5" />
           </button>
         </div>
 
         {/* ── Account selector bar (mandatory, always visible) ── */}
         {allAccounts.length > 0 && (
-          <div className="border-b border-border/40 bg-muted/20 px-3 py-2 shrink-0" dir="rtl">
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide flex-nowrap">
-              <span className="text-[11px] font-medium text-muted-foreground shrink-0">تحليل:</span>
+          <div className="border-b border-border/40 bg-muted/20 px-2 sm:px-3 py-1 sm:py-2 shrink-0" dir="rtl">
+            <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide flex-nowrap">
+              <span className="text-[10px] font-medium text-muted-foreground shrink-0">تحليل:</span>
               {allAccounts.length > 1 && (
                 <button
                   onClick={selectedAccIds.size === allAccounts.length ? clearAllAccounts : selectAllAccounts}
@@ -1310,7 +1310,7 @@ export default function AiChatPage() {
                     key={acc.id}
                     onClick={() => toggleAccId(acc.id)}
                     title={acc.id}
-                    className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all ${
+                    className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 sm:gap-1.5 sm:px-2.5 sm:py-1 rounded-full text-[11px] sm:text-xs border transition-all ${
                       sel
                         ? acc.type === "meta"
                           ? "bg-blue-100 dark:bg-blue-950/40 border-blue-400/60 text-blue-700 dark:text-blue-300 font-medium"
@@ -1319,10 +1319,10 @@ export default function AiChatPage() {
                     }`}
                   >
                     {sel
-                      ? <CheckSquare className="h-3 w-3 shrink-0" />
-                      : <Square className="h-3 w-3 shrink-0 opacity-30" />}
-                    <span className="max-w-[110px] truncate">{acc.name}</span>
-                    <span className="text-[10px] opacity-50 font-mono shrink-0">{acc.type === "meta" ? "M" : "G"}</span>
+                      ? <CheckSquare className="h-2.5 w-2.5 sm:h-3 sm:w-3 shrink-0" />
+                      : <Square className="h-2.5 w-2.5 sm:h-3 sm:w-3 shrink-0 opacity-30" />}
+                    <span className="max-w-[80px] sm:max-w-[110px] truncate">{acc.name}</span>
+                    <span className="text-[9px] sm:text-[10px] opacity-50 font-mono shrink-0">{acc.type === "meta" ? "M" : "G"}</span>
                   </button>
                 );
               })}

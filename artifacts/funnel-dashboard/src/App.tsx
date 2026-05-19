@@ -476,9 +476,6 @@ function NavBar() {
         </div>
       </nav>
 
-      {/* Spacer so content doesn't hide behind bottom bar on mobile */}
-      <div className="sm:hidden h-16" />
-
       {/* Global conversation search modal — only for roles that have AI chat */}
       {hasConversationUI && (
         <NavConversationSearchModal open={searchOpen} onClose={closeSearch} />
@@ -507,6 +504,7 @@ function MediaManagerRouter() {
           }}
         </Route>
       </Switch>
+      <div className="sm:hidden h-16" />
     </>
   );
 }
@@ -563,6 +561,8 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
         <Route path="/"           component={ChatRedirect} />
         <Route component={NotFound} />
       </Switch>
+      {/* Spacer so page content doesn't hide behind fixed bottom nav on mobile */}
+      <div className="sm:hidden h-16" />
       <GlobalAiChat
         onRegisterOpenFn={(fn) => { openToConversationRef.current = fn; }}
         onCampaignSelected={(id) => setPendingCampaignId(id)}
