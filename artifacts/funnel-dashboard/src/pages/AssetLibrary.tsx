@@ -1227,6 +1227,11 @@ function AddToCampaignForm({
   const [budget, setBudget] = useState("180");
   const [creativesPerAdset, setCreativesPerAdset] = useState(3);
   const [angles, setAngles] = useState<StdAngle[]>([{ ...INIT_STD_ANGLE, name: "Angle 1" }]);
+  const [campaignSearch, setCampaignSearch] = useState("");
+  const [adsetType, setAdsetType] = useState<"new" | "existing">("new");
+  const [adsets, setAdsets] = useState<AdsetRow[]>([]);
+  const [loadingAdsets, setLoadingAdsets] = useState(false);
+  const [selAdset, setSelAdset] = useState<AdsetRow | null>(null);
 
   useEffect(() => {
     if (!accountId) return;
@@ -1237,6 +1242,16 @@ function AddToCampaignForm({
       .catch(() => toast({ title: "❌ فشل جلب الحملات", variant: "destructive" }))
       .finally(() => setLoadingCampaigns(false));
   }, [accountId]);
+
+  async function fetchAdsets(camp: CampaignRow) {
+    setSelCampaign(camp); setIsCBO(camp.is_cbo ?? false);
+    setAdsets([]); setSelAdset(null); setLoadingAdsets(true);
+    try {
+      const d = await apiFetch<{ adsets: (AdsetRow & { ctr: string | null; cpa: string | null })[] }>(`/pipeboard/campaigns/${camp.id}/adsets?account_id=${accountId}`);
+      setAdsets((d.adsets ?? []).map(a => ({ ...a, ctr: a.ctr ? Number(a.ctr) : null, cpa: a.cpa ? Number(a.cpa) : null })));
+    } catch { toast({ title: "❌ فشل جلب الـ AdSets", variant: "destructive" }); }
+    finally { setLoadingAdsets(false); }
+  }
 
   async function generateAngle(idx: number) {
     const angle = angles[idx];
@@ -1283,11 +1298,15 @@ ${texts}
 ${headlines}`;
     }).join("\n\n");
 
+    const adsetLine = adsetType === "existing"
+      ? `Adset: EXISTING — ID: ${selAdset?.id ?? ""} (Name: ${selAdset?.name ?? ""})\n- لا تنشئ Adset جديد — أضف الكريتف في الـ Adset الموجود`
+      : `Adset: NEW — أنشئ Adset جديد في الحملة\n- Adset Structure: ${adsetStructureLine}\n- Budget Type: ${campIsCBO ? "CBO — لا تحدد budget على الـ Adset" : "ABO — " + budget + " EGP/day per Adset"}`;
     return `[SYSTEM COMMAND: ADD_TO_EXISTING_CAMPAIGN]
-Action: إضافة Adsets جديدة في حملة موجودة
+Action: ${adsetType === "existing" ? "إضافة كريتف في Adset موجود" : "إضافة Adsets جديدة في حملة موجودة"}
 
 Ad Account ID: ${acctLine}
 Campaign ID: ${selCampaign?.id ?? ""} (Name: ${selCampaign?.name ?? ""})
+${adsetLine}
 Media Drive Folder: ${driveLink.trim() || "—"}
 
 ⚠️ RULES:
@@ -1295,8 +1314,6 @@ Media Drive Folder: ${driveLink.trim() || "—"}
 - ZERO DCO · ZERO creative_features_spec · ZERO instagram_actor_id
 - page_id / pixel_id يُكتشفان تلقائياً من الدومين
 - pixel_id وpage_id: buzzpick.net→pixel:1405391498274239/page:878997831971062 | dealme-eg.com/dealoop.net/alsouqalhor.com→pixel:1537301040808359/page:108193615487446
-- Adset Structure: ${adsetStructureLine}
-- Budget Type: ${campIsCBO ? "CBO — لا تحدد budget على الـ Adset" : `ABO — ${budget} EGP/day per Adset`}
 
 # Adsets & Ads:
 
@@ -1306,6 +1323,7 @@ ${adsetBlocks}
 
   function handleSend() {
     if (!selCampaign) { toast({ title: "❌ اختار الحملة أولاً", variant: "destructive" }); return; }
+    if (adsetType === "existing" && !selAdset) { toast({ title: "❌ اختار الـ Adset أولاً", variant: "destructive" }); return; }
     if (!driveLink.trim()) { toast({ title: "❌ أضف Drive Folder Link", variant: "destructive" }); return; }
     onSend(buildCmd());
   }
@@ -1325,9 +1343,10 @@ ${adsetBlocks}
       {accountId && (
         <div className="space-y-1">
           <label className="text-xs font-semibold">① اختار الحملة</label>
+          <Input placeholder="ابحث عن حملة..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} className="h-8 text-xs mb-1" dir="rtl" />
           <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
             {loadingCampaigns && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
-            {campaigns.map(c => (
+            {campaigns.filter(c => c.name.toLowerCase().includes(campaignSearch.toLowerCase())).map(c => (
               <button key={c.id} onClick={() => { setSelCampaign(c); setIsCBO(c.is_cbo ?? false); }}
                 className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selCampaign?.id === c.id ? "bg-teal-100 dark:bg-teal-900/30 text-teal-700 font-semibold" : "hover:bg-muted"}`}>
                 <span className="truncate">{c.name}</span>
@@ -1340,13 +1359,44 @@ ${adsetBlocks}
       )}
       {selCampaign && (
         <>
+          {/* Adset Type Toggle */}
+          <div className="space-y-1">
+            <label className="text-xs font-semibold">② نوع الـ Adset</label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { setAdsetType("new"); setSelAdset(null); }}
+                className={`flex-1 h-8 text-xs rounded-lg border transition-all ${adsetType === "new" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-700 font-semibold" : "border-border text-muted-foreground hover:border-teal-400"}`}>
+                🆕 Adset جديد
+              </button>
+              <button type="button" onClick={() => { setAdsetType("existing"); if (selCampaign) fetchAdsets(selCampaign); }}
+                className={`flex-1 h-8 text-xs rounded-lg border transition-all ${adsetType === "existing" ? "border-teal-500 bg-teal-50 dark:bg-teal-950/40 text-teal-700 font-semibold" : "border-border text-muted-foreground hover:border-teal-400"}`}>
+                📋 Adset موجود
+              </button>
+            </div>
+          </div>
+          {/* Existing Adset Selector */}
+          {adsetType === "existing" && (
+            <div className="space-y-1">
+              <label className="text-xs font-semibold">③ اختار الـ Adset</label>
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-background p-1 space-y-0.5">
+                {loadingAdsets && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
+                {adsets.map(a => (
+                  <button key={a.id} onClick={() => setSelAdset(a)}
+                    className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center ${selAdset?.id === a.id ? "bg-teal-100 dark:bg-teal-900/30 text-teal-700 font-semibold" : "hover:bg-muted"}`}>
+                    <span className="truncate">{a.name}</span>
+                    <span className="shrink-0 ml-2 text-[10px] font-mono text-muted-foreground">{a.id}</span>
+                  </button>
+                ))}
+              </div>
+              {selAdset && <div className="text-[11px] text-teal-600 font-medium">✓ {selAdset.name}</div>}
+            </div>
+          )}
           {/* Drive */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FolderOpen className="h-3 w-3" /> رابط مجلد الميديا (Drive)</label>
             <Input placeholder="https://drive.google.com/drive/folders/..." value={driveLink} onChange={e => setDriveLink(e.target.value)} className="h-9 text-xs font-mono" dir="ltr" />
           </div>
           {/* Campaign Settings */}
-          <div className="rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50/30 dark:bg-teal-950/10 p-3 space-y-2.5">
+          {adsetType === "new" && <div className="rounded-lg border border-teal-200 dark:border-teal-800 bg-teal-50/30 dark:bg-teal-950/10 p-3 space-y-2.5">
             <div className="text-xs font-semibold text-teal-700 dark:text-teal-400">Campaign Settings</div>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
@@ -1378,7 +1428,7 @@ ${adsetBlocks}
                 <Input type="number" min={1} value={budget} onChange={e => setBudget(e.target.value)} className="h-8 text-xs w-32" />
               </div>
             )}
-          </div>
+          </div>}
           {/* Angles */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
