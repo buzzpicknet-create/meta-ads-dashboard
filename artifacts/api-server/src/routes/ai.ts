@@ -4525,19 +4525,28 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     type ApiMsg = Parameters<typeof openai.chat.completions.create>[0]["messages"][0];
     // ── Blueprint compression ──────────────────────────────────────────────────
     function compressBlueprint(msg: string): string {
-      if (!msg.includes("[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]")) return msg;
+      if (!msg.includes("[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]") &&
+          !msg.includes("[SYSTEM COMMAND: ADD_CREATIVE")) return msg;
       const lines = msg.split("\n");
       const compressed: string[] = [];
       let inAdset = false;
+      let adTextCount = 0;
       for (const line of lines) {
         const l = line.trim();
-        if (l.startsWith("## Adset")) { inAdset = true; compressed.push(l); continue; }
-        if (l.startsWith("Primary Texts") || l.startsWith("Headlines")) { compressed.push(l); continue; }
-        if (/^\d+\./.test(l) && inAdset) { compressed.push(l.substring(0, 300) + (l.length > 300 ? "…" : "")); continue; }
+        if (l.startsWith("## Adset") || l.startsWith("## ")) { inAdset = true; adTextCount = 0; compressed.push(l); continue; }
+        if (l.startsWith("Primary Texts") || l.startsWith("Headlines")) { compressed.push(l); adTextCount = 0; continue; }
+        // النصوص الإعلانية — اختصر لأول 150 حرف فقط
+        if (/^\d+\./.test(l) && inAdset) {
+          adTextCount++;
+          const short = l.substring(0, 500) + (l.length > 500 ? "…" : "");
+          compressed.push(short);
+          continue;
+        }
         if (l.startsWith("- Landing Page:") || l.startsWith("- Video:") || l.startsWith("- link_url") ||
             l.startsWith("- Budget:") || l.startsWith("- Campaign Name:") || l.startsWith("- Ad Account") ||
             l.startsWith("- daily_budget") || l.startsWith("- budget_type") || l.startsWith("Campaign Type:") ||
-            l.startsWith("Objective:") || l.startsWith("- Media Drive") || l.startsWith("[SYSTEM") || l.startsWith("[END")) {
+            l.startsWith("Objective:") || l.startsWith("- Media Drive") || l.startsWith("[SYSTEM") || 
+            l.startsWith("[END") || l.startsWith("- Ads (") || l.startsWith("- Adset") || l.startsWith("- Targeting")) {
           compressed.push(l); continue;
         }
         if (!inAdset) compressed.push(l);
@@ -4548,7 +4557,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     const apiMessages: ApiMsg[] = [{ role: "system", content: systemContent }];
 
     // ── Limit conversation history to last 20 messages to avoid context overflow ──
-    const MAX_HISTORY = 20;
+    const MAX_HISTORY = 10;
     const trimmedMessages = messages.length > MAX_HISTORY
       ? messages.slice(-MAX_HISTORY)
       : messages;
