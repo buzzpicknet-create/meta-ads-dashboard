@@ -1139,7 +1139,7 @@ export default function AiChatPage() {
   const isEmpty = msgs.length===0 && !streamTxt;
 
   return (
-    <div className="flex h-[calc(100dvh-184px)] sm:h-[calc(100dvh-56px)] overflow-hidden bg-background" dir="rtl">
+    <div className="flex h-[calc(100dvh-120px)] sm:h-[calc(100dvh-56px)] overflow-hidden bg-background" dir="rtl">
 
       {/* ── Mobile backdrop ── */}
       {sidebarOpen && (
