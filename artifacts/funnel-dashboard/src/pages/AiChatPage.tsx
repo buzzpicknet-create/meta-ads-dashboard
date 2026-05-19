@@ -1341,7 +1341,7 @@ export default function AiChatPage() {
           {isEmpty ? (
 
             /* ── Welcome screen ── */
-            <div className="flex flex-col items-center justify-center h-full px-4 sm:px-6 gap-3">
+            <div className="flex flex-col items-center px-4 sm:px-6 gap-3 py-8">
               <div className="flex flex-col items-center gap-3 sm:gap-4 text-center">
                 <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-2xl bg-primary/10 flex items-center justify-center shadow-sm">
                   <Bot className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
@@ -1544,7 +1544,7 @@ export default function AiChatPage() {
               </button>
 
               {showQAMenu && (
-                <div className="absolute bottom-full mb-2 right-0 z-50 w-64 rounded-2xl border border-border/60 bg-card shadow-xl overflow-hidden">
+                <div className="absolute bottom-full mb-2 right-0 z-50 w-64 rounded-2xl border border-border/60 bg-card shadow-xl overflow-y-auto max-h-[70vh]">
                   {/* Meta Section */}
                   <div className="px-3 pt-3 pb-1">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">📘 Meta Ads</span>
