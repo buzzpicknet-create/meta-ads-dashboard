@@ -5078,7 +5078,7 @@ router.get(
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
         insights = insJson.data ?? [];
-        logger.info({ campaign_id: campaignId, count: insights.length }, "adset insights fetched");
+        logger.info({ campaign_id: campaignId, count: insights.length, raw: JSON.stringify(insJson).slice(0, 500) }, "adset insights fetched");
       } catch (e) {
         logger.warn({ err: String(e) }, "adset insights fetch failed");
       }
