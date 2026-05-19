@@ -2039,19 +2039,17 @@ function AccountTabContent({
     const active = campaigns.filter((c) => c.spend > 0);
     const alerts: AlertSnapshotInput[] = [];
 
-    if (totals.ctr < 2)
-      alerts.push({ alertKey: "ctr-low:account", alertType: "ctr-low", severity: totals.ctr < 1.5 ? "danger" : "warn", metricValue: totals.ctr, metricLabel: `CTR ${totals.ctr.toFixed(2)}%` });
-    if (totals.cpc > 3)
-      alerts.push({ alertKey: "cpc-high:account", alertType: "cpc-high", severity: totals.cpc > 5 ? "danger" : "warn", metricValue: totals.cpc, metricLabel: `CPC ${totals.cpc.toFixed(2)} EGP` });
-    if (totals.cpm > 50 && totals.cpa > 55)
-      alerts.push({ alertKey: "cpM-high:account", alertType: "cpM-high", severity: totals.cpm > 70 ? "danger" : "warn", metricValue: totals.cpm, metricLabel: `CPM ${totals.cpm.toFixed(0)} EGP` });
-    if (totals.cpa > 40)
-      alerts.push({ alertKey: "cpa-high:account", alertType: "cpa-high", severity: totals.cpa > 100 ? "danger" : "warn", metricValue: totals.cpa, metricLabel: `CPA ${totals.cpa.toFixed(0)} EGP` });
-    if (totals.cpa === 0 && totals.spend > 0)
-      alerts.push({ alertKey: "no-conversions:account", alertType: "no-conversions", severity: "danger", metricValue: 0, metricLabel: "لا أوردرات" });
-
-    for (const c of active.filter((c) => (c.frequency ?? 0) > 1.5).slice(0, 5))
-      alerts.push({ alertKey: `high-frequency:campaign-${c.id}`, alertType: "high-frequency", severity: (c.frequency ?? 0) > 2.0 ? "danger" : "warn", metricValue: c.frequency ?? 0, metricLabel: `Freq ${(c.frequency ?? 0).toFixed(2)}x`, campaignId: c.id, campaignName: c.name });
+    // فلتر: لا تنبيهات إلا لو الإنفاق تجاوز 2× الـ Target CPA
+    const TARGET_CPA = 50;
+    const MIN_SPEND = TARGET_CPA * 2;
+    if (totals.spend >= MIN_SPEND) {
+      if (totals.cpa > TARGET_CPA * 2)
+        alerts.push({ alertKey: "cpa-high:account", alertType: "cpa-high", severity: totals.cpa > TARGET_CPA * 3 ? "danger" : "warn", metricValue: totals.cpa, metricLabel: `CPA ${totals.cpa.toFixed(0)} EGP` });
+      if (totals.cpa === 0 && totals.spend > TARGET_CPA * 3)
+        alerts.push({ alertKey: "no-conversions:account", alertType: "no-conversions", severity: "danger", metricValue: 0, metricLabel: "لا أوردرات" });
+      for (const c of active.filter((c) => (c.frequency ?? 0) > 1.5).slice(0, 5))
+        alerts.push({ alertKey: `high-frequency:campaign-${c.id}`, alertType: "high-frequency", severity: (c.frequency ?? 0) > 2.0 ? "danger" : "warn", metricValue: c.frequency ?? 0, metricLabel: `Freq ${(c.frequency ?? 0).toFixed(2)}x`, campaignId: c.id, campaignName: c.name });
+    }
 
     snapshotAlerts(accountId, alerts).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
