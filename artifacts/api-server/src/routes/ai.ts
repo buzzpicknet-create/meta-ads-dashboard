@@ -848,6 +848,7 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 
 newBudget = القيمة المطلقة المحسوبة (لا نسبة مئوية)
 currentBudget = رقم EGP فعلي من get_campaign_budget / get_adset_status
+⚠️ تحويل الميزانية: get_adset_status يرجع daily_budget بالـ cents — اقسمه على 100 للحصول على EGP (مثال: 21600 cents = 216 EGP). get_campaign_budget يرجع بـ EGP مباشرة — لا تقسمه.
 
 عند > 15 عملية: قسّم إلى دفعات ≤ 15، وأخرج كل الدفعات في رد واحد مرتبة
 بعد bulk_action: لا تقل "في انتظار موافقتك" — الواجهة تتولى التأكيد
@@ -2859,7 +2860,10 @@ function summarizePipeboardInsights(raw: string, level: "adset" | "ad" | "campai
     const av = (arr: unknown, t: string): number => {
       if (!Array.isArray(arr)) return 0;
       const entry = (arr as Array<Record<string, unknown>>).find(a => a["action_type"] === t);
-      return Number(entry?.["value"]) || 0;
+      if (!entry) return 0;
+      // Use 7d_click attribution if available (matches Meta Ads Manager default)
+      if (entry["7d_click"] !== undefined) return Number(entry["7d_click"]) || 0;
+      return Number(entry["value"]) || 0;
     };
     // avFirst: returns the FIRST non-zero value found among the given action types.
     // Use for conversions/purchases — all Meta purchase action_types represent the SAME
@@ -3024,15 +3028,34 @@ async function tryExecuteViaPipeboard(
     if (name === "get_campaign_daily") {
       const campaign_id = String(args.campaign_id ?? "");
       if (!campaign_id) return null;
-      const pbRaw0 = await callPipeboardReadFull("get_insights", {
-        object_id: campaign_id,
-        level: "campaign",
-        time_breakdown: "day",
-        time_range: timeRange,
-        compact: false,
-        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
-      });
-      return summarizePipeboardInsights(pbRaw0, "campaign");
+      try {
+        const metaToken = getAccessToken();
+        const insUrl = `https://graph.facebook.com/v21.0/${campaign_id}/insights?` +
+          `level=campaign&fields=campaign_id,campaign_name,spend,impressions,clicks,actions,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&time_increment=1&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        const insRes = await fetch(insUrl);
+        const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
+        if (insJson.error) throw new Error(JSON.stringify(insJson.error));
+        const rows = insJson.data ?? [];
+        if (rows.length === 0) return "لا توجد بيانات يومية في هذه الفترة.";
+        const lines = ["## البيانات اليومية (7-day click attribution):\n",
+          "| اليوم | الإنفاق | Purchases | CPA | CTR% | Impressions |",
+          "|-------|---------|-----------|-----|------|-------------|"];
+        for (const r of rows) {
+          const spend = Number(r.spend ?? 0);
+          const impressions = Number(r.impressions ?? 0);
+          const clicks = Number(r.clicks ?? 0);
+          const actions = Array.isArray(r.actions) ? r.actions as Array<{action_type:string;value:string;[k:string]:string}> : [];
+          const purchaseAction = actions.find(a => a.action_type === "offsite_conversion.fb_pixel_purchase" || a.action_type === "purchase" || a.action_type === "web_in_store_purchase");
+          const purchases = Number(purchaseAction?.["7d_click"] ?? purchaseAction?.value ?? 0);
+          const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
+          const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
+          lines.push(`| ${r.date_start ?? r.date_stop ?? "—"} | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${impressions.toLocaleString()} |`);
+        }
+        return lines.join("\n");
+      } catch (e) {
+        return `فشل جلب البيانات اليومية: ${String(e).slice(0, 200)}`;
+      }
     }
 
     if (name === "get_adsets") {
@@ -3116,14 +3139,40 @@ async function tryExecuteViaPipeboard(
     if (name === "get_ad_performance") {
       const ad_id = String(args.ad_id ?? "");
       if (!ad_id) return null;
-      const pbRaw2 = await callPipeboardReadFull("get_insights", {
-        object_id: ad_id,
-        level: "ad",
-        time_range: timeRange,
-        compact: false,
-        fields: ["impressions", "spend", "clicks", "outbound_clicks", "actions", "video_play_actions", "video_p100_watched_actions", "video_thruplay_watched_actions"],
-      });
-      return summarizePipeboardInsights(pbRaw2, "ad");
+      try {
+        const metaToken = getAccessToken();
+        const insUrl = `https://graph.facebook.com/v21.0/${ad_id}/insights?` +
+          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        const insRes = await fetch(insUrl);
+        const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
+        if (insJson.error) throw new Error(JSON.stringify(insJson.error));
+        const rows = insJson.data ?? [];
+        if (rows.length === 0) return "لا توجد بيانات لهذا الإعلان في هذه الفترة.";
+        const lines = ["## أداء الإعلان (7-day click attribution):\n",
+          "| الإعلان | الإنفاق | Purchases | CPA | CTR% | Hook% | Hold% |",
+          "|---------|---------|-----------|-----|------|-------|-------|"];
+        for (const r of rows) {
+          const spend = Number(r.spend ?? 0);
+          const impressions = Number(r.impressions ?? 0);
+          const clicks = Number(r.clicks ?? 0);
+          const actions = Array.isArray(r.actions) ? r.actions as Array<{action_type:string;value:string;[k:string]:string}> : [];
+          const videoPlays = Array.isArray(r.video_play_actions) ? r.video_play_actions as Array<{action_type:string;value:string}> : [];
+          const purchaseAction = actions.find(a => ["offsite_conversion.fb_pixel_purchase","purchase","web_in_store_purchase"].includes(a.action_type));
+          const purchases = Number(purchaseAction?.["7d_click"] ?? purchaseAction?.value ?? 0);
+          const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
+          const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
+          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
+          const thruPlays = Array.isArray(r.video_thruplay_watched_actions) ? r.video_thruplay_watched_actions as Array<{action_type:string;value:string}> : [];
+          const thruPlay = Number(thruPlays.find(a => a.action_type === "video_view")?.value ?? 0);
+          const holdRate = impressions > 0 ? ((thruPlay / impressions) * 100).toFixed(1) : "—";
+          lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${holdRate} |`);
+        }
+        return lines.join("\n");
+      } catch (e) {
+        return `فشل جلب بيانات الإعلان: ${String(e).slice(0, 200)}`;
+      }
     }
 
     if (name === "get_ads_in_adset") {
@@ -3173,45 +3222,6 @@ async function tryExecuteViaPipeboard(
     // Route directly to native Meta API which fetches all ACTIVE campaigns regardless of spend.
     if (name === "get_campaigns") {
       return null;
-      const results = await Promise.all(
-        filtered.map(r =>
-          callPipeboardRead("get_insights", {
-            object_id: `act_${r.account_id}`,
-            level: "campaign",
-            time_range: timeRange,
-          }).catch(() => null)
-        )
-      );
-      const successes = results.filter((r): r is string => r !== null && r.trim().length > 0);
-
-      // ── لما يطلب اليوم: أضف الحملات النشطة اللي Pipeboard حذفها (Spend قليل جداً) ──
-      const isToday = since === until;
-      if (isToday) {
-        const activeCampaignNames: string[] = [];
-        for (const acc of filtered) {
-          try {
-            const allCampaigns = await searchCampaignsByName(acc.account_id, "");
-            const activeMissing = allCampaigns.filter(c =>
-              c.effective_status === "ACTIVE" &&
-              !successes.some(s => s.includes(c.id))
-            );
-            if (activeMissing.length > 0) {
-              const missingRows = activeMissing.map(c =>
-                `- ${c.name} (id: ${c.id}) — نشطة لكن بيانات اليوم أقل من حد Pipeboard (إنفاق منخفض جداً)`
-              ).join("\n");
-              activeCampaignNames.push(`\n⚠️ حملات نشطة بإنفاق منخفض اليوم (غير مدرجة في الأرقام أعلاه):\n${missingRows}`);
-            }
-          } catch (_e) { /* ignore */ }
-        }
-        if (successes.length === 0 && activeCampaignNames.length === 0) return null;
-        const base = successes.length > 0
-          ? `## الحملات الإعلانية (مصدر: Pipeboard — اليوم):\n\n` + successes.join("\n\n---\n\n")
-          : `## الحملات الإعلانية — اليوم:\n(لا إنفاق كافٍ بعد لعرض أرقام)`;
-        return base + activeCampaignNames.join("\n");
-      }
-
-      if (successes.length === 0) return null;
-      return `## الحملات الإعلانية (مصدر: Pipeboard — آخر ${(args.days as number | undefined) ?? 30} يوم):\n\n` + successes.join("\n\n---\n\n");
     }
 
     if (name === "get_account_daily") {

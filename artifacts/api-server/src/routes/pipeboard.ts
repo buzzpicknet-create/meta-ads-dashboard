@@ -2751,6 +2751,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       targeting?: string;
     }
     interface CreativeInput {
+      name?: string;
       media_url: string;
       media_type: string;
       texts: string[];
@@ -4761,13 +4762,30 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       : await getPipeboardWriteClient();
     const result = await client.callTool({ name: mcpTool, arguments: mcpArgs });
 
-    const textContent = (
+    let rawTextContent = (
       result.content as Array<{ type: string; text?: string }>
     )
       ?.filter((c) => c.type === "text")
       .map((c) => c.text ?? "")
       .join("\n")
       .trim();
+    // get_adset_status returns daily_budget in cents — convert to EGP
+    if (tool === "get_adset_status" && rawTextContent) {
+      try {
+        const parsed = JSON.parse(rawTextContent);
+        const convertBudgets = (obj: Record<string, unknown>) => {
+          if (obj.daily_budget != null) obj.daily_budget = Math.round(Number(obj.daily_budget) / 100);
+          if (obj.lifetime_budget != null) obj.lifetime_budget = Math.round(Number(obj.lifetime_budget) / 100);
+          return obj;
+        };
+        if (Array.isArray(parsed)) {
+          rawTextContent = JSON.stringify(parsed.map((item: Record<string, unknown>) => convertBudgets(item)));
+        } else if (typeof parsed === "object" && parsed !== null) {
+          rawTextContent = JSON.stringify(convertBudgets(parsed as Record<string, unknown>));
+        }
+      } catch { /* not JSON — leave as is */ }
+    }
+    const textContent = rawTextContent;
 
     success = true;
     // Pipeboard sometimes returns raw JSON (e.g. {"success":true}) — detect and discard it
@@ -5370,7 +5388,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const metaToken = getAccessToken();
       const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
         `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click` +
-        `&action_attribution_windows=%5B%22click_7d%22%2C%22view_1d%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
+        `&action_attribution_windows=%5B%221d_click%22%2C%227d_click%22%2C%221d_view%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
       const insRes = await fetch(insUrl);
       const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
       const insArr = insJson.data ?? [];
@@ -5415,6 +5433,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
         body: cr.body ?? null, title: cr.title ?? null, link_url: cr.link_url ?? null,
         call_to_action_type: (cr.call_to_action as Record<string, unknown>)?.type ?? "LEARN_MORE",
         creative_id: cr.id ?? null,
+        cvr: purchases && clicks ? Number(((purchases / clicks) * 100).toFixed(2)) : null,
         spend, cpa, ctr, purchases, link_clicks: linkClicks, cost_per_link_click: costPerLinkClick,
       };
     }));

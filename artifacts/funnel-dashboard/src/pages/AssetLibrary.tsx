@@ -975,9 +975,19 @@ ${hdls}
             {loadingAdsets && <div className="text-xs text-center py-3 text-muted-foreground">جاري الجلب...</div>}
             {adsets.map(a => (
               <button key={a.id} onClick={() => setSelAdset(a)}
-                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex justify-between items-center gap-2 ${selAdset?.id === a.id ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 font-semibold" : "hover:bg-muted"}`}>
-                <span className="truncate">{a.name}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground font-mono">{a.id}</span>
+                className={`w-full text-right text-xs px-3 py-2 rounded-md transition-colors flex flex-col gap-0.5 ${selAdset?.id === a.id ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 font-semibold" : "hover:bg-muted"}`}>
+                <div className="flex justify-between items-center w-full">
+                  <span className="truncate">{a.name}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground font-mono">{a.id}</span>
+                </div>
+                {(a.spend || a.cpa || a.ctr) && (
+                  <div className="flex gap-2 text-[10px] text-muted-foreground font-normal">
+                    {a.spend && <span>💰 {Number(a.spend).toFixed(0)} EGP</span>}
+                    {a.cpa && <span>· CPA: {Number(a.cpa).toFixed(0)} EGP</span>}
+                    {a.ctr && <span>· CTR: {Number(a.ctr).toFixed(1)}%</span>}
+                    {a.cvr && <span>· CVR: {Number(a.cvr).toFixed(1)}%</span>}
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -2690,6 +2700,7 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
                       ) : (
                         <span className="text-xs bg-muted text-muted-foreground/60 px-2 py-0.5 rounded-full">لا بيانات (7 أيام)</span>
                       )}
+                      {a.cvr != null && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">CVR {a.cvr}%</span>}
                     </div>
                   </button>
                 );
@@ -2973,6 +2984,7 @@ function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; 
                       ) : (
                         <span className="text-xs bg-muted text-muted-foreground/60 px-2 py-0.5 rounded-full">لا بيانات (7 أيام)</span>
                       )}
+                      {ad.cvr != null && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">CVR {ad.cvr}%</span>}
                     </div>
                     {ad.body && <div className="text-xs text-muted-foreground truncate mt-1 mr-6">{ad.body}</div>}
                   </button>

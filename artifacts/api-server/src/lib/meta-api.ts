@@ -506,6 +506,8 @@ export interface CampaignSummary {
   ctr: number;
   hookRate: number;
   holdRate: number;
+  cpm?: number;
+  frequency?: number;
   updated_time?: string;
 }
 
