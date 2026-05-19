@@ -784,7 +784,7 @@ function FlexScaleForm({
 
 // ── Quick Launch Section ───────────────────────────────────────────────────────
 
-type QuickCardType = "STANDARD" | "SCALEADSETS" | "SCALECREATIVE" | "ADD_EXISTING_ADSET" | "ADD_NEW_ADSET";
+type QuickCardType = "STANDARD" | "STANDARD_V2" | "SCALEADSETS" | "SCALECREATIVE" | "ADD_EXISTING_ADSET" | "ADD_NEW_ADSET";
 
 interface QuickAngle {
   name: string;
@@ -819,6 +819,7 @@ interface QuickForm {
   stdIsCBO: boolean;
   stdCreativesPerAdset: number;
   stdAngles: StdAngle[];
+  stdAdsetStructure: "ONE_ADSET" | "PER_VIDEO";
   // Shared account selector (TEST + STANDARD)
   quickAccountId: string;
 }
@@ -836,6 +837,7 @@ const INIT_FORM: QuickForm = {
   flexStep: 0, flexCampaignId: "", flexAdsetId: "",
   stdIsCBO: false, stdCreativesPerAdset: 3,
   stdAngles: [{ ...INIT_STD_ANGLE, name: "Angle 1" }],
+  stdAdsetStructure: "ONE_ADSET",
   quickAccountId: "",
 };
 
@@ -1657,6 +1659,22 @@ ${adsetBlocks}
 [END_COMMAND]`;
   }
 
+  function buildStandardV2Cmd(): string {
+    const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const prod  = form.product.trim() || "Product";
+    const drive = form.driveLink.trim() || "—";
+    const campName = prod + " - Standard V2 - " + today;
+    const isCBO = form.stdIsCBO;
+    const creativesPerAdset = form.stdCreativesPerAdset;
+    const angles = form.stdAngles.filter((a: any) => a.name.trim() || a.landing.trim());
+    const adsetCount = angles.length || 1;
+    const adsetStructureLine = form.stdAdsetStructure === "ONE_ADSET"
+      ? "ONE_ADSET — اجمع كل الفيديوهات في Adset واحد لكل Angle"
+      : "PER_VIDEO — كل فيديو في Adset مستقل باسم الفيديو";
+    return "[STANDARD_V2_BLUEPRINT] adsetStructure=" + form.stdAdsetStructure;
+  }
+
+
   async function sendToChat(cmd: string, type: "TEST" | "SCALE" | "FLEX") {
     try {
       sessionStorage.setItem("quick_chat_command", cmd);
@@ -1680,6 +1698,7 @@ ${adsetBlocks}
 
   const CARDS: { id: QuickCardType; emoji: string; label: string; hint: string; color: string }[] = [
     { id: "STANDARD",          emoji: "📋", label: "حملة Standard",          hint: "ABO أو CBO · فيديوهات × Copy Pairs · لا DCO",     color: "emerald" },
+    { id: "STANDARD_V2", emoji: "📋✨", label: "Standard V2", hint: "تحكم في هيكل الـ Adsets · ONE_ADSET أو PER_VIDEO", color: "blue" },
     { id: "SCALEADSETS",       emoji: "📦", label: "Scale AdSets",           hint: "نسخ AdSets رابحة لحملة جديدة",                    color: "rose"    },
     { id: "SCALECREATIVE",     emoji: "🎨", label: "Scale Creative",         hint: "نسخ Creative وينر لـ AdSet جديد",                 color: "cyan"    },
 
@@ -2062,6 +2081,119 @@ ${adsetBlocks}
       )}
 
 
+
+      {activeCard === "STANDARD_V2" && (
+        <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-background p-4 space-y-3 animate-in fade-in duration-150">
+          {/* Row 0: Ad Account selector */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Ad Account</label>
+            <select
+              value={form.quickAccountId}
+              onChange={e => upd("quickAccountId", e.target.value)}
+              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              dir="ltr"
+            >
+              <option value="">— اختر الحساب الإعلاني —</option>
+              {accounts.map(acc => (
+                <option key={acc.id} value={acc.id}>{acc.name ?? acc.id}</option>
+              ))}
+            </select>
+          </div>
+          {/* Row 1: Product + Budget */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">اسم المنتج</label>
+              <Input placeholder="مثال: كريم الشعر X" value={form.product} onChange={e => upd("product", e.target.value)} className="h-9 text-sm" dir="rtl" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">{form.stdIsCBO ? "الميزانية الكلية (EGP/يوم)" : "الميزانية لكل Adset (EGP/يوم)"}</label>
+              <Input type="number" min={1} value={form.budget} onChange={e => upd("budget", e.target.value)} className="h-9 text-sm" />
+            </div>
+          </div>
+          {/* Drive + Landing */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">رابط مجلد الميديا (Drive)</label>
+              <Input placeholder="https://drive.google.com/drive/folders/..." value={form.driveLink} onChange={e => upd("driveLink", e.target.value)} className="h-9 text-sm font-mono text-xs" dir="ltr" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Landing Page URL</label>
+              <Input placeholder="https://example.com/product" value={form.landingPage} onChange={e => upd("landingPage", e.target.value)} className="h-9 text-sm font-mono text-xs" dir="ltr" />
+            </div>
+          </div>
+          {/* Campaign Settings */}
+          <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/10 p-3 space-y-2.5">
+            <div className="text-xs font-semibold text-blue-700 dark:text-blue-400">Campaign Settings</div>
+            <div className="grid grid-cols-3 gap-3">
+              {/* Budget Type */}
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Budget Type</label>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => upd("stdIsCBO", false)}
+                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${!form.stdIsCBO ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold" : "border-border text-muted-foreground hover:border-blue-400"}`}>ABO</button>
+                  <button type="button" onClick={() => upd("stdIsCBO", true)}
+                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${form.stdIsCBO ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold" : "border-border text-muted-foreground hover:border-blue-400"}`}>CBO</button>
+                </div>
+              </div>
+              {/* Copy Pairs */}
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Copy Pairs / Adset</label>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.max(1, form.stdCreativesPerAdset - 1))} className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">−</button>
+                  <span className="flex-1 text-center text-sm font-bold tabular-nums text-blue-700 dark:text-blue-300">{form.stdCreativesPerAdset}</span>
+                  <button type="button" onClick={() => upd("stdCreativesPerAdset", Math.min(10, form.stdCreativesPerAdset + 1))} className="h-7 w-7 rounded-md border border-border flex items-center justify-center text-sm hover:bg-muted font-bold">+</button>
+                </div>
+              </div>
+              {/* Adset Structure */}
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Adset Structure</label>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => upd("stdAdsetStructure", "ONE_ADSET")}
+                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${form.stdAdsetStructure === "ONE_ADSET" ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold" : "border-border text-muted-foreground hover:border-blue-400"}`}>واحد</button>
+                  <button type="button" onClick={() => upd("stdAdsetStructure", "PER_VIDEO")}
+                    className={`flex-1 h-8 text-xs rounded-lg border transition-all ${form.stdAdsetStructure === "PER_VIDEO" ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold" : "border-border text-muted-foreground hover:border-blue-400"}`}>لكل فيديو</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Angles */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Angles (1 Angle = 1 Adset)</span>
+              <button type="button" onClick={() => upd("stdAngles", [...form.stdAngles, { ...INIT_STD_ANGLE, name: `Angle ${form.stdAngles.length + 1}` }])} className="text-xs text-blue-700 dark:text-blue-400 hover:underline font-medium">+ Add Angle</button>
+            </div>
+            {form.stdAngles.map((angle: any, idx: number) => (
+              <div key={idx} className="rounded-lg border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/20 dark:bg-blue-950/10 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-400">Adset {idx + 1}</span>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => generateStdAngle(idx)} disabled={angle.generating || !angle.landing.trim()} className="text-[11px] text-blue-700 dark:text-blue-400 hover:underline disabled:opacity-40 font-medium">
+                      {angle.generating ? "Generating..." : "✨ Generate Copy"}
+                    </button>
+                    {form.stdAngles.length > 1 && (
+                      <button type="button" onClick={() => upd("stdAngles", form.stdAngles.filter((_: any, i: number) => i !== idx))} className="text-[11px] text-destructive hover:underline">Remove</button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input placeholder='Video filename (e.g. "hook1")' value={angle.name} onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], name: e.target.value}; upd("stdAngles", a); }} className="h-8 text-xs" dir="ltr" />
+                  <Input placeholder="https://landing-page.com/..." value={angle.landing} onChange={e => { const a = [...form.stdAngles]; a[idx] = {...a[idx], landing: e.target.value}; upd("stdAngles", a); }} className="h-8 text-xs font-mono" dir="ltr" />
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Send button */}
+          <div className="pt-1 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border-t border-border/60">
+            <div className="flex-1 min-w-0 text-xs text-muted-foreground">
+              📋✨ {form.stdAngles.length} Adset(s) · {form.stdAdsetStructure === "ONE_ADSET" ? "Adset واحد" : "Adset لكل فيديو"} · {form.stdIsCBO ? "CBO" : "ABO"}
+            </div>
+            <Button size="sm" className="gap-1.5 h-9 text-xs shrink-0 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => sendToChat(buildStandardV2Cmd(), "SCALE")}>
+              <Send className="h-3.5 w-3.5" />
+              إرسال للمساعد ↗
+            </Button>
+          </div>
+        </div>
+      )}
       {/* ── Scale AdSets Form ── */}
       {activeCard === "SCALEADSETS" && (
         <ScaleAdSetsForm accountId={form.flexAccountId} onAccountChange={v => upd("flexAccountId", v)} />
