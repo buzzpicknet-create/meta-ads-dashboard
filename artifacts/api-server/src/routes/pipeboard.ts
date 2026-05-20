@@ -4735,11 +4735,32 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
     try {
       const client = await getPipeboardWriteClient();
       const result = await client.callTool({ name: tool, arguments: args ?? {} });
-      const data = (result.content as Array<{ type: string; text?: string }>)
+      let data = (result.content as Array<{ type: string; text?: string }>)
         ?.filter((c) => c.type === "text")
         .map((c) => c.text ?? "")
         .join("\n")
         .trim();
+      if ((tool === "get_adsets" || tool === "get_adset_status" || tool === "search_adsets") && data) {
+        try {
+          const parsed = JSON.parse(data);
+          const convertBudgets = (obj: Record<string, unknown>) => {
+            if (obj.daily_budget != null) obj.daily_budget = Math.round(Number(obj.daily_budget) / 100);
+            if (obj.lifetime_budget != null) obj.lifetime_budget = Math.round(Number(obj.lifetime_budget) / 100);
+            return obj;
+          };
+          if (Array.isArray(parsed)) {
+            data = JSON.stringify(parsed.map((item: Record<string, unknown>) => convertBudgets(item)));
+          } else if (parsed && typeof parsed === "object") {
+            const p = parsed as Record<string, unknown>;
+            if (Array.isArray(p.data)) {
+              p.data = (p.data as Record<string, unknown>[]).map(convertBudgets);
+              data = JSON.stringify(p);
+            } else {
+              data = JSON.stringify(convertBudgets(p));
+            }
+          }
+        } catch { /* not JSON */ }
+      }
       res.json({ success: true, data });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

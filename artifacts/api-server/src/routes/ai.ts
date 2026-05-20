@@ -836,6 +836,7 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 حقول إلزامية:
 - update_campaign_budget: campaignId + name + currentBudget (EGP حقيقي ≠ 0) + newBudget + budgetType
 - update_adset_budget: adsetId + name + currentBudget + newBudget
+⚠️ currentBudget في bulk_action: لو جاي من get_adset_status اقسمه على 100 أولاً (بيرجع cents). لو جاي من get_campaign_budget استخدمه مباشرة (بيرجع EGP). newBudget = round(currentBudget_EGP × multiplier)
 - duplicate_ad: adId + name + destinationAdsetId
 - create_ad_from_existing_post: adId + accountId + destinationAdsetId + name
 - rename: في bulk_action → name (الحالي) + newName (الجديد)
