@@ -936,7 +936,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         const allDaily: DailyPoint[] = [];
         let anySuccess = false;
 
-        // Fetch campaigns (7d + 30d) and daily overview in parallel for each account
+        // Fetch campaigns (7d only + daily overview) for speed.
+        // 30d data is omitted from initial context — AI uses get_campaign_daily tool if needed.
         // selectedAccountId (Dashboard tab) takes priority over defaultAccountId (chat widget dropdown)
         const effectiveCtxAccount = (selectedAccountId || defaultAccountId || "").replace(/^act_/, "");
         const accountsToFetch = effectiveCtxAccount
@@ -944,20 +945,14 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
           : accounts;
         await Promise.all(accountsToFetch.map(async (acc) => {
           try {
-            const [r30, r7, rDaily] = await Promise.all([
-              fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s30}&until=${u}`, { credentials: "include" }),
+            const [r7, rDaily] = await Promise.all([
               fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s7}&until=${u}`,  { credentials: "include" }),
-              fetch(`${API}/meta/account-overview?ad_account_id=${acc.id}&since=${s30}&until=${u}`, { credentials: "include" }),
+              fetch(`${API}/meta/account-overview?ad_account_id=${acc.id}&since=${s7}&until=${u}`, { credentials: "include" }),
             ]);
-            if (r30.ok) {
-              anySuccess = true;
-              const d = await r30.json() as { campaigns?: CampaignData[] };
-              if (d.campaigns) all30.push(...d.campaigns);
-            }
             if (r7.ok) {
               anySuccess = true;
               const d = await r7.json() as { campaigns?: CampaignData[] };
-              if (d.campaigns) all7.push(...d.campaigns);
+              if (d.campaigns) { all7.push(...d.campaigns); all30.push(...d.campaigns); }
             }
             if (rDaily.ok) {
               const d = await rDaily.json() as { daily?: DailyPoint[] };
