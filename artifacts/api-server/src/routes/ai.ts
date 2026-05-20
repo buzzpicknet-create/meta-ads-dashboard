@@ -713,6 +713,14 @@ WRITE (تنفيذ عبر Pipeboard):
 - publish_winners_to_destination(destination_adset_id, source_ad_ids[], naming_prefix?, account_id?, flex_mode?)
 - launch_pipeboard_campaign(account_id, campaign_name, landing_page_url, adsets[], creatives[], pixel_id?, page_id?, call_to_action?)
 
+⚠️ قاعدة إلزامية — READ قبل WRITE:
+قبل ما تقترح إيقاف أي حملة أو مجموعة — لازم تكون جبت بياناتها الفعلية أولاً:
+- إيقاف حملة: استخدم get_campaign_daily(campaign_id, since, until) أو get_campaigns أولاً
+- تعديل ميزانية: استخدم get_campaign_budget(campaign_id) أو get_adsets(campaign_id) أولاً
+- إيقاف adset: استخدم get_adsets(campaign_id) أولاً لتأكيد الـ adset_id والأداء الفعلي
+لا تقترح write tool بدون أرقام حقيقية من read tool في نفس المحادثة.
+استثناء وحيد: إذا قال المستخدم صراحةً "أوقف حملة X" باسمها وأنت تعرف الـ ID من الـ context — يجوز مباشرة.
+
 قواعد نصوص الإعلانات:
 - إذا كتب المستخدم النص → استخدمه حرفياً بدون تعديل
 - إذا طلب منك الكتابة → primary_text: 2-3 أسطر بالعربية + إيموجي + CTA | headline: 15-25 حرف

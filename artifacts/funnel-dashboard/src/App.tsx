@@ -523,9 +523,16 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
   const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(null);
   const clearPendingCampaignId = useCallback(() => setPendingCampaignId(null), []);
 
-  // Dashboard account selection — shared with GlobalAiChat via context so the AI
-  // always uses the same account the user is currently viewing.
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  // Selected ad account — shared with GlobalAiChat via context + persisted in localStorage
+  // so it survives page navigation and browser refresh.
+  const [selectedAccountId, setSelectedAccountIdRaw] = useState<string | null>(
+    () => localStorage.getItem("selected_account_id")
+  );
+  const setSelectedAccountId = useCallback((id: string | null) => {
+    setSelectedAccountIdRaw(id);
+    if (id) localStorage.setItem("selected_account_id", id);
+    else localStorage.removeItem("selected_account_id");
+  }, []);
 
   // A page is accessible based on the visibility map (applies to all roles including admin).
   // Falls back to hardcoded roles if no DB setting exists yet.

@@ -1,4 +1,5 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { useGlobalAiChat } from "@/contexts/GlobalAiChatContext";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -2288,6 +2289,7 @@ function AccountTabContent({
 // ──────────────────────────────────────────────────────────────
 export default function Overview() {
   const queryClient = useQueryClient();
+  const { setSelectedAccountId } = useGlobalAiChat();
   const accounts = useAccounts();
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [preset, setPreset] = useState<DatePreset>("7d");
@@ -2303,6 +2305,12 @@ export default function Overview() {
 
   // Auto-select first account
   const effectiveAccountId = activeAccountId ?? accountList[0]?.id ?? null;
+
+  // Sync the active account in Overview to the global AI chat context
+  // so the AI always analyzes the account the user is currently viewing.
+  useEffect(() => {
+    if (effectiveAccountId) setSelectedAccountId(effectiveAccountId);
+  }, [effectiveAccountId, setSelectedAccountId]);
 
   const handleRefresh = () => queryClient.invalidateQueries({ queryKey: ["meta", "account-overview"] });
 
