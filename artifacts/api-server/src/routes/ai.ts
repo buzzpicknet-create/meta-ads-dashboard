@@ -46,6 +46,7 @@ const router = Router();
 // ── Model constants — change here to switch globally ─────────────────────────
 // CHAT_MODEL: main conversational model (tool-use, streaming, Arabic)
 const CHAT_MODEL = "claude-sonnet-4-6";
+const TOKEN_LIMIT = 150_000; // compress old tool results if context exceeds this
 
 const SYSTEM_PROMPT = `
 ══════════════════════════════════════
@@ -4513,6 +4514,42 @@ setInterval(() => {
   }
 }, 60_000);
 
+// ── Token counting + context compression ──────────────────────────────────────
+async function compressIfOverLimit(
+  apiMessages: { role: "user" | "assistant"; content: unknown }[],
+  system: unknown[],
+  tools: unknown[],
+): Promise<void> {
+  try {
+    const { input_tokens } = await anthropic.messages.countTokens({
+      model: CHAT_MODEL,
+      system: system as Parameters<typeof anthropic.messages.create>[0]["system"],
+      messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
+      tools: tools as Parameters<typeof anthropic.messages.create>[0]["tools"],
+    });
+    if (input_tokens <= TOKEN_LIMIT) return;
+    logger.warn({ input_tokens }, "Context > 150k tokens — compressing old tool results");
+    // Find user messages that carry tool_result blocks
+    const toolResultMsgs = apiMessages.filter(
+      m => m.role === "user" && Array.isArray(m.content) &&
+      (m.content as unknown[]).some(b => (b as Record<string, unknown>).type === "tool_result"),
+    );
+    // Keep the most recent round intact — compress everything older
+    const toCompress = toolResultMsgs.slice(0, Math.max(0, toolResultMsgs.length - 1));
+    for (const msg of toCompress) {
+      for (const block of (msg.content as unknown[])) {
+        const b = block as Record<string, unknown>;
+        if (b.type === "tool_result" && typeof b.content === "string") {
+          const s = b.content as string;
+          if (s.length > 400) b.content = s.slice(0, 400) + "\n…[مضغوط — تجاوز الحد]";
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "countTokens failed — skipping compression");
+  }
+}
+
 // ── Core streaming runner ─────────────────────────────────────────────────────
 async function runChatStream(session: ChatSession, res: Response): Promise<void> {
   const send = (data: Record<string, unknown>) =>
@@ -4605,11 +4642,17 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       }
     }
 
+    // ── System blocks (reused for countTokens + stream, caching applied once) ──
+    const systemBlocks = [{ type: "text" as const, text: systemContent, cache_control: { type: "ephemeral" as const } }];
+
     // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
     for (let round = 0; round < 15; round++) {
+      // ── Token guard: compress old tool results if context > 150k tokens ─────
+      await compressIfOverLimit(apiMessages, systemBlocks, anthropicTools);
+
       const stream = anthropic.messages.stream({
         model: CHAT_MODEL,
-        system: [{ type: "text", text: systemContent, cache_control: { type: "ephemeral" } }],
+        system: systemBlocks,
         messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
         tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
         tool_choice: { type: "auto" },
@@ -4660,33 +4703,17 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       }
       apiMessages.push({ role: "assistant", content: assistantContent });
 
-      // ── Separate write tools (deferred) from read tools (execute now) ──────
+      // ── Pass 1: send labels + bucket into writes vs reads ──────────────────
+      // Labels are sent before execution so the UI updates immediately.
       const pendingWrites: Array<{ tb: { id: string; name: string; inputJson: string }; args: Record<string, unknown> }> = [];
-      const toolResults: { type: "tool_result"; tool_use_id: string; content: string }[] = [];
+      const readItems: Array<{ tb: { id: string; name: string; inputJson: string }; args: Record<string, unknown> }> = [];
 
       for (const tb of activeTCs) {
         let args: Record<string, unknown> = {};
         try { args = JSON.parse(tb.inputJson || "{}") as Record<string, unknown>; } catch { /* */ }
-
         send({ tool_call_label: getToolLabel(tb.name, args) });
-
-        if (WRITE_TOOL_NAMES.has(tb.name)) {
-          pendingWrites.push({ tb, args });
-          continue;
-        }
-
-        let result = await executeTool(tb.name, args, selectedAccFilter);
-        // Inject a mandatory reminder after get_campaigns/get_adsets results so the
-        // model cannot skip the "show table → bulk_action" protocol for winners-scale.
-        if (tb.name === "get_campaigns" || tb.name === "get_adsets") {
-          result += "\n\n[SYSTEM REMINDER — MANDATORY BEFORE ANY ACTION:\n" +
-            "1. Display a full markdown analysis table for ALL campaigns/adsets above.\n" +
-            "2. Do NOT call update_campaign_budget or update_adset_budget as a direct tool call.\n" +
-            "3. For CPA < 20 EGP (Aggressive): show 3 options (+1×/+2×/+3×) and STOP — wait for user choice.\n" +
-            "4. For others: generate ONE ```bulk_action``` block containing ALL qualifying actions.\n" +
-            "Violation = generating direct write tool call or bulk_action before table = critical error.]";
-        }
-        toolResults.push({ type: "tool_result", tool_use_id: tb.id, content: result });
+        if (WRITE_TOOL_NAMES.has(tb.name)) pendingWrites.push({ tb, args });
+        else readItems.push({ tb, args });
       }
 
       // ── Write tools → send optimistic pending cards and terminate ──────────
@@ -4701,6 +4728,22 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
         send({ done: true });
         return;
       }
+
+      // ── Pass 2: execute all read tools in parallel ─────────────────────────
+      const toolResults = await Promise.all(readItems.map(async ({ tb, args }) => {
+        let result = await executeTool(tb.name, args, selectedAccFilter);
+        // Inject mandatory reminder after get_campaigns/get_adsets so the
+        // model cannot skip the "show table → bulk_action" protocol.
+        if (tb.name === "get_campaigns" || tb.name === "get_adsets") {
+          result += "\n\n[SYSTEM REMINDER — MANDATORY BEFORE ANY ACTION:\n" +
+            "1. Display a full markdown analysis table for ALL campaigns/adsets above.\n" +
+            "2. Do NOT call update_campaign_budget or update_adset_budget as a direct tool call.\n" +
+            "3. For CPA < 20 EGP (Aggressive): show 3 options (+1×/+2×/+3×) and STOP — wait for user choice.\n" +
+            "4. For others: generate ONE ```bulk_action``` block containing ALL qualifying actions.\n" +
+            "Violation = generating direct write tool call or bulk_action before table = critical error.]";
+        }
+        return { type: "tool_result" as const, tool_use_id: tb.id, content: result };
+      }));
 
       // ── Add all read tool results as a single user message (Anthropic format) ─
       if (toolResults.length > 0) {

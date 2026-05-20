@@ -715,7 +715,18 @@ function buildCtx(c30: CampData[], c7: CampData[], daily: DailyPt[]): string {
 
 // ─── File attachment helper ────────────────────────────────────────────────────
 interface Attachment { base64?: string; text?: string; mimeType?: string; previewUrl?: string; name: string; isImage: boolean }
-function readFile(file: File): Promise<Attachment> {
+async function readFile(file: File): Promise<Attachment> {
+  // Excel files → convert to CSV text via SheetJS (dynamic import to keep bundle lean)
+  if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+    const XLSX = await import("xlsx");
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const parts = wb.SheetNames.map(name =>
+      `# Sheet: ${name}\n${XLSX.utils.sheet_to_csv(wb.Sheets[name])}`
+    );
+    const text = parts.join("\n\n").slice(0, 200_000); // cap at 200k chars
+    return { text, name: file.name, isImage: false };
+  }
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     if (file.type.startsWith("image/")) {
@@ -1587,7 +1598,7 @@ export default function AiChatPage() {
 
           {/* Input row */}
           <div className="relative flex gap-2 items-end">
-            <input ref={fileRef} type="file" accept="image/*,.txt,.csv,.json,.md" className="hidden" onChange={async e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;try{setAtt(await readFile(f));}catch(err){alert(err instanceof Error?err.message:"خطأ");}}} />
+            <input ref={fileRef} type="file" accept="image/*,.txt,.csv,.json,.md,.xlsx,.xls" className="hidden" onChange={async e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;try{setAtt(await readFile(f));}catch(err){alert(err instanceof Error?err.message:"خطأ");}}} />
 
             <button onClick={()=>fileRef.current?.click()} title="إرفاق ملف أو صورة"
               className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border border-border/60 bg-card text-muted-foreground hover:text-primary hover:border-primary/40 transition-all">
