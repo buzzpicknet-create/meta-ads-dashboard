@@ -790,6 +790,7 @@ export default function AiChatPage() {
   const [toolLabels, setTL]   = useState<string[]>([]);
   const [thinkingTxt, setThinkTxt] = useState("");
   const [isThinking, setIsThinking] = useState(false);
+  const [deepThink, setDeepThink] = useState(false);
   const [input, setInput]     = useState("");
   const [attachment, setAtt]  = useState<Attachment|null>(null);
   const [pending, setPending] = useState<PendingAction|null>(null);
@@ -1012,7 +1013,7 @@ export default function AiChatPage() {
         const names = selAccList.map(a=>`${a.name} (${a.type==="meta"?"Meta Ads":"Google Ads"} — ID: ${a.id})`).join("، ");
         ctx = `⚠️ تعليمات المستخدم: ركّز حصرياً على الحسابات التالية في هذه المحادثة:\n${names}\n\nأي سؤال عن حسابات أخرى غير المذكورة → اعتذر بأدب وأخبر المستخدم أن صلاحياته مقصورة على الحسابات المحددة.\n\n` + ctx;
       }
-      const body: Record<string,unknown> = {campaignContext:ctx, messages:clean, conversation_id:cid, selectedAccountIds:[...selectedAccIds]};
+      const body: Record<string,unknown> = {campaignContext:ctx, messages:clean, conversation_id:cid, selectedAccountIds:[...selectedAccIds], deepThink};
       if (att?.isImage) { body.imageBase64=att.base64; body.imageMimeType=att.mimeType; }
       if (att?.text)   { body.fileText=att.text; body.fileName=att.name; }
       const prepResp = await fetch(`${API}/ai/chat-prepare`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:ctrl.signal, credentials:"include"});
@@ -1623,6 +1624,15 @@ export default function AiChatPage() {
               )}
             </div>
 
+          {/* Deep think mode indicator */}
+          {deepThink && (
+            <div className="flex items-center gap-2 mb-2 px-1">
+              <span className="flex items-center gap-1.5 text-xs text-primary font-medium bg-primary/10 border border-primary/25 rounded-full px-3 py-1">
+                🧠 <span>وضع التفكير العميق مفعّل — الردود أعمق وأبطأ</span>
+              </span>
+            </div>
+          )}
+
           {/* Input row */}
           <div className="relative flex gap-2 items-end">
             <input ref={fileRef} type="file" accept="image/*,.txt,.csv,.json,.md,.xlsx,.xls" className="hidden" onChange={async e=>{const f=e.target.files?.[0];e.target.value="";if(!f)return;try{setAtt(await readFile(f));}catch(err){alert(err instanceof Error?err.message:"خطأ");}}} />
@@ -1630,6 +1640,18 @@ export default function AiChatPage() {
             <button onClick={()=>fileRef.current?.click()} title="إرفاق ملف أو صورة"
               className="h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border border-border/60 bg-card text-muted-foreground hover:text-primary hover:border-primary/40 transition-all">
               <Paperclip className="h-4.5 w-4.5" />
+            </button>
+
+            <button
+              onClick={() => setDeepThink(v => !v)}
+              title={deepThink ? "تفكير عميق مفعّل — انقر للإيقاف" : "تفعيل وضع التفكير العميق"}
+              className={`h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border transition-all text-base ${
+                deepThink
+                  ? "bg-primary border-primary text-primary-foreground shadow-md shadow-primary/30 scale-105"
+                  : "border-border/60 bg-card text-muted-foreground hover:border-primary/40 hover:text-primary"
+              }`}
+            >
+              🧠
             </button>
 
             <textarea

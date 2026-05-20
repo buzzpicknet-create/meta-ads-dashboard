@@ -4506,6 +4506,7 @@ interface ChatSession {
   userId: number;
   username: string;
   createdAt: number;
+  deepThink?: boolean;
 }
 
 const pendingSessions = new Map<string, ChatSession>();
@@ -4662,9 +4663,9 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     // ── System blocks (reused for countTokens + stream, caching applied once) ──
     const systemBlocks = [{ type: "text" as const, text: systemContent, cache_control: { type: "ephemeral" as const } }];
 
-    // ── Detect extended thinking once — applies only on round 0 ──────────────
-    const useExtendedThinking = shouldUseExtendedThinking(messages);
-    if (useExtendedThinking) logger.info("Extended thinking activated for this request");
+    // ── Detect extended thinking — driven by user toggle (deepThink flag) ─────
+    const useExtendedThinking = session.deepThink === true;
+    if (useExtendedThinking) logger.info("Extended thinking activated (user toggle)");
 
     // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
     for (let round = 0; round < 15; round++) {
@@ -4816,6 +4817,7 @@ router.post("/ai/chat-prepare", async (req: Request, res: Response): Promise<voi
       fileName?: string;
       selectedAccounts?: string[];
       selectedAccountIds?: string[];
+      deepThink?: boolean;
     };
     const sessionId = randomUUID();
     pendingSessions.set(sessionId, {
@@ -4830,6 +4832,7 @@ router.post("/ai/chat-prepare", async (req: Request, res: Response): Promise<voi
       userId: req.session.userId,
       username: req.session.username ?? "user",
       createdAt: Date.now(),
+      deepThink: body.deepThink === true,
     });
     res.json({ sessionId });
   } catch (err) {
