@@ -4677,6 +4677,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
 
       let assistantText = "";
       let thinkingText = "";
+      let thinkingSignature = "";   // must echo back in multi-turn — API requires it
       // Sparse array indexed by content block index
       const toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
       let stopReason = "";
@@ -4719,6 +4720,9 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
             const chunk = String(delta.thinking ?? "");
             thinkingText += chunk;
             if (chunk) send({ thinking_chunk: chunk });
+          } else if (delta.type === "signature_delta") {
+            // Accumulate signature — must be echoed verbatim in subsequent turns
+            thinkingSignature += String(delta.signature ?? "");
           } else if (event.delta.type === "text_delta") {
             assistantText += event.delta.text;
             send({ content: event.delta.text });
@@ -4739,9 +4743,10 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       if (activeTCs.length === 0) break;
 
       // ── Build assistant content blocks (thinking → text → tool_use order) ───
-      // Thinking blocks MUST be preserved in multi-turn for Anthropic API continuity
+      // Thinking blocks MUST be preserved in multi-turn for Anthropic API continuity,
+      // and the signature field is REQUIRED — without it the API returns 400.
       const assistantContent: unknown[] = [];
-      if (thinkingText) assistantContent.push({ type: "thinking", thinking: thinkingText });
+      if (thinkingText) assistantContent.push({ type: "thinking", thinking: thinkingText, signature: thinkingSignature });
       if (assistantText) assistantContent.push({ type: "text", text: assistantText });
       for (const tb of activeTCs) {
         let input: Record<string, unknown> = {};
