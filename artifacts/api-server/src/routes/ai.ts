@@ -871,7 +871,7 @@ currentBudget = رقم EGP فعلي من get_campaign_budget / get_adset_status
 ١. get_campaigns → لقائمة الحملات
 ٢. get_adsets(campaign_id) → لكل حملة ACTIVE
 ٣. get_ads_in_adset(adset_id) → لكل adset ACTIVE
-LPR وCVR متوفران فقط في get_ads_in_adset — لا تحكم على الحملة بدونهما
+LPR وCVR متوفران في get_ads_in_adset — CVR إلزامي في كل جدول على مستوى Campaign وAdset وAd
 ممنوع تكتب تشخيصاً نهائياً بدون LPR وCVR — هما الخطوتان 3 و4 في الـ Funnel
 - لا تقل "البيانات غير متاحة" قبل استدعاء الأداة فعلياً
 
@@ -4514,6 +4514,20 @@ setInterval(() => {
   }
 }, 60_000);
 
+// ── Extended thinking trigger detection ───────────────────────────────────────
+const DEEP_THINK_TRIGGERS = [
+  "فكر بعمق", "حلل بالتفصيل", "تحليل شامل", "تشخيص مشكلة",
+  "مقارنة حملات", "قرار مهم", "scale كبير", "scale ضخم",
+  "analyze deeply", "think carefully", "deep analysis",
+];
+
+function shouldUseExtendedThinking(messages: { role: string; content: string }[]): boolean {
+  const lastUser = [...messages].reverse().find(m => m.role === "user");
+  if (!lastUser) return false;
+  const text = lastUser.content.toLowerCase();
+  return DEEP_THINK_TRIGGERS.some(t => text.includes(t.toLowerCase()));
+}
+
 // ── Token counting + context compression ──────────────────────────────────────
 async function compressIfOverLimit(
   apiMessages: { role: "user" | "assistant"; content: unknown }[],
@@ -4645,28 +4659,43 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     // ── System blocks (reused for countTokens + stream, caching applied once) ──
     const systemBlocks = [{ type: "text" as const, text: systemContent, cache_control: { type: "ephemeral" as const } }];
 
+    // ── Detect extended thinking once — applies only on round 0 ──────────────
+    const useExtendedThinking = shouldUseExtendedThinking(messages);
+    if (useExtendedThinking) logger.info("Extended thinking activated for this request");
+
     // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
     for (let round = 0; round < 15; round++) {
       // ── Token guard: compress old tool results if context > 150k tokens ─────
       await compressIfOverLimit(apiMessages, systemBlocks, anthropicTools);
 
-      const stream = anthropic.messages.stream({
+      // Extended thinking only on round 0 — tool-call rounds don't support it
+      const thinkingActive = useExtendedThinking && round === 0;
+      const streamParams: Parameters<typeof anthropic.messages.create>[0] = {
         model: CHAT_MODEL,
         system: systemBlocks,
         messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
         tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
         tool_choice: { type: "auto" },
-        max_tokens: 16384,
-      });
+        // max_tokens must exceed budget_tokens when thinking is on
+        max_tokens: thinkingActive ? 22000 : 16384,
+        ...(thinkingActive ? { thinking: { type: "enabled" as const, budget_tokens: 10_000 } } : {}),
+      };
+      const stream = anthropic.messages.stream(streamParams);
 
       let assistantText = "";
+      let thinkingText = ""; // accumulated thinking content for this round
       // Sparse array indexed by content block index
       const toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
       let stopReason = "";
+      let sentThinkingStart = false;
 
       for await (const event of stream) {
         if (event.type === "content_block_start") {
-          if (event.content_block.type === "tool_use") {
+          // @ts-ignore — thinking block type not in older SDK typedefs
+          if (event.content_block.type === "thinking" && !sentThinkingStart) {
+            send({ thinking_start: true });
+            sentThinkingStart = true;
+          } else if (event.content_block.type === "tool_use") {
             toolUseBlocks[event.index] = {
               id: event.content_block.id,
               name: event.content_block.name,
@@ -4674,7 +4703,13 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
             };
           }
         } else if (event.type === "content_block_delta") {
-          if (event.delta.type === "text_delta") {
+          // @ts-ignore — thinking_delta not in older SDK typedefs
+          if (event.delta.type === "thinking_delta") {
+            // @ts-ignore
+            const chunk = String(event.delta.thinking ?? "");
+            thinkingText += chunk;
+            if (chunk) send({ thinking_chunk: chunk });
+          } else if (event.delta.type === "text_delta") {
             assistantText += event.delta.text;
             send({ content: event.delta.text });
           } else if (event.delta.type === "input_json_delta") {
@@ -4693,8 +4728,10 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       // No tool calls → done
       if (activeTCs.length === 0) break;
 
-      // ── Build assistant content blocks (text + tool_use) ───────────────────
+      // ── Build assistant content blocks (thinking → text → tool_use order) ───
+      // Thinking block must be preserved in multi-turn for Anthropic API continuity
       const assistantContent: unknown[] = [];
+      if (thinkingText) assistantContent.push({ type: "thinking", thinking: thinkingText });
       if (assistantText) assistantContent.push({ type: "text", text: assistantText });
       for (const tb of activeTCs) {
         let input: Record<string, unknown> = {};

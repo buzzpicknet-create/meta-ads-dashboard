@@ -788,6 +788,8 @@ export default function AiChatPage() {
   const [streaming, setStr]   = useState(false);
   const [streamTxt, setStTxt] = useState("");
   const [toolLabels, setTL]   = useState<string[]>([]);
+  const [thinkingTxt, setThinkTxt] = useState("");
+  const [isThinking, setIsThinking] = useState(false);
   const [input, setInput]     = useState("");
   const [attachment, setAtt]  = useState<Attachment|null>(null);
   const [pending, setPending] = useState<PendingAction|null>(null);
@@ -1037,7 +1039,9 @@ export default function AiChatPage() {
           if (data.tool_call_label) { localLabels.push(data.tool_call_label as string); setTL(p=>[...p, data.tool_call_label as string]); }
           if (data.pending_action) { setPending(data.pending_action as PendingAction); hadPendingAction = true; }
           if (data.pending_action_resolved) setPending(p=>p?{...p,...(data.pending_action_resolved as Partial<PendingAction>),detailsLoading:false}:p);
-          if (data.content) { setTL([]); acc+=String(data.content); setStTxt(acc); }
+          if (data.thinking_start) { setIsThinking(true); }
+          if (data.thinking_chunk) { setThinkTxt(p => p + String(data.thinking_chunk)); }
+          if (data.content) { setIsThinking(false); setTL([]); acc+=String(data.content); setStTxt(acc); }
         }
       }
       // If a pending action card was shown, the card itself IS the response — skip "عذراً" fallback
@@ -1064,7 +1068,7 @@ export default function AiChatPage() {
       }
     } finally {
       stoppedRef.current=false;
-      clearTimeout(tid); setStr(false); setStTxt(""); setTL([]); abortRef.current=null;
+      clearTimeout(tid); setStr(false); setStTxt(""); setTL([]); setThinkTxt(""); setIsThinking(false); abortRef.current=null;
       setTimeout(()=>inputRef.current?.focus(),50);
     }
   }, [input, msgs, streaming, attachment, campCtx, ensureConv, saveToDB, logout]);
@@ -1415,14 +1419,37 @@ export default function AiChatPage() {
                   <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
                   </div>
-                  <div className="flex-1 min-w-0 ai-msg-body text-foreground">
-                    <RenderMarkdown text={streamTxt} />
+                  <div className="flex-1 min-w-0">
+                    {thinkingTxt && (
+                      <details className="mb-2 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 text-xs">
+                        <summary className="cursor-pointer select-none text-primary/70 flex items-center gap-1.5 font-medium">
+                          <span>🧠</span> تفكير عميق — اضغط للعرض
+                        </summary>
+                        <pre className="mt-2 text-muted-foreground whitespace-pre-wrap text-[11px] leading-relaxed font-sans">{thinkingTxt}</pre>
+                      </details>
+                    )}
+                    <div className="ai-msg-body text-foreground">
+                      <RenderMarkdown text={streamTxt} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Extended thinking indicator */}
+              {isThinking && !streamTxt && (
+                <div className="flex gap-2 sm:gap-3">
+                  <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                    <span className="text-sm">🧠</span>
+                  </div>
+                  <div className="bg-primary/5 border border-primary/20 rounded-2xl rounded-tl-sm px-4 py-2.5 flex items-center gap-2 text-sm text-primary/80">
+                    <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                    <span>جاري التفكير...</span>
                   </div>
                 </div>
               )}
 
               {/* Tool call labels (in progress) */}
-              {toolLabels.length>0 && !streamTxt && (
+              {toolLabels.length>0 && !streamTxt && !isThinking && (
                 <div className="flex gap-2 sm:gap-3">
                   <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
                     <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
@@ -1438,7 +1465,7 @@ export default function AiChatPage() {
               )}
 
               {/* Typing indicator */}
-              {streaming && !streamTxt && toolLabels.length===0 && (
+              {streaming && !streamTxt && toolLabels.length===0 && !isThinking && (
                 <div className="flex gap-2 sm:gap-3">
                   <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
                     <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />

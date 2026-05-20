@@ -31,6 +31,7 @@ interface FbInsightRow {
   actions?: FbActionEntry[];
   action_values?: FbActionEntry[];
   video_play_actions?: FbActionEntry[];
+  video_p3_watched_actions?: FbActionEntry[];
   video_p25_watched_actions?: FbActionEntry[];
   video_p50_watched_actions?: FbActionEntry[];
   video_p75_watched_actions?: FbActionEntry[];
@@ -417,6 +418,7 @@ function addRow(acc: AggregatedMetrics, row: FbInsightRow): void {
   acc.link_clicks += linkClickCount(row);
   acc.lpv += lpvCount(row);
   acc.purchases += purchaseCount(row);
+  acc.v3 = (acc.v3 ?? 0) + actionVal(row.video_p3_watched_actions, "video_view");
   acc.v25 += actionVal(row.video_p25_watched_actions, "video_view");
   acc.v50 += actionVal(row.video_p50_watched_actions, "video_view");
   acc.v75 += actionVal(row.video_p75_watched_actions, "video_view");
@@ -448,7 +450,7 @@ export function derive(m: AggregatedMetrics): DerivedMetrics {
     lpvRate: m.link_clicks ? (m.lpv / m.link_clicks) * 100 : 0,
     crLpv: m.lpv ? (m.purchases / m.lpv) * 100 : 0,
     crClick: m.link_clicks ? (m.purchases / m.link_clicks) * 100 : 0,
-    hookRate: m.impressions ? (m.v25 / m.impressions) * 100 : 0,  // video_p25 ÷ Impressions ≈ Hook Rate (أقرب حاجة لـ 3s views في Meta API)
+    hookRate: m.impressions ? ((m.v3 ?? m.v25) / m.impressions) * 100 : 0,  // video_p3 ÷ Impressions = Hook Rate الحقيقي (3 ثواني)
     holdRate: m.video_plays > 0 ? (m.v100 / m.video_plays) * 100 : 0,
     frequency: m.reach > 0 ? m.impressions / m.reach : 0,
   };
@@ -474,6 +476,7 @@ const INSIGHT_FIELDS = [
   "inline_link_clicks",
   "actions",
   "video_play_actions",
+  "video_p3_watched_actions",
   "video_p25_watched_actions",
   "video_p50_watched_actions",
   "video_p75_watched_actions",
