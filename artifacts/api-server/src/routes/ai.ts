@@ -134,7 +134,12 @@ create_campaign / create_adset / create_ad / pause / enable / budget / duplicate
 ⚖️ قاعدة البيانات الكافية:
 - Spend < 2× Target CPA → القرار: WAIT دائماً — ممنوع الحكم المبكر
 - Scaling للرابحين المستقرين: +20% فقط ثم مراجعة 48-72 ساعة
-- CPA أعلى من الهدف → شخّص أولاً (Creative Fatigue / Frequency / CTR) قبل الإيقاف
+- CPA أعلى من الهدف → شخّص أولاً قبل أي إيقاف:
+  أ) get_ads_in_adset → لو إعلان واحد بس بـ CPA عالي → أوقف الإعلان فقط مش الحملة
+  ب) لو CVR < 1% مع CTR كويس (> 1.5%) → مشكلة في السعر أو العرض → اقترح مراجعة الـ Offer مش إيقاف
+  ج) لو CPM > 150 EGP → Audience Fatigue → اقترح جمهور جديد
+  د) لو Hook Rate < 15% → Creative Problem → اقترح تغيير الفيديو
+  ه) لا تقترح إيقاف الحملة كاملة إلا لو كل الإعلانات فاشلة بنفس السبب
 
 🗓️ بيانات اليوم (Today):
 - إذا طلب "اليوم": استدعِ get_campaigns(since=today, until=today) فوراً بلا تردد

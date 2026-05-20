@@ -5112,7 +5112,7 @@ router.get(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
-          `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click%2Clanding_page_views%2Cvideo_p25_watched_actions` +
+          `level=adset&fields=adset_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click%2Clanding_page_views%2Cvideo_p25_watched_actions%2Cvideo_p3_watched_actions` +
           `&action_attribution_windows=%5B%221d_click%22%2C%227d_click%22%2C%221d_view%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
@@ -5159,6 +5159,9 @@ router.get(
         const clicks = Number(ins.clicks ?? 0);
         const impressions = Number(ins.impressions ?? 0);
         const landingPageViews = Number(ins.landing_page_views ?? 0);
+        const videoP3 = Array.isArray(ins.video_p3_watched_actions)
+          ? Number((ins.video_p3_watched_actions as Array<{value: string}>)[0]?.value ?? 0)
+          : 0;
         const videoP25 = Array.isArray(ins.video_p25_watched_actions)
           ? Number((ins.video_p25_watched_actions as Array<{value: string}>)[0]?.value ?? 0)
           : 0;
@@ -5168,7 +5171,7 @@ router.get(
         const ctr = impressions ? ((clicks / impressions) * 100).toFixed(2) : null;
         const cvr = clicks && purchases ? ((Number(purchases) / clicks) * 100).toFixed(2) : null;
         const lpr = clicks > 0 && landingPageViews > 0 ? ((landingPageViews / clicks) * 100).toFixed(2) : null;
-        const hookRate = impressions > 0 && videoP25 > 0 ? ((videoP25 / impressions) * 100).toFixed(2) : null;
+        const hookRate = impressions > 0 && videoP3 > 0 ? ((videoP3 / impressions) * 100).toFixed(2) : null;
         return {
           ...a,
           insights: ins,
@@ -5415,7 +5418,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
     try {
       const metaToken = getAccessToken();
       const insUrl = `https://graph.facebook.com/v21.0/${campaignId}/insights?` +
-        `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click%2Clanding_page_views%2Cvideo_p25_watched_actions` +
+        `level=ad&fields=ad_id%2Cspend%2Cimpressions%2Cclicks%2Cactions%2Cinline_link_clicks%2Ccost_per_inline_link_click%2Clanding_page_views%2Cvideo_p25_watched_actions%2Cvideo_p3_watched_actions` +
         `&action_attribution_windows=%5B%221d_click%22%2C%227d_click%22%2C%221d_view%22%5D&date_preset=last_7d&limit=200&access_token=${encodeURIComponent(metaToken)}`;
       const insRes = await fetch(insUrl);
       const insJson = await insRes.json() as { data?: Record<string, unknown>[] };
@@ -5449,6 +5452,9 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const clicks = Number(ins.clicks ?? 0);
       const impressions = Number(ins.impressions ?? 0);
       const landingPageViews = Number(ins.landing_page_views ?? 0);
+      const videoP3 = Array.isArray(ins.video_p3_watched_actions)
+        ? Number((ins.video_p3_watched_actions as Array<{value: string}>)[0]?.value ?? 0)
+        : 0;
       const videoP25 = Array.isArray(ins.video_p25_watched_actions)
         ? Number((ins.video_p25_watched_actions as Array<{value: string}>)[0]?.value ?? 0)
         : 0;
@@ -5458,7 +5464,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const cpa = purchases && spend ? Number((spend / purchases).toFixed(2)) : null;
       const ctr = impressions ? Number(((clicks / impressions) * 100).toFixed(2)) : null;
       const lpr = clicks > 0 && landingPageViews > 0 ? Number(((landingPageViews / clicks) * 100).toFixed(2)) : null;
-      const hookRate = impressions > 0 && videoP25 > 0 ? Number(((videoP25 / impressions) * 100).toFixed(2)) : null;
+      const hookRate = impressions > 0 && videoP3 > 0 ? Number(((videoP3 / impressions) * 100).toFixed(2)) : null;
       const linkClicks = Number(ins.inline_link_clicks ?? 0) || null;
       const costPerLinkClick = linkClicks && spend ? Number((spend / linkClicks).toFixed(2)) : null;
       return {
