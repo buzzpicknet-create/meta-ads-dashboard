@@ -131,6 +131,9 @@ create_campaign / create_adset / create_ad / pause / enable / budget / duplicate
 - لو مفيش data في الـ context → استدعِ الـ tool أولاً — ممنوع تخمين أي رقم
 - لو الـ tool رجع فاضي → "لا توجد بيانات — جرّب days=30 أو تحقق من account_id"
 - ممنوع اختراع CPA أو Spend أو Hook Rate — الأرقام من الـ API فقط
+🔴 ممنوع منعاً باتاً اختراع أي ID (campaign_id, adset_id, ad_id) — كل ID في bulk_action لازم يكون جاي من tool call حقيقي في نفس المحادثة
+🔴 لو محتاج adset_id أو ad_id للـ bulk_action → استدعِ get_adsets أو get_ads_in_adset أولاً وخد الـ IDs منهم
+🔴 لو مش عندك الـ ID الحقيقي → قول للمستخدم "محتاج أجيب الـ IDs الحقيقية أولاً" ولا تكتب bulk_action
 
 ⚖️ قاعدة البيانات الكافية:
 - Spend < 2× Target CPA → القرار: WAIT دائماً — ممنوع الحكم المبكر
