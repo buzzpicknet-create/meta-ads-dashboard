@@ -3037,7 +3037,7 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${campaign_id}/insights?` +
-          `level=campaign&fields=campaign_id,campaign_name,spend,impressions,clicks,actions,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `level=campaign&fields=campaign_id,campaign_name,spend,impressions,clicks,actions,video_p25_watched_actions,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
           `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&time_increment=1&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
@@ -3071,7 +3071,7 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${campaign_id}/insights?` +
-          `level=adset&fields=adset_id,adset_name,spend,impressions,clicks,actions,action_values,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `level=adset&fields=adset_id,adset_name,spend,impressions,clicks,actions,action_values,video_p25_watched_actions,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
           `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
@@ -3091,11 +3091,13 @@ async function tryExecuteViaPipeboard(
           const purchases = Number((purchaseAction as Record<string,string> | undefined)?.["7d_click"] ?? purchaseAction?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
-          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
-          const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
+          const videoP25 = Array.isArray(r.video_p25_watched_actions) ? r.video_p25_watched_actions as Array<{action_type:string;value:string}> : [];
+          const p25Views = Number(videoP25.find(a => a.action_type === "video_view")?.value ?? videoP25[0]?.value ?? 0);
+          const hookRate = impressions > 0 && p25Views > 0 ? ((p25Views / impressions) * 100).toFixed(1) : "—";
+          const totalPlays = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? videoPlays[0]?.value ?? 0);
           const thruPlays = Array.isArray(r.video_thruplay_watched_actions) ? r.video_thruplay_watched_actions as Array<{action_type:string;value:string}> : [];
           const thruPlay = Number(thruPlays.find(a => a.action_type === "video_view")?.value ?? 0);
-          const holdRate = impressions > 0 ? ((thruPlay / impressions) * 100).toFixed(1) : "—";
+          const holdRate = totalPlays > 0 && thruPlay > 0 ? ((thruPlay / totalPlays) * 100).toFixed(1) : "—";
           const freq = Number(r.frequency ?? 0).toFixed(2);
           lines.push(`| ${r.adset_name} (id:${r.adset_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${holdRate} | ${freq} |`);
         }
@@ -3148,7 +3150,7 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${ad_id}/insights?` +
-          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,video_p25_watched_actions,video_play_actions,video_thruplay_watched_actions,frequency&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
           `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
@@ -3168,11 +3170,13 @@ async function tryExecuteViaPipeboard(
           const purchases = Number(purchaseAction?.["7d_click"] ?? purchaseAction?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
-          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
-          const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
+          const videoP25 = Array.isArray(r.video_p25_watched_actions) ? r.video_p25_watched_actions as Array<{action_type:string;value:string}> : [];
+          const p25Views = Number(videoP25.find(a => a.action_type === "video_view")?.value ?? videoP25[0]?.value ?? 0);
+          const hookRate = impressions > 0 && p25Views > 0 ? ((p25Views / impressions) * 100).toFixed(1) : "—";
+          const totalPlays = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? videoPlays[0]?.value ?? 0);
           const thruPlays = Array.isArray(r.video_thruplay_watched_actions) ? r.video_thruplay_watched_actions as Array<{action_type:string;value:string}> : [];
           const thruPlay = Number(thruPlays.find(a => a.action_type === "video_view")?.value ?? 0);
-          const holdRate = impressions > 0 ? ((thruPlay / impressions) * 100).toFixed(1) : "—";
+          const holdRate = totalPlays > 0 && thruPlay > 0 ? ((thruPlay / totalPlays) * 100).toFixed(1) : "—";
           lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${holdRate} |`);
         }
         return lines.join("\n");
@@ -3188,7 +3192,7 @@ async function tryExecuteViaPipeboard(
       try {
         const metaToken = getAccessToken();
         const insUrl = `https://graph.facebook.com/v21.0/${adset_id}/insights?` +
-          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,action_values,video_play_actions,video_thruplay_watched_actions,outbound_clicks&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
+          `level=ad&fields=ad_id,ad_name,spend,impressions,clicks,actions,action_values,video_p25_watched_actions,video_play_actions,video_thruplay_watched_actions,outbound_clicks&action_attribution_windows=7d_click,1d_view&use_account_attribution_setting=false` +
           `&time_range=${encodeURIComponent(JSON.stringify({since: timeRange.since, until: timeRange.until}))}&limit=200&access_token=${encodeURIComponent(metaToken)}`;
         const insRes = await fetch(insUrl);
         const insJson = await insRes.json() as { data?: Record<string, unknown>[], error?: unknown };
@@ -3209,11 +3213,13 @@ async function tryExecuteViaPipeboard(
           const lpViews = Number(actions.find(a => a.action_type === "landing_page_view")?.value ?? 0);
           const cpa = purchases > 0 ? (spend / purchases).toFixed(0) : "—";
           const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0";
-          const videoViews = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? 0);
-          const hookRate = impressions > 0 ? ((videoViews / impressions) * 100).toFixed(1) : "—";
+          const videoP25 = Array.isArray(r.video_p25_watched_actions) ? r.video_p25_watched_actions as Array<{action_type:string;value:string}> : [];
+          const p25Views = Number(videoP25.find(a => a.action_type === "video_view")?.value ?? videoP25[0]?.value ?? 0);
+          const hookRate = impressions > 0 && p25Views > 0 ? ((p25Views / impressions) * 100).toFixed(1) : "—";
+          const totalPlays = Number(videoPlays.find(a => a.action_type === "video_view")?.value ?? videoPlays[0]?.value ?? 0);
           const thruPlays = Array.isArray(r.video_thruplay_watched_actions) ? r.video_thruplay_watched_actions as Array<{action_type:string;value:string}> : [];
           const thruPlay = Number(thruPlays.find(a => a.action_type === "video_view")?.value ?? 0);
-          const holdRate = impressions > 0 ? ((thruPlay / impressions) * 100).toFixed(1) : "—";
+          const holdRate = totalPlays > 0 && thruPlay > 0 ? ((thruPlay / totalPlays) * 100).toFixed(1) : "—";
           lines.push(`| ${r.ad_name} (id:${r.ad_id}) | ${spend.toFixed(0)} | ${purchases} | ${cpa} | ${ctr}% | ${hookRate} | ${holdRate} | ${lpViews} |`);
         }
         return lines.join("\n");

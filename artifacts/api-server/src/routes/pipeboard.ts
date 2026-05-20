@@ -5159,10 +5159,7 @@ router.get(
         const clicks = Number(ins.clicks ?? 0);
         const impressions = Number(ins.impressions ?? 0);
         const landingPageViews = Number(ins.landing_page_views ?? 0);
-        const videoP3 = Array.isArray(ins.video_play_actions)
-          ? Number((ins.video_play_actions as Array<{value: string}>)[0]?.value ?? 0)
-          : 0;
-        const videoP25 = Array.isArray(ins.video_p25_watched_actions)
+        const videoP3 = Array.isArray(ins.video_p25_watched_actions)
           ? Number((ins.video_p25_watched_actions as Array<{value: string}>)[0]?.value ?? 0)
           : 0;
         const actions = Array.isArray(ins.actions) ? ins.actions as Array<{action_type: string; value: string}> : [];
@@ -5452,10 +5449,7 @@ router.get("/pipeboard/campaigns/:id/ads", async (req: Request, res: Response) =
       const clicks = Number(ins.clicks ?? 0);
       const impressions = Number(ins.impressions ?? 0);
       const landingPageViews = Number(ins.landing_page_views ?? 0);
-      const videoP3 = Array.isArray(ins.video_play_actions)
-        ? Number((ins.video_play_actions as Array<{value: string}>)[0]?.value ?? 0)
-        : 0;
-      const videoP25 = Array.isArray(ins.video_p25_watched_actions)
+      const videoP3 = Array.isArray(ins.video_p25_watched_actions)
         ? Number((ins.video_p25_watched_actions as Array<{value: string}>)[0]?.value ?? 0)
         : 0;
       const actions = Array.isArray(ins.actions) ? ins.actions as Array<{ action_type: string; value: string }> : [];
