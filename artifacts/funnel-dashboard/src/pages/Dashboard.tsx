@@ -2339,7 +2339,6 @@ function InsightsBody({ insights, initialConvId, onConvOpened }: { insights: Cam
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const [preset, setPreset] = useState<DatePreset>("7d");
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
   const defaultCustom = useMemo(() => rangeFromPreset("7d"), []);
@@ -2363,7 +2362,7 @@ export default function Dashboard() {
   const accountCampaigns = useMemo(() => campaigns.data?.campaigns ?? [], [campaigns.data?.campaigns]);
 
   // Pending campaign from context (in-memory, reactive — works even when already on this route)
-  const { pendingCampaignId: ctxPendingCampaignId, clearPendingCampaignId } = useGlobalAiChat();
+  const { pendingCampaignId: ctxPendingCampaignId, clearPendingCampaignId, selectedAccountId, setSelectedAccountId } = useGlobalAiChat();
 
   // Also read from sessionStorage for cold loads (direct navigation with a stored key)
   const [storagePendingCampaignId, setStoragePendingCampaignId] = useState<string | null>(null);

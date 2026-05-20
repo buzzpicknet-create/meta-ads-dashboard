@@ -12,6 +12,7 @@ import {
   ResponsiveContainer, Legend, Cell,
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
+import { useGlobalAiChat } from "@/contexts/GlobalAiChatContext";
 import { useLocation } from "wouter";
 
 interface UserLtmData {
@@ -796,6 +797,7 @@ interface GlobalAiChatProps {
 
 export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiChatProps) {
   const { user, logout } = useAuth();
+  const { selectedAccountId } = useGlobalAiChat();
   const isAdmin = user?.role === "admin";
   const [loc, navigate] = useLocation();
   const isOnChatPage = loc === "/chat";
@@ -1153,7 +1155,10 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         m.role !== "assistant" || (m.content.trim().length > 5 && !JUNK_PATTERNS.test(m.content.trim()))
       );
       const body: Record<string, unknown> = { campaignContext: buildContext(), messages: cleanMessages, conversation_id: activeCid };
-      if (defaultAccountId) body.selectedAccountIds = [defaultAccountId];
+      // Prefer the Dashboard's currently-selected account; fall back to the
+      // manually-picked default (localStorage) when not on the Dashboard page.
+      const effectiveAccountId = selectedAccountId || defaultAccountId;
+      if (effectiveAccountId) body.selectedAccountIds = [effectiveAccountId];
       if (att?.isImage) { body.imageBase64 = att.base64; body.imageMimeType = att.mimeType; }
       if (att?.text)    { body.fileText = att.text; body.fileName = att.name; }
 
