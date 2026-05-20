@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { Router, type Request, type Response } from "express";
-import { openai } from "@workspace/integrations-openai-ai-server";
+import { anthropic } from "@workspace/integrations-anthropic-ai";
 import {
   listAdAccounts,
   listCampaigns,
@@ -45,12 +45,7 @@ const router = Router();
 
 // ── Model constants — change here to switch globally ─────────────────────────
 // CHAT_MODEL: main conversational model (tool-use, streaming, Arabic)
-//   gpt-5-mini  = cost-effective, high-volume tasks (recommended)
-//   gpt-5.4     = most capable (use only if quality drops noticeably)
-// MINI_MODEL: simple extraction / classification — no tools needed
-//   gpt-5-nano  = fastest & cheapest (JSON-only tasks)
-const CHAT_MODEL = "gpt-5.2";
-const MINI_MODEL = "gpt-5-nano";
+const CHAT_MODEL = "claude-sonnet-4-6";
 
 const SYSTEM_PROMPT = `
 ══════════════════════════════════════
@@ -848,6 +843,7 @@ pause_ad | enable_ad | rename_ad | duplicate_ad | create_ad_from_existing_post
 
 newBudget = القيمة المطلقة المحسوبة (لا نسبة مئوية)
 currentBudget = رقم EGP فعلي من get_campaign_budget / get_adset_status
+⚠️ تحويل: get_adset_status يرجع daily_budget بالـ cents — اقسمه على 100 للـ EGP (مثال: 21600 cents = 216 EGP). get_campaign_budget يرجع بـ EGP مباشرة.
 ⚠️ تحويل الميزانية: get_adset_status يرجع daily_budget بالـ cents — اقسمه على 100 للحصول على EGP (مثال: 21600 cents = 216 EGP). get_campaign_budget يرجع بـ EGP مباشرة — لا تقسمه.
 
 عند > 15 عملية: قسّم إلى دفعات ≤ 15، وأخرج كل الدفعات في رد واحد مرتبة
@@ -4531,7 +4527,6 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     let systemContent = SYSTEM_PROMPT;
 
     // ── Inject selected account_ids so the AI always knows which account to use ──
-    // This MUST be injected before campaignContext so it takes precedence.
     if (selectedAccFilter?.size) {
       const accountIds = [...selectedAccFilter];
       systemContent += `\n\n══════════ ACTIVE AD ACCOUNT ══════════\n🏦 الحساب المختار في الواجهة (إلزامي — استخدمه في كل tool call بدون استثناء):\n${accountIds.map(id => `act_${id}`).join(", ")}\n\nلا تسأل المستخدم عن account_id — هو محدد أعلاه. استخدمه فوراً في كل create_campaign / create_adset / create_adcreative / launch_pipeboard_campaign.\n══════════════════════════════════════`;
@@ -4540,7 +4535,6 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     if (campaignContext) systemContent += `\n\n══════════ CAMPAIGN CONTEXT ══════════\n${campaignContext}`;
     if (fileText) systemContent += `\n\n══════════ ATTACHED FILE: ${fileName ?? "file"} ══════════\n${fileText}`;
 
-    type ApiMsg = Parameters<typeof openai.chat.completions.create>[0]["messages"][0];
     // ── Blueprint compression ──────────────────────────────────────────────────
     function compressBlueprint(msg: string): string {
       if (!msg.includes("[SYSTEM COMMAND: EXECUTE_CAMPAIGN_BLUEPRINT]") &&
@@ -4548,22 +4542,18 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       const lines = msg.split("\n");
       const compressed: string[] = [];
       let inAdset = false;
-      let adTextCount = 0;
       for (const line of lines) {
         const l = line.trim();
-        if (l.startsWith("## Adset") || l.startsWith("## ")) { inAdset = true; adTextCount = 0; compressed.push(l); continue; }
-        if (l.startsWith("Primary Texts") || l.startsWith("Headlines")) { compressed.push(l); adTextCount = 0; continue; }
-        // النصوص الإعلانية — اختصر لأول 150 حرف فقط
+        if (l.startsWith("## Adset") || l.startsWith("## ")) { inAdset = true; compressed.push(l); continue; }
+        if (l.startsWith("Primary Texts") || l.startsWith("Headlines")) { compressed.push(l); continue; }
         if (/^\d+\./.test(l) && inAdset) {
-          adTextCount++;
-          const short = l.substring(0, 500) + (l.length > 500 ? "…" : "");
-          compressed.push(short);
+          compressed.push(l.substring(0, 500) + (l.length > 500 ? "…" : ""));
           continue;
         }
         if (l.startsWith("- Landing Page:") || l.startsWith("- Video:") || l.startsWith("- link_url") ||
             l.startsWith("- Budget:") || l.startsWith("- Campaign Name:") || l.startsWith("- Ad Account") ||
             l.startsWith("- daily_budget") || l.startsWith("- budget_type") || l.startsWith("Campaign Type:") ||
-            l.startsWith("Objective:") || l.startsWith("- Media Drive") || l.startsWith("[SYSTEM") || 
+            l.startsWith("Objective:") || l.startsWith("- Media Drive") || l.startsWith("[SYSTEM") ||
             l.startsWith("[END") || l.startsWith("- Ads (") || l.startsWith("- Adset") || l.startsWith("- Targeting")) {
           compressed.push(l); continue;
         }
@@ -4572,9 +4562,17 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       return compressed.join("\n");
     }
 
-    const apiMessages: ApiMsg[] = [{ role: "system", content: systemContent }];
+    // ── Convert TOOLS → Anthropic format ──────────────────────────────────────
+    const anthropicTools = TOOLS.map(t => ({
+      name: t.function.name,
+      description: t.function.description,
+      input_schema: t.function.parameters,
+    }));
 
-    // ── Limit conversation history to last 20 messages to avoid context overflow ──
+    // ── Build Anthropic messages (system passed separately, not in messages[]) ─
+    type AntMsg = { role: "user" | "assistant"; content: unknown };
+    const apiMessages: AntMsg[] = [];
+
     const MAX_HISTORY = 10;
     const trimmedMessages = messages.length > MAX_HISTORY
       ? messages.slice(-MAX_HISTORY)
@@ -4588,95 +4586,93 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
           apiMessages.push({
             role: "user",
             content: [
-              { type: "text", text: m.content },
-              { type: "image_url", image_url: { url: `data:${imageMimeType ?? "image/jpeg"};base64,${imageBase64}` } },
+              { type: "text", text: compressBlueprint(m.content) },
+              { type: "image", source: { type: "base64", media_type: imageMimeType ?? "image/jpeg", data: imageBase64 } },
             ],
-          } as ApiMsg);
+          });
         } else {
-          apiMessages.push({ role: "user", content: m.content });
+          apiMessages.push({ role: "user", content: compressBlueprint(m.content) });
         }
       } else {
+        // assistant messages from history — stored as plain text
         apiMessages.push({ role: "assistant", content: m.content });
       }
     }
 
-    // Agentic loop — up to 15 tool rounds
+    // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
     for (let round = 0; round < 15; round++) {
-      const stream = await openai.chat.completions.create({
+      const stream = anthropic.messages.stream({
         model: CHAT_MODEL,
-        messages: apiMessages,
-        tools: TOOLS,
-        tool_choice: "auto",
-        stream: true,
-        max_completion_tokens: 16384,
+        system: systemContent,
+        messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
+        tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
+        tool_choice: { type: "auto" },
+        max_tokens: 16384,
       });
 
-      let assistantContent = "";
-      const toolCallsAccum: { id: string; name: string; argsStr: string; index: number }[] = [];
+      let assistantText = "";
+      // Sparse array indexed by content block index
+      const toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
+      let stopReason = "";
 
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta;
-        if (!delta) continue;
-
-        if (delta.content) {
-          assistantContent += delta.content;
-          send({ content: delta.content });
-        }
-
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            const idx = tc.index ?? 0;
-            if (!toolCallsAccum[idx]) {
-              toolCallsAccum[idx] = { id: tc.id ?? "", name: tc.function?.name ?? "", argsStr: "", index: idx };
-            }
-            if (tc.id) toolCallsAccum[idx].id = tc.id;
-            if (tc.function?.name) toolCallsAccum[idx].name = tc.function.name;
-            if (tc.function?.arguments) toolCallsAccum[idx].argsStr += tc.function.arguments;
+      for await (const event of stream) {
+        if (event.type === "content_block_start") {
+          if (event.content_block.type === "tool_use") {
+            toolUseBlocks[event.index] = {
+              id: event.content_block.id,
+              name: event.content_block.name,
+              inputJson: "",
+            };
           }
+        } else if (event.type === "content_block_delta") {
+          if (event.delta.type === "text_delta") {
+            assistantText += event.delta.text;
+            send({ content: event.delta.text });
+          } else if (event.delta.type === "input_json_delta") {
+            const block = toolUseBlocks[event.index];
+            if (block) block.inputJson += event.delta.partial_json;
+          }
+        } else if (event.type === "message_delta") {
+          stopReason = event.delta.stop_reason ?? "";
+          if (stopReason === "max_tokens") logger.warn({ stopReason }, "MAX_TOKENS reached");
         }
-// @ts-ignore
-// @ts-ignore
-        const fr = chunk.choices[0]?.finish_reason;
-        // @ts-ignore
-        if (fr === "content_filter") { logger.error({ fr }, "CONTENT_FILTER triggered"); send({ error: "المحتوى تم رفضه من النموذج — content_filter" }); send({ done: true }); return; }
-        // @ts-ignore
-        if (fr === "length") { logger.warn({ fr }, "MAX_TOKENS reached"); }
-        // @ts-ignore
-        if (fr === "stop" || fr === "end_turn") break;
       }
 
-      if (toolCallsAccum.length === 0) break;
+      // Filter to only actual tool use blocks (skip undefined slots)
+      const activeTCs = toolUseBlocks.filter((b): b is { id: string; name: string; inputJson: string } => !!b);
 
-      apiMessages.push({
-        role: "assistant",
-        content: assistantContent || null,
-        tool_calls: toolCallsAccum.map((tc) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: { name: tc.name, arguments: tc.argsStr },
-        })),
-      } as ApiMsg);
+      // No tool calls → done
+      if (activeTCs.length === 0) break;
 
-      // Collect write tools separately so all pending actions are sent in one batch.
-      // Previously, the loop returned on the first write tool — leaving the rest silent.
-      const pendingWrites: Array<{ tc: { id: string; name: string; argsStr: string; index: number }; args: Record<string, unknown> }> = [];
+      // ── Build assistant content blocks (text + tool_use) ───────────────────
+      const assistantContent: unknown[] = [];
+      if (assistantText) assistantContent.push({ type: "text", text: assistantText });
+      for (const tb of activeTCs) {
+        let input: Record<string, unknown> = {};
+        try { input = JSON.parse(tb.inputJson || "{}") as Record<string, unknown>; } catch { /* */ }
+        assistantContent.push({ type: "tool_use", id: tb.id, name: tb.name, input });
+      }
+      apiMessages.push({ role: "assistant", content: assistantContent });
 
-      for (const tc of toolCallsAccum) {
-        if (!tc.name) continue;
+      // ── Separate write tools (deferred) from read tools (execute now) ──────
+      const pendingWrites: Array<{ tb: { id: string; name: string; inputJson: string }; args: Record<string, unknown> }> = [];
+      const toolResults: { type: "tool_result"; tool_use_id: string; content: string }[] = [];
+
+      for (const tb of activeTCs) {
         let args: Record<string, unknown> = {};
-        try { args = JSON.parse(tc.argsStr || "{}") as Record<string, unknown>; } catch { /* */ }
+        try { args = JSON.parse(tb.inputJson || "{}") as Record<string, unknown>; } catch { /* */ }
 
-        send({ tool_call_label: getToolLabel(tc.name, args) });
+        send({ tool_call_label: getToolLabel(tb.name, args) });
 
-        if (WRITE_TOOL_NAMES.has(tc.name)) {
-          pendingWrites.push({ tc, args });
-          continue; // defer — present all write actions together below
+        if (WRITE_TOOL_NAMES.has(tb.name)) {
+          pendingWrites.push({ tb, args });
+          continue;
         }
 
-        let result = await executeTool(tc.name, args, selectedAccFilter);
+        let result = await executeTool(tb.name, args, selectedAccFilter);
         // Inject a mandatory reminder after get_campaigns/get_adsets results so the
         // model cannot skip the "show table → bulk_action" protocol for winners-scale.
-        if (tc.name === "get_campaigns" || tc.name === "get_adsets") {
+        if (tb.name === "get_campaigns" || tb.name === "get_adsets") {
           result += "\n\n[SYSTEM REMINDER — MANDATORY BEFORE ANY ACTION:\n" +
             "1. Display a full markdown analysis table for ALL campaigns/adsets above.\n" +
             "2. Do NOT call update_campaign_budget or update_adset_budget as a direct tool call.\n" +
@@ -4684,20 +4680,25 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
             "4. For others: generate ONE ```bulk_action``` block containing ALL qualifying actions.\n" +
             "Violation = generating direct write tool call or bulk_action before table = critical error.]";
         }
-        apiMessages.push({ role: "tool", tool_call_id: tc.id, content: result } as ApiMsg);
+        toolResults.push({ type: "tool_result", tool_use_id: tb.id, content: result });
       }
 
-      // Present all collected write actions as pending cards in one bulk batch
+      // ── Write tools → send optimistic pending cards and terminate ──────────
       if (pendingWrites.length > 0) {
-        for (const { tc, args } of pendingWrites) {
-          const pending = buildOptimisticPendingAction(tc.name, args);
+        for (const { tb, args } of pendingWrites) {
+          const pending = buildOptimisticPendingAction(tb.name, args);
           send({ pending_action: pending });
-          resolveWriteToolDetails(tc.name, args)
+          resolveWriteToolDetails(tb.name, args)
             .then((resolved) => { send({ pending_action_resolved: resolved }); })
             .catch(() => {});
         }
         send({ done: true });
         return;
+      }
+
+      // ── Add all read tool results as a single user message (Anthropic format) ─
+      if (toolResults.length > 0) {
+        apiMessages.push({ role: "user", content: toolResults });
       }
     }
 
