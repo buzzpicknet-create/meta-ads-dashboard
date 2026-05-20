@@ -4603,7 +4603,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     for (let round = 0; round < 15; round++) {
       const stream = anthropic.messages.stream({
         model: CHAT_MODEL,
-        system: systemContent,
+        system: [{ type: "text", text: systemContent, cache_control: { type: "ephemeral" } }],
         messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
         tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
         tool_choice: { type: "auto" },
