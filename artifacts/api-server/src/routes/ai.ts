@@ -4815,10 +4815,18 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     type AntMsg = { role: "user" | "assistant"; content: unknown };
     const apiMessages: AntMsg[] = [];
 
-    const MAX_HISTORY = 10;
-    const trimmedMessages = messages.length > MAX_HISTORY
-      ? messages.slice(-MAX_HISTORY)
-      : messages;
+    // Keep first 2 messages (original task context — winners, destination, etc.)
+    // + last 30 messages (recent conversation). compressIfOverLimit() guards at 150k tokens.
+    const KEEP_HEAD = 2;
+    const KEEP_TAIL = 30;
+    let trimmedMessages: typeof messages;
+    if (messages.length <= KEEP_HEAD + KEEP_TAIL) {
+      trimmedMessages = messages;
+    } else {
+      const head = messages.slice(0, KEEP_HEAD);
+      const tail = messages.slice(-KEEP_TAIL);
+      trimmedMessages = [...head, ...tail];
+    }
 
     const lastIdx = trimmedMessages.length - 1;
     for (let i = 0; i < trimmedMessages.length; i++) {
