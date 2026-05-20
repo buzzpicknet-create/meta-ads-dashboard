@@ -4663,47 +4663,49 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     // ── System blocks (reused for countTokens + stream, caching applied once) ──
     const systemBlocks = [{ type: "text" as const, text: systemContent, cache_control: { type: "ephemeral" as const } }];
 
-    // ── Deep think mode — prompt-based (Replit proxy doesn't support thinking API param) ─
+    // ── Deep think mode: real Extended Thinking (claude-sonnet-4-6 supports it) ──
     const deepThinkMode = session.deepThink === true;
-    if (deepThinkMode) {
-      // Inject deep-reasoning instruction as an extra system block
-      systemBlocks.push({
-        type: "text" as const,
-        text: `\n\n══════════ وضع التفكير العميق مفعّل ══════════
-المستخدم طلب تحليلاً معمّقاً. اتبع الخطوات التالية قبل الإجابة:
-١. فكّر خطوة بخطوة — حلّل كل جانب من جوانب السؤال بعمق.
-٢. راجع كل الأرقام والمؤشرات المتاحة قبل إصدار حكم.
-٣. قارن بين البدائل وذكر إيجابيات وسلبيات كل خيار.
-٤. قدّم توصية واضحة مدعومة بالأدلة.
-الإجابة يجب أن تكون شاملة ومفصّلة أكثر من المعتاد.
-══════════════════════════════════════`,
-        cache_control: { type: "ephemeral" as const },
-      });
-      logger.info("Deep think mode: prompt injection applied");
-    }
+    if (deepThinkMode) logger.info("Extended thinking mode active (claude-sonnet-4-6)");
 
     // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
     for (let round = 0; round < 15; round++) {
       // ── Token guard: compress old tool results if context > 150k tokens ─────
       await compressIfOverLimit(apiMessages, systemBlocks, anthropicTools);
 
+      // Thinking only on round 0 — tool-call rounds don't support it
+      const thinkingThisRound = deepThinkMode && round === 0;
+
       let assistantText = "";
+      let thinkingText = "";
       // Sparse array indexed by content block index
       const toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
       let stopReason = "";
+      let thinkingStartSent = false;
 
-      const stream = anthropic.messages.stream({
+      // Build stream params — spread thinking only when active to avoid type error
+      const baseStreamParams = {
         model: CHAT_MODEL,
         system: systemBlocks,
         messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
         tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
-        tool_choice: { type: "auto" },
-        max_tokens: 16384,
-      });
+        tool_choice: { type: "auto" as const },
+        max_tokens: thinkingThisRound ? 20000 : 16384,
+      };
+      const streamParams = thinkingThisRound
+        ? { ...baseStreamParams, thinking: { type: "enabled", budget_tokens: 10_000 } }
+        : baseStreamParams;
+
+      const stream = anthropic.messages.stream(
+        streamParams as Parameters<typeof anthropic.messages.stream>[0],
+      );
 
       for await (const event of stream) {
         if (event.type === "content_block_start") {
-          if (event.content_block.type === "tool_use") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if ((event.content_block as any).type === "thinking" && !thinkingStartSent) {
+            send({ thinking_start: true });
+            thinkingStartSent = true;
+          } else if (event.content_block.type === "tool_use") {
             toolUseBlocks[event.index] = {
               id: event.content_block.id,
               name: event.content_block.name,
@@ -4711,7 +4713,13 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
             };
           }
         } else if (event.type === "content_block_delta") {
-          if (event.delta.type === "text_delta") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const delta = event.delta as any;
+          if (delta.type === "thinking_delta") {
+            const chunk = String(delta.thinking ?? "");
+            thinkingText += chunk;
+            if (chunk) send({ thinking_chunk: chunk });
+          } else if (event.delta.type === "text_delta") {
             assistantText += event.delta.text;
             send({ content: event.delta.text });
           } else if (event.delta.type === "input_json_delta") {
@@ -4731,7 +4739,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       if (activeTCs.length === 0) break;
 
       // ── Build assistant content blocks (thinking → text → tool_use order) ───
-      // Thinking block must be preserved in multi-turn for Anthropic API continuity
+      // Thinking blocks MUST be preserved in multi-turn for Anthropic API continuity
       const assistantContent: unknown[] = [];
       if (thinkingText) assistantContent.push({ type: "thinking", thinking: thinkingText });
       if (assistantText) assistantContent.push({ type: "text", text: assistantText });
