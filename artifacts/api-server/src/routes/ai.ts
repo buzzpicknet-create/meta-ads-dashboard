@@ -4673,57 +4673,87 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       await compressIfOverLimit(apiMessages, systemBlocks, anthropicTools);
 
       // Extended thinking only on round 0 — tool-call rounds don't support it
-      const thinkingActive = useExtendedThinking && round === 0;
-      const streamParams: Parameters<typeof anthropic.messages.create>[0] = {
-        model: CHAT_MODEL,
-        system: systemBlocks,
-        messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
-        tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
-        tool_choice: { type: "auto" },
-        // max_tokens must exceed budget_tokens when thinking is on
-        max_tokens: thinkingActive ? 22000 : 16384,
-        ...(thinkingActive ? { thinking: { type: "enabled" as const, budget_tokens: 10_000 } } : {}),
-      };
-      const stream = anthropic.messages.stream(streamParams);
+      let thinkingActive = useExtendedThinking && round === 0;
 
       let assistantText = "";
       let thinkingText = ""; // accumulated thinking content for this round
       // Sparse array indexed by content block index
-      const toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
+      let toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
       let stopReason = "";
-      let sentThinkingStart = false;
 
-      for await (const event of stream) {
-        if (event.type === "content_block_start") {
-          // @ts-ignore — thinking block type not in older SDK typedefs
-          if (event.content_block.type === "thinking" && !sentThinkingStart) {
-            send({ thinking_start: true });
-            sentThinkingStart = true;
-          } else if (event.content_block.type === "tool_use") {
-            toolUseBlocks[event.index] = {
-              id: event.content_block.id,
-              name: event.content_block.name,
-              inputJson: "",
-            };
+      // Inner helper: run one stream pass (with or without thinking)
+      const runStream = async (withThinking: boolean): Promise<void> => {
+        const baseParams: Parameters<typeof anthropic.messages.create>[0] = {
+          model: CHAT_MODEL,
+          system: systemBlocks,
+          messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
+          tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
+          tool_choice: { type: "auto" },
+          max_tokens: withThinking ? 22000 : 16384,
+        };
+        // Attach thinking param via spread so TS doesn't complain about unknown field
+        const streamParams = withThinking
+          ? { ...baseParams, thinking: { type: "enabled", budget_tokens: 10_000 } }
+          : baseParams;
+
+        const stream = anthropic.messages.stream(
+          streamParams as Parameters<typeof anthropic.messages.create>[0],
+        );
+
+        let sentThinkingStart = false;
+
+        for await (const event of stream) {
+          if (event.type === "content_block_start") {
+            // @ts-ignore — thinking block type not in older SDK typedefs
+            if (event.content_block.type === "thinking" && !sentThinkingStart) {
+              send({ thinking_start: true });
+              sentThinkingStart = true;
+            } else if (event.content_block.type === "tool_use") {
+              toolUseBlocks[event.index] = {
+                id: event.content_block.id,
+                name: event.content_block.name,
+                inputJson: "",
+              };
+            }
+          } else if (event.type === "content_block_delta") {
+            // @ts-ignore — thinking_delta not in older SDK typedefs
+            if (event.delta.type === "thinking_delta") {
+              // @ts-ignore
+              const chunk = String(event.delta.thinking ?? "");
+              thinkingText += chunk;
+              if (chunk) send({ thinking_chunk: chunk });
+            } else if (event.delta.type === "text_delta") {
+              assistantText += event.delta.text;
+              send({ content: event.delta.text });
+            } else if (event.delta.type === "input_json_delta") {
+              const block = toolUseBlocks[event.index];
+              if (block) block.inputJson += event.delta.partial_json;
+            }
+          } else if (event.type === "message_delta") {
+            stopReason = event.delta.stop_reason ?? "";
+            if (stopReason === "max_tokens") logger.warn({ stopReason }, "MAX_TOKENS reached");
           }
-        } else if (event.type === "content_block_delta") {
-          // @ts-ignore — thinking_delta not in older SDK typedefs
-          if (event.delta.type === "thinking_delta") {
-            // @ts-ignore
-            const chunk = String(event.delta.thinking ?? "");
-            thinkingText += chunk;
-            if (chunk) send({ thinking_chunk: chunk });
-          } else if (event.delta.type === "text_delta") {
-            assistantText += event.delta.text;
-            send({ content: event.delta.text });
-          } else if (event.delta.type === "input_json_delta") {
-            const block = toolUseBlocks[event.index];
-            if (block) block.inputJson += event.delta.partial_json;
-          }
-        } else if (event.type === "message_delta") {
-          stopReason = event.delta.stop_reason ?? "";
-          if (stopReason === "max_tokens") logger.warn({ stopReason }, "MAX_TOKENS reached");
         }
+      };
+
+      // Try with thinking; if the proxy rejects it, fall back silently
+      if (thinkingActive) {
+        try {
+          await runStream(true);
+        } catch (thinkErr) {
+          const thinkMsg = thinkErr instanceof Error ? thinkErr.message : String(thinkErr);
+          logger.warn({ err: thinkMsg }, "Extended thinking rejected by proxy — retrying without thinking");
+          // Reset accumulators before retry
+          assistantText = "";
+          thinkingText = "";
+          toolUseBlocks = [];
+          stopReason = "";
+          thinkingActive = false;
+          send({ thinking_disabled: true }); // tell frontend to hide indicator
+          await runStream(false);
+        }
+      } else {
+        await runStream(false);
       }
 
       // Filter to only actual tool use blocks (skip undefined slots)

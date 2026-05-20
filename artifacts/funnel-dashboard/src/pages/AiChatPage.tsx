@@ -1042,6 +1042,7 @@ export default function AiChatPage() {
           if (data.pending_action_resolved) setPending(p=>p?{...p,...(data.pending_action_resolved as Partial<PendingAction>),detailsLoading:false}:p);
           if (data.thinking_start) { setIsThinking(true); }
           if (data.thinking_chunk) { setThinkTxt(p => p + String(data.thinking_chunk)); }
+          if (data.thinking_disabled) { setIsThinking(false); setThinkTxt(""); } // proxy fallback
           if (data.content) { setIsThinking(false); setTL([]); acc+=String(data.content); setStTxt(acc); }
         }
       }
