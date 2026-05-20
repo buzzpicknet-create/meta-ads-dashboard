@@ -918,9 +918,10 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         let anySuccess = false;
 
         // Fetch campaigns (7d + 30d) and daily overview in parallel for each account
-        // لو في حساب مختار، نجيب بس حملاته
-        const accountsToFetch = defaultAccountId
-          ? accounts.filter(acc => acc.id.replace(/^act_/, "") === defaultAccountId.replace(/^act_/, ""))
+        // selectedAccountId (Dashboard tab) takes priority over defaultAccountId (chat widget dropdown)
+        const effectiveCtxAccount = (selectedAccountId || defaultAccountId || "").replace(/^act_/, "");
+        const accountsToFetch = effectiveCtxAccount
+          ? accounts.filter(acc => acc.id.replace(/^act_/, "") === effectiveCtxAccount)
           : accounts;
         await Promise.all(accountsToFetch.map(async (acc) => {
           try {
@@ -954,10 +955,10 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       })
       .catch(() => { setCampaignsCtx(GENERAL_CONTEXT); })
       .finally(() => setCampaignsLoading(false));
-  }, [open, campaignsCtx, campaignsLoading, defaultAccountId]);
+  }, [open, campaignsCtx, campaignsLoading, selectedAccountId, defaultAccountId]);
 
-  // Reset context when account changes
-  useEffect(() => { setCampaignsCtx(null); }, [defaultAccountId]);
+  // Reset context when effective account changes (Dashboard tab or chat dropdown)
+  useEffect(() => { setCampaignsCtx(null); }, [selectedAccountId, defaultAccountId]);
 
   // Load conversation list; when autoLoadLatest=true, also restores the most recent conversation
   const loadConversations = useCallback((autoLoadLatest = false) => {
@@ -1059,11 +1060,13 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   const buildContext = useCallback((): string => {
     const parts: string[] = [];
 
-    if (defaultAccountId) {
-      const name = defaultAccountName || defaultAccountId;
+    const activeAccId = selectedAccountId || defaultAccountId;
+    if (activeAccId) {
+      const name = (selectedAccountId ? "" : defaultAccountName) || activeAccId;
       parts.push(
-        `⭐ الحساب الإعلاني الافتراضي المختار: ${defaultAccountId}${name !== defaultAccountId ? ` (${name})` : ""}\n` +
-        `استخدم هذا الـ account_id مباشرةً في جميع العمليات. لا تحتاج لاستدعاء get_campaigns للحصول على account_id إلا إذا طلب المستخدم صراحةً حساباً مختلفاً.`
+        `⭐ الحساب الإعلاني المختار: ${activeAccId}${name !== activeAccId ? ` (${name})` : ""}\n` +
+        `استخدم هذا الـ account_id مباشرةً في جميع العمليات. لا تحتاج لاستدعاء get_campaigns للحصول على account_id إلا إذا طلب المستخدم صراحةً حساباً مختلفاً.\n` +
+        `⚠️ مهم: كل الحملات والمجموعات المذكورة في هذا الـ context تابعة لهذا الحساب فقط.`
       );
     }
 
@@ -1077,7 +1080,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
     if (parts.length > 0) return parts.join("\n\n===\n\n");
     return GENERAL_CONTEXT;
-  }, [isAdmin, activityUsers, campaignsCtx, defaultAccountId, defaultAccountName]);
+  }, [isAdmin, activityUsers, campaignsCtx, selectedAccountId, defaultAccountId, defaultAccountName]);
 
   // Ensure there is an active conversation, creating one if needed
   const ensureConversation = useCallback(async (firstMessage: string): Promise<number> => {

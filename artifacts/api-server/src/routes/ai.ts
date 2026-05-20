@@ -4596,7 +4596,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     // ── Inject selected account_ids so the AI always knows which account to use ──
     if (selectedAccFilter?.size) {
       const accountIds = [...selectedAccFilter];
-      systemContent += `\n\n══════════ ACTIVE AD ACCOUNT ══════════\n🏦 الحساب المختار في الواجهة (إلزامي — استخدمه في كل tool call بدون استثناء):\n${accountIds.map(id => `act_${id}`).join(", ")}\n\nلا تسأل المستخدم عن account_id — هو محدد أعلاه. استخدمه فوراً في كل create_campaign / create_adset / create_adcreative / launch_pipeboard_campaign.\n══════════════════════════════════════`;
+      systemContent += `\n\n══════════ ACTIVE AD ACCOUNT ══════════\n🏦 الحساب المختار في الواجهة (إلزامي — استخدمه في كل tool call بدون استثناء):\n${accountIds.map(id => `act_${id}`).join(", ")}\n\n⚠️ قواعد صارمة:\n- استخدمه في كل tool call (قراءة وكتابة) بدون استثناء\n- جميع الحملات والمجموعات التي تحللها يجب أن تكون تابعة لهذا الحساب فقط\n- إذا ظهرت حملات من حساب آخر في الـ context، تجاهلها تماماً\n- لا تسأل المستخدم عن account_id — هو محدد أعلاه\n══════════════════════════════════════`;
     }
 
     if (campaignContext) systemContent += `\n\n══════════ CAMPAIGN CONTEXT ══════════\n${campaignContext}`;
