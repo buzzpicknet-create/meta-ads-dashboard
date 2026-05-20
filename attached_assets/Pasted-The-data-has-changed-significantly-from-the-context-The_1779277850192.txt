@@ -1,0 +1,679 @@
+The data has changed significantly from the context. The campaigns from the context (like كيس مخدة 10 قطع, scale new products, etc.) are no longer showing in get_campaigns(days=7). The new campaigns are different.
+
+Let me analyze what I got:
+
+Active campaigns (last 7 days):
+
+1.
+Buzzpick - سبراي التبريد السريع - 1,160 EGP - 33 orders - CPA 35
+2.
+Buzzpick - جهاز الموجات - 860 EGP - 26 orders - CPA 33
+3.
+حامل الاجهزة - TEST - 706 EGP - 7 orders - CPA 101
+4.
+الصابونة الصينية - 524 EGP - 7 orders - CPA 75
+5.
+جوانتي التنظيف - Standard - 520 EGP - 11 orders - CPA 47
+6.
+زيت الورود الحمراء - 452 EGP - 7 orders - CPA 65
+7.
+جوانتي التنظيف - CBO Scale - 39 EGP - 0 orders - CPA —
+8.
+جوانتي التنظيف - Test - 0 EGP - 0 orders - CPA —
+Top 5 by spend (ACTIVE):
+
+1.
+Buzzpick - سبراي التبريد السريع (id:120253049306290001) - 1,160 EGP
+2.
+Buzzpick - جهاز الموجات (id:120253117136220001) - 860 EGP
+3.
+حامل الاجهزة - TEST (id:120253260311900001) - 706 EGP
+4.
+الصابونة الصينية (id:120253731855490001) - 524 EGP
+5.
+جوانتي التنظيف - Standard (id:120253670661960001) - 520 EGP
+The context had different campaigns (like كيس مخدة, scale new products, etc.) but these seem to be from old data. The fresh get_campaigns(days=7) shows new campaigns.
+
+The adsets I got were for the OLD campaign IDs (from context). They don't match the new campaigns. I need to get adsets for the new top 5 campaigns.
+
+The adsets I got:
+
+scale new products - exclude (id: 120239057646960554): Has adsets with data
+مضرب للناموس حجم جامبو (id: 120242768702930554): Has adsets with data
+مزيل ملصقات حجم كبير (id: 120242869485630554): No data
+Low Stock (id: 120245013508320081): Has one adset with data (Broad)
+كيس مخدة 10 قطع (id: 120244824804280081): No data
+So the campaigns from the context don't have data in the current fresh fetch. The NEW top 5 active campaigns are:
+
+1.
+Buzzpick - سبراي التبريد السريع (120253049306290001) - 1,160 EGP
+2.
+Buzzpick - جهاز الموجات (120253117136220001) - 860 EGP
+3.
+حامل الاجهزة - TEST (120253260311900001) - 706 EGP
+4.
+الصابونة الصينية (120253731855490001) - 524 EGP
+5.
+جوانتي التنظيف - Standard (120253670661960001) - 520 EGP
+I need to get adsets for these 5 campaigns. Let me do that now.
+
+But wait - I also got some adset data from the OLD campaigns. The old adsets are not relevant since those campaigns aren't in the top 5 anymore. Let me focus on the NEW top 5 campaigns.
+
+Actually, let me think about this more carefully. The context data shows older campaign performance, but the fresh get_campaigns(days=7) shows completely different campaigns. This means the account has evolved significantly - those older campaigns (كيس مخدة, scale new products, etc.) might have been paused or their data period changed.
+
+The fresh data shows the current active campaigns with spend. I need to get adsets for the new top 5 active campaigns.
+
+Let me call get_adsets for:
+
+1.
+Buzzpick - سبراي التبريد السريع (120253049306290001)
+2.
+Buzzpick - جهاز الموجات (120253117136220001)
+3.
+حامل الاجهزة - TEST (120253260311900001)
+4.
+الصابونة الصينية (120253731855490001)
+5.
+جوانتي التنظيف - Standard (120253670661960001)
+</thinking>
+
+البيانات الحديثة مختلفة عن السياق — الحملات تغيرت. سأجلب المجموعات للأعلى 5 إنفاقاً النشطة الفعلية الآن.<thinking>
+
+Now I have adsets for all 5 top campaigns. Let me identify the top 3 adsets by spend for each campaign, and then get ads for those adsets.
+
+Campaign 1: Buzzpick - سبراي التبريد السريع (1,160 EGP)
+
+EG - Broad - سبراي التبريد - LP02 - 100 (id:120253049682390001) - 726 EGP
+EG - Broad - سبراي التبريد - LP03 - 100 (id:120253049692010001) - 434 EGP
+Only 2 adsets, get ads for both.
+
+Campaign 2: Buzzpick - جهاز الموجات (860 EGP)
+
+EG - Broad - جهاز الموجات (id:120253117145590001) - 860 EGP
+Only 1 adset.
+
+Campaign 3: حامل الاجهزة - TEST (706 EGP)
+
+EG - Broad - حامل الاجهزة - Test (id:120253260347370001) - 706 EGP
+Only 1 adset.
+
+Campaign 4: الصابونة الصينية (524 EGP)
+
+Top 3 by spend:
+
+1.
+tiktok-video (6) (id:120253731923340001) - 213 EGP
+2.
+tiktok-video (5) (id:120253731937370001) - 112 EGP
+3.
+tiktok-video (2) (id:120253731960350001) - 98 EGP
+Campaign 5: جوانتي التنظيف - Standard (520 EGP)
+
+Top 3 by spend:
+
+1.
+tiktok-video (30) (id:120253670713710001) - 134 EGP (wait, let me re-check)
+Actually:
+
+1.
+tiktok-video (29) (id:120253670730800001) - 134 EGP
+2.
+tiktok-video (30) (id:120253670713710001) - 132 EGP
+3.
+video_2026-05-18_07-09-55 (id:120253670687650001) - 147 EGP
+So top 3 by spend:
+
+1.
+video_2026-05-18_07-09-55 (id:120253670687650001) - 147 EGP
+2.
+tiktok-video (29) (id:120253670730800001) - 134 EGP
+3.
+tiktok-video (30) (id:120253670713710001) - 132 EGP
+And New Video - 18-05-2026 (id:120253715220220001) - 107 EGP (4th)
+
+Now I need to get ads for the top adsets. Let me call get_ads_in_adset for:
+
+Campaign 1 (سبراي التبريد):
+
+120253049682390001 (726 EGP)
+120253049692010001 (434 EGP)
+Campaign 2 (جهاز الموجات):
+
+120253117145590001 (860 EGP)
+Campaign 3 (حامل الاجهزة):
+
+120253260347370001 (706 EGP)
+Campaign 4 (الصابونة):
+
+120253731923340001 (213 EGP)
+120253731937370001 (112 EGP)
+120253731960350001 (98 EGP)
+Campaign 5 (جوانتي):
+
+120253670687650001 (147 EGP)
+120253670730800001 (134 EGP)
+120253670713710001 (132 EGP)
+That's 10 adsets total. Let me call them all simultaneously.
+
+</thinking>
+
+ممتاز — حددت كل المجموعات النشطة. الآن جلب الإعلانات للـ Top 3 adsets من كل حملة.<thinking>
+
+Now I have all the data I need. Let me compile the comprehensive table. Let me also compute LPR% and CVR% for each ad.
+
+For LPR% = LPV ÷ Clicks × 100
+
+For CVR% = Purchases ÷ LPV × 100
+
+I need the Clicks and LPV data. The data gives me LPV (LP Views) but I need Clicks. I can compute Clicks approximately from CTR and Impressions, but that's complex. Let me use what I have.
+
+Actually, looking at the data, I have:
+
+Spend
+Purchases
+CPA
+CTR%
+Hook%
+Hold% (not to be used per instructions)
+LPV
+I can compute:
+
+CPM from Spend and Impressions (not directly given)
+Clicks = (CTR/100) × Impressions
+LPR% = LPV ÷ Clicks × 100
+But I don't have Impressions directly. Let me try to compute from CPM if available...
+
+Actually, looking at the get_ads_in_adset output, it gives me:
+
+Spend
+Purchases
+CPA
+CTR%
+Hook%
+LPV
+But not direct LPR% or CVR%. However, I was told these are available as "LPR%" and "CVR%" columns. Let me re-read the instructions.
+
+From the system prompt:
+
+"LPR% و CVR% متوفران دائماً في نتيجة get_ads_in_adset — عمود "LPR%" و "CVR%" في الجدول
+
+LPR = lpvRate (LP Views ÷ Link Clicks × 100)
+CVR = cr (Purchases ÷ LP Views × 100)"
+But the data I got doesn't have LPR% and CVR% explicitly - it gives me Spend, Purchases, CPA, CTR%, Hook%, Hold%, LPV. I need to compute these.
+
+Actually wait - looking at the raw data more carefully, the API might not return LPR% and CVR% in a computed format. Let me compute them from what I have:
+
+For each ad, I need:
+
+Clicks = LPV × (1/LPR) -- circular, don't have this
+Actually I can try: Impressions ≈ Spend / (CPM/1000), but CPM not given per ad
+Let me try a different approach: Since I have CTR% and I can estimate Impressions from Spend and CPM (if available at adset level), but this is getting complex.
+
+Actually, the adset-level data gives CPM, so:
+
+Impressions = Spend ÷ (CPM/1000) = Spend × 1000 ÷ CPM
+Clicks = Impressions × CTR/100
+LPR = LPV ÷ Clicks × 100
+CVR = Purchases ÷ LPV × 100
+Let me compute for the key ads:
+
+Campaign 1: Buzzpick - سبراي التبريد السريع
+
+Adset LP02 (id:120253049682390001) - CPM not given at ad level, but adset CPM can be inferred.
+
+The adset level doesn't give CPM either directly. Let me try to compute LPR and CVR differently.
+
+For LP02 adset (726 EGP spend, 23 purchases):
+
+Hook% 30.6, CTR% 3.61
+For individual ads in LP02:
+
+1.
+VID 02 - PT02 - H04: Spend 118, Purchases 3, CPA 39, CTR 2.72%, Hook 45.1%, LPV 34
+- To compute clicks: I need impressions. Let me use the overall CPM from the adset.
+
+- Actually from the adset data: CPM not explicitly given here.
+
+Let me just compute what I can from available data:
+
+CVR = Purchases ÷ LPV × 100 (this I can compute)
+LPR = I need clicks
+For CVR:
+
+VID 02 PT02 H04: CVR = 3/34 × 100 = 8.8%
+VID 04 PT04 H03: CVR = 2/6 × 100 = 33.3% (very small sample)
+VID 03 PT03 H02: CVR = 18/179 × 100 = 10.1%
+For LPV/Clicks estimation:
+
+Since I have LPV and CTR%, and I know Spend...
+
+Let me try: Impressions ≈ Spend / 0.07 (assuming ~70 EGP CPM average based on adset data)
+
+Actually, looking at the campaigns and adsets:
+
+سبراي التبريد: CPM at adset level - I saw the overall campaign data shows CPM 62.6 EGP
+جهاز الموجات: CPM 75.4 EGP
+Let me use these CPMs to estimate:
+
+سبراي التبريد - LP02 (CPM ~62.6):
+
+VID 03 PT03 H02 (597 EGP spend):
+
+Impressions = 597,000 / 62.6 = 9,537
+Clicks = 9,537 × 3.73% = 356
+LPR = 179/356 × 100 = 50.3% ← مشكلة Landing Page!
+VID 02 PT02 H04 (118 EGP):
+
+Impressions = 118,000 / 62.6 = 1,885
+Clicks = 1,885 × 2.72% = 51
+LPR = 34/51 × 100 = 66.7% ← مشكلة Landing Page
+VID 04 PT04 H03 (11 EGP - صغير جداً):
+
+Impressions = 11,000 / 62.6 = 176
+Clicks = 176 × 7.94% = 14
+LPR = 6/14 × 100 = 42.9% ← مشكلة Landing Page
+Wait, but these LP rates seem low. Let me re-check.
+
+Actually, the CPM I'm using is from the overall campaign level. The adset level might have different CPMs. Let me be more conservative and note that LPR computations are estimates.
+
+Actually wait, I need to reconsider. The campaign-level CTR from get_campaigns showed 2.30% for سبراي التبريد. But the adset level shows different CTRs. I should compute per-adset CPM:
+
+For LP02 adset: 726 EGP spend, given Hook% 30.6, CTR% 3.61%
+
+For LP03 adset: 434 EGP spend, CTR% 3.36%, Hook% 58.9%
+
+I don't have CPM at the adset level here. Let me use the campaign-level CPM of 62.6 EGP.
+
+Actually, I realize I'm overthinking this. The system prompt says "LPR% و CVR% متوفران دائماً في نتيجة get_ads_in_adset". But the actual data returned doesn't include these columns explicitly - only LPV is given. So I'll compute what I can:
+
+CVR = Purchases ÷ LPV × 100 (when LPV > 0)
+
+LPR = I'll estimate using CPM
+
+Let me be practical and compute with campaign-level CPM. For each campaign I have from get_campaigns:
+
+سبراي التبريد: CTR 2.30%, CPM 62.6 EGP
+جهاز الموجات: CTR 3.72%, CPM 75.4 EGP
+حامل الاجهزة: CTR 1.87%, CPM 62.0 EGP
+الصابونة الصينية: CTR 3.31%, CPM 110.4 EGP
+جوانتي التنظيف: CTR 2.81%, CPM 105.2 EGP
+Now let me estimate LPR for each key ad using campaign CPM:
+
+سبراي التبريد (CPM ~62.6 EGP):
+
+LP02 adset CPM ≈ 62.6 EGP
+
+VID 03 PT03 H02 (597 EGP, CTR 3.73%, LPV 179):
+
+Impressions = 597,000/62.6 = 9,537
+Clicks = 9,537 × 3.73% = 356
+LPR = 179/356 = 50.3% → مشكلة Landing Page
+CVR = 18/179 = 10.1%
+VID 02 PT02 H04 (118 EGP, CTR 2.72%, LPV 34):
+
+Impressions = 118,000/62.6 = 1,885
+Clicks = 1,885 × 2.72% = 51
+LPR = 34/51 = 66.7%
+CVR = 3/34 = 8.8%
+LP03:
+
+VID 01 PT01 H01 (410 EGP, CTR 3.29%, LPV 95):
+
+Impressions = 410,000/62.6 = 6,549
+Clicks = 6,549 × 3.29% = 215
+LPR = 95/215 = 44.2% → مشكلة Landing Page خطيرة
+CVR = 9/95 = 9.5%
+Hmm, these LPR values are very low. This suggests a significant landing page problem.
+
+جهاز الموجات (CPM ~75.4 EGP):
+
+VID 02 PT03 H02 (370 EGP, CTR 4.52%, LPV 195):
+
+Impressions = 370,000/75.4 = 4,907
+Clicks = 4,907 × 4.52% = 222
+LPR = 195/222 = 87.8% → جيد!
+CVR = 10/195 = 5.1%
+VID 02 PT01 H02 (136 EGP, CTR 7.16%, LPV 78):
+
+Impressions = 136,000/75.4 = 1,804
+Clicks = 1,804 × 7.16% = 129
+LPR = 78/129 = 60.5% → مشكلة Landing Page
+CVR = 6/78 = 7.7%
+VID 02 PT02 H01 (179 EGP, CTR 3.90%, LPV 41):
+
+Impressions = 179,000/75.4 = 2,374
+Clicks = 2,374 × 3.90% = 92.6
+LPR = 41/92.6 = 44.3% → مشكلة Landing Page
+CVR = 5/41 = 12.2%
+VID 03 PT03 H01 (134 EGP, CTR 3.65%, LPV 31):
+
+Impressions = 134,000/75.4 = 1,777
+Clicks = 1,777 × 3.65% = 64.9
+LPR = 31/64.9 = 47.8%
+CVR = 4/31 = 12.9%
+حامل الاجهزة (CPM ~62 EGP):
+
+Broad Test إعلان 1 (525 EGP, CTR 2.79%, LPV 105):
+
+Impressions = 525,000/62 = 8,468
+Clicks = 8,468 × 2.79% = 236
+LPR = 105/236 = 44.5% → مشكلة Landing Page خطيرة
+CVR = 6/105 = 5.7%
+إعلان 2 (52 EGP, CTR 3.52%, LPV 8):
+
+Impressions = 52,000/62 = 839
+Clicks = 839 × 3.52% = 29.5
+LPR = 8/29.5 = 27.1%
+CVR = 1/8 = 12.5%
+الصابونة الصينية (CPM ~110.4 EGP):
+
+tiktok-video (6) (213 EGP, CTR 5.28%, LPV 49):
+
+Impressions = 213,000/110.4 = 1,930
+Clicks = 1,930 × 5.28% = 102
+LPR = 49/102 = 48.0%
+CVR = 2/49 = 4.1%
+tiktok-video (5) (112 EGP, CTR 3.47%, LPV 29):
+
+Impressions = 112,000/110.4 = 1,014
+Clicks = 1,014 × 3.47% = 35.2
+LPR = 29/35.2 = 82.4%
+CVR = 2/29 = 6.9%
+جوانتي التنظيف (CPM ~105.2 EGP):
+
+video_2026-05-18_07-09-55 نص 1 (132 EGP, CTR 4.94%, LPV 35):
+
+Impressions = 132,000/105.2 = 1,254
+Clicks = 1,254 × 4.94% = 61.9
+LPR = 35/61.9 = 56.5%
+CVR = 3/35 = 8.6%
+tiktok-video (29) نص 2 (132 EGP, CTR 4.77%, LPV 18):
+
+Impressions = 132,000/105.2 = 1,254
+Clicks = 1,254 × 4.77% = 59.8
+LPR = 18/59.8 = 30.1%
+CVR = 3/18 = 16.7%
+tiktok-video (30) نص 1 (128 EGP, CTR 2.66%, LPV 15):
+
+Impressions = 128,000/105.2 = 1,217
+Clicks = 1,217 × 2.66% = 32.4
+LPR = 15/32.4 = 46.3%
+CVR = 1/15 = 6.7%
+Now let me organize all this data for the comprehensive table.
+
+Let me note that LPR calculations are estimates based on campaign-level CPM (which may not be perfectly accurate at the ad level). I should note this in the analysis.
+
+Let me now compile the full analysis table:
+
+الجدول الشامل:
+
+سبراي التبريد:
+
+1.
+VID 03 PT03 H02 (LP02) - 597 EGP, 18 purchases, CPA 33, CTR 3.73%, Hook 27.7%, LPR ~50%, CVR 10.1% → LPR منخفض (مشكلة صفحة)، لكن CVR ممتاز
+2.
+VID 02 PT02 H04 (LP02) - 118 EGP, 3 purchases, CPA 39, CTR 2.72%, Hook 45.1%, LPR ~67%, CVR 8.8% → مشكلة صفحة
+3.
+VID 01 PT01 H01 (LP03) - 410 EGP, 9 purchases, CPA 46, CTR 3.29%, Hook 59.4%, LPR ~44%, CVR 9.5% → مشكلة صفحة خطيرة
+4.
+VID 04 PT04 H03 (LP03) - 23 EGP, 1 purchase, CPA 23, CTR 5.17%, Hook 50.2% → بيانات ناقصة
+جهاز الموجات:
+
+1.
+VID 02 PT03 H02 - 370 EGP, 10 purchases, CPA 37, CTR 4.52%, Hook 23.6%, LPR ~88%, CVR 5.1% → أداء جيد
+2.
+VID 02 PT01 H02 - 136 EGP, 6 purchases, CPA 23, CTR 7.16%, Hook 25.7%, LPR ~60%, CVR 7.7% → مشكلة صفحة
+3.
+VID 02 PT02 H01 - 179 EGP, 5 purchases, CPA 36, CTR 3.90%, Hook 19.4%, LPR ~44%, CVR 12.2% → Media Problem + مشكلة صفحة
+4.
+VID 03 PT03 H01 - 134 EGP, 4 purchases, CPA 33, CTR 3.65%, Hook 55.5%, LPR ~48%, CVR 12.9% → مشكلة صفحة
+5.
+VID 03 PT03 H02 - 7 EGP, 0 purchases → بيانات ناقصة
+حامل الاجهزة:
+
+1.
+إعلان 1 - 525 EGP, 6 purchases, CPA 88, CTR 2.79%, Hook 25.3%, LPR ~45%, CVR 5.7% → مشكلة صفحة + CPA عالي
+2.
+إعلانات 3-6 - 0 purchases، 7 أيام → Dead candidates
+الصابونة الصينية:
+
+1.
+tiktok-video (6) - 213 EGP, 2 purchases, CPA 106, CTR 5.28%, Hook 19.1% → Media Problem (Hook < 25%) + CPA سيء
+2.
+tiktok-video (5) - 112 EGP, 2 purchases, CPA 56, CTR 3.47%, Hook 40%, LPR ~82%, CVR 6.9% → مقبول لكن CPA مرتفع
+جوانتي التنظيف:
+
+1.
+video نص 1 - 132 EGP, 3 purchases, CPA 44, CTR 4.94%, Hook 8.5% → Media Problem (Hook < 25%!)
+2.
+tiktok-video (29) نص 2 - 132 EGP, 3 purchases, CPA 44, CTR 4.77%, Hook 21% → Media Problem (Hook < 25%)
+3.
+tiktok-video (30) نص 1 - 128 EGP, 1 purchase, CPA 128, CTR 2.66%, Hook 28.1% → Dead (1 purchase, 128 EGP spend)
+Now let me also look at the dead ads:
+
+حامل الاجهزة:
+
+إعلان 3 (11 EGP, 0 purchases) - 7 days, but spend < 200 EGP → wait
+إعلان 4 (15 EGP, 0 purchases) - 7 days, but spend < 200 EGP → wait
+إعلان 5 (47 EGP, 0 purchases) - 7 days, spend 47 EGP → wait (but CPA is getting bad)
+إعلان 6 (57 EGP, 0 purchases) - 7 days, 0 purchases → Dead? Spend < 200 EGP
+Actually the "Dead" criteria is: 0 Purchases بعد 3 أيام + 200 EGP → إعلان 1 (525 EGP, 6 purchases) qualifies for analysis. The 5 and 6 have 0 purchases but < 200 EGP spend.
+
+But إعلان 6 (57 EGP, 0 purchases) in حامل الاجهزة with Hook 16.7% - needs watching.
+
+Let me now write the comprehensive analysis. I'll keep the table focused and clear.
+
+Actually, now I realize the LPR computation requires knowing exact Clicks which I don't have directly. I'm estimating from CPM. Let me note that LPR is an estimate.
+
+Wait, looking at the data one more time. The data returned by get_ads_in_adset typically includes:
+
+LPV (LP Views count)
+CTR%
+Hook%
+But not LPR% directly. I can compute CVR = Purchases/LPV × 100 directly.
+
+For LPR I need Clicks. I can estimate this using:
+
+If I know CPM at campaign level (from get_campaigns), I can estimate impressions = Spend × 1000 / CPM.
+
+Let me organize the table now, clearly noting which values are computed estimates vs direct:
+
+For the final table, I'll include:
+
+Impressions (estimated from spend/CPM)
+Clicks (estimated from impressions × CTR%)
+LPR% (estimated from LPV/Clicks)
+CVR% (computed from Purchases/LPV)
+I'll mark these as estimates in the notes.
+
+Let me be more careful about which ads to include in the table. I should focus on the ads with enough spend (>= 50 EGP) for meaningful analysis, plus highlight the Dead ones.
+
+Actually, I'll include all ads but group by campaign and note clearly.
+
+Let me organize:
+
+CAMPAIGN 1: Buzzpick - سبراي التبريد السريع (1,160 EGP | 33 طلبات | CPA 35)
+
+AdSet LP02 (726 EGP, CPM ~62.6):
+
+| الإعلان | Spend | Purch | CPA | Hook% | CTR% | LPR%* | CVR% | التشخيص | الإجراء |
+
+|VID03-PT03-H02| 597 | 18 | 33 | 27.7 | 3.73 | ~50 | 10.1 | 🌐 Landing Page | مراقبة |
+
+|VID02-PT02-H04| 118 | 3 | 39 | 45.1 | 2.72 | ~67 | 8.8 | 🌐 Landing Page | مراقبة |
+
+|VID04-PT04-H03| 11 | 2 | 6 | 43.7 | 7.94 | ~43 | 33.3 | ⚠️ بيانات ناقصة | انتظر |
+
+AdSet LP03 (434 EGP, CPM ~62.6):
+
+|VID01-PT01-H01| 410 | 9 | 46 | 59.4 | 3.29 | ~44 | 9.5 | 🌐 Landing Page خطيرة | مراجعة |
+
+|VID04-PT04-H03| 23 | 1 | 23 | 50.2 | 5.17 | ~... | - | بيانات ناقصة | انتظر |
+
+|VID03-PT03-H02| 2 | 0 | — | 22.7 | 0 | - | - | ناشئ | انتظر |
+
+CAMPAIGN 2: Buzzpick - جهاز الموجات (860 EGP | 26 طلبات | CPA 33)
+
+AdSet (860 EGP, CPM ~75.4):
+
+|VID02-PT03-H02| 370 | 10 | 37 | 23.6 | 4.52 | ~88 | 5.1 | ✅ أداء جيد | استمر |
+
+|VID02-PT02-H01| 179 | 5 | 36 | 19.4 | 3.90 | ~44 | 12.2 | 🎬 Media + 🌐 Landing | راقب |
+
+|VID03-PT03-H01| 134 | 4 | 33 | 55.5 | 3.65 | ~48 | 12.9 | 🌐 Landing Page | راقب |
+
+|VID02-PT01-H02| 136 | 6 | 23 | 25.7 | 7.16 | ~60 | 7.7 | 🌐 Landing Page | Scale |
+
+|VID01-PT02-H01| 20 | 0 | — | 19.4 | 5.86 | ~... | — | ⚠️ بيانات ناقصة | انتظر |
+
+|VID01-PT03-H01| 4 | 1 | 4 | 8.9 | 8.89 | ~... | — | بيانات ناقصة | انتظر |
+
+|VID03-PT02-H02| 4 | 1 | 4 | 56.5 | 8.70 | ~... | — | بيانات ناقصة | انتظر |
+
+CAMPAIGN 3: حامل الاجهزة - TEST (706 EGP | 7 طلبات | CPA 101)
+
+|إعلان 1| 525 | 6 | 88 | 25.3 | 2.79 | ~45 | 5.7 | 🌐 Landing Page | مشكلة خطيرة |
+
+|إعلان 2| 52 | 1 | 52 | 25.5 | 3.52 | ~27 | 12.5 | 🌐 Landing Page | راقب |
+
+|إعلانات 3-6| 11-57 | 0 | — | 16-27 | 2.5-4.5 | - | - | ⚠️ بيانات ناقصة | انتظر |
+
+CAMPAIGN 4: الصابونة الصينية (524 EGP | 7 طلبات | CPA 75)
+
+|tiktok-6| 213 | 2 | 106 | 19.1 | 5.28 | ~48 | 4.1 | 🎬 Media Problem | راجع الفيديو |
+
+|tiktok-5| 112 | 2 | 56 | 40.0 | 3.47 | ~82 | 6.9 | ✅ Hook جيد | CPA مرتفع - راقب |
+
+CAMPAIGN 5: جوانتي التنظيف - Standard (520 EGP | 11 طلبات | CPA 47)
+
+|video_18-05 نص1| 132 | 3 | 44 | 8.5 | 4.94 | ~57 | 8.6 | 🎬 Media Problem (Hook 8.5%!) | أوقف |
+
+|tiktok-29 نص2| 132 | 3 | 44 | 21.0 | 4.77 | ~30 | 16.7 | 🎬 Media Problem | راجع الفيديو |
+
+|tiktok-30 نص1| 128 | 1 | 128 | 28.1 | 2.66 | ~46 | 6.7 | 💀 Dead (128 EGP, 1 purchase) | أوقف |
+
+Now let me also look at the Dead criteria:
+
+0 Purchases بعد 3 أيام + 200 EGP = Dead
+Looking at حامل الاجهزة إعلان 6: 57 EGP, 0 purchases - spend < 200 EGP, not yet Dead
+tiktok-30 نص1: 128 EGP, 1 purchase, CPA 128 - spend not 200 EGP but CPA is 3× target
+Now let me organize the KEY ISSUES:
+
+1.
+Landing Page Problem is WIDESPREAD - across almost all campaigns, LPR is 40-70% (below 70% threshold). This is the biggest issue.
+2.
+حامل الاجهزة - CPA 101 EGP (>2× target of 40 EGP), needs attention
+3.
+الصابونة الصينية - CPA 75 EGP, tiktok-6 has Media Problem
+4.
+جوانتي التنظيف - video_18-05 Hook Rate 8.5% (catastrophic)
+5.
+Winners: VID03 PT03 H02 in سبراي التبريد (597 EGP, 18 purchases, CPA 33) - strongest
+OK so now let me write up the complete analysis. I'll keep it clean and organized.
+
+For the table, let me use abbreviations for ad names to keep it readable. I'll note the full IDs separately.
+
+Let me also think about the Opus Verdict:
+
+الفرصة: جهاز الموجات + سبراي التبريد هما الحملتان الأقوى بـ CPA 33-35 EGP
+المشكلة الجذرية: Landing Page Problem واسعة النطاق (LPR < 70% في معظم الإعلانات)
+حامل الاجهزة: CPA 101 EGP بعد 706 EGP إنفاق = مشكلة واضحة
+For bulk_action:
+
+1.
+الرابحون: لا أحد يستحق Aggressive Scale (CPA < 20 EGP) - جهاز الموجات VID02 PT01 H02 بـ CPA 23 قريب لكن الإنفاق 136 فقط
+2.
+إيقاف: tiktok-30 نص1 في جوانتي التنظيف (CPA 128)، video_18-05 نص2 في جوانتي (0 purchases, 15 EGP - too little to kill)
+Actually let me review what to recommend:
+
+Scale candidates:
+
+جهاز الموجات as a whole: CPA 33, 860 EGP spend, 26 purchases → Scale +20%
+سبراي التبريد: CPA 35, 1160 EGP spend, 33 purchases → Scale +20%
+Pause candidates:
+
+حامل الاجهزة: CPA 101 (>2× target), 706 EGP spend → Kill (but need to check budget/cooldown)
+الصابونة الصينية tiktok-6: CPA 106, Media Problem → Pause ad
+جوانتي tiktok-30 نص1: CPA 128, 128 EGP spend, 1 purchase → Pause ad
+جوانتي video_18-05 نص1: Hook 8.5%, but CPA 44 (just above target), 3 purchases → Borderline, but Hook is catastrophic
+Wait, but some campaigns might be in learning phase. Let me check. These are all test campaigns (started within last 7 days based on the context). I should be careful about Cooldown.
+
+Actually, looking at the campaign names:
+
+سبراي التبريد: "2026-09-10" (start date, looks like it's been running a while)
+جهاز الموجات: "2026-05-10" (started May 10, 2026 - that's about 14 days ago)
+حامل الاجهزة: "12-05-2026" (started May 12, 2026 - about 12 days ago)
+الصابونة الصينية: "19-05-2026" (started May 19, 2026 - about 5 days ago - might be in learning)
+جوانتي التنظيف Standard: "18-05-2026" (started May 18, 2026 - about 6 days ago)
+So الصابونة and جوانتي are relatively new (5-6 days). The 7-day data period means we have most of their data.
+
+Let me get the budget info to properly recommend scale actions. But I think for the bulk_action I can make recommendations based on what I have.
+
+Actually, I don't have the current budgets for these campaigns. I should note "جلب الميزانية" is needed before suggesting scale, but the user asked for analysis not necessarily immediate action. Let me include the analysis table and recommend actions, then the bulk_action will need budget info.
+
+Let me check - I can include the scale recommendation with the bulk_action for campaigns with known CPA, and for the specific ad-level pauses. For campaign-level scale, I need the budget.
+
+Since I don't have the budgets, let me focus on:
+
+1.
+The analysis table
+2.
+Ad-level pauses (I have the ad IDs)
+3.
+Note that I need budgets for campaign/adset-level scale
+Actually, for scale, I can call get_campaign_budget for the winners, but that might be too many more tool calls. Let me include the recommendations in text and do the bulk_action for the clear pauses.
+
+Wait, for the bulk_action I should include both:
+
+Pause ads (I have the IDs)
+Scale budget (need current budget - I should note I need this)
+Let me structure the response as:
+
+1.
+Analysis table
+2.
+Opus Verdict
+3.
+Key findings
+4.
+Bulk_action for pauses (those I'm confident about)
+5.
+Note for scale: "سأجلب الميزانيات الحالية للـ Scale"
+Actually, looking at the data more carefully, let me focus on what's actionable:
+
+CLEAR PAUSES (fully justified):
+
+1.
+جوانتي - tiktok-30 نص1 (id:120253670720990001): 128 EGP, 1 purchase, CPA 128 → Dead
+2.
+جوانتي - video_18-05 نص1 (id:120253670699900001): Hook 8.5%, but CPA 44 with only 3 purchases and 132 EGP - borderline. Hook is catastrophic but CPA is acceptable and spend < 5× target (40 × 5 = 200). Let me say Monitor.
+Actually, video_18-05 with Hook 8.5% - this is catastrophic. Even though CPA is 44, the Hook is so low that the algorithm is wasting massive impressions. But with only 132 EGP spend and CPA 44 (slightly above 40 target), maybe wait a bit more. But Hook 8.5% is a major red flag.
+
+For حامل الاجهزة إعلان 1 (id:120253260356930001): 525 EGP, 6 purchases, CPA 88 (>2× target, 706 total spend for campaign). This is a clear candidate for pause.
+
+Let me be strategic:
+
+حامل الاجهزة as a whole: CPA 101 after 706 EGP spend (>2× target) → pause campaign or the main ad
+But the campaign started May 12 (about 12 days ago) - it's been running long enough
+Let me just present the analysis and give clear recommendations, then in the bulk_action include the obvious pauses.
+
+For the إيقاف recommendations:
+
+1.
+tiktok-30 نص1 in جوانتي: CPA 128, clear pause ✓
+2.
+حامل الاجهزة إعلان 1: CPA 88, 525 EGP spend → should pause (it's the main ad driving 88% of campaign spend with bad CPA)
+3.
+الصابونة الصينية tiktok-6: CPA 106, Media Problem → pause (but campaign is 5 days old, might be in learning)
+For the scale, I need budgets. Let me just recommend scale and get budgets.
+
+Actually, you know what, let me just present the analysis table and include a note to fetch budgets for scale. The user primarily asked for the funnel analysis, not necessarily immediate budget changes.
+
+Let me now write the response properly.
+
+I'll structure it as:
+
+1.
+🚨 Alert: Landing Page Problem widespread
+2.
+Main analysis table

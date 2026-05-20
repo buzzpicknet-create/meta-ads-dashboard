@@ -392,7 +392,14 @@ function renderInline(text: string): React.ReactNode {
 }
 
 function RenderMarkdown({ text }: { text: string }) {
-  const lines = text.split("\n");
+  // Extract <thinking>...</thinking> blocks — render them collapsed, keep rest as-is
+  const thinkingBlocks: string[] = [];
+  const cleanText = text.replace(/<thinking>([\s\S]*?)<\/thinking>/gi, (_: string, content: string) => {
+    thinkingBlocks.push(content.trim());
+    return "";
+  });
+
+  const lines = cleanText.split("\n");
   const elems: React.ReactNode[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -639,7 +646,19 @@ function RenderMarkdown({ text }: { text: string }) {
     elems.push(<p key={i} className="text-[15.5px] leading-relaxed">{renderInline(line)}</p>);
     i++;
   }
-  return <div className="space-y-0.5">{elems}</div>;
+  return (
+    <div className="space-y-0.5">
+      {thinkingBlocks.map((block, idx) => (
+        <details key={`think-${idx}`} className="mb-1 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 text-xs">
+          <summary className="cursor-pointer select-none text-primary/70 flex items-center gap-1.5 font-medium list-none">
+            <span>🧠</span> تفكير عميق — اضغط للعرض
+          </summary>
+          <pre className="mt-2 text-muted-foreground whitespace-pre-wrap text-[11px] leading-relaxed font-sans">{block}</pre>
+        </details>
+      ))}
+      {elems}
+    </div>
+  );
 }
 
 // ─── Conversation grouping ─────────────────────────────────────────────────────
