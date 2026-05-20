@@ -31,7 +31,6 @@ interface FbInsightRow {
   actions?: FbActionEntry[];
   action_values?: FbActionEntry[];
   video_play_actions?: FbActionEntry[];
-  video_p3_watched_actions?: FbActionEntry[];
   video_p25_watched_actions?: FbActionEntry[];
   video_p50_watched_actions?: FbActionEntry[];
   video_p75_watched_actions?: FbActionEntry[];
@@ -420,7 +419,8 @@ function addRow(acc: AggregatedMetrics, row: FbInsightRow): void {
   acc.link_clicks += linkClickCount(row);
   acc.lpv += lpvCount(row);
   acc.purchases += purchaseCount(row);
-  acc.v3 = (acc.v3 ?? 0) + actionVal(row.video_p3_watched_actions, "video_view");
+  // video_p3_watched_actions removed by Meta — use video_play_actions (equivalent 3-sec metric)
+  acc.v3 = (acc.v3 ?? 0) + actionVal(row.video_play_actions, "video_view");
   acc.v25 += actionVal(row.video_p25_watched_actions, "video_view");
   acc.v50 += actionVal(row.video_p50_watched_actions, "video_view");
   acc.v75 += actionVal(row.video_p75_watched_actions, "video_view");
@@ -478,7 +478,6 @@ const INSIGHT_FIELDS = [
   "inline_link_clicks",
   "actions",
   "video_play_actions",
-  "video_p3_watched_actions",
   "video_p25_watched_actions",
   "video_p50_watched_actions",
   "video_p75_watched_actions",
@@ -494,7 +493,6 @@ const LEAN_CAMPAIGN_FIELDS = [
   "inline_link_clicks",
   "actions",
   "video_play_actions",
-  "video_p3_watched_actions",
   "video_p100_watched_actions",
 ].join(",");
 
