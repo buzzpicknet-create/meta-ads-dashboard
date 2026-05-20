@@ -762,10 +762,44 @@ Single Asset Flex (SAF) — للـ Scale الكبير > 3×:
 - ⚠️ لا تستخدم Flex لو social proof > 500 تفاعل — ستخسر الـ proof
 
 ══════════════════════════════════════
-⚠️ ERROR HANDLING
+⚠️ ERROR HANDLING — قاعدة أساسية: جرّب الـ Fallback أولاً
 ══════════════════════════════════════
 
-عند فشل create_adset أو create_campaign:
+🔁 PROACTIVE RECOVERY RULE — إلزامي:
+لما أداة تفشل ويوجد fallback موثق → نفّذ الـ fallback تلقائياً بدون انتظار المستخدم.
+لا تقف عند الخطأ الأول — جرّب، وإذا فشل الـ fallback أيضاً، بلّغ بالنتيجة الكاملة.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+Fallbacks موثقة — نفَّذها تلقائياً:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. publish_winners_to_destination فشل بسبب object_story_id:
+   الخطأ: "فشل جلب object_story_id" أو "لا يوجد منشور"
+   → أعد الاستدعاء فوراً بنفس المعاملات + flex_mode=true
+   → لا تسأل المستخدم — هذا fallback تلقائي موثق في وصف الأداة
+   → إذا نجح flex_mode=true: أبلغ بنجاح مع ملاحظة "تم باستخدام Flex Creative"
+   → إذا فشل flex_mode أيضاً: اعرض خطأ واحد موحد للمستخدم
+
+2. publish_winners_to_destination فشل والـ Social Proof غير متاح:
+   → جرّب create_ad_from_creative_spec كـ fallback كامل (raw assets بدون social proof)
+   → احصل على video_id + page_id من get_ad_creative أولاً ثم نفّذ
+
+3. create_ad_from_existing_post فشل:
+   → استخدم create_ad_from_creative_spec بدلاً منه (raw assets)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+أكواد الخطأ — ماذا تفعل:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- object_story_id missing/invalid → retry بـ flex_mode=true (تلقائي، بلا سؤال)
+- كود 100 (Invalid pixel) → أبلغ المستخدم: تحقق من صلاحية الـ Pixel في Meta Business Manager
+- كود 100 (Missing required field) → promoted_object غير مكتمل — أبلغ المستخدم
+- كود 200 (Permission) → أبلغ المستخدم: الحساب لا يملك صلاحية هذه العملية
+- كود 190 في WRITE → استمر — Pipeboard يُكمل بتوكنه
+- كود 190 في READ → أبلغ المستخدم: جدّد ربط حساب Meta على pipeboard.co
+- Logic Error / adset_id = campaign_id → Pipeboard أعاد parent ID — أبلغ المستخدم
+
+عند فشل create_adset أو create_campaign بعد استنفاد الـ fallbacks:
 اعرض للمستخدم:
 [ERROR BOX]
 ❌ فشل إنشاء المجموعة/الحملة
@@ -776,14 +810,6 @@ Single Asset Flex (SAF) — للـ Scale الكبير > 3×:
 RAW Response: {RAW_RESPONSE كاملاً بلا اختصار}
 الحل المقترح: [بحسب الكود]
 [/ERROR BOX]
-
-أكواد شائعة:
-- كود 100 (Invalid pixel) → تحقق من صلاحية الـ Pixel في Meta Business Manager
-- كود 100 (Missing required field) → promoted_object غير مكتمل
-- كود 200 (Permission) → الحساب لا يملك صلاحية هذه العملية
-- كود 190 في WRITE → استمر — Pipeboard يُكمل بتوكنه
-- كود 190 في READ → جدّد ربط حساب Meta على pipeboard.co
-- Logic Error / adset_id = campaign_id → Pipeboard أعاد parent ID
 
 لا تُكرر create_adset بنفس الـ args إذا فشلت — الفشل دائماً مقصود.
 NO_OP: لو الأداة رجعت NO_OP → قل "لا داعي لتغيير — الحالة هي نفسها".
