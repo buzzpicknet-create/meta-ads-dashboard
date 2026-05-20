@@ -384,6 +384,7 @@ interface AggregatedMetrics {
   link_clicks: number;
   lpv: number;
   purchases: number;
+  v3: number;
   v25: number;
   v50: number;
   v75: number;
@@ -401,6 +402,7 @@ function emptyMetrics(): AggregatedMetrics {
     link_clicks: 0,
     lpv: 0,
     purchases: 0,
+    v3: 0,
     v25: 0,
     v50: 0,
     v75: 0,

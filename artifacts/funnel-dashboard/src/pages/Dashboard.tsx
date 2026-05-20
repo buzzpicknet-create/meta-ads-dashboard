@@ -2349,6 +2349,7 @@ export default function Dashboard() {
     [preset, customRange],
   );
 
+  const { pendingCampaignId: ctxPendingCampaignId, clearPendingCampaignId, selectedAccountId, setSelectedAccountId } = useGlobalAiChat();
   const account = useAccount();
   const accounts = useAccounts();
   const campaigns = useCampaigns({ ...range, ad_account_id: selectedAccountId || undefined });
@@ -2362,7 +2363,6 @@ export default function Dashboard() {
   const accountCampaigns = useMemo(() => campaigns.data?.campaigns ?? [], [campaigns.data?.campaigns]);
 
   // Pending campaign from context (in-memory, reactive — works even when already on this route)
-  const { pendingCampaignId: ctxPendingCampaignId, clearPendingCampaignId, selectedAccountId, setSelectedAccountId } = useGlobalAiChat();
 
   // Also read from sessionStorage for cold loads (direct navigation with a stored key)
   const [storagePendingCampaignId, setStoragePendingCampaignId] = useState<string | null>(null);

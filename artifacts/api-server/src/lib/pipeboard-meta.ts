@@ -131,7 +131,7 @@ function rowToMetrics(row: PbRow): DerivedMetrics {
 
   return {
     spend, impressions, reach, clicks, link_clicks, lpv, purchases,
-    v25: 0, v50: 0, v75: 0, v95: 0, v100: 0, video_plays,
+    v3: 0, v25: 0, v50: 0, v75: 0, v95: 0, v100: 0, video_plays,
     ctr, cpc, cpm, cpa, lpvRate, crLpv, crClick, hookRate,
     holdRate: 0, // thruplay not available from Pipeboard
     frequency,
@@ -156,7 +156,7 @@ function aggregateRows(rows: PbRow[]): DerivedMetrics {
   // Re-derive so ratio metrics are computed from aggregated counts (not averaged)
   return derive({
     spend, impressions, reach, clicks, link_clicks, lpv, purchases, video_plays,
-    v25: 0, v50: 0, v75: 0, v95: 0, v100: 0,
+    v3: 0, v25: 0, v50: 0, v75: 0, v95: 0, v100: 0,
   });
 }
 
