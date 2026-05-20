@@ -4663,97 +4663,65 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     // ── System blocks (reused for countTokens + stream, caching applied once) ──
     const systemBlocks = [{ type: "text" as const, text: systemContent, cache_control: { type: "ephemeral" as const } }];
 
-    // ── Detect extended thinking — driven by user toggle (deepThink flag) ─────
-    const useExtendedThinking = session.deepThink === true;
-    if (useExtendedThinking) logger.info("Extended thinking activated (user toggle)");
+    // ── Deep think mode — prompt-based (Replit proxy doesn't support thinking API param) ─
+    const deepThinkMode = session.deepThink === true;
+    if (deepThinkMode) {
+      // Inject deep-reasoning instruction as an extra system block
+      systemBlocks.push({
+        type: "text" as const,
+        text: `\n\n══════════ وضع التفكير العميق مفعّل ══════════
+المستخدم طلب تحليلاً معمّقاً. اتبع الخطوات التالية قبل الإجابة:
+١. فكّر خطوة بخطوة — حلّل كل جانب من جوانب السؤال بعمق.
+٢. راجع كل الأرقام والمؤشرات المتاحة قبل إصدار حكم.
+٣. قارن بين البدائل وذكر إيجابيات وسلبيات كل خيار.
+٤. قدّم توصية واضحة مدعومة بالأدلة.
+الإجابة يجب أن تكون شاملة ومفصّلة أكثر من المعتاد.
+══════════════════════════════════════`,
+        cache_control: { type: "ephemeral" as const },
+      });
+      logger.info("Deep think mode: prompt injection applied");
+    }
 
     // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
     for (let round = 0; round < 15; round++) {
       // ── Token guard: compress old tool results if context > 150k tokens ─────
       await compressIfOverLimit(apiMessages, systemBlocks, anthropicTools);
 
-      // Extended thinking only on round 0 — tool-call rounds don't support it
-      let thinkingActive = useExtendedThinking && round === 0;
-
       let assistantText = "";
-      let thinkingText = ""; // accumulated thinking content for this round
       // Sparse array indexed by content block index
-      let toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
+      const toolUseBlocks: ({ id: string; name: string; inputJson: string } | undefined)[] = [];
       let stopReason = "";
 
-      // Inner helper: run one stream pass (with or without thinking)
-      const runStream = async (withThinking: boolean): Promise<void> => {
-        const baseParams: Parameters<typeof anthropic.messages.create>[0] = {
-          model: CHAT_MODEL,
-          system: systemBlocks,
-          messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
-          tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
-          tool_choice: { type: "auto" },
-          max_tokens: withThinking ? 22000 : 16384,
-        };
-        // Attach thinking param via spread so TS doesn't complain about unknown field
-        const streamParams = withThinking
-          ? { ...baseParams, thinking: { type: "enabled", budget_tokens: 10_000 } }
-          : baseParams;
+      const stream = anthropic.messages.stream({
+        model: CHAT_MODEL,
+        system: systemBlocks,
+        messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
+        tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
+        tool_choice: { type: "auto" },
+        max_tokens: 16384,
+      });
 
-        const stream = anthropic.messages.stream(
-          streamParams as Parameters<typeof anthropic.messages.create>[0],
-        );
-
-        let sentThinkingStart = false;
-
-        for await (const event of stream) {
-          if (event.type === "content_block_start") {
-            // @ts-ignore — thinking block type not in older SDK typedefs
-            if (event.content_block.type === "thinking" && !sentThinkingStart) {
-              send({ thinking_start: true });
-              sentThinkingStart = true;
-            } else if (event.content_block.type === "tool_use") {
-              toolUseBlocks[event.index] = {
-                id: event.content_block.id,
-                name: event.content_block.name,
-                inputJson: "",
-              };
-            }
-          } else if (event.type === "content_block_delta") {
-            // @ts-ignore — thinking_delta not in older SDK typedefs
-            if (event.delta.type === "thinking_delta") {
-              // @ts-ignore
-              const chunk = String(event.delta.thinking ?? "");
-              thinkingText += chunk;
-              if (chunk) send({ thinking_chunk: chunk });
-            } else if (event.delta.type === "text_delta") {
-              assistantText += event.delta.text;
-              send({ content: event.delta.text });
-            } else if (event.delta.type === "input_json_delta") {
-              const block = toolUseBlocks[event.index];
-              if (block) block.inputJson += event.delta.partial_json;
-            }
-          } else if (event.type === "message_delta") {
-            stopReason = event.delta.stop_reason ?? "";
-            if (stopReason === "max_tokens") logger.warn({ stopReason }, "MAX_TOKENS reached");
+      for await (const event of stream) {
+        if (event.type === "content_block_start") {
+          if (event.content_block.type === "tool_use") {
+            toolUseBlocks[event.index] = {
+              id: event.content_block.id,
+              name: event.content_block.name,
+              inputJson: "",
+            };
           }
+        } else if (event.type === "content_block_delta") {
+          if (event.delta.type === "text_delta") {
+            assistantText += event.delta.text;
+            send({ content: event.delta.text });
+          } else if (event.delta.type === "input_json_delta") {
+            const block = toolUseBlocks[event.index];
+            if (block) block.inputJson += event.delta.partial_json;
+          }
+        } else if (event.type === "message_delta") {
+          stopReason = event.delta.stop_reason ?? "";
+          if (stopReason === "max_tokens") logger.warn({ stopReason }, "MAX_TOKENS reached");
         }
-      };
-
-      // Try with thinking; if the proxy rejects it, fall back silently
-      if (thinkingActive) {
-        try {
-          await runStream(true);
-        } catch (thinkErr) {
-          const thinkMsg = thinkErr instanceof Error ? thinkErr.message : String(thinkErr);
-          logger.warn({ err: thinkMsg }, "Extended thinking rejected by proxy — retrying without thinking");
-          // Reset accumulators before retry
-          assistantText = "";
-          thinkingText = "";
-          toolUseBlocks = [];
-          stopReason = "";
-          thinkingActive = false;
-          send({ thinking_disabled: true }); // tell frontend to hide indicator
-          await runStream(false);
-        }
-      } else {
-        await runStream(false);
       }
 
       // Filter to only actual tool use blocks (skip undefined slots)
