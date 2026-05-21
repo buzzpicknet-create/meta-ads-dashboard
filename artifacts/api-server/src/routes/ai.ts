@@ -4875,7 +4875,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     // ── Inject selected account_ids so the AI always knows which account to use ──
     if (selectedAccFilter?.size) {
       const accountIds = [...selectedAccFilter];
-      systemContent += `\n\n══════════ ACTIVE AD ACCOUNT ══════════\n🏦 الحساب المختار في الواجهة (إلزامي — استخدمه في كل tool call بدون استثناء):\n${accountIds.map(id => `act_${id}`).join(", ")}\n\n⚠️ قواعد صارمة:\n- استخدمه في كل tool call (قراءة وكتابة) بدون استثناء\n- جميع الحملات والمجموعات التي تحللها يجب أن تكون تابعة لهذا الحساب فقط\n- إذا ظهرت حملات من حساب آخر في الـ context، تجاهلها تماماً\n- لا تسأل المستخدم عن account_id — هو محدد أعلاه\n══════════════════════════════════════`;
+      systemContent += `\n\n══════════ ACTIVE AD ACCOUNT ══════════\n🏦 الحساب المختار في الواجهة (إلزامي — استخدمه في كل tool call بدون استثناء):\n${accountIds.map(id => `act_${id}`).join(", ")}\n\n⚠️ قواعد صارمة:\n- استخدمه في كل tool call (قراءة وكتابة) بدون استثناء\n- جميع الحملات والمجموعات التي تحللها يجب أن تكون تابعة لهذا الحساب فقط\n- إذا ظهرت حملات من حساب آخر في الـ context، تجاهلها تماماً — لا تحللها ولا تستند إليها\n- لا تسأل المستخدم عن account_id — هو محدد أعلاه\n\n🧠 قاعدة الـ THINKING PHASE:\nعند التفكير العميق (extended thinking)، ابدأ دائماً بتحديد: "الحساب النشط هو ${accountIds.map(id => `act_${id}`).join(", ")} — سأتجاهل أي بيانات من حسابات أخرى في تاريخ المحادثة."\nلا تُضيّع رموز التفكير في تحليل بيانات حسابات غير نشطة.\n══════════════════════════════════════`;
     }
 
     if (campaignContext) systemContent += `\n\n══════════ CAMPAIGN CONTEXT ══════════\n${campaignContext}`;
@@ -4959,6 +4959,30 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     // ── Deep think mode: real Extended Thinking (claude-sonnet-4-6 supports it) ──
     const deepThinkMode = session.deepThink === true;
     if (deepThinkMode) logger.info("Extended thinking mode active (claude-sonnet-4-6)");
+
+    // ── Deep think account-scope guard ────────────────────────────────────────
+    // When extended thinking is active, inject a hard constraint right before
+    // the last user message so the thinking phase doesn't drift into analysing
+    // tool-call results from OTHER accounts that exist in the conversation history.
+    if (deepThinkMode && selectedAccFilter?.size && apiMessages.length > 0) {
+      const activeIds = [...selectedAccFilter].map(id => `act_${id}`).join(", ");
+      const scopeGuard = `[تعليمات الـ THINKING PHASE — إلزامية]
+الحساب النشط الوحيد المسموح بتحليله: ${activeIds}
+🔴 أي بيانات حملات أو مجموعات إعلانية أو إعلانات تخص حسابًا آخر موجودة في تاريخ المحادثة → تجاهلها كلياً ولا تستند إليها في تفكيرك.
+🔴 لا تستدعِ أي tool بـ account_id مختلف عن الحساب النشط أعلاه — حتى لو ظهر account_id آخر في رسائل سابقة.
+🔴 ابدأ تفكيرك من هذه النقطة فقط: ما هو السؤال الحالي؟ ما البيانات المطلوبة للحساب النشط فقط؟`;
+      // Insert guard as a user turn immediately before the last user message
+      const lastMsgIdx = apiMessages.length - 1;
+      const lastMsg = apiMessages[lastMsgIdx]!;
+      apiMessages.splice(lastMsgIdx, 0, { role: "user", content: scopeGuard });
+      // Ensure alternating roles — if the message before the guard is already "user",
+      // wrap the guard in an assistant+user pair so the API doesn't reject it
+      if (lastMsgIdx > 0 && apiMessages[lastMsgIdx - 1]?.role === "user") {
+        apiMessages.splice(lastMsgIdx, 0, { role: "assistant", content: "فهمت — سأقصر تحليلي على الحساب النشط فقط." });
+      }
+      logger.info({ activeIds }, "Deep think: account scope guard injected");
+      void lastMsg; // already in place at lastMsgIdx+1 (or +2)
+    }
 
     // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
     for (let round = 0; round < 15; round++) {
