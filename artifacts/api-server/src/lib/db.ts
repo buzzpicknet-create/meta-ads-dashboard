@@ -21,17 +21,18 @@ export async function query<T extends object = Record<string, unknown>>(
 }
 
 // ── AI Learnings — auto-record successful solutions ──────────────────────────
-export async function recordLearning(problem: string, solution: string, toolUsed: string, errorPattern?: string): Promise<void> {
+export async function recordLearning(problem: string, solution: string, toolUsed: string, errorPattern?: string, errorCode?: string): Promise<void> {
   try {
     await query(
-      `INSERT INTO ai_learnings (problem, solution, tool_used, error_pattern, success_count, last_seen)
-       VALUES ($1, $2, $3, $4, 1, NOW())
+      `INSERT INTO ai_learnings (problem, solution, tool_used, error_pattern, error_code, success_count, last_seen)
+       VALUES ($1, $2, $3, $4, $5, 1, NOW())
        ON CONFLICT (problem) DO UPDATE SET
          success_count = ai_learnings.success_count + 1,
          last_seen = NOW(),
          solution = EXCLUDED.solution,
-         tool_used = EXCLUDED.tool_used`,
-      [problem, solution, toolUsed, errorPattern ?? null]
+         tool_used = EXCLUDED.tool_used,
+         error_code = COALESCE(EXCLUDED.error_code, ai_learnings.error_code)`,
+      [problem, solution, toolUsed, errorPattern ?? null, errorCode ?? null]
     );
   } catch (e) {
     // non-fatal
