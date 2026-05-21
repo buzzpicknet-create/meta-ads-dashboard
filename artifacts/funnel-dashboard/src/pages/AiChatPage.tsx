@@ -880,7 +880,9 @@ export default function AiChatPage() {
     const until = new Date(); const s30 = new Date(until); s30.setDate(s30.getDate()-30); const s7 = new Date(until); s7.setDate(s7.getDate()-7);
     const fd = (d:Date) => d.toISOString().split("T")[0]!;
     fetch(`${API}/meta/accounts`, {credentials:"include"}).then(r=>r.ok?r.json():null).then(async data => {
-      const accs: {id:string}[] = data?.accounts??[];
+      const allAccs: {id:string}[] = data?.accounts??[];
+      // Filter to selected accounts only — never mix data from other accounts
+      const accs = allAccs.filter(a => selectedAccIds.size === 0 || selectedAccIds.has(a.id.replace(/^act_/, "")));
       if (!accs.length) { setCampCtx(GEN_CTX); return; }
       const all30: CampData[] = [], all7: CampData[] = [], allD: DailyPt[] = [];
       let ok = false;
@@ -927,6 +929,8 @@ export default function AiChatPage() {
       localStorage.setItem("chat_selected_accounts", JSON.stringify([...next]));
       return next;
     });
+    // Reset campaign context so it rebuilds for the new account selection
+    setCampCtx(null);
   }, []);
 
   const selectAllAccounts = useCallback(() => {
