@@ -856,6 +856,9 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
   // Default account picker (persisted in localStorage)
   const [defaultAccountId, setDefaultAccountId] = useState<string>(() => localStorage.getItem("ai_default_account_id") ?? "");
   const [defaultAccountName, setDefaultAccountName] = useState<string>(() => localStorage.getItem("ai_default_account_name") ?? "");
+  // Tracks which account the current campaignsCtx was built for (bare ID, no act_ prefix).
+  // Used to detect stale context when selectedAccountId changes mid-fetch.
+  const [campaignsCtxForAccount, setCampaignsCtxForAccount] = useState<string | null>(null);
   const [availableAccounts, setAvailableAccounts] = useState<{ id: string; name?: string }[]>([]);
   const [showAccountPicker, setShowAccountPicker] = useState(false);
 
@@ -910,49 +913,62 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       .finally(() => setActivityLoading(false));
   }, [open, isAdmin, activityUsers]);
 
-  // Fetch campaigns context (7d + 30d) when chat opens; retries each open if previous attempt failed
+  // Fetch campaigns context when chat opens or when the effective account changes.
+  // Uses campaignsCtxForAccount to detect stale context (fixes race condition where
+  // setCampaignsCtx(null) is a no-op when already null during a mid-fetch account switch).
   useEffect(() => {
     if (!open || campaignsLoading) return;
-    if (campaignsCtx !== null) return;
+    const effectiveCtxAccount = (selectedAccountId || defaultAccountId || "").replace(/^act_/, "");
+    // Context is valid if it exists AND was built for the current account (or no account filter).
+    const contextIsValid =
+      campaignsCtx !== null &&
+      (!effectiveCtxAccount || campaignsCtxForAccount === effectiveCtxAccount);
+    if (contextIsValid) return;
+
     setCampaignsLoading(true);
 
-    const until = new Date();
-    const since30 = new Date(until); since30.setDate(since30.getDate() - 30);
-    const since7  = new Date(until); since7.setDate(since7.getDate() - 7);
+    // Use Cairo timezone offset (+2h) so dates align with the ad account's local day,
+    // consistent with Overview page date handling.
+    const nowCairo = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const since7Cairo = new Date(nowCairo); since7Cairo.setDate(since7Cairo.getDate() - 7);
     const fmtDate = (d: Date) => d.toISOString().split("T")[0]!;
-    const u = fmtDate(until);
-    const s30 = fmtDate(since30);
-    const s7  = fmtDate(since7);
+    const u  = fmtDate(nowCairo);
+    const s7 = fmtDate(since7Cairo);
+
+    // Capture the target account at fetch-start so we can validate on completion.
+    const fetchedForAccount = effectiveCtxAccount;
 
     fetch(`${API}/meta/accounts`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then(async (data) => {
         const accounts: { id: string; name?: string }[] = data?.accounts ?? [];
         if (accounts.length > 0) setAvailableAccounts(accounts);
-        if (accounts.length === 0) { setCampaignsCtx(GENERAL_CONTEXT); return; }
+        if (accounts.length === 0) {
+          setCampaignsCtx(GENERAL_CONTEXT);
+          setCampaignsCtxForAccount(null);
+          return;
+        }
 
-        const all30: CampaignData[] = [];
         const all7: CampaignData[] = [];
         const allDaily: DailyPoint[] = [];
         let anySuccess = false;
 
-        // Fetch campaigns (7d only + daily overview) for speed.
-        // 30d data is omitted from initial context — AI uses get_campaign_daily tool if needed.
-        // selectedAccountId (Dashboard tab) takes priority over defaultAccountId (chat widget dropdown)
-        const effectiveCtxAccount = (selectedAccountId || defaultAccountId || "").replace(/^act_/, "");
-        const accountsToFetch = effectiveCtxAccount
-          ? accounts.filter(acc => acc.id.replace(/^act_/, "") === effectiveCtxAccount)
+        // selectedAccountId (Dashboard/Overview tab) takes priority over defaultAccountId.
+        // If neither set, fetch all accounts (multi-account view).
+        const accountsToFetch = fetchedForAccount
+          ? accounts.filter(acc => acc.id.replace(/^act_/, "") === fetchedForAccount)
           : accounts;
+
         await Promise.all(accountsToFetch.map(async (acc) => {
           try {
             const [r7, rDaily] = await Promise.all([
-              fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s7}&until=${u}`,  { credentials: "include" }),
+              fetch(`${API}/meta/campaigns?ad_account_id=${acc.id}&since=${s7}&until=${u}`, { credentials: "include" }),
               fetch(`${API}/meta/account-overview?ad_account_id=${acc.id}&since=${s7}&until=${u}`, { credentials: "include" }),
             ]);
             if (r7.ok) {
               anySuccess = true;
               const d = await r7.json() as { campaigns?: CampaignData[] };
-              if (d.campaigns) { all7.push(...d.campaigns); all30.push(...d.campaigns); }
+              if (d.campaigns) all7.push(...d.campaigns);
             }
             if (rDaily.ok) {
               const d = await rDaily.json() as { daily?: DailyPoint[] };
@@ -962,17 +978,25 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         }));
 
         if (anySuccess) {
-          setCampaignsCtx(buildCampaignsContext(all30, all7, allDaily));
+          setCampaignsCtx(buildCampaignsContext(all7, all7, allDaily));
+          setCampaignsCtxForAccount(fetchedForAccount || null);
         } else {
           setCampaignsCtx(GENERAL_CONTEXT);
+          setCampaignsCtxForAccount(null);
         }
       })
-      .catch(() => { setCampaignsCtx(GENERAL_CONTEXT); })
+      .catch(() => {
+        setCampaignsCtx(GENERAL_CONTEXT);
+        setCampaignsCtxForAccount(null);
+      })
       .finally(() => setCampaignsLoading(false));
-  }, [open, campaignsCtx, campaignsLoading, selectedAccountId, defaultAccountId]);
+  }, [open, campaignsLoading, campaignsCtx, campaignsCtxForAccount, selectedAccountId, defaultAccountId]);
 
-  // Reset context when effective account changes (Dashboard tab or chat dropdown)
-  useEffect(() => { setCampaignsCtx(null); }, [selectedAccountId, defaultAccountId]);
+  // Reset context when effective account changes so the next effect run re-fetches for the new account.
+  useEffect(() => {
+    setCampaignsCtx(null);
+    setCampaignsCtxForAccount(null);
+  }, [selectedAccountId, defaultAccountId]);
 
   // Load conversation list; when autoLoadLatest=true, also restores the most recent conversation
   const loadConversations = useCallback((autoLoadLatest = false) => {
@@ -1084,8 +1108,19 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
       );
     }
 
+    // Only include campaign context if it was built for the currently-selected account.
+    // Prevents stale / wrong-account data from leaking into the AI context.
     if (campaignsCtx && campaignsCtx !== GENERAL_CONTEXT) {
-      parts.push(campaignsCtx);
+      const activeAccBare = (selectedAccountId || defaultAccountId || "").replace(/^act_/, "");
+      const ctxMatchesAccount =
+        !activeAccBare ||                          // no current filter → include all-account context
+        campaignsCtxForAccount === activeAccBare;  // context tagged for this exact account ✓
+      // Note: if activeAccBare is set but campaignsCtxForAccount is null (all-accounts context),
+      // we intentionally SKIP the context — the fetch useEffect will re-run and build
+      // an account-specific context instead.
+      if (ctxMatchesAccount) {
+        parts.push(campaignsCtx);
+      }
     }
 
     if (isAdmin && activityUsers && activityUsers.length > 0) {
@@ -1094,7 +1129,7 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
 
     if (parts.length > 0) return parts.join("\n\n===\n\n");
     return GENERAL_CONTEXT;
-  }, [isAdmin, activityUsers, campaignsCtx, selectedAccountId, defaultAccountId, defaultAccountName]);
+  }, [isAdmin, activityUsers, campaignsCtx, campaignsCtxForAccount, selectedAccountId, defaultAccountId, defaultAccountName]);
 
   // Ensure there is an active conversation, creating one if needed
   const ensureConversation = useCallback(async (firstMessage: string): Promise<number> => {
