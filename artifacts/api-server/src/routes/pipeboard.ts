@@ -2323,9 +2323,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               name: "duplicate_ad",
               arguments: {
                 ad_id: sourceAdId,
-                adset_id: destinationAdsetId,
-                name: `${namingPrefix} — ${sourceAdId}`,
-                status: "PAUSED",
+                target_adset_id: destinationAdsetId,
+                name_suffix: ` — ${namingPrefix}`,
+                new_status: "PAUSED",
+                duplicate_creative: true,
               },
             },
             undefined,
