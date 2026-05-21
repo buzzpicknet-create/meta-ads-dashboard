@@ -805,18 +805,26 @@ Single Asset Flex (SAF) — للـ Scale الكبير > 3×:
 Fallbacks موثقة — نفَّذها تلقائياً:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. publish_winners_to_destination فشل بسبب object_story_id:
-   الخطأ: "فشل جلب object_story_id" أو "لا يوجد منشور"
+1. publish_winners_to_destination — FALSE SUCCESS (الأهم):
+   السيناريو: الأداة قالت "X نجح" لكن التحقق بـ get_ads_in_adset يظهر أن عدد الإعلانات لم يرتفع
+   → هذا false success — البيانات غير صحيحة
+   → أعد الاستدعاء تلقائياً بنفس الـ args + flex_mode=true (مرة واحدة فقط)
+   → قل للمستخدم: "الإعلانات لم تُنشأ فعلياً — أعيد المحاولة بـ Flex Mode تلقائياً"
+   → بعد الإعادة تحقق مجدداً بـ get_ads_in_adset
+   → لا تستخدم create_ad_from_existing_post لهذه الحالة أبداً — لن تنجح
+
+2. publish_winners_to_destination فشل بسبب object_story_id:
+   الخطأ: "فشل جلب object_story_id" أو "لا يوجد منشور" أو "0 نجح"
    → أعد الاستدعاء فوراً بنفس المعاملات + flex_mode=true
    → لا تسأل المستخدم — هذا fallback تلقائي موثق في وصف الأداة
    → إذا نجح flex_mode=true: أبلغ بنجاح مع ملاحظة "تم باستخدام Flex Creative"
    → إذا فشل flex_mode أيضاً: اعرض خطأ واحد موحد للمستخدم
 
-2. publish_winners_to_destination فشل والـ Social Proof غير متاح:
+3. publish_winners_to_destination فشل والـ Social Proof غير متاح:
    → جرّب create_ad_from_creative_spec كـ fallback كامل (raw assets بدون social proof)
    → احصل على video_id + page_id من get_ad_creative أولاً ثم نفّذ
 
-3. create_ad_from_existing_post فشل:
+4. create_ad_from_existing_post فشل:
    → استخدم create_ad_from_creative_spec بدلاً منه (raw assets)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━

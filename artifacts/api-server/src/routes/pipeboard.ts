@@ -2301,8 +2301,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             dupText0.match(/"(?:id|new_ad_id|copied_ad_id)"\s*:\s*"(\d+)"/) ??
             dupText0.match(/\b(\d{10,})\b/);
           const dupId0 = dupId0Match?.[1] ?? "";
-          if (!dupId0) throw new Error(`duplicate_ad لم يُعد ad_id: ${dupText0.slice(0, 200)}`);
-          logger.info({ sourceAdId, dupId0 }, "publish_winners: Pipeboard duplicate_ad succeeded");
+          // Guard: reject if no ID or if the "new" ID is actually the source/destination ID
+          // (the fallback regex can match source_ad_id from Pipeboard error messages)
+          if (!dupId0 || dupId0 === sourceAdId || dupId0 === destinationAdsetId) {
+            throw new Error(
+              `duplicate_ad لم يُعد ad_id جديد مختلف — rawResponse: ${dupText0.slice(0, 300)}`,
+            );
+          }
+          logger.info({ sourceAdId, dupId0, dupText0: dupText0.slice(0, 300) }, "publish_winners: Pipeboard duplicate_ad succeeded");
           createdAds.push({
             source_ad_id: sourceAdId,
             method_used: "existing_post",
