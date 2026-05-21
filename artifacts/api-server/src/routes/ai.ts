@@ -1859,7 +1859,7 @@ const TOOLS = [
             },
           },
           budget_type: { type: "string", enum: ["CBO", "ABO"], description: "نوع الميزانية: CBO = ميزانية على مستوى الحملة (daily_budget على الحملة فقط) | ABO = ميزانية على مستوى كل Adset (budget في كل adset). إلزامي — استخرجه من البلوبرنت." },
-          daily_budget: { type: "number", description: "الميزانية اليومية الإجمالية للحملة بـ EGP — الحد الأدنى 100 EGP/مجموعة. للمجموعات المتعددة ضع الميزانية في adsets[].budget لكل مجموعة (لا يقل عن 100 EGP/مجموعة). مثال: budget=300 → adsets=[{name:'Angle 1', budget:300}]" },
+          daily_budget: { type: "number", description: "الميزانية اليومية بـ EGP. للـ CBO: ضع الميزانية الإجمالية هنا (مثال: daily_budget=300) + في كل adset ضع نفس القيمة في budget (مطلوب للتحقق من الحد الأدنى). للـ ABO: لا تضع هنا — ضع budget في كل adset. الحد الأدنى 100 EGP/مجموعة." },
           media_url: { type: "string", description: "(للتوافق) رابط ميديا واحد — استخدم creatives[] بدلاً منه" },
           media_type: { type: "string", enum: ["image", "video"], description: "(للتوافق) نوع الميديا" },
           primary_text: { type: "string", description: "(للتوافق) نص إعلاني" },
@@ -2443,17 +2443,21 @@ function buildOptimisticPendingAction(name: string, args: Record<string, unknown
     }
     case "launch_pipeboard_campaign": {
       const cName = String(args.campaign_name ?? "");
-      // Compute budget from adsets[] if present, else fall back to daily_budget
       const adsetArr = Array.isArray(args.adsets) ? (args.adsets as Array<{ budget?: unknown }>) : [];
-      const budget = adsetArr.length > 0
-        ? Math.round(adsetArr.reduce((s, a) => s + (Number(a.budget) || 20), 0))
-        : Math.round(Number(args.daily_budget ?? 20));
+      const budgetType = String(args.budget_type ?? "CBO").toUpperCase();
+      const isCBO = budgetType !== "ABO";
+      // CBO: single campaign-level budget (use daily_budget arg, or first adset budget as fallback)
+      // ABO: sum of all adset budgets (each adset has its own budget)
+      const budget = isCBO
+        ? Math.round(Number(args.daily_budget ?? adsetArr[0]?.budget ?? 20))
+        : Math.round(adsetArr.reduce((s, a) => s + (Number(a.budget) || 20), 0));
       const adsetsNote = adsetArr.length > 1 ? ` | ${adsetArr.length} مجموعات` : "";
       const creativesArr = Array.isArray(args.creatives) ? (args.creatives as unknown[]) : [];
       const creativesNote = creativesArr.length > 1 ? ` | ${creativesArr.length} إعلانات` : "";
+      const budgetTypeNote = isCBO ? "CBO" : "ABO";
       return {
         tool: name, args,
-        summary: `🚀 إطلاق حملة "${cName}"${adsetsNote}${creativesNote} — ميزانية: ${budget} EGP/يوم — موقوفة للمراجعة`,
+        summary: `🚀 إطلاق حملة "${cName}"${adsetsNote}${creativesNote} — ميزانية: ${budget} EGP/يوم (${budgetTypeNote}) — موقوفة للمراجعة`,
         proposedValue: `حملة جديدة مع إعلان`,
       };
     }
