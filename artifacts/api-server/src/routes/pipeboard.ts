@@ -2303,10 +2303,29 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           const dupId0 = dupId0Match?.[1] ?? "";
           // Guard: reject if no ID or if the "new" ID is actually the source/destination ID
           // (the fallback regex can match source_ad_id from Pipeboard error messages)
-          if (!dupId0 || dupId0 === sourceAdId || dupId0 === destinationAdsetId) {
+          if (!dupId0 || dupId0 === sourceAdId || dupId0 === destinationAdsetId || sourceAdIds.includes(dupId0)) {
             throw new Error(
               `duplicate_ad لم يُعد ad_id جديد مختلف — rawResponse: ${dupText0.slice(0, 300)}`,
             );
+          }
+          // ── Hard verify via Meta API — Pipeboard duplicate_ad can return false success ──
+          if (metaTkn) {
+            try {
+              const vUrl = new URL(`https://graph.facebook.com/v21.0/${dupId0}`);
+              vUrl.searchParams.set("fields", "id,adset_id,status");
+              vUrl.searchParams.set("access_token", metaTkn);
+              const vResp = await fetch(vUrl.toString(), { signal: AbortSignal.timeout(8_000) });
+              const vJson = (await vResp.json()) as Record<string, unknown>;
+              if (vJson.error || !vJson.id) {
+                throw new Error(`duplicate_ad verify failed — Meta says ad ${dupId0} doesn't exist: ${JSON.stringify(vJson.error ?? "no id returned")}`);
+              }
+              const verifiedAdsetId = String(vJson.adset_id ?? "");
+              if (verifiedAdsetId && verifiedAdsetId !== destinationAdsetId) {
+                throw new Error(`duplicate_ad verify failed — ad ${dupId0} is in adset ${verifiedAdsetId} not ${destinationAdsetId}`);
+              }
+            } catch (verifyErr) {
+              throw new Error(`duplicate_ad verify: ${verifyErr instanceof Error ? verifyErr.message : String(verifyErr)}`);
+            }
           }
           logger.info({ sourceAdId, dupId0, dupText0: dupText0.slice(0, 300) }, "publish_winners: Pipeboard duplicate_ad succeeded");
           createdAds.push({
