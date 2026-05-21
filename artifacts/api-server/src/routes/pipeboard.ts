@@ -3100,10 +3100,17 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             }
           }
 
-          // 3. New logic: each video = 1 Adset, each text = 1 Ad inside that Adset
-          // Result: N videos → N Adsets, each Adset has M ads (one per text)
-          // We encode this by creating N groups of M creatives
-          // The adset creation loop below will create 1 adset per group
+          // 3. Folder expansion strategy depends on how many adsets were requested:
+          //
+          //   • adsets.length === 1 (single-adset mode):
+          //     All videos → one adset, each video = one ad.
+          //     Expand directly into rawCreatives; the adset-creation loop
+          //     will put everything into the single requested adset.
+          //
+          //   • adsets.length > 1 (multi-adset / angle mode):
+          //     Each video → its own adset (matched by filename to angle name).
+          //     Uses videoAdsetGroups to rebuild rawAdsets.
+          const singleAdsetMode = rawAdsets.length === 1;
           const expanded: CreativeInput[] = [...directCreatives];
           const videoAdsetGroups: CreativeInput[][] = [];
 
@@ -3114,48 +3121,70 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               const directUrl = `https://drive.usercontent.google.com/download?id=${file.id}&export=download&authuser=0&confirm=t`;
               const mediaType = file.mimeType.startsWith("video/") ? "video" : "image";
               const fileNameNoExt = file.name.replace(/\.[^.]+$/, "").toLowerCase().trim();
-              // Match video to angle by filename — if multiple adsets, find matching angle
-              let matchedCreatives = folderCreatives;
-              if (rawAdsets.length > 1) {
+
+              if (singleAdsetMode) {
+                // Single-adset mode: each video becomes a separate creative in rawCreatives.
+                // The adset-creation loop sees effectiveAdsets.length === 1 and assigns
+                // all rawCreatives to the one adset → one ad per video.
+                folderCreatives.forEach(template => {
+                  expanded.push({
+                    ...template,
+                    media_url: directUrl,
+                    media_type: mediaType,
+                    name: file.name.replace(/\.[^.]+$/, ""),
+                  });
+                });
+              } else {
+                // Multi-adset (angle) mode: match video to angle by filename
+                let matchedCreatives = folderCreatives;
                 const angleIdx = rawAdsets.findIndex(a => {
                   const n = a.name.toLowerCase().trim();
                   return n === fileNameNoExt || n.includes(fileNameNoExt) || fileNameNoExt.includes(n);
                 });
                 if (angleIdx >= 0) {
-                  // Get only creatives for this angle (based on index)
                   const perAngle = Math.ceil(folderCreatives.length / rawAdsets.length);
                   const start = angleIdx * perAngle;
                   matchedCreatives = folderCreatives.slice(start, start + perAngle);
                   if (matchedCreatives.length === 0) matchedCreatives = folderCreatives;
                 }
+                // One group per video — each group becomes one adset
+                const group: CreativeInput[] = matchedCreatives.map(template => ({
+                  ...template,
+                  media_url: directUrl,
+                  media_type: mediaType,
+                  name: file.name.replace(/\.[^.]+$/, ""),
+                }));
+                videoAdsetGroups.push(group);
               }
-              // One group per video — each group has M creatives (one per text)
-              const group: CreativeInput[] = matchedCreatives.map(template => ({
-                ...template,
-                media_url: directUrl,
-                media_type: mediaType,
-                name: file.name.replace(/\.[^.]+$/, ""),
-              }));
-              videoAdsetGroups.push(group);
             }
           }
 
-          // If we have video groups, rebuild rawAdsets and rawCreatives
-          if (videoAdsetGroups.length > 0) {
+          if (singleAdsetMode) {
+            // rawCreatives now contains one entry per video (× texts if any)
+            // rawAdsets stays as-is (the single requested adset)
+            logger.info(
+              { videoCount: expanded.length - directCreatives.length },
+              "launch_pipeboard_campaign: single-adset folder expansion — all videos → 1 adset",
+            );
+          } else if (videoAdsetGroups.length > 0) {
+            // Multi-adset: rebuild rawAdsets from video groups
             const baseAdset = rawAdsets[0] ?? { name: campaignName, budget: 100 };
             rawAdsets = videoAdsetGroups.map((group, i) => ({
               name: `${group[0]?.name ?? `فيديو ${i + 1}`}`,
               budget: baseAdset.budget,
             }));
-            // rawCreatives will be handled per-adset below
             (rawAdsets as any)._videoGroups = videoAdsetGroups;
+            logger.info(
+              { adsetCount: rawAdsets.length },
+              "launch_pipeboard_campaign: multi-adset folder expansion — 1 adset per video",
+            );
           } else {
             expanded.forEach(c => rawCreatives.push(c));
           }
 
           logger.info(
             { before: rawCreatives.length, after: expanded.length },
-            "launch_pipeboard_campaign: folder expansion complete (position-paired)",
+            "launch_pipeboard_campaign: folder expansion complete",
           );
           rawCreatives = expanded;
         }
