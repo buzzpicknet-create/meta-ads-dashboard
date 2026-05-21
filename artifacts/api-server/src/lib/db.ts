@@ -42,16 +42,17 @@ export async function recordLearning(problem: string, solution: string, toolUsed
 export async function getRecentLearnings(): Promise<string> {
   try {
     const result = await query(
-      `SELECT problem, solution, tool_used, success_count, TO_CHAR(last_seen, 'DD-MM-YYYY') as date
+      `SELECT problem, solution, tool_used, error_code, error_pattern, success_count, TO_CHAR(last_seen, 'DD-MM-YYYY') as date
        FROM ai_learnings
        ORDER BY success_count DESC, last_seen DESC
        LIMIT 50`,
       []
     );
     if (!result.rows.length) return "";
-    const lines = result.rows.map((r: Record<string,unknown>) =>
-      `[${r.date}] ✅ ${r.problem} → ${r.solution} (${r.tool_used}) — نجح ${r.success_count}× `
-    );
+    const lines = result.rows.map((r: Record<string,unknown>) => {
+      const code = r.error_code ? ` [code:${r.error_code}]` : "";
+      return `[${r.date}]${code} ${r.problem} → ${r.solution} (${r.tool_used}) ×${r.success_count}`;
+    });
     return "\n\n══════════ LEARNED SOLUTIONS (auto-updated) ══════════\n" + lines.join("\n") + "\n══════════════════════════════════════";
   } catch (e) {
     return "";
