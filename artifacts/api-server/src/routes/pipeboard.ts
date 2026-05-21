@@ -2276,6 +2276,43 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       let rebuildError = "";
 
       try {
+        // ── Path -1: Meta API direct copy — most reliable, no Pipeboard dependency ──
+        if (metaTkn) {
+          try {
+            const copyUrl = new URL(`https://graph.facebook.com/v21.0/${sourceAdId}/copies`);
+            const copyBody = new URLSearchParams({
+              access_token: metaTkn,
+              adset_id: destinationAdsetId,
+              status_option: "PAUSED",
+              rename_options: JSON.stringify({ rename_strategy: "EXISTING_NAME_WITH_SUFFIX", rename_suffix: ` — ${namingPrefix}` }),
+            });
+            const copyResp = await fetch(copyUrl.toString(), {
+              method: "POST",
+              body: copyBody,
+              signal: AbortSignal.timeout(15_000),
+            });
+            const copyJson = (await copyResp.json()) as Record<string, unknown>;
+            logger.info({ sourceAdId, copyJson }, "publish_winners: Meta direct copy response");
+            if (copyJson.error) {
+              const e = copyJson.error as Record<string, unknown>;
+              throw new Error(`Meta copy error: ${String(e.message ?? JSON.stringify(e))}`);
+            }
+            const copiedAdId = String(copyJson.copied_ad_id ?? copyJson.id ?? "");
+            if (!copiedAdId) throw new Error(`Meta copy: no copied_ad_id returned — ${JSON.stringify(copyJson)}`);
+            // Verify
+            const vUrl = new URL(`https://graph.facebook.com/v21.0/${copiedAdId}`);
+            vUrl.searchParams.set("fields", "id,adset_id,status");
+            vUrl.searchParams.set("access_token", metaTkn);
+            const vJson = (await (await fetch(vUrl.toString(), { signal: AbortSignal.timeout(8_000) })).json()) as Record<string, unknown>;
+            if (!vJson.id) throw new Error(`Meta copy verify failed — ad ${copiedAdId} not found`);
+            logger.info({ sourceAdId, copiedAdId }, "publish_winners: Meta direct copy succeeded");
+            createdAds.push({ source_ad_id: sourceAdId, method_used: "existing_post", new_ad_id: copiedAdId, status: "PAUSED" });
+            continue;
+          } catch (metaCopyErr) {
+            logger.warn({ sourceAdId, err: metaCopyErr }, "publish_winners: Meta direct copy failed — falling back to Pipeboard");
+          }
+        }
+
         // ── Path 0: Pipeboard duplicate_ad (no META_ACCESS_TOKEN needed) ─────
         // Primary path — duplicates the ad preserving all creative + social proof
         // without touching Meta Graph API directly.
