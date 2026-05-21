@@ -4972,12 +4972,8 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     const systemBlocks = [{ type: "text" as const, text: systemContent, cache_control: { type: "ephemeral" as const } }];
 
     // ── Deep think mode: real Extended Thinking (claude-sonnet-4-6 supports it) ──
-    // Suppress thinking for "continue / resume" messages — they need response
-    // tokens, not analysis tokens, so skipping thinking gives a better result.
-    const skipThinking = shouldSkipThinking(messages);
-    const deepThinkMode = session.deepThink === true && !skipThinking;
+    const deepThinkMode = session.deepThink === true;
     if (deepThinkMode) logger.info("Extended thinking mode active (claude-sonnet-4-6)");
-    if (skipThinking && session.deepThink) logger.info("Extended thinking suppressed — continuation message detected");
 
     // ── Deep think account-scope guard ────────────────────────────────────────
     // When extended thinking is active, inject a hard constraint right before
@@ -5077,8 +5073,21 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       // Filter to only actual tool use blocks (skip undefined slots)
       const activeTCs = toolUseBlocks.filter((b): b is { id: string; name: string; inputJson: string } => !!b);
 
-      // No tool calls → done
-      if (activeTCs.length === 0) break;
+      // No tool calls → check if we were cut off mid-text by the token limit
+      if (activeTCs.length === 0) {
+        if (stopReason === "max_tokens" && assistantText) {
+          // AI was writing a long report and hit the token ceiling — continue
+          // automatically so the user never has to say "كمل".
+          logger.info({ round }, "max_tokens mid-text — auto-continuing without user prompt");
+          const continuationContent: unknown[] = [];
+          if (thinkingText) continuationContent.push({ type: "thinking", thinking: thinkingText, signature: thinkingSignature });
+          continuationContent.push({ type: "text", text: assistantText });
+          apiMessages.push({ role: "assistant", content: continuationContent });
+          apiMessages.push({ role: "user", content: "استمر في الكتابة من حيث توقفت بدون أي مقدمة أو تكرار — واصل مباشرةً من نفس النقطة." });
+          continue; // next round of the agentic loop
+        }
+        break; // AI finished normally
+      }
 
       // ── Build assistant content blocks (thinking → text → tool_use order) ───
       // Thinking blocks MUST be preserved in multi-turn for Anthropic API continuity,
