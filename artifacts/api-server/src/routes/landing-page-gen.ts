@@ -1358,17 +1358,10 @@ router.post("/landing-page/publish-shopify", async (req, res): Promise<void> => 
     `<div id="cod-form"\n` +
     `  data-product-id="{{ lp_product.id }}"\n` +
     `  data-product-handle="{{ lp_product.handle }}"\n` +
-    `  data-section-type="product-template"\n` +
+    `  data-variant-id="{{ lp_product.selected_or_first_available_variant.id }}"\n` +
     `  style="margin:16px 0">\n` +
     `  <script type="application/json" id="ProductJson-lp">{{ lp_product | json }}</script>\n` +
-    `  {% form 'product', lp_product %}\n` +
-    `    <input type="hidden" name="id" value="{{ lp_product.selected_or_first_available_variant.id }}">\n` +
-    `    <span id="es-form-hook"></span>\n` +
-    `    <button type="submit" name="add"\n` +
-    `      style="${codBtnStyle}">\n` +
-    `      ${codBtnInner}\n` +
-    `    </button>\n` +
-    `  {% endform %}\n` +
+    `  <span id="es-form-hook"></span>\n` +
     `</div>`;
 
   const r1 = finalBody.replace(/<!-- LP_COD_START -->[\s\S]*?<!-- LP_COD_END -->/, shopifyCartLiquid);
@@ -1637,13 +1630,10 @@ router.post("/landing-page/publish-theme-template", async (req, res): Promise<vo
   const shopifyCart = `<div id="cod-form"
   data-product-id="{{ product.id }}"
   data-product-handle="{{ product.handle }}"
-  data-section-type="product-template"
+  data-variant-id="{{ product.selected_or_first_available_variant.id }}"
   style="margin:24px 0">
   <script type="application/json" id="ProductJson-lp">{{ product | json }}</script>
-  {% form 'product', product %}
-    <input type="hidden" name="id" value="{{ product.selected_or_first_available_variant.id }}">
-    <span id="es-form-hook"></span>
-  {% endform %}
+  <span id="es-form-hook"></span>
 </div>`;
 
   const r1 = finalHtml.replace(/<!-- LP_COD_START -->[\s\S]*?<!-- LP_COD_END -->/, shopifyCart);
