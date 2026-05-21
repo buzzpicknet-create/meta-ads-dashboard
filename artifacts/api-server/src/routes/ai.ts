@@ -4807,6 +4807,21 @@ const DEEP_THINK_TRIGGERS = [
   "analyze deeply", "think carefully", "deep analysis",
 ];
 
+// When the user is asking the AI to continue/resume, thinking is wasteful.
+// These phrases suppress extended thinking even if deepThink=true.
+const SKIP_THINKING_PATTERNS = [
+  "كمل", "كمّل", "استمر", "واصل", "اكمل", "أكمل",
+  "continue", "resume", "keep going", "go on",
+  "وقفت", "وقف", "تكمل", "كمل من", "من حيث",
+];
+
+function shouldSkipThinking(messages: { role: string; content: string }[]): boolean {
+  const lastUser = [...messages].reverse().find(m => m.role === "user");
+  if (!lastUser) return false;
+  const text = lastUser.content.toLowerCase().trim();
+  return SKIP_THINKING_PATTERNS.some(p => text.includes(p.toLowerCase()));
+}
+
 function shouldUseExtendedThinking(messages: { role: string; content: string }[]): boolean {
   const lastUser = [...messages].reverse().find(m => m.role === "user");
   if (!lastUser) return false;
@@ -4957,8 +4972,12 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     const systemBlocks = [{ type: "text" as const, text: systemContent, cache_control: { type: "ephemeral" as const } }];
 
     // ── Deep think mode: real Extended Thinking (claude-sonnet-4-6 supports it) ──
-    const deepThinkMode = session.deepThink === true;
+    // Suppress thinking for "continue / resume" messages — they need response
+    // tokens, not analysis tokens, so skipping thinking gives a better result.
+    const skipThinking = shouldSkipThinking(messages);
+    const deepThinkMode = session.deepThink === true && !skipThinking;
     if (deepThinkMode) logger.info("Extended thinking mode active (claude-sonnet-4-6)");
+    if (skipThinking && session.deepThink) logger.info("Extended thinking suppressed — continuation message detected");
 
     // ── Deep think account-scope guard ────────────────────────────────────────
     // When extended thinking is active, inject a hard constraint right before
@@ -5007,10 +5026,12 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
         messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
         tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
         tool_choice: { type: "auto" as const },
-        max_tokens: thinkingThisRound ? 20000 : 16384,
+        // thinking round: 32K total = 12K thinking budget + 20K for response
+        // normal round: 16K — enough for any single response block
+        max_tokens: thinkingThisRound ? 32000 : 16384,
       };
       const streamParams = thinkingThisRound
-        ? { ...baseStreamParams, thinking: { type: "enabled", budget_tokens: 10_000 } }
+        ? { ...baseStreamParams, thinking: { type: "enabled", budget_tokens: 12_000 } }
         : baseStreamParams;
 
       const stream = anthropic.messages.stream(
