@@ -900,7 +900,7 @@ export default function AiChatPage() {
       }));
       setCampCtx(ok ? buildCtx(all30,all7,allD) : GEN_CTX);
     }).catch(()=>setCampCtx(GEN_CTX)).finally(()=>setCL(false));
-  }, [campCtx, campLoad]);
+  }, [campCtx, campLoad, selectedAccIds]);
 
   // ── Load accounts for selector ───────────────────────────────────────────────
   useEffect(() => {
@@ -1145,7 +1145,7 @@ export default function AiChatPage() {
         res = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
       } else {
         const extra = d.message&&!d.message.trim().startsWith("{") ? ` — ${d.message.trim()}` : "";
-        res = r.ok&&d.success ? `✅ تم بنجاح: ${pending.summary}${extra}` : `❌ فشل التنفيذ: ${d.error||"خطأ"}`;
+        res = r.ok&&d.success ? `✅ تم بنجاح: ${pending.summary}${extra}` : `❌ فشل التنفيذ: ${d.error||d.message||"خطأ غير محدد — راجع الـ server logs"}`;
       }
       setMsgs(p=>[...p,{role:"assistant",content:res}]);
       const cid=convIdRef.current; if(cid!==null) void saveToDB(cid,pending.summary,res);

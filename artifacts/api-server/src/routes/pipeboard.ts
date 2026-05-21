@@ -2763,7 +2763,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       }
     }
 
-    const pwMsg = `publish_winners_to_destination: ${createdAds.length} نجح، ${failedAds.length} فشل`;
+    const pwMsg = `publish_winners_to_destination: ${createdAds.length} نجح، ${failedAds.length} فشل${failedAds.length > 0 ? " — تفاصيل الفشل: " + failedAds.map(f => `[${f.source_ad_id}: socialProof=${f.social_proof_error.slice(0,150)} | rebuild=${f.rebuild_error.slice(0,150)}]`).join(" | ") : ""}`;
     await query(
       `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
