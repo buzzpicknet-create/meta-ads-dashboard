@@ -4847,7 +4847,9 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       : null;
 
     const recentLearnings = await getRecentLearnings();
-    let systemContent = SYSTEM_PROMPT + recentLearnings;
+    const todayDate = new Date().toLocaleDateString("ar-EG", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Africa/Cairo" });
+    const todayISO = new Date().toISOString().split("T")[0];
+    let systemContent = SYSTEM_PROMPT + recentLearnings + `\n\n══════════ التاريخ الحالي ══════════\nاليوم: ${todayDate} (${todayISO}) — استخدم هذا التاريخ في كل العمليات\n══════════════════════════════════════`;
 
     // ── Inject selected account_ids so the AI always knows which account to use ──
     if (selectedAccFilter?.size) {
