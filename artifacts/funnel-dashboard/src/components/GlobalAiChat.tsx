@@ -3,7 +3,7 @@ import {
   Bot, Send, Trash2, X, MessageSquare, User, Paperclip, Square,
   History, Plus, ChevronRight, ChevronDown, ChevronUp, Clock, Zap, AlertTriangle, Search,
   Globe, BarChart2, Minimize2, Maximize2, Loader2, CheckCircle2, Brain,
-  Pencil, Check, Building2,
+  Pencil, Check, Building2, FileDown,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import PipeboardLaunchCard, { type PipeboardLaunchData } from "@/components/PipeboardLaunchCard";
@@ -106,6 +106,51 @@ const ROLE_LABELS: Record<string, string> = {
   media_buyer: "ميدياباير",
   media_manager: "ميدياكيزتر",
 };
+
+function exportToPdf(content: string) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+  const date = new Date().toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" });
+  win.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>تقرير - ${date}</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#1a1a1a;padding:40px;font-size:14px;line-height:1.8;background:#fff}
+  h1,h2,h3,h4{font-weight:700;margin:1.2em 0 0.5em;color:#111}
+  h1{font-size:1.6em;border-bottom:2px solid #3b82f6;padding-bottom:.4em}
+  h2{font-size:1.3em;border-bottom:1px solid #e5e7eb;padding-bottom:.3em}
+  h3{font-size:1.1em}
+  p{margin:.6em 0}
+  ul,ol{padding-right:1.5em;margin:.5em 0}
+  li{margin:.3em 0}
+  table{width:100%;border-collapse:collapse;margin:1em 0;font-size:13px}
+  th{background:#3b82f6;color:#fff;padding:8px 12px;text-align:right;font-weight:600}
+  td{padding:7px 12px;border:1px solid #e5e7eb;text-align:right}
+  tr:nth-child(even) td{background:#f8fafc}
+  code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px}
+  pre{background:#f1f5f9;padding:12px 16px;border-radius:8px;overflow:auto;margin:.8em 0}
+  pre code{background:none;padding:0}
+  blockquote{border-right:4px solid #3b82f6;margin:.8em 0;padding:.5em 1em;background:#eff6ff;color:#1e40af}
+  strong{font-weight:700}
+  hr{border:none;border-top:1px solid #e5e7eb;margin:1.5em 0}
+  .footer{margin-top:2em;padding-top:1em;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af}
+  @media print{body{padding:20px}@page{margin:1.5cm;size:A4}}
+</style>
+</head>
+<body>
+<div id="c"></div>
+<div class="footer">مساعد Meta Ads — ${date}</div>
+<script>
+  document.getElementById("c").innerHTML=marked.parse(${JSON.stringify(content)});
+  window.onload=()=>setTimeout(()=>window.print(),400);
+<\/script>
+</body></html>`);
+  win.document.close();
+}
 
 const QUICK_ACTIONS = [
   {
@@ -2100,26 +2145,40 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
                             : <RenderMarkdown text={msg.content} />}
                         </div>
 
-                        {/* Sources toggle */}
-                        {msg.role === "assistant" && msg.tool_calls && msg.tool_calls.length > 0 && (
-                          <div dir="rtl">
-                            <button
-                              onClick={() => setExpandedSources((prev) => ({ ...prev, [i]: !prev[i] }))}
-                              className="flex items-center gap-1 text-[11px] text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
-                            >
-                              <Search className="h-2.5 w-2.5 shrink-0" />
-                              <span>مصادر البيانات ({msg.tool_calls.length})</span>
-                              <ChevronDown className={`h-2.5 w-2.5 shrink-0 transition-transform ${expandedSources[i] ? "rotate-180" : ""}`} />
-                            </button>
-                            {expandedSources[i] && (
-                              <div className="mt-1 flex flex-col gap-0.5 ps-1">
-                                {msg.tool_calls.map((label, j) => (
-                                  <span key={j} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/45">
-                                    <span className="w-1 h-1 rounded-full bg-primary/30 shrink-0" />
-                                    {label}
-                                  </span>
-                                ))}
+                        {/* Sources toggle + PDF export */}
+                        {msg.role === "assistant" && (
+                          <div dir="rtl" className="flex items-center gap-2 flex-wrap mt-0.5">
+                            {msg.tool_calls && msg.tool_calls.length > 0 && (
+                              <div>
+                                <button
+                                  onClick={() => setExpandedSources((prev) => ({ ...prev, [i]: !prev[i] }))}
+                                  className="flex items-center gap-1 text-[11px] text-muted-foreground/50 hover:text-muted-foreground/80 transition-colors"
+                                >
+                                  <Search className="h-2.5 w-2.5 shrink-0" />
+                                  <span>مصادر البيانات ({msg.tool_calls.length})</span>
+                                  <ChevronDown className={`h-2.5 w-2.5 shrink-0 transition-transform ${expandedSources[i] ? "rotate-180" : ""}`} />
+                                </button>
+                                {expandedSources[i] && (
+                                  <div className="mt-1 flex flex-col gap-0.5 ps-1">
+                                    {msg.tool_calls.map((label, j) => (
+                                      <span key={j} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/45">
+                                        <span className="w-1 h-1 rounded-full bg-primary/30 shrink-0" />
+                                        {label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
+                            )}
+                            {msg.content && msg.content.trim().length > 100 && (
+                              <button
+                                onClick={() => exportToPdf(msg.content)}
+                                title="تنزيل كـ PDF"
+                                className="flex items-center gap-1 text-[11px] text-muted-foreground/50 hover:text-primary transition-colors"
+                              >
+                                <FileDown className="h-2.5 w-2.5 shrink-0" />
+                                <span>PDF</span>
+                              </button>
                             )}
                           </div>
                         )}

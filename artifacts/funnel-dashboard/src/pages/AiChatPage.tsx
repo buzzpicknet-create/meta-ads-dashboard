@@ -3,7 +3,7 @@ import {
   Bot, Send, Trash2, User, Plus, Loader2, CheckCircle2,
   Brain, Paperclip, X, SquarePen, MessageSquare, Clock,
   BarChart2, Zap, AlertTriangle, Square, CheckSquare, Menu,
-  Pencil, Check,
+  Pencil, Check, FileDown,
 } from "lucide-react";
 import BulkActionPanel, { type BulkActionPayload } from "@/components/BulkActionPanel";
 import PipeboardLaunchCard, { type PipeboardLaunchData } from "@/components/PipeboardLaunchCard";
@@ -389,6 +389,51 @@ function renderInline(text: string): React.ReactNode {
     }
   });
   return result;
+}
+
+function exportToPdf(content: string) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+  const date = new Date().toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" });
+  win.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>تقرير - ${date}</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#1a1a1a;padding:40px;font-size:14px;line-height:1.8;background:#fff}
+  h1,h2,h3,h4{font-weight:700;margin:1.2em 0 0.5em;color:#111}
+  h1{font-size:1.6em;border-bottom:2px solid #3b82f6;padding-bottom:.4em}
+  h2{font-size:1.3em;border-bottom:1px solid #e5e7eb;padding-bottom:.3em}
+  h3{font-size:1.1em}
+  p{margin:.6em 0}
+  ul,ol{padding-right:1.5em;margin:.5em 0}
+  li{margin:.3em 0}
+  table{width:100%;border-collapse:collapse;margin:1em 0;font-size:13px}
+  th{background:#3b82f6;color:#fff;padding:8px 12px;text-align:right;font-weight:600}
+  td{padding:7px 12px;border:1px solid #e5e7eb;text-align:right}
+  tr:nth-child(even) td{background:#f8fafc}
+  code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px}
+  pre{background:#f1f5f9;padding:12px 16px;border-radius:8px;overflow:auto;margin:.8em 0}
+  pre code{background:none;padding:0}
+  blockquote{border-right:4px solid #3b82f6;margin:.8em 0;padding:.5em 1em;background:#eff6ff;color:#1e40af}
+  strong{font-weight:700}
+  hr{border:none;border-top:1px solid #e5e7eb;margin:1.5em 0}
+  .footer{margin-top:2em;padding-top:1em;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af}
+  @media print{body{padding:20px}@page{margin:1.5cm;size:A4}}
+</style>
+</head>
+<body>
+<div id="c"></div>
+<div class="footer">مساعد Meta Ads — ${date}</div>
+<script>
+  document.getElementById("c").innerHTML=marked.parse(${JSON.stringify(content)});
+  window.onload=()=>setTimeout(()=>window.print(),400);
+<\/script>
+</body></html>`);
+  win.document.close();
 }
 
 function RenderMarkdown({ text }: { text: string }) {
@@ -1429,14 +1474,24 @@ export default function AiChatPage() {
                     ) : (
                       <div className="ai-msg-body text-foreground">
                         <RenderMarkdown text={m.content} />
-                        {m.tool_calls && m.tool_calls.length>0 && (
-                          <div className="mt-1.5">
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                          {m.tool_calls && m.tool_calls.length>0 && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 text-[11px] text-muted-foreground/60 border border-border/40">
                               <CheckCircle2 className="h-3 w-3 text-emerald-500/70" />
                               {m.tool_calls.length} {m.tool_calls.length === 1 ? "عملية" : "عمليات"}
                             </span>
-                          </div>
-                        )}
+                          )}
+                          {m.content && m.content.trim().length > 100 && (
+                            <button
+                              onClick={() => exportToPdf(m.content)}
+                              title="تنزيل كـ PDF"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 text-[11px] text-muted-foreground/60 border border-border/40 hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-all"
+                            >
+                              <FileDown className="h-3 w-3" />
+                              PDF
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
