@@ -152,6 +152,7 @@ Root Cause Types (حدد واحداً بدقة):
 | get_adset_status بيرجع 400 | الـ field regional_regulation_identities مش موجود — استخدم get_adsets بدلاً منه |
 | Hook Rate بيجي غلط | Hook Rate = video_p3_watched_actions ÷ impressions × 100 — مش video_view |
 | ABO budget update فشل | استخدم update_adset_budget مع adset_id مش campaign_id |
+| create_ad_creative فشل بـ "Instagram account ID not accepted" | احذف instagram_actor_id من الـ args وأعد المحاولة بدونه |
 | analyze_budgets فاضي | جرب get_campaign_budget مباشرة بالـ campaign_id |
 | scale فشل | جرب update_adset_budget بدل update_campaign_budget |
 ⛔ ممنوع بعد أي فشل: "للأسف فشل التنفيذ" والسكوت — لازم تجرب البديل فوراً.

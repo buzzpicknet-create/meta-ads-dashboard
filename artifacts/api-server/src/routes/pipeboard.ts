@@ -2470,8 +2470,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               page_id: pageId,
               object_story_id: objectStoryId,
             };
-            if (instagramActorId)
-              spCreativeArgs.instagram_actor_id = instagramActorId;
+            // instagram_actor_id removed — Meta rejects it for Dark Ads causing "Instagram account ID not accepted"
 
             const spCreativeResult = await pbClient.callTool({
               name: "create_ad_creative",
