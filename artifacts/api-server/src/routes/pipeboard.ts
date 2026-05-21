@@ -1931,15 +1931,22 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             return;
           }
           const driveData  = (await driveResp.json()) as { files?: Array<{ id: string; mimeType: string; name: string }> };
-          const videoFiles = (driveData.files ?? []).filter(f => f.mimeType.startsWith("video/"));
-          if (videoFiles.length === 0) {
-            res.status(400).json({ error: `مجلد Drive "${folderId}" لا يحتوي على فيديوهات` });
+          // Accept both videos and images
+          const mediaFiles = (driveData.files ?? []).filter(
+            f => f.mimeType.startsWith("video/") || f.mimeType.startsWith("image/"),
+          );
+          if (mediaFiles.length === 0) {
+            res.status(400).json({ error: `مجلد Drive "${folderId}" فارغ أو لا يحتوي على فيديوهات أو صور صالحة` });
             return;
           }
           const hint    = String((args as Record<string, unknown>)?.filename_hint ?? "").toLowerCase();
           const matched = hint
-            ? (videoFiles.find(f => { const n = f.name.replace(/\.[^.]+$/, "").toLowerCase(); return n === hint || n.includes(hint) || hint.includes(n); }) ?? videoFiles[0]!)
-            : videoFiles[0]!;
+            ? (mediaFiles.find(f => { const n = f.name.replace(/\.[^.]+$/, "").toLowerCase(); return n === hint || n.includes(hint) || hint.includes(n); }) ?? mediaFiles[0]!)
+            : mediaFiles[0]!;
+          // Auto-set media_type based on detected MIME so downstream build is correct
+          if (matched.mimeType.startsWith("image/") && !String((args as Record<string, unknown>)?.media_type ?? "").includes("image")) {
+            Object.assign(args as object, { media_type: "image" });
+          }
           resolvedFilename = matched.name;
           uploadUrl        = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0&confirm=t`;
         } else {
@@ -4720,94 +4727,150 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           throw new Error(`فشل Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}${hint}`);
         }
         const driveData = (await driveResp.json()) as { files?: Array<{ id: string; mimeType: string; name: string }> };
-        const videoFiles = (driveData.files ?? []).filter(f => f.mimeType.startsWith("video/"));
+        // Accept both videos AND images (صور وفيديوهات)
+        const mediaFiles = (driveData.files ?? []).filter(
+          f => f.mimeType.startsWith("video/") || f.mimeType.startsWith("image/"),
+        );
 
-        logger.info({ folderId, count: videoFiles.length, filenameHint, listOnly }, "upload_video_to_meta: Drive folder listed");
+        logger.info({ folderId, count: mediaFiles.length, filenameHint, listOnly }, "upload_video_to_meta: Drive folder listed");
 
-        if (videoFiles.length === 0) throw new Error(`مجلد Drive "${folderId}" لا يحتوي على فيديوهات`);
+        if (mediaFiles.length === 0) throw new Error(`مجلد Drive "${folderId}" فارغ أو لا يحتوي على فيديوهات أو صور صالحة`);
 
-        // ── list_only mode: return all video filenames without uploading ────────
+        // ── list_only mode: return all filenames without uploading ────────────
         if (listOnly) {
-          const filenames = videoFiles.map(f => f.name.replace(/\.[^.]+$/, ""));
+          const videoCount = mediaFiles.filter(f => f.mimeType.startsWith("video/")).length;
+          const imageCount = mediaFiles.filter(f => f.mimeType.startsWith("image/")).length;
+          const filenames = mediaFiles.map(f => f.name.replace(/\.[^.]+$/, ""));
           res.json({
             success: true,
             mode: "list_only",
-            count: videoFiles.length,
+            count: mediaFiles.length,
+            video_count: videoCount,
+            image_count: imageCount,
             filenames,
-            message: `وُجد ${videoFiles.length} فيديو في المجلد: ${filenames.join(", ")} — استدعِ upload_video_to_meta مرة لكل فيديو باستخدام filename_hint المناسب`,
+            message: `وُجد ${mediaFiles.length} ملف في المجلد (${videoCount} فيديو، ${imageCount} صورة): ${filenames.join(", ")} — استدعِ upload_video_to_meta مرة لكل ملف باستخدام filename_hint المناسب`,
           });
           return;
         }
 
         // Match by filename hint (strip extension for comparison)
         let matched = filenameHint
-          ? videoFiles.find(f => {
+          ? mediaFiles.find(f => {
               const nameNoExt = f.name.replace(/\.[^.]+$/, "").toLowerCase();
               return nameNoExt === filenameHint || nameNoExt.includes(filenameHint) || filenameHint.includes(nameNoExt);
             })
           : undefined;
 
-        // Fallback: first video
-        if (!matched) matched = videoFiles[0]!;
+        // Fallback: first file
+        if (!matched) matched = mediaFiles[0]!;
 
         resolvedFilename = matched.name;
         uploadUrl = `https://drive.usercontent.google.com/download?id=${matched.id}&export=download&authuser=0&confirm=t`;
-        logger.info({ resolvedFilename, uploadUrl }, "upload_video_to_meta: file resolved");
+        // Carry detected media type so upload logic below knows which API to use
+        Object.assign(args as object, { _detected_media_type: matched.mimeType.startsWith("image/") ? "image" : "video" });
+        logger.info({ resolvedFilename, uploadUrl, mimeType: matched.mimeType }, "upload_video_to_meta: file resolved");
       } else {
         // ── Direct file URL (Drive file or other direct URL) ─────────────────
         uploadUrl = normDriveUrl(driveFolderUrl);
         resolvedFilename = filenameHint || "video";
       }
 
-      // ── Upload via Pipeboard upload_ad_video ──────────────────────────────
+      // ── Upload via appropriate Pipeboard tool (video OR image) ──────────
+      const detectedType = String((args as Record<string, unknown>)?._detected_media_type ?? "video");
+      const isImageUpload = detectedType === "image";
+
       const client = await getPipeboardWriteClient();
-      const vidResult = await client.callTool(
-        {
-          name: "upload_ad_video",
-          arguments: {
-            access_token: getAccessToken(),
-            account_id: accountId_uv,
-            video_url: uploadUrl,
-            name: resolvedFilename || `video_${Date.now()}`,
+
+      if (isImageUpload) {
+        // ── Image upload path ──────────────────────────────────────────────
+        const imgResult = await client.callTool(
+          {
+            name: "upload_ad_image",
+            arguments: {
+              account_id: accountId_uv,
+              image_url: uploadUrl,
+              name: resolvedFilename || `img_${Date.now()}`,
+            },
           },
-        },
-        undefined,
-        { timeout: 120_000 },
-      );
+          undefined,
+          { timeout: 120_000 },
+        );
+        const imgText = (
+          (imgResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text")
+            .map(c => c.text ?? "")
+            .join("") ?? ""
+        ).trim();
+        logger.info({ imgText: imgText.slice(0, 300), resolvedFilename }, "upload_video_to_meta: upload_ad_image response");
 
-      const vidText = (
-        (vidResult.content as Array<{ type: string; text?: string }>)
-          ?.filter(c => c.type === "text")
-          .map(c => c.text ?? "")
-          .join("") ?? ""
-      ).trim();
+        const hashMatch = imgText.match(/"hash"\s*:\s*"([^"]+)"/);
+        const imageHash = hashMatch?.[1] ?? "";
+        if (!imageHash) throw new Error(`رفع الصورة فشل — الاستجابة: ${imgText.slice(0, 300)}`);
 
-      logger.info({ vidText: vidText.slice(0, 300), resolvedFilename }, "upload_video_to_meta: upload_ad_video response");
+        await query(
+          `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [executedBy, tool, JSON.stringify(args ?? {}), true,
+           `image_hash: ${imageHash} — ${resolvedFilename}`, "", "", false],
+        ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (upload_video_to_meta/image)"));
 
-      const vidMatch = vidText.match(/"(?:video_id|id)"\s*:\s*"(\d+)"/) ?? vidText.match(/\b(\d{10,})\b/);
-      const videoId = vidMatch?.[1] ?? "";
+        res.json({
+          success: true,
+          media_type: "image",
+          image_hash: imageHash,
+          filename: resolvedFilename,
+          upload_url: uploadUrl,
+          message: `✅ تم رفع الصورة "${resolvedFilename}" — image_hash: ${imageHash} — استخدم هذا في create_ad_from_creative_spec مع media_type=image`,
+        });
+        return;
+      } else {
+        // ── Video upload path ──────────────────────────────────────────────
+        const vidResult = await client.callTool(
+          {
+            name: "upload_ad_video",
+            arguments: {
+              access_token: getAccessToken(),
+              account_id: accountId_uv,
+              video_url: uploadUrl,
+              name: resolvedFilename || `video_${Date.now()}`,
+            },
+          },
+          undefined,
+          { timeout: 120_000 },
+        );
+        const vidText = (
+          (vidResult.content as Array<{ type: string; text?: string }>)
+            ?.filter(c => c.type === "text")
+            .map(c => c.text ?? "")
+            .join("") ?? ""
+        ).trim();
+        logger.info({ vidText: vidText.slice(0, 300), resolvedFilename }, "upload_video_to_meta: upload_ad_video response");
 
-      if (!videoId) throw new Error(`رفع الفيديو فشل — الاستجابة: ${vidText.slice(0, 300)}`);
+        const vidMatch = vidText.match(/"(?:video_id|id)"\s*:\s*"(\d+)"/) ?? vidText.match(/\b(\d{10,})\b/);
+        const videoId = vidMatch?.[1] ?? "";
+        if (!videoId) throw new Error(`رفع الفيديو فشل — الاستجابة: ${vidText.slice(0, 300)}`);
 
-      await query(
-        `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [executedBy, tool, JSON.stringify(args ?? {}), true,
-         `video_id: ${videoId} — ${resolvedFilename}`, "", "", false],
-      ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (upload_video_to_meta)"));
+        await query(
+          `INSERT INTO pipeboard_actions (executed_by, tool_name, args, success, result_message, campaign_name, adset_name, is_no_op)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [executedBy, tool, JSON.stringify(args ?? {}), true,
+           `video_id: ${videoId} — ${resolvedFilename}`, "", "", false],
+        ).catch((e: unknown) => logger.warn({ e }, "pipeboard audit insert failed (upload_video_to_meta)"));
 
-      res.json({
-        success: true,
-        video_id: videoId,
-        filename: resolvedFilename,
-        upload_url: uploadUrl,
-        message: `✅ تم رفع الفيديو "${resolvedFilename}" — video_id: ${videoId}`,
-      });
-      return;
+        res.json({
+          success: true,
+          media_type: "video",
+          video_id: videoId,
+          filename: resolvedFilename,
+          upload_url: uploadUrl,
+          message: `✅ تم رفع الفيديو "${resolvedFilename}" — video_id: ${videoId}`,
+        });
+        return;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error({ err }, "upload_video_to_meta: failed");
-      res.status(500).json({ error: `فشل رفع الفيديو: ${msg}` });
+      res.status(500).json({ error: `فشل رفع الميديا: ${msg}` });
       return;
     }
   }

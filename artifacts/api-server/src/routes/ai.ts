@@ -957,7 +957,7 @@ READ (قراءة — بدون Pipeboard):
 - search_campaigns(account_id, query?) → بحث بالاسم (يعرض حتى 0-spend)
 - search_adsets(campaign_id, query?) → بحث مجموعات (يعرض حتى 0-spend)
 - search_ads(adset_id, query?) → بحث إعلانات (يعرض حتى 0-spend)
-- upload_video_to_meta(drive_folder_url, account_id?, filename_hint?, list_only?) → رفع فيديو يدوي فقط ⛔ لا تستخدمها قبل launch_pipeboard_campaign — الـ backend يرفع تلقائياً
+- upload_video_to_meta(drive_folder_url, account_id?, filename_hint?, list_only?) → رفع فيديو أو صورة من Drive إلى Meta. يدعم مجلدات الصور (image/) والفيديو (video/) — يرجع video_id للفيديو أو image_hash للصور. ⛔ لا تستخدمها قبل launch_pipeboard_campaign — الـ backend يرفع تلقائياً. للاستعراض فقط استخدم list_only=true.
 
 Google Ads:
 - ga_get_campaigns | ga_get_campaign_metrics | ga_get_ad_groups | ga_get_keywords | ga_get_search_terms
