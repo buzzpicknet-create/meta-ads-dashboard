@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { query } from "../lib/db";
+import { query, recordLearning } from "../lib/db";
 import { logger } from "../lib/logger";
 import { sendPushForEvent } from "../lib/push";
 import { getAccessToken } from "../lib/meta-token";
@@ -2306,6 +2306,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             const vJson = (await (await fetch(vUrl.toString(), { signal: AbortSignal.timeout(8_000) })).json()) as Record<string, unknown>;
             if (!vJson.id) throw new Error(`Meta copy verify failed — ad ${copiedAdId} not found`);
             logger.info({ sourceAdId, copiedAdId }, "publish_winners: Meta direct copy succeeded");
+            await recordLearning("نسخ إعلان Dark Ad بدون object_story_id", "استخدم Meta API مباشرة بـ /{ad-id}/copies", "meta_direct_copy", "Dark Ad no object_story_id");
             createdAds.push({ source_ad_id: sourceAdId, method_used: "existing_post", new_ad_id: copiedAdId, status: "PAUSED" });
             continue;
           } catch (metaCopyErr) {

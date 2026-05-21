@@ -34,7 +34,7 @@ import {
   type AdsetDetails,
   type AdDetails,
 } from "../lib/meta-api.js";
-import { query } from "../lib/db.js";
+import { query, getRecentLearnings } from "../lib/db.js";
 import { upsertCampaignNameCache } from "../lib/campaign-name-cache.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -4846,7 +4846,8 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       ? new Set(session.selectedAccounts.map((a) => a.replace(/^act_/, "")))
       : null;
 
-    let systemContent = SYSTEM_PROMPT;
+    const recentLearnings = await getRecentLearnings();
+    let systemContent = SYSTEM_PROMPT + recentLearnings;
 
     // ── Inject selected account_ids so the AI always knows which account to use ──
     if (selectedAccFilter?.size) {
