@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 const API = `${BASE}/api`;
 
 interface VisibilityRow {

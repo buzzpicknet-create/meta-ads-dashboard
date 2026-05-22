@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 const API = `${BASE}/api`;
 
 export type UserRole = "admin" | "media_buyer" | "media_manager";

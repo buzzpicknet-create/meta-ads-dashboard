@@ -50,7 +50,7 @@ const ALL_NAV_ITEMS = [
   { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
 ];
 
-const API_BASE = "https://dashboards-jt0h.onrender.com";
+const API_BASE = "";
 
 interface AiNotification {
   id: number;

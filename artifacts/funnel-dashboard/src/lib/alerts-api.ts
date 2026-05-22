@@ -1,4 +1,4 @@
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 
 export interface AlertSnapshotInput {
   alertKey: string;

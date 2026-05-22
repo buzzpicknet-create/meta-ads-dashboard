@@ -9,7 +9,7 @@ import {
   BarChart2,
 } from "lucide-react";
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 
 // ── Types ─────────────────────────────────────────────────────
 interface DrillSeg {

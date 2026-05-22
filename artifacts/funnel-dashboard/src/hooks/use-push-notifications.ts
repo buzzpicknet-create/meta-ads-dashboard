@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 const API = BASE.endsWith("/") ? `${BASE}api` : `${BASE}/api`;
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {

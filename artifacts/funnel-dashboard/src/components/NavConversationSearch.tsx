@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, X, Globe, MessageSquare, Loader2, Pin } from "lucide-react";
 import { useGlobalAiChat } from "@/contexts/GlobalAiChatContext";
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 const API = `${BASE}/api`;
 
 interface ConvSummary {

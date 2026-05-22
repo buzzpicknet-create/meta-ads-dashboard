@@ -9,7 +9,7 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const LOW_STOCK_THRESHOLD = 10;
 const ALERT_WAREHOUSE = "مخزن السوق";
 
-const API = "https://dashboards-jt0h.onrender.com";
+const API = "";
 
 interface Product {
   id: number;

@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { useAccounts } from "@/hooks/use-meta";
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface AdCreativeRow {

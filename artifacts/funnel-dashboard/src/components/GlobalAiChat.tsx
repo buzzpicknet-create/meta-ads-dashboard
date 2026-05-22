@@ -77,7 +77,7 @@ function formatInterventionAge(hoursAgo: number): string {
   return weeks === 1 ? "منذ أسبوع" : `منذ ${weeks} أسابيع`;
 }
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 const API = `${BASE}/api`;
 
 interface ChatMessage { role: "user" | "assistant"; content: string; imagePreviewUrl?: string; tool_calls?: string[] }

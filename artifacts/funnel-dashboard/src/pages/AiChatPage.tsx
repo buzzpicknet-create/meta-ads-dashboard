@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 const API  = `${BASE}/api`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────

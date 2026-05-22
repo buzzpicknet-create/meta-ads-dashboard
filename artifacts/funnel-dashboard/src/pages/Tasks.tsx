@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-const _BASE = "https://dashboards-jt0h.onrender.com";
+const _BASE = "";
 const BASE  = `${_BASE}/api`;
 
 // ── Types ─────────────────────────────────────────────────────────────────────

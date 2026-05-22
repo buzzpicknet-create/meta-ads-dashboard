@@ -17,7 +17,7 @@ import { useAccounts } from "@/hooks/use-meta";
 import { CampaignLink } from "@/components/CampaignLink";
 import { UtmBuilder } from "@/components/UtmBuilder";
 
-const BASE = "https://dashboards-jt0h.onrender.com";
+const BASE = "";
 
 // ── Types ─────────────────────────────────────────────────────
 interface MetaActivity {
