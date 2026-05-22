@@ -614,7 +614,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={"https://dashboards-jt0h.onrender.com"}>
+        <WouterRouter base={"/"}>
           <AuthProvider>
             <AppRoutes />
           </AuthProvider>
