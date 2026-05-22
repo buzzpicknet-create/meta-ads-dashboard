@@ -1,3 +1,5 @@
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import express, { type Express } from "express";
 import compression from "compression";
 import cors from "cors";
@@ -76,4 +78,7 @@ app.use(
 
 app.use("/api", router);
 
+const frontendDist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "funnel-dashboard", "dist", "public");
+app.use(express.static(frontendDist));
+app.get("*", (_req, res) => res.sendFile(join(frontendDist, "index.html")));
 export default app;

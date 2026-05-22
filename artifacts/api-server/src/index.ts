@@ -1019,9 +1019,6 @@ runMigrations()
   .then(() => rehydrateWarmupHistory())
   .then(() => initVapid())
   .then(() => {
-const frontendDist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "funnel-dashboard", "dist", "public");
-app.use(express.static(frontendDist));
-app.get("*", (_req, res) => res.sendFile(join(frontendDist, "index.html")));
 const server = app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");
