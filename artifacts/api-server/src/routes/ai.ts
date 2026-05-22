@@ -5028,7 +5028,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
         tool_choice: { type: "auto" as const },
         // thinking round: 32K total = 12K thinking budget + 20K for response
         // normal round: 16K — enough for any single response block
-        max_tokens: thinkingThisRound ? 32000 : 16384,
+        max_tokens: thinkingThisRound ? 16000 : 8192,
       };
       const streamParams = thinkingThisRound
         ? { ...baseStreamParams, thinking: { type: "enabled", budget_tokens: 12_000 } }
