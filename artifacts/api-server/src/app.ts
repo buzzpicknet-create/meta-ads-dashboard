@@ -80,5 +80,5 @@ app.use("/api", router);
 
 const frontendDist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "funnel-dashboard", "dist", "public");
 app.use(express.static(frontendDist));
-app.get("*", (_req, res) => res.sendFile(join(frontendDist, "index.html")));
+app.get("/{*path}", (_req, res) => res.sendFile(join(frontendDist, "index.html")));
 export default app;
