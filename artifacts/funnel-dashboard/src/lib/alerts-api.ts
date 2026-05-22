@@ -1,4 +1,4 @@
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = "https://dashboards-jt0h.onrender.com";
 
 export interface AlertSnapshotInput {
   alertKey: string;

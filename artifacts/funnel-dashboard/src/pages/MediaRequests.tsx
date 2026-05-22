@@ -10,7 +10,7 @@ import {
   Pencil, X, ChevronRight as ChevRight,
 } from "lucide-react";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = "https://dashboards-jt0h.onrender.com";
 const API = `${BASE}/api`;
 
 interface MediaRequest {

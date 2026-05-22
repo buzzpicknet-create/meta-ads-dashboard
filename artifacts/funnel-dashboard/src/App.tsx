@@ -51,7 +51,7 @@ const ALL_NAV_ITEMS = [
   { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
 ];
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const API_BASE = "https://dashboards-jt0h.onrender.com";
 
 interface AiNotification {
   id: number;
@@ -614,7 +614,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+        <WouterRouter base={"https://dashboards-jt0h.onrender.com"}>
           <AuthProvider>
             <AppRoutes />
           </AuthProvider>

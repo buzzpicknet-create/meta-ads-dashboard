@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = "https://dashboards-jt0h.onrender.com";
 const API = `${BASE}/api`;
 
 const PAGE_NAMES: Record<string, string> = {

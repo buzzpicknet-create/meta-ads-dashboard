@@ -9,7 +9,7 @@ import {
   BarChart2,
 } from "lucide-react";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = "https://dashboards-jt0h.onrender.com";
 
 // ── Types ─────────────────────────────────────────────────────
 interface DrillSeg {

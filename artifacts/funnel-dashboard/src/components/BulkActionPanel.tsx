@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Loader2, CheckCircle2, XCircle, Rocket, ChevronDown, ChevronUp, TrendingUp, TrendingDown, PauseCircle, PlayCircle, Pencil, Copy } from "lucide-react";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = "https://dashboards-jt0h.onrender.com";
 const API  = `${BASE}/api`;
 
 export interface BulkActionItem {

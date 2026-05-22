@@ -13,7 +13,7 @@ import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, ReferenceDot } fr
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageVisibility, useUpdatePageVisibility } from "@/hooks/use-page-visibility";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = "https://dashboards-jt0h.onrender.com";
 const API = `${BASE}/api`;
 
 interface User {

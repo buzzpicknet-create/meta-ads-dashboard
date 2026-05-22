@@ -18,7 +18,7 @@ import type {
 } from "@/lib/meta-api";
 import { useInsights } from "@/hooks/use-meta";
 
-const _BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const _BASE = "https://dashboards-jt0h.onrender.com";
 const CHAT_API = `${_BASE}/api`;
 
 interface PendingAction {

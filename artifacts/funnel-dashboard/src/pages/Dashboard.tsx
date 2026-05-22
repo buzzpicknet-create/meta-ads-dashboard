@@ -220,7 +220,7 @@ interface HowToMetrics {
 }
 
 function howToHref(problem: string, metrics?: HowToMetrics): string {
-  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  const base = "https://dashboards-jt0h.onrender.com";
   const p = new URLSearchParams({ problem });
   if (metrics) {
     if (metrics.name) p.set("name", metrics.name);
