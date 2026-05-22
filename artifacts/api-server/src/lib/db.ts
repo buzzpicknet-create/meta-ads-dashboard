@@ -48,8 +48,8 @@ export async function getRecentLearnings(): Promise<string> {
        LIMIT 50`,
       []
     );
-    if (!result.rows.length) return "";
-    const lines = result.rows.map((r: Record<string,unknown>) => {
+    if (!result.length) return "";
+    const lines = result.map((r: Record<string,unknown>) => {
       const code = r.error_code ? ` [code:${r.error_code}]` : "";
       return `[${r.date}]${code} ${r.problem} → ${r.solution} (${r.tool_used}) ×${r.success_count}`;
     });

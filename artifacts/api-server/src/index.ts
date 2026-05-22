@@ -451,6 +451,25 @@ async function runMigrations() {
     ON cache_warmup_log (ran_at DESC)
   `);
 
+  await query(`CREATE TABLE IF NOT EXISTS chat_conversations (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT,
+    campaign_name TEXT,
+    campaign_id TEXT,
+    is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await query(`CREATE TABLE IF NOT EXISTS chat_messages (
+    id SERIAL PRIMARY KEY,
+    conversation_id INT REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT,
+    tool_calls JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS campaign_id TEXT`);
   await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS campaign_name TEXT`);
   await query(`ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE`);
   await query(`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS tool_calls JSONB`);
