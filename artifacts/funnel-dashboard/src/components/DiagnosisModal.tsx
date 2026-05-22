@@ -1247,15 +1247,11 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={(t) => { setActiveTab(t); onTabChange?.(t); if (t === "ai") setAiTabOpened(true); }} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="shrink-0 grid grid-cols-5 text-xs h-8">
+          <TabsList className="shrink-0 grid grid-cols-4 text-xs h-8">
             <TabsTrigger value="campaign" className="text-[10px]">الحملة</TabsTrigger>
             <TabsTrigger value="adsets" className="text-[10px]">Ad Sets ({result.adsets.length})</TabsTrigger>
             <TabsTrigger value="ads" className="text-[10px]">الإعلانات ({result.ads.length})</TabsTrigger>
             <TabsTrigger value="compare" className="text-[10px]">مقارنة</TabsTrigger>
-            <TabsTrigger value="ai" className="text-[10px] gap-1">
-              <Bot className="h-3 w-3" />
-              مساعد
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="campaign" className="flex-1 overflow-y-auto space-y-4 mt-3 pb-2">
@@ -1404,22 +1400,6 @@ export function DiagnosisModal({ insights, open, onClose, defaultTab = "campaign
             }
           </TabsContent>
 
-          <TabsContent value="ai" className="flex-1 flex flex-col min-h-0 mt-3">
-            <AiChatTab
-              insights={insights}
-              prevInsights={prevQuery.data ?? null}
-              prevPeriod={prevPeriod}
-              messages={chatMessages}
-              setMessages={setChatMessages}
-              streaming={chatStreaming}
-              setStreaming={setChatStreaming}
-              streamingText={chatStreamingText}
-              setStreamingText={setChatStreamingText}
-              campaignId={insights.campaign.id}
-              campaignName={insights.campaign.name}
-              initialConvId={initialConvId}
-            />
-          </TabsContent>
         </Tabs>
       </DialogContent>
     </Dialog>

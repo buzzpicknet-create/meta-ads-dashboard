@@ -19,7 +19,6 @@ import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Activity, LayoutDashboard, ClipboardList, Clapperboard, Sparkles, Settings, LogOut, Loader2, Bell, BellOff, Target, Search, Bot, Library, Package, ShieldAlert, AlertTriangle, Pause, X, CalendarDays, Globe, KeyRound } from "lucide-react";
 import { useTokenHealth } from "@/hooks/use-meta";
 import { useMyPageVisibility } from "@/hooks/use-page-visibility";
-import { GlobalAiChat } from "@/components/GlobalAiChat";
 import { NavConversationSearchModal, NavSearchButton } from "@/components/NavConversationSearch";
 import { GlobalAiChatContext } from "@/contexts/GlobalAiChatContext";
 import AiChatPage from "@/pages/AiChatPage";
@@ -574,10 +573,6 @@ function FullRouter({ isAdmin, role }: { isAdmin: boolean; role: string }) {
       </Switch>
       {/* Spacer so page content doesn't hide behind fixed bottom nav on mobile */}
       <div className="sm:hidden h-16" />
-      <GlobalAiChat
-        onRegisterOpenFn={(fn) => { openToConversationRef.current = fn; }}
-        onCampaignSelected={(id) => setPendingCampaignId(id)}
-      />
     </GlobalAiChatContext.Provider>
   );
 }
