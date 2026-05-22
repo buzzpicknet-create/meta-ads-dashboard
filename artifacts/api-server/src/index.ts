@@ -635,6 +635,29 @@ async function runMigrations() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_task_media_task_id ON task_media (task_id)`);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_notes (
+      id SERIAL PRIMARY KEY,
+      task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      user_id INT NOT NULL,
+      username TEXT NOT NULL,
+      note_text TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes (task_id)`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_views (
+      id SERIAL PRIMARY KEY,
+      task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      user_id INT NOT NULL,
+      username TEXT NOT NULL,
+      viewed_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_views_task_id ON task_views (task_id)`);
+
   // Landing Page Generator tables
   await query(`
     CREATE TABLE IF NOT EXISTS shopify_config (

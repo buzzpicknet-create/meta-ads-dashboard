@@ -4,7 +4,7 @@ import {
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
   ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
   Image as ImageIcon, Video, Filter, ShieldAlert, Download,
-  FileText, Eye, Pencil,
+  FileText, Eye, Pencil, MessageSquare, Send,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -50,6 +50,23 @@ interface BuyerStat {
 }
 
 interface Assignee { id: number; username: string; role: string; }
+
+interface TaskNote {
+  id: number;
+  task_id: number;
+  user_id: number;
+  username: string;
+  note_text: string;
+  created_at: string;
+}
+
+interface TaskView {
+  id: number;
+  task_id: number;
+  user_id: number;
+  username: string;
+  viewed_at: string;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -640,11 +657,49 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
   onEdit: (task: Task) => void;
 }) {
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+  const [notes,      setNotes]      = useState<TaskNote[]>([]);
+  const [views,      setViews]      = useState<TaskView[]>([]);
+  const [noteText,   setNoteText]   = useState("");
+  const [addingNote, setAddingNote] = useState(false);
+  const [showViews,  setShowViews]  = useState(false);
   const isActive = task.status === "pending" || task.status === "in_progress";
   const score = task.opus_score ?? 0;
 
   const isImage = (m: TaskMedia) => m.mime_type.startsWith("image/");
   const isVideo = (m: TaskMedia) => m.mime_type.startsWith("video/");
+
+  // Record view + fetch notes/views on mount
+  useEffect(() => {
+    fetch(`${BASE}/tasks/${task.id}/view`, { method: "POST", credentials: "include" }).catch(() => {});
+    fetch(`${BASE}/tasks/${task.id}/notes`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then(setNotes).catch(() => {});
+    if (isAdmin) {
+      fetch(`${BASE}/tasks/${task.id}/views`, { credentials: "include" })
+        .then(r => r.ok ? r.json() : [])
+        .then(setViews).catch(() => {});
+    }
+  }, [task.id, isAdmin]);
+
+  async function handleAddNote(e: React.FormEvent) {
+    e.preventDefault();
+    if (!noteText.trim()) return;
+    setAddingNote(true);
+    try {
+      const res = await fetch(`${BASE}/tasks/${task.id}/notes`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note_text: noteText.trim() }),
+      });
+      if (res.ok) {
+        const row: TaskNote = await res.json();
+        setNotes(prev => [...prev, row]);
+        setNoteText("");
+      }
+    } finally {
+      setAddingNote(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" dir="rtl">
@@ -799,6 +854,69 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
                 </div>
               )}
             </div>
+
+            {/* ── Notes section ─────────────────────────────────────────────── */}
+            <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2.5 border-b border-slate-700/40">
+                <MessageSquare size={13} className="text-blue-400" />
+                <span className="text-xs font-semibold text-slate-300">ملاحظات الفريق</span>
+                {notes.length > 0 && (
+                  <span className="text-[10px] text-slate-500 bg-slate-700/60 px-1.5 py-0.5 rounded-full">{notes.length}</span>
+                )}
+              </div>
+              {notes.length === 0 ? (
+                <p className="text-xs text-slate-600 px-3 py-3">لا توجد ملاحظات بعد</p>
+              ) : (
+                <div className="divide-y divide-slate-700/30 max-h-48 overflow-y-auto">
+                  {notes.map(n => (
+                    <div key={n.id} className="px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-[11px] font-semibold text-blue-300">{n.username}</span>
+                        <span className="text-[10px] text-slate-600">{formatDate(n.created_at)}</span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed">{n.note_text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form onSubmit={handleAddNote} className="flex gap-2 p-2.5 border-t border-slate-700/40">
+                <input
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                  placeholder="أضف ملاحظة..."
+                  className="flex-1 bg-slate-900/60 border border-slate-600/50 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/60"
+                />
+                <button type="submit" disabled={addingNote || !noteText.trim()}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-white text-xs disabled:opacity-40 transition-all">
+                  {addingNote ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                </button>
+              </form>
+            </div>
+
+            {/* ── View log (admin only) ──────────────────────────────────────── */}
+            {isAdmin && views.length > 0 && (
+              <div className="bg-slate-800/30 border border-slate-700/40 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setShowViews(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                  <span className="flex items-center gap-2">
+                    <Eye size={12} className="text-slate-500" />
+                    سجل المشاهدات ({views.length})
+                  </span>
+                  {showViews ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+                {showViews && (
+                  <div className="divide-y divide-slate-700/30 max-h-40 overflow-y-auto border-t border-slate-700/40">
+                    {views.map(v => (
+                      <div key={v.id} className="flex items-center justify-between px-3 py-2 text-[11px]">
+                        <span className="text-slate-300 font-medium">{v.username}</span>
+                        <span className="text-slate-600">{formatDate(v.viewed_at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

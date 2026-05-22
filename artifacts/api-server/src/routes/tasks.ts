@@ -36,7 +36,27 @@ interface TaskMedia {
   is_primary: boolean;
 }
 
+interface TaskNote {
+  id: number;
+  task_id: number;
+  user_id: number;
+  username: string;
+  note_text: string;
+  created_at: string;
+}
+
+interface TaskView {
+  id: number;
+  task_id: number;
+  user_id: number;
+  username: string;
+  viewed_at: string;
+}
+
 // ── Scoring algorithm ─────────────────────────────────────────────────────────
+// Score = (deadline - completed_at) / (deadline - created_at) * 100
+// e.g. 10h task, done in 1h → remaining 9h → score = 9/10 * 100 = 90%
+// Late completions score 0.
 
 export function calcScore(task: Task): number {
   if (task.status !== "completed" || !task.completed_at) return 0;
@@ -45,15 +65,10 @@ export function calcScore(task: Task): number {
   const done     = new Date(task.completed_at).getTime();
   const duration = Math.max(1, deadline - created);
 
-  let score = 50;
-  if (done <= deadline) {
-    const saved = deadline - done;
-    score += Math.min(30, (saved / duration) * 30);
-  } else {
-    score -= 20;
-  }
-  score += Math.min(20, task.checkin_count * 5);
-  return Math.max(0, Math.min(100, Math.round(score)));
+  if (done > deadline) return 0;
+
+  const remaining = deadline - done;
+  return Math.max(0, Math.min(100, Math.round((remaining / duration) * 100)));
 }
 
 // ── Auto-expire ───────────────────────────────────────────────────────────────
@@ -176,7 +191,6 @@ router.post("/tasks", requireAdmin, async (req, res) => {
 });
 
 // ── POST /api/tasks/:id/media ─────────────────────────────────────────────────
-// Accepts JSON { objectPath, originalName, mimeType } after client uploads to GCS
 
 router.post("/tasks/:id/media", async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
@@ -241,7 +255,6 @@ router.delete("/tasks/media/:mediaId", async (req, res) => {
   const [task] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [m.task_id]);
   if (role !== "admin" && task?.assigned_to_id !== userId) return res.status(403).json({ error: "غير مصرح" });
 
-  // Delete from GCS (non-blocking, ignore errors if already missing)
   try {
     const file = await objectStorage.getObjectEntityFile(m.file_path);
     await file.delete({ ignoreNotFound: true });
@@ -279,9 +292,16 @@ router.patch("/tasks/:id", async (req, res) => {
     const [updated] = await query<Task>(`
       UPDATE tasks SET checkin_count = checkin_count + 1, last_checkin_at = NOW(),
         status = CASE WHEN status = 'pending' THEN 'in_progress' ELSE status END,
-        notes = COALESCE($2, notes), updated_at = NOW()
+        updated_at = NOW()
       WHERE id = $1 RETURNING *
-    `, [id, notes ?? null]);
+    `, [id]);
+    // Save check-in note if provided
+    if (notes?.trim()) {
+      await query(
+        `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4)`,
+        [id, userId, req.session!.username, notes.trim()]
+      );
+    }
     const [withMedia] = await attachMedia([updated]);
     return res.json(withMedia);
   }
@@ -307,15 +327,27 @@ router.patch("/tasks/:id", async (req, res) => {
   if (role === "admin") {
     const { title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, status } =
       req.body as Partial<Task>;
+
+    // Bug fix: if deadline is extended to a future date, un-expire the task
+    const newDeadline = deadline ?? null;
     const [updated] = await query<Task>(`
       UPDATE tasks SET
-        title = COALESCE($2, title), product_name = COALESCE($3, product_name),
-        assigned_to_id = COALESCE($4, assigned_to_id), assigned_to_name = COALESCE($5, assigned_to_name),
-        deadline = COALESCE($6, deadline), success_metric = COALESCE($7, success_metric),
-        status = COALESCE($8, status), notes = COALESCE($9, notes), updated_at = NOW()
+        title = COALESCE($2, title),
+        product_name = COALESCE($3, product_name),
+        assigned_to_id = COALESCE($4, assigned_to_id),
+        assigned_to_name = COALESCE($5, assigned_to_name),
+        deadline = COALESCE($6, deadline),
+        success_metric = COALESCE($7, success_metric),
+        status = CASE
+          WHEN $6::timestamptz IS NOT NULL AND $6::timestamptz > NOW() AND status = 'expired'
+          THEN 'pending'
+          ELSE COALESCE($8, status)
+        END,
+        notes = COALESCE($9, notes),
+        updated_at = NOW()
       WHERE id = $1 RETURNING *
     `, [id, title ?? null, product_name ?? null, assigned_to_id ?? null,
-        assigned_to_name ?? null, deadline ?? null, success_metric ?? null,
+        assigned_to_name ?? null, newDeadline, success_metric ?? null,
         status ?? null, notes ?? null]);
     const [withMedia] = await attachMedia([updated]);
     return res.json(withMedia);
@@ -324,13 +356,80 @@ router.patch("/tasks/:id", async (req, res) => {
   res.status(400).json({ error: "action غير معروف" });
 });
 
+// ── GET /api/tasks/:id/notes ──────────────────────────────────────────────────
+
+router.get("/tasks/:id/notes", async (req, res) => {
+  const id     = parseInt(String(req.params.id), 10);
+  const role   = req.session!.role;
+  const userId = req.session!.userId;
+  if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
+
+  const [task] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [id]);
+  if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
+  if (role !== "admin" && task.assigned_to_id !== userId)
+    return res.status(403).json({ error: "غير مصرح" });
+
+  const rows = await query<TaskNote>(
+    `SELECT * FROM task_notes WHERE task_id = $1 ORDER BY created_at ASC`, [id]
+  );
+  res.json(rows);
+});
+
+// ── POST /api/tasks/:id/notes ─────────────────────────────────────────────────
+
+router.post("/tasks/:id/notes", async (req, res) => {
+  const id     = parseInt(String(req.params.id), 10);
+  const role   = req.session!.role;
+  const userId = req.session!.userId;
+  if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
+
+  const { note_text } = req.body as { note_text?: string };
+  if (!note_text?.trim()) return res.status(400).json({ error: "نص الملاحظة مطلوب" });
+
+  const [task] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [id]);
+  if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
+  if (role !== "admin" && task.assigned_to_id !== userId)
+    return res.status(403).json({ error: "غير مصرح" });
+
+  const [row] = await query<TaskNote>(
+    `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [id, userId, req.session!.username, note_text.trim()]
+  );
+  res.status(201).json(row);
+});
+
+// ── POST /api/tasks/:id/view ──────────────────────────────────────────────────
+
+router.post("/tasks/:id/view", async (req, res) => {
+  const id     = parseInt(String(req.params.id), 10);
+  const userId = req.session!.userId;
+  if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
+
+  await query(
+    `INSERT INTO task_views (task_id, user_id, username) VALUES ($1,$2,$3)`,
+    [id, userId, req.session!.username]
+  );
+  res.json({ ok: true });
+});
+
+// ── GET /api/tasks/:id/views ──────────────────────────────────────────────────
+
+router.get("/tasks/:id/views", requireAdmin, async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
+
+  const rows = await query<TaskView>(
+    `SELECT * FROM task_views WHERE task_id = $1 ORDER BY viewed_at DESC LIMIT 100`, [id]
+  );
+  res.json(rows);
+});
+
 // ── DELETE /api/tasks/:id ─────────────────────────────────────────────────────
 
 router.delete("/tasks/:id", requireAdmin, async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
 
-  // Delete GCS objects for all media
   const mediaRows = await query<{ file_path: string }>(
     `SELECT file_path FROM task_media WHERE task_id = $1`, [id]
   );
