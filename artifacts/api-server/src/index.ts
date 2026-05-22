@@ -1,3 +1,5 @@
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { query } from "./lib/db";
@@ -1017,7 +1019,10 @@ runMigrations()
   .then(() => rehydrateWarmupHistory())
   .then(() => initVapid())
   .then(() => {
-    const server = app.listen(port, (err) => {
+const frontendDist = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "funnel-dashboard", "dist", "public");
+app.use(express.static(frontendDist));
+app.get("*", (_req, res) => res.sendFile(join(frontendDist, "index.html")));
+const server = app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");
         process.exit(1);
