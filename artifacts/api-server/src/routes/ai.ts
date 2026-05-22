@@ -4928,10 +4928,11 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     }
 
     // ── Convert TOOLS → Anthropic format ──────────────────────────────────────
-    const anthropicTools = TOOLS.map(t => ({
+    const anthropicTools = TOOLS.map((t, i) => ({
       name: t.function.name,
       description: t.function.description,
       input_schema: t.function.parameters,
+      ...(i === TOOLS.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}),
     }));
 
     // ── Build Anthropic messages (system passed separately, not in messages[]) ─
