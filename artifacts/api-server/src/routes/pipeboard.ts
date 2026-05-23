@@ -2822,6 +2822,13 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
       media_type: string;
       texts: string[];
       headlines: string[];
+      link_url?: string;
+      asset_file_name?: string;
+      asset_file_names?: string[];
+      video_file_name?: string;
+      video_file_names?: string[];
+      image_file_name?: string;
+      image_file_names?: string[];
     }
     interface AdResult {
       adset_name: string;
@@ -2893,6 +2900,23 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           creative.link_url ?? creative.landing_page_url ?? creative.landing_page ?? "",
         ).trim();
 
+        const toStringArray = (value: unknown): string[] =>
+          Array.isArray(value)
+            ? value.map((v) => String(v).trim()).filter(Boolean)
+            : typeof value === "string" && value.trim()
+              ? [value.trim()]
+              : [];
+
+        const assetFileNames = toStringArray(
+          creative.asset_file_names ?? creative.asset_names ?? creative.file_names,
+        );
+        const videoFileNames = toStringArray(
+          creative.video_file_names ?? creative.video_names,
+        );
+        const imageFileNames = toStringArray(
+          creative.image_file_names ?? creative.image_names,
+        );
+
         return {
           name: String(creative.name ?? "").trim() || undefined,
           media_url: String(
@@ -2902,6 +2926,18 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           texts: rawTexts.map((v) => String(v).trim()).filter(Boolean),
           headlines: rawHeadlines.map((v) => String(v).trim()).filter(Boolean),
           ...(linkUrl ? { link_url: linkUrl } : {}),
+          asset_file_name: String(
+            creative.asset_file_name ?? creative.asset_name ?? creative.file_name ?? "",
+          ).trim() || undefined,
+          asset_file_names: assetFileNames.length ? assetFileNames : undefined,
+          video_file_name: String(
+            creative.video_file_name ?? creative.video_name ?? "",
+          ).trim() || undefined,
+          video_file_names: videoFileNames.length ? videoFileNames : undefined,
+          image_file_name: String(
+            creative.image_file_name ?? creative.image_name ?? "",
+          ).trim() || undefined,
+          image_file_names: imageFileNames.length ? imageFileNames : undefined,
         } as CreativeInput;
       };
 
@@ -2959,7 +2995,239 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         .trim();
     }
 
+    type BlueprintDriveAsset = {
+      id: string;
+      name: string;
+      mimeType: string;
+      type: "video" | "image";
+      direct_url: string;
+    };
+
+    const getRequestedFileName = (creative: CreativeInput, index: number): string | undefined => {
+      const allNames = [
+        creative.asset_file_name,
+        creative.video_file_name,
+        creative.image_file_name,
+        ...(creative.asset_file_names ?? []),
+        ...(creative.video_file_names ?? []),
+        ...(creative.image_file_names ?? []),
+      ].map((v) => String(v ?? "").trim()).filter(Boolean);
+
+      return allNames[index] ?? allNames[0];
+    };
+
+    const pickDriveAsset = (
+      assets: BlueprintDriveAsset[],
+      requestedFileName?: string,
+      preferredType?: "video" | "image",
+    ): {
+      asset: BlueprintDriveAsset;
+      selection_reason: "matched_by_filename" | "random_no_asset_name" | "random_missing_asset_name";
+    } => {
+      const pool = preferredType ? assets.filter((a) => a.type === preferredType) : assets;
+
+      if (pool.length === 0) {
+        throw new Error(`No ${preferredType ?? "media"} assets found in Drive folder`);
+      }
+
+      const requested = String(requestedFileName ?? "").trim();
+
+      if (requested) {
+        const exact = pool.find((a) => a.name === requested);
+        if (exact) return { asset: exact, selection_reason: "matched_by_filename" };
+
+        const ciMatches = pool.filter((a) => a.name.toLowerCase() === requested.toLowerCase());
+        if (ciMatches.length === 1 && ciMatches[0]) {
+          return { asset: ciMatches[0], selection_reason: "matched_by_filename" };
+        }
+
+        return {
+          asset: pool[Math.floor(Math.random() * pool.length)]!,
+          selection_reason: "random_missing_asset_name",
+        };
+      }
+
+      return {
+        asset: pool[Math.floor(Math.random() * pool.length)]!,
+        selection_reason: "random_no_asset_name",
+      };
+    };
+
+    const listDriveFolderAssets = async (folderId: string): Promise<BlueprintDriveAsset[]> => {
+      const googleApiKey = process.env.GOOGLE_API_KEY;
+      if (!googleApiKey) {
+        throw new Error("GOOGLE_API_KEY مفقود في متغيرات البيئة — لا يمكن استخراج ملفات مجلد Drive بدونه");
+      }
+
+      const apiUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&fields=files(id,mimeType,name)&key=${googleApiKey}`;
+      const driveResp = await fetch(apiUrl, { signal: AbortSignal.timeout(30_000) });
+
+      if (!driveResp.ok) {
+        const hint = driveResp.status === 404
+          ? ` — تأكد أن المجلد مشارك بـ "أي شخص لديه الرابط" (Share → Anyone with the link → Viewer)`
+          : driveResp.status === 403
+            ? ` — الوصول مرفوض؛ غيّر صلاحية المجلد إلى "أي شخص لديه الرابط" في إعدادات المشاركة`
+            : "";
+
+        throw new Error(`فشل استعلام Google Drive API للمجلد "${folderId}": ${driveResp.status} ${driveResp.statusText}${hint}`);
+      }
+
+      const driveData = (await driveResp.json()) as {
+        files?: Array<{ id: string; mimeType: string; name: string }>;
+      };
+
+      return (driveData.files ?? [])
+        .filter((f) => f.mimeType.startsWith("video/") || f.mimeType.startsWith("image/"))
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          type: f.mimeType.startsWith("video/") ? "video" : "image",
+          direct_url: `https://drive.usercontent.google.com/download?id=${f.id}&export=download&authuser=0&confirm=t`,
+        }));
+    };
+
+    const buildBlueprintVariants = async (creative: CreativeInput, adsetName: string) => {
+      const texts = creative.texts.length ? creative.texts : [""];
+      const headlines = creative.headlines.length ? creative.headlines : [""];
+      const count = Math.max(texts.length, headlines.length, 1);
+      const linkUrl = creative.link_url || String(args?.landing_page_url ?? "");
+      const rawMediaUrl = creative.media_url?.trim() ?? "";
+      const folderMatch = rawMediaUrl.match(/\/folders\/([a-zA-Z0-9-_]+)/);
+      const preferredType = creative.media_type === "image"
+        ? "image"
+        : creative.media_type === "video"
+          ? "video"
+          : undefined;
+
+      if (folderMatch) {
+        const assets = await listDriveFolderAssets(folderMatch[1]!);
+
+        if (assets.length === 0) {
+          throw new Error(`مجلد Google Drive "${folderMatch[1]}" فارغ أو لا يحتوي على فيديوهات أو صور صالحة`);
+        }
+
+        return Array.from({ length: count }, (_, i) => {
+          const requestedFileName = getRequestedFileName(creative, i);
+          const picked = pickDriveAsset(assets, requestedFileName, preferredType);
+          const isVideo = picked.asset.type === "video";
+
+          return {
+            name: `${creative.name || adsetName} — ${i + 1}`,
+            text: String(texts[i] ?? texts[0] ?? "").trim(),
+            headline: String(headlines[i] ?? headlines[0] ?? "").trim(),
+            link_url: linkUrl,
+            call_to_action_type: String(args?.call_to_action ?? "LEARN_MORE"),
+            asset_selection: {
+              requested_file_name: requestedFileName ?? null,
+              selection_mode: requestedFileName ? "matched_or_random" : "random",
+              selection_reason: picked.selection_reason,
+            },
+            asset: {
+              type: picked.asset.type,
+              source_file_name: picked.asset.name,
+              ...(isVideo ? { video_url: picked.asset.direct_url } : { image_url: picked.asset.direct_url }),
+            },
+          };
+        });
+      }
+
+      const mediaUrl = normaliseMediaUrl(rawMediaUrl);
+      const directIsVideo = isVideoType(mediaUrl, creative.media_type ?? "");
+
+      return Array.from({ length: count }, (_, i) => ({
+        name: `${creative.name || adsetName} — ${i + 1}`,
+        text: String(texts[i] ?? texts[0] ?? "").trim(),
+        headline: String(headlines[i] ?? headlines[0] ?? "").trim(),
+        link_url: linkUrl,
+        call_to_action_type: String(args?.call_to_action ?? "LEARN_MORE"),
+        asset_selection: {
+          requested_file_name: getRequestedFileName(creative, i) ?? null,
+          selection_mode: "direct_url",
+          selection_reason: "direct_media_url",
+        },
+        asset: {
+          type: directIsVideo ? "video" : "image",
+          source_file_name: getRequestedFileName(creative, i) ?? mediaUrl.split("/").pop()?.split("?")[0] ?? "direct-media",
+          ...(directIsVideo ? { video_url: mediaUrl } : { image_url: mediaUrl }),
+        },
+      }));
+    };
+
     const UPLOAD_TIMEOUT_MS = 120_000; // 2 minutes for video uploads
+
+    try {
+      const rawAccountIdForBlueprint = String(args?.account_id ?? "");
+      const accountIdForBlueprint = rawAccountIdForBlueprint.startsWith("act_")
+        ? rawAccountIdForBlueprint
+        : `act_${rawAccountIdForBlueprint}`;
+
+      const campaignNameForBlueprint = String(args?.campaign_name ?? "حملة جديدة");
+      const landingPageUrlForBlueprint = String(args?.landing_page_url ?? "");
+      const budgetTypeForBlueprint = String(args?.budget_type ?? "CBO").toUpperCase();
+      const isCboForBlueprint = budgetTypeForBlueprint !== "ABO";
+
+      const pageIdForBlueprint = String(args?.page_id ?? "").trim()
+        || (landingPageUrlForBlueprint.includes("buzzpick.net")
+          ? "878997831971062"
+          : "108193615487446");
+
+      const adsetsForBlueprint = await Promise.all(
+        rawAdsets.map(async (adset, adsetIndex) => {
+          const adsetCreatives = rawCreatives.length === 1
+            ? rawCreatives
+            : [rawCreatives[adsetIndex] ?? rawCreatives[0]!];
+
+          const variantsNested = await Promise.all(
+            adsetCreatives.map((creative) => buildBlueprintVariants(creative, adset.name)),
+          );
+
+          return {
+            name: adset.name,
+            optimization_goal: optimizationGoal,
+            billing_event: "IMPRESSIONS",
+            status: "PAUSED",
+            ...(isCboForBlueprint ? {} : { daily_budget: egpToCents(adset.budget ?? 100) }),
+            targeting: { geo_locations: { countries: ["EG"] } },
+            destination_type: "WEBSITE",
+            variants: variantsNested.flat(),
+          };
+        }),
+      );
+
+      const blueprint = {
+        schema_version: "pipeboard_blueprint_v2",
+        execution_mode: "chatgpt_mcp",
+        platform: "meta_ads",
+        account_id: accountIdForBlueprint,
+        page_id: pageIdForBlueprint,
+        campaign: {
+          name: campaignNameForBlueprint,
+          objective: campObjective,
+          status: "PAUSED",
+          buying_type: "AUCTION",
+          bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+          special_ad_categories: [],
+          use_adset_level_budgets: !isCboForBlueprint,
+          ...(isCboForBlueprint
+            ? { daily_budget: egpToCents(Number(args?.daily_budget ?? rawAdsets[0]?.budget ?? 100)) }
+            : {}),
+        },
+        adsets: adsetsForBlueprint,
+      };
+
+      res.json({
+        success: true,
+        message: "Blueprint generated only. No Meta campaign/adset/creative/ad was created by Replit.",
+        blueprint,
+      });
+      return;
+    } catch (err) {
+      res.status(500).json({
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
 
     try {
       const client = await getPipeboardWriteClient();
