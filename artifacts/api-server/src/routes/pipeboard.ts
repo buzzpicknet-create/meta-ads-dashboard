@@ -3107,10 +3107,87 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           throw new Error(`مجلد Google Drive "${folderMatch[1]}" فارغ أو لا يحتوي على فيديوهات أو صور صالحة`);
         }
 
-        return Array.from({ length: count }, (_, i) => {
-          const requestedFileName = getRequestedFileName(creative, i);
-          const picked = pickDriveAsset(assets, requestedFileName, preferredType);
-          const isVideo = picked.asset.type === "video";
+        const candidateAssets = preferredType
+          ? assets.filter((asset) => asset.type === preferredType)
+          : assets;
+
+        if (candidateAssets.length === 0) {
+          throw new Error(`مجلد Google Drive "${folderMatch[1]}" لا يحتوي على ملفات ${preferredType ?? "media"} مناسبة`);
+        }
+
+        const findMatchedAsset = (requestedFileName?: string): BlueprintDriveAsset | undefined => {
+          const requested = String(requestedFileName ?? "").trim();
+          if (!requested) return undefined;
+
+          const exact = candidateAssets.find((asset) => asset.name === requested);
+          if (exact) return exact;
+
+          const ciMatches = candidateAssets.filter(
+            (asset) => asset.name.toLowerCase() === requested.toLowerCase(),
+          );
+
+          return ciMatches.length === 1 ? ciMatches[0] : undefined;
+        };
+
+        const shuffleAssets = (items: BlueprintDriveAsset[]): BlueprintDriveAsset[] => {
+          const copy = [...items];
+          for (let i = copy.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = copy[i]!;
+            copy[i] = copy[j]!;
+            copy[j] = tmp;
+          }
+          return copy;
+        };
+
+        const requestedBaseNames = Array.from(
+          { length: count },
+          (_, i) => getRequestedFileName(creative, i),
+        );
+
+        const matchedAssetsByIndex = new Map<number, BlueprintDriveAsset>();
+        requestedBaseNames.forEach((requestedFileName, i) => {
+          const matchedAsset = findMatchedAsset(requestedFileName);
+          if (matchedAsset) matchedAssetsByIndex.set(i, matchedAsset);
+        });
+
+        const hasRandomSelection = requestedBaseNames.some(
+          (requestedFileName, i) => !matchedAssetsByIndex.has(i),
+        );
+
+        // If random fallback is used, make sure every asset in the folder is used once
+        // before any asset can repeat.
+        const variantCount = hasRandomSelection
+          ? Math.max(count, candidateAssets.length)
+          : count;
+
+        const matchedAssetIds = new Set(
+          Array.from(matchedAssetsByIndex.values()).map((asset) => asset.id),
+        );
+
+        const firstRandomCycle = candidateAssets.filter((asset) => !matchedAssetIds.has(asset.id));
+        let randomPool = shuffleAssets(firstRandomCycle.length ? firstRandomCycle : candidateAssets);
+        let randomCursor = 0;
+
+        const nextRandomAsset = (): BlueprintDriveAsset => {
+          if (randomCursor >= randomPool.length) {
+            randomPool = shuffleAssets(candidateAssets);
+            randomCursor = 0;
+          }
+
+          return randomPool[randomCursor++]!;
+        };
+
+        return Array.from({ length: variantCount }, (_, i) => {
+          const requestedFileName = i < count ? getRequestedFileName(creative, i) : undefined;
+          const matchedAsset = i < count ? matchedAssetsByIndex.get(i) : undefined;
+          const pickedAsset = matchedAsset ?? nextRandomAsset();
+          const isVideo = pickedAsset.type === "video";
+          const selectionReason = matchedAsset
+            ? "matched_by_filename"
+            : requestedFileName
+              ? "random_missing_asset_name"
+              : "random_no_asset_name";
 
           return {
             name: `${creative.name || adsetName} — ${i + 1}`,
@@ -3120,13 +3197,17 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             call_to_action_type: String(args?.call_to_action ?? "LEARN_MORE"),
             asset_selection: {
               requested_file_name: requestedFileName ?? null,
-              selection_mode: requestedFileName ? "matched_or_random" : "random",
-              selection_reason: picked.selection_reason,
+              selection_mode: matchedAsset
+                ? "matched"
+                : requestedFileName
+                  ? "matched_or_random"
+                  : "random_without_replacement",
+              selection_reason: selectionReason,
             },
             asset: {
-              type: picked.asset.type,
-              source_file_name: picked.asset.name,
-              ...(isVideo ? { video_url: picked.asset.direct_url } : { image_url: picked.asset.direct_url }),
+              type: pickedAsset.type,
+              source_file_name: pickedAsset.name,
+              ...(isVideo ? { video_url: pickedAsset.direct_url } : { image_url: pickedAsset.direct_url }),
             },
           };
         });
