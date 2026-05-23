@@ -1966,6 +1966,127 @@ ${adsetBlocks}
 [END_COMMAND]`;
   }
 
+
+  async function generateStandardBlueprintJson() {
+    const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
+    const prod = form.product.trim() || "Product";
+    const drive = form.driveLink.trim();
+    const campName = `${prod} - Standard - ${today}`;
+    const isCBO = form.stdIsCBO;
+    const creativesPerAdset = form.stdCreativesPerAdset;
+    const angles = form.stdAngles.filter(a => a.name.trim() || a.landing.trim());
+
+    if (!form.quickAccountId.trim()) {
+      setBlueprintText("❌ اختار Ad Account الأول.");
+      return;
+    }
+
+    if (!drive) {
+      setBlueprintText("❌ حط Drive folder URL الأول.");
+      return;
+    }
+
+    const normalizedAngles = angles.length > 0
+      ? angles
+      : [{
+          name: "Angle 1",
+          landing: "",
+          texts: [],
+          headlines: [],
+          selTexts: [],
+          selHeadlines: [],
+        }];
+
+    const firstLanding = normalizedAngles[0]?.landing?.trim() || "";
+
+    const adsets = normalizedAngles.map((a, i) => ({
+      name: a.name.trim() || `Angle ${i + 1}`,
+      budget: Number(form.budget || 100),
+    }));
+
+    const creatives = normalizedAngles.map((a, i) => {
+      const allTexts = a.texts || [];
+      const allHeadlines = a.headlines || [];
+      const selTIndices = a.selTexts.length > 0 ? a.selTexts : allTexts.map((_, idx) => idx);
+      const selHIndices = a.selHeadlines.length > 0 ? a.selHeadlines : allHeadlines.map((_, idx) => idx);
+      const chosenTexts = selTIndices.map(idx => allTexts[idx]).filter(Boolean).slice(0, creativesPerAdset);
+      const chosenHeadlines = selHIndices.map(idx => allHeadlines[idx]).filter(Boolean).slice(0, creativesPerAdset);
+      const lp = addUtm(a.landing.trim() || firstLanding || "—", campName, a.name || `angle-${i + 1}`);
+
+      return {
+        name: a.name.trim() || `Angle ${i + 1}`,
+        media_type: "video",
+        media_url: drive,
+        link_url: lp,
+        texts: chosenTexts,
+        headlines: chosenHeadlines,
+        video_file_name: a.name.trim() || undefined,
+      };
+    });
+
+    const args = {
+      account_id: form.quickAccountId.trim(),
+      campaign_name: campName,
+      objective: "OUTCOME_SALES",
+      budget_type: isCBO ? "CBO" : "ABO",
+      daily_budget: Number(form.budget || 100),
+      landing_page_url: firstLanding,
+      adsets,
+      creatives,
+      call_to_action: "LEARN_MORE",
+    };
+
+    setBlueprintText("⏳ جاري توليد Blueprint JSON من Drive folder...");
+    setBlueprintCopied(false);
+
+    try {
+      const resp = await fetch(`${API}/pipeboard/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          tool: "launch_pipeboard_campaign",
+          args,
+          isNoOp: false,
+        }),
+      });
+
+      const data = await resp.json() as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+        blueprint?: unknown;
+      };
+
+      if (!resp.ok || !data.success) {
+        setBlueprintText(`❌ فشل توليد Blueprint JSON:\n${data.error || data.message || "خطأ غير معروف"}`);
+        return;
+      }
+
+      if (!data.blueprint) {
+        setBlueprintText(`❌ الرد نجح لكنه لم يرجع blueprint.\n${JSON.stringify(data, null, 2)}`);
+        return;
+      }
+
+      const json = JSON.stringify(data.blueprint, null, 2);
+      setBlueprintText(json);
+
+      fetch(`${API}/library/history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          product_name: form.product.trim() || "منتج",
+          angle_name: "Quick Launch — Blueprint JSON",
+          generated_prompt: json,
+        }),
+      }).catch(() => {});
+    } catch (err) {
+      setBlueprintText(`❌ حصل خطأ في الاتصال أثناء توليد Blueprint JSON:\n${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+
   function buildStandardV2Cmd(): string {
     const today = new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
     const prod  = form.product.trim() || "Product";
@@ -2386,7 +2507,7 @@ ${adsetBlocks}
             <Button
               size="sm"
               className="gap-1.5 h-9 text-xs shrink-0 bg-primary hover:bg-primary/90"
-              onClick={() => showBlueprint(buildStandardCmd())}
+              onClick={() => void generateStandardBlueprintJson()}
             >
               <Send className="h-3.5 w-3.5" />
               توليد Blueprint 📋
