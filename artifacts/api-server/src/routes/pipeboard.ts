@@ -2805,14 +2805,10 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
   // ── Special multi-step: launch_pipeboard_campaign ────────────────────────
   if (tool === "launch_pipeboard_campaign") {
-    const campaignStrategy = String(args?.strategy ?? "").toLowerCase();
-    if (campaignStrategy === "standard") {
-      res.status(400).json({
-        error: "launch_pipeboard_campaign cannot be used for Standard strategy. Use create_campaign + create_adset + create_ad separately for each ad.",
-        code: "WRONG_TOOL_FOR_STANDARD",
-      });
-      return;
-    }
+      // STANDARD is allowed here.
+      // launch_pipeboard_campaign remains the single backend path for STANDARD campaigns.
+      // The implementation below must create separate normal ads, not DCO.
+
 
     // ── Types ──────────────────────────────────────────────────────────────
     interface AdsetInput {
@@ -2872,18 +2868,55 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             },
           ];
 
-    let rawCreatives: CreativeInput[] =
-      Array.isArray(args?.creatives) &&
-      (args.creatives as CreativeInput[]).length > 0
-        ? (args.creatives as CreativeInput[])
-        : [
-            {
-              media_url: String(args?.media_url ?? "").trim(),
-              media_type: String(args?.media_type ?? "image").toLowerCase(),
-              texts: [String(args?.primary_text ?? "")].filter(Boolean),
-              headlines: [String(args?.headline ?? "")].filter(Boolean),
-            },
-          ];
+      const normalizeCreativeInput = (creative: Record<string, unknown>): CreativeInput => {
+        const rawTexts = Array.isArray(creative.texts)
+          ? creative.texts
+          : Array.isArray(creative.primary_texts)
+            ? creative.primary_texts
+            : creative.primary_text
+              ? [creative.primary_text]
+              : creative.message
+                ? [creative.message]
+                : [];
+
+        const rawHeadlines = Array.isArray(creative.headlines)
+          ? creative.headlines
+          : Array.isArray(creative.titles)
+            ? creative.titles
+            : creative.headline
+              ? [creative.headline]
+              : creative.title
+                ? [creative.title]
+                : [];
+
+        const linkUrl = String(
+          creative.link_url ?? creative.landing_page_url ?? creative.landing_page ?? "",
+        ).trim();
+
+        return {
+          name: String(creative.name ?? "").trim() || undefined,
+          media_url: String(
+            creative.media_url ?? creative.drive_folder_url ?? creative.drive_folder ?? args?.media_url ?? "",
+          ).trim(),
+          media_type: String(creative.media_type ?? args?.media_type ?? "video").toLowerCase(),
+          texts: rawTexts.map((v) => String(v).trim()).filter(Boolean),
+          headlines: rawHeadlines.map((v) => String(v).trim()).filter(Boolean),
+          ...(linkUrl ? { link_url: linkUrl } : {}),
+        } as CreativeInput;
+      };
+
+      let rawCreatives: CreativeInput[] =
+        Array.isArray(args?.creatives) &&
+        (args.creatives as Record<string, unknown>[]).length > 0
+          ? (args.creatives as Record<string, unknown>[]).map(normalizeCreativeInput)
+          : [
+              normalizeCreativeInput({
+                media_url: String(args?.media_url ?? "").trim(),
+                media_type: String(args?.media_type ?? "video").toLowerCase(),
+                primary_text: String(args?.primary_text ?? ""),
+                headline: String(args?.headline ?? ""),
+              }),
+            ];
 
     // ── Helpers ────────────────────────────────────────────────────────────
     const egpToCents = (v: unknown) => Math.round(Number(v) * 100);
@@ -3470,7 +3503,6 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
             matchingCreative.headlines.length > 0
               ? (matchingCreative.headlines as string[])
               : [""];
-          const firstHeadline = headlines[0]!;
 
           // Per-creative landing page overrides global landing_page_url
           const creativeLinkUrl =
@@ -3494,6 +3526,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           // Create one ad per text variant
           for (let ti = 0; ti < texts.length; ti++) {
             const singleText = texts[ti]!;
+            const singleHeadline = String(headlines[ti] ?? headlines[0] ?? "").trim();
             let creativeId = "";
             let adIdFromSpec = "";
             try {
@@ -3504,7 +3537,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
                 page_id: pageId,
                 link_url: creativeLinkUrl,
                 message: singleText,
-                ...(firstHeadline ? { headline: firstHeadline } : {}),
+                ...(singleHeadline ? { headline: singleHeadline } : {}),
                 call_to_action_type: callToAction || "SHOP_NOW",
               };
               if (isVid) {
