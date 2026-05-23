@@ -3145,21 +3145,43 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           (_, i) => getRequestedFileName(creative, i),
         );
 
+        const hasAnyRequestedFileName = requestedBaseNames.some(Boolean);
+
+        // No filename matching requested:
+        // build the true STANDARD cartesian product:
+        // every folder asset × every text/headline pair.
+        // Asset order is shuffled once, without replacement.
+        if (!hasAnyRequestedFileName) {
+          const shuffledAssets = shuffleAssets(candidateAssets);
+
+          return shuffledAssets.flatMap((asset, assetIndex) => {
+            const isVideo = asset.type === "video";
+
+            return Array.from({ length: count }, (_, textIndex) => ({
+              name: `${creative.name || adsetName} — فيديو ${assetIndex + 1} — نص ${textIndex + 1}`,
+              text: String(texts[textIndex] ?? texts[0] ?? "").trim(),
+              headline: String(headlines[textIndex] ?? headlines[0] ?? "").trim(),
+              link_url: linkUrl,
+              call_to_action_type: String(args?.call_to_action ?? "LEARN_MORE"),
+              asset_selection: {
+                requested_file_name: null,
+                selection_mode: "random_without_replacement_cartesian",
+                selection_reason: "random_no_asset_name",
+              },
+              asset: {
+                type: asset.type,
+                source_file_name: asset.name,
+                ...(isVideo ? { video_url: asset.direct_url } : { image_url: asset.direct_url }),
+              },
+            }));
+          });
+        }
+
         const matchedAssetsByIndex = new Map<number, BlueprintDriveAsset>();
         requestedBaseNames.forEach((requestedFileName, i) => {
           const matchedAsset = findMatchedAsset(requestedFileName);
           if (matchedAsset) matchedAssetsByIndex.set(i, matchedAsset);
         });
-
-        const hasRandomSelection = requestedBaseNames.some(
-          (requestedFileName, i) => !matchedAssetsByIndex.has(i),
-        );
-
-        // If random fallback is used, make sure every asset in the folder is used once
-        // before any asset can repeat.
-        const variantCount = hasRandomSelection
-          ? Math.max(count, candidateAssets.length)
-          : count;
 
         const matchedAssetIds = new Set(
           Array.from(matchedAssetsByIndex.values()).map((asset) => asset.id),
@@ -3178,9 +3200,12 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           return randomPool[randomCursor++]!;
         };
 
-        return Array.from({ length: variantCount }, (_, i) => {
-          const requestedFileName = i < count ? getRequestedFileName(creative, i) : undefined;
-          const matchedAsset = i < count ? matchedAssetsByIndex.get(i) : undefined;
+        // Filename matching path:
+        // one variant per text/headline pair. Missing filenames fall back to
+        // random assets without replacement.
+        return Array.from({ length: count }, (_, i) => {
+          const requestedFileName = getRequestedFileName(creative, i);
+          const matchedAsset = matchedAssetsByIndex.get(i);
           const pickedAsset = matchedAsset ?? nextRandomAsset();
           const isVideo = pickedAsset.type === "video";
           const selectionReason = matchedAsset
@@ -3190,7 +3215,7 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
               : "random_no_asset_name";
 
           return {
-            name: `${creative.name || adsetName} — ${i + 1}`,
+            name: `${creative.name || adsetName} — نص ${i + 1}`,
             text: String(texts[i] ?? texts[0] ?? "").trim(),
             headline: String(headlines[i] ?? headlines[0] ?? "").trim(),
             link_url: linkUrl,
