@@ -1982,26 +1982,33 @@ ${adsetBlocks}
   }
 
 
-  async function sendToChat(cmd: string, type: "TEST" | "SCALE" | "FLEX") {
-    try {
-      sessionStorage.setItem("quick_chat_command", cmd);
-      sessionStorage.removeItem("flex_state");
-    } catch { /* ignore */ }
-    // Save to launch history
-    try {
-      await fetch(`${API}/library/history`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          product_name: form.product.trim() || "منتج",
-          angle_name: `Quick Launch — Blueprint STANDARD`,
-          generated_prompt: cmd,
-        }),
-      });
-    } catch { /* ignore — non-critical */ }
-    navigate("/chat");
+  const [blueprintText, setBlueprintText] = useState<string | null>(null);
+  const [blueprintCopied, setBlueprintCopied] = useState(false);
+
+  function showBlueprint(cmd: string) {
+    setBlueprintText(cmd);
+    setBlueprintCopied(false);
+    fetch(`${API}/library/history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        product_name: form.product.trim() || "منتج",
+        angle_name: "Quick Launch — Blueprint",
+        generated_prompt: cmd,
+      }),
+    }).catch(() => {});
   }
+
+  function copyBlueprint() {
+    if (!blueprintText) return;
+    navigator.clipboard.writeText(blueprintText).then(() => {
+      setBlueprintCopied(true);
+      setTimeout(() => setBlueprintCopied(false), 2000);
+    });
+  }
+
+  function sendToChat(cmd: string, _type?: string) { showBlueprint(cmd); }
 
   const CARDS: { id: QuickCardType; emoji: string; label: string; hint: string; color: string }[] = [
     { id: "STANDARD",          emoji: "📋", label: "حملة Standard",          hint: "ABO أو CBO · فيديوهات × Copy Pairs · لا DCO",     color: "emerald" },
@@ -2379,10 +2386,10 @@ ${adsetBlocks}
             <Button
               size="sm"
               className="gap-1.5 h-9 text-xs shrink-0 bg-primary hover:bg-primary/90"
-              onClick={() => sendToChat(buildStandardCmd(), "SCALE")}
+              onClick={() => showBlueprint(buildStandardCmd())}
             >
               <Send className="h-3.5 w-3.5" />
-              إرسال للمساعد ↗
+              توليد Blueprint 📋
             </Button>
           </div>
         </div>
@@ -2495,9 +2502,9 @@ ${adsetBlocks}
             <div className="flex-1 min-w-0 text-xs text-muted-foreground">
               📋✨ {form.stdAngles.length} Adset(s) · {form.stdAdsetStructure === "ONE_ADSET" ? "Adset واحد" : "Adset لكل فيديو"} · {form.stdIsCBO ? "CBO" : "ABO"}
             </div>
-            <Button size="sm" className="gap-1.5 h-9 text-xs shrink-0 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => sendToChat(buildStandardV2Cmd(), "SCALE")}>
+            <Button size="sm" className="gap-1.5 h-9 text-xs shrink-0 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => showBlueprint(buildStandardV2Cmd())}>
               <Send className="h-3.5 w-3.5" />
-              إرسال للمساعد ↗
+              توليد Blueprint 📋
             </Button>
           </div>
         </div>
@@ -2537,6 +2544,28 @@ ${adsetBlocks}
         />
       )}
 
+
+      {/* ── Blueprint Viewer ── */}
+      {blueprintText && (
+        <div className="rounded-xl border border-border bg-background p-4 space-y-3 animate-in fade-in duration-150">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold">📋 Blueprint</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={copyBlueprint}
+                className="flex items-center gap-1.5 h-8 px-3 text-xs rounded-lg border border-border hover:bg-muted transition-all font-medium">
+                {blueprintCopied ? "✅ تم النسخ!" : "📋 نسخ"}
+              </button>
+              <button type="button" onClick={() => setBlueprintText(null)}
+                className="h-8 w-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-all text-muted-foreground">
+                ✕
+              </button>
+            </div>
+          </div>
+          <pre className="text-xs bg-muted/50 rounded-lg p-3 overflow-auto max-h-96 whitespace-pre-wrap break-words font-mono leading-relaxed" dir="ltr">
+            {blueprintText}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
