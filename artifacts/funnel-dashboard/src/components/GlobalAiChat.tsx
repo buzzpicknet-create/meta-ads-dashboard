@@ -1373,9 +1373,29 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
         credentials: "include",
         body: JSON.stringify({ tool: pendingAction.tool, args: pendingAction.args, isNoOp }),
       });
-      const data = await resp.json() as { success?: boolean; message?: string; error?: string; launchData?: Record<string, unknown> };
+        const data = await resp.json() as {
+          success?: boolean;
+          message?: string;
+          error?: string;
+          launchData?: Record<string, unknown>;
+          blueprint?: Record<string, unknown>;
+        };
       let resultText: string;
       if (resp.ok && data.success && pendingAction.tool === "launch_pipeboard_campaign") {
+          if (data.blueprint) {
+            const adsets = Array.isArray(data.blueprint.adsets)
+              ? data.blueprint.adsets as Array<{ variants?: unknown[] }>
+              : [];
+            const variantsCount = adsets.reduce((sum, adset) => (
+              sum + (Array.isArray(adset.variants) ? adset.variants.length : 0)
+            ), 0);
+
+            resultText =
+              `✅ تم توليد Blueprint JSON فقط — بدون إنشاء Campaign/Adset/Creative/Ad على Meta.\n` +
+              `- Variants: ${variantsCount}\n` +
+              `- استخدم هذا الـ JSON للتنفيذ عبر ChatGPT MCP.\n\n` +
+              `\`\`\`json\n${JSON.stringify(data.blueprint, null, 2)}\n\`\`\``;
+          } else {
         const ld = data.launchData ?? {};
         // Extract text/headline from creatives[] (new format) or top-level (legacy)
         const firstCreative = (Array.isArray(pendingAction.args.creatives) && (pendingAction.args.creatives as Array<Record<string,unknown>>).length > 0)
@@ -1407,7 +1427,8 @@ export function GlobalAiChat({ onRegisterOpenFn, onCampaignSelected }: GlobalAiC
           ad_results: Array.isArray(ld.ad_results) ? (ld.ad_results as import("@/components/PipeboardLaunchCard").AdResult[]) : undefined,
         };
         resultText = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
-      } else {
+          }
+        } else {
         // Always prefer pendingAction.summary for the success label (Arabic, human-readable).
         // data.message from Pipeboard may be raw JSON or English text — only append if clean text.
         const extraMsg = data.message && data.message.trim() && !data.message.trimStart().startsWith("{")

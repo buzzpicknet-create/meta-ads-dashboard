@@ -1154,9 +1154,29 @@ export default function AiChatPage() {
     try {
       const isNoOp = pending.currentValue!=null && pending.proposedValue!=null && pending.currentValue===pending.proposedValue;
       const r = await fetch(`${API}/pipeboard/action`, {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include", body:JSON.stringify({tool:pending.tool,args:pending.args,isNoOp})});
-      const d = await r.json() as {success?:boolean;message?:string;error?:string;launchData?:Record<string,unknown>};
+        const d = await r.json() as {
+          success?: boolean;
+          message?: string;
+          error?: string;
+          launchData?: Record<string, unknown>;
+          blueprint?: Record<string, unknown>;
+        };
       let res: string;
       if (r.ok && d.success && pending.tool === "launch_pipeboard_campaign") {
+          if (d.blueprint) {
+            const adsets = Array.isArray(d.blueprint.adsets)
+              ? d.blueprint.adsets as Array<{ variants?: unknown[] }>
+              : [];
+            const variantsCount = adsets.reduce((sum, adset) => (
+              sum + (Array.isArray(adset.variants) ? adset.variants.length : 0)
+            ), 0);
+
+            res =
+              `✅ تم توليد Blueprint JSON فقط — بدون إنشاء Campaign/Adset/Creative/Ad على Meta.\n` +
+              `- Variants: ${variantsCount}\n` +
+              `- استخدم هذا الـ JSON للتنفيذ عبر ChatGPT MCP.\n\n` +
+              `\`\`\`json\n${JSON.stringify(d.blueprint, null, 2)}\n\`\`\``;
+          } else {
         const ld = d.launchData ?? {};
         // Extract text/headline from creatives[] (new format) or top-level (legacy)
         const firstCreative = (Array.isArray(pending.args.creatives) && (pending.args.creatives as Array<Record<string,unknown>>).length > 0)
@@ -1188,14 +1208,15 @@ export default function AiChatPage() {
           ad_results: Array.isArray(ld.ad_results) ? (ld.ad_results as import("@/components/PipeboardLaunchCard").AdResult[]) : undefined,
         };
         res = `✅ تم إنشاء الحملة بنجاح!\n\`\`\`pipeboard_launch\n${JSON.stringify(cardData)}\n\`\`\``;
-      } else {
+          }
+        } else {
         const extra = d.message&&!d.message.trim().startsWith("{") ? ` — ${d.message.trim()}` : "";
         res = r.ok&&d.success ? `✅ تم بنجاح: ${pending.summary}${extra}` : `❌ فشل التنفيذ: ${d.error||d.message||"خطأ غير محدد — راجع الـ server logs"}`;
       }
       setMsgs(p=>[...p,{role:"assistant",content:res}]);
       const cid=convIdRef.current; if(cid!==null) void saveToDB(cid,pending.summary,res);
       // Auto-continue: send result back to AI so it proceeds to next step
-      if (r.ok && d.success) {
+      if (r.ok && d.success && !d.blueprint) {
         // Update flex state with new IDs
         setFlexState(prev => {
           if (!prev) return prev;
