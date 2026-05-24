@@ -4856,12 +4856,34 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       return compressed.join("\n");
     }
 
+
+    // ── Lazy tool loading — بنبعت بس الـ group اللي محتاجه ──────────────────
+    const lastUserMsg = [...messages].reverse().find(m => m.role === "user")?.content ?? "";
+
+    const hasAction   = /أوقف|فعّل|فعل|عدّل|عدل|غيّر|غير|اسم|انسخ|نسخ|ارفع|pause|enable|rename|duplicate|update.*budget|budget.*update/i.test(lastUserMsg);
+    const hasCreation = /أنشئ|انشئ|ابدأ|ابدا|blueprint|winners|publish|create|upload|كريتف|creative|إعلان جديد|حملة جديدة/i.test(lastUserMsg);
+    const hasResearch = /استراتيج|google ads|جوجل|ابحث|research|ga_/i.test(lastUserMsg);
+
+    const ANALYSIS_TOOLS = ["get_campaigns","get_campaign_daily","get_account_daily","get_adsets","get_campaign_status","get_campaign_budget","get_adset_status","get_ad_status","get_ads_in_adset","search_campaigns","search_adsets","search_ads","scan_account_names","fetch_account_metadata"];
+    const ACTION_TOOLS   = ["pause_campaign","enable_campaign","update_campaign_budget","pause_adset","update_adset_budget","enable_adset","pause_ad","enable_ad","rename_campaign","rename_adset","rename_ad","duplicate_adset","duplicate_campaign","duplicate_ad"];
+    const CREATION_TOOLS = ["create_campaign","create_adset","create_ad_from_post","create_ad_from_existing_post","create_ad_from_creative_spec","upload_video_to_meta","publish_winners_to_destination","launch_pipeboard_campaign","get_ad_creative","get_ad_post_id"];
+    const RESEARCH_TOOLS = ["research_latest_meta_strategies","start_job","ga_get_campaigns","ga_get_campaign_metrics"];
+
+    const activeToolNames = new Set<string>([
+      ...ANALYSIS_TOOLS,
+      ...(hasAction   ? ACTION_TOOLS   : []),
+      ...(hasCreation ? CREATION_TOOLS : []),
+      ...(hasResearch ? RESEARCH_TOOLS : []),
+    ]);
+
+    const selectedTools = TOOLS.filter(t => activeToolNames.has(t.function.name));
+
     // ── Convert TOOLS → Anthropic format ──────────────────────────────────────
-    const anthropicTools = TOOLS.map((t, i) => ({
+    const anthropicTools = selectedTools.map((t, i) => ({
       name: t.function.name,
       description: t.function.description,
       input_schema: t.function.parameters,
-      ...(i === TOOLS.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}),
+      ...(i === selectedTools.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}),
     }));
 
     // ── Build Anthropic messages (system passed separately, not in messages[]) ─
