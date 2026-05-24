@@ -5230,7 +5230,23 @@ router.get("/ai/accounts", async (req: Request, res: Response): Promise<void> =>
       }))
     : [];
 
-  res.json({ accounts: [...metaAccounts, ...googleAccounts] });
+  const allAccounts = [...metaAccounts, ...googleAccounts];
+  const userId = req.session?.userId;
+  const userRole = req.session?.role;
+  if (userRole === "admin" || !userId) {
+    res.json({ accounts: allAccounts });
+    return;
+  }
+  try {
+    const rows = await query<{ account_id: string }>(
+      `SELECT account_id FROM user_account_permissions WHERE user_id = $1`,
+      [userId]
+    );
+    const allowed = new Set(rows.map((r: { account_id: string }) => r.account_id.replace(/^act_/, "")));
+    res.json({ accounts: allAccounts.filter(a => allowed.has(a.id.replace(/^act_/, ""))) });
+  } catch {
+    res.json({ accounts: allAccounts });
+  }
 });
 
 // ── GET /ai/debug-google-ads — formatted Pipeboard campaign data for debugging ─
