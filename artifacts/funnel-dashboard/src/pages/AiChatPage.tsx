@@ -956,8 +956,12 @@ export default function AiChatPage() {
           setAllAccounts(d.accounts);
           // Restore from localStorage, or auto-select if single account
           const stored = localStorage.getItem("chat_selected_accounts");
+          const allowedIds = new Set(d.accounts.map((a: AccountMention) => a.id));
           if (stored) {
-            try { setSelAccIds(new Set(JSON.parse(stored) as string[])); } catch {}
+            try {
+              const parsed = (JSON.parse(stored) as string[]).filter(id => allowedIds.has(id));
+              setSelAccIds(new Set(parsed));
+            } catch {}
           } else if (d.accounts.length === 1) {
             setSelAccIds(new Set([d.accounts[0]!.id]));
           }
