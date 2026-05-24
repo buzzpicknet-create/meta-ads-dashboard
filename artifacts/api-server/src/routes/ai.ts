@@ -45,7 +45,7 @@ const router = Router();
 
 // ── Model constants — change here to switch globally ─────────────────────────
 // CHAT_MODEL: main conversational model (tool-use, streaming, Arabic)
-const CHAT_MODEL = "claude-haiku-4-5-20251001";
+const CHAT_MODEL = "claude-haiku-4-5";
 const SONNET_MODEL = "claude-sonnet-4-6";
 const TOKEN_LIMIT = 150_000; // compress old tool results if context exceeds this
 
@@ -4958,7 +4958,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
     }
 
     // ── Agentic loop — up to 10 tool rounds ───────────────────────────────────
-    for (let round = 0; round < 10; round++) {
+    for (let round = 0; round < 5; round++) {
       // ── Token guard: compress old tool results if context > 150k tokens ─────
       await compressIfOverLimit(apiMessages, systemBlocks, anthropicTools);
 
