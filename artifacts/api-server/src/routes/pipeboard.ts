@@ -3278,6 +3278,16 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
           ? "878997831971062"
           : "108193615487446");
 
+        const pixelIdForBlueprint = String(args?.pixel_id ?? "").trim()
+          || (landingPageUrlForBlueprint.includes("buzzpick.net")
+            ? "1405391498274239"
+            : "1537301040808359");
+
+        const isSalesPurchaseBlueprint = String(campObjective).toUpperCase() === "OUTCOME_SALES";
+        const adsetOptimizationGoalForBlueprint = isSalesPurchaseBlueprint
+          ? "OFFSITE_CONVERSIONS"
+          : optimizationGoal;
+
       const adsetsForBlueprint = await Promise.all(
         rawAdsets.map(async (adset, adsetIndex) => {
           const adsetCreatives = rawCreatives.length === 1
@@ -3290,12 +3300,30 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
 
           return {
             name: adset.name,
-            optimization_goal: optimizationGoal,
+            optimization_goal: adsetOptimizationGoalForBlueprint,
             billing_event: "IMPRESSIONS",
             status: "PAUSED",
             ...(isCboForBlueprint ? {} : { daily_budget: egpToCents(adset.budget ?? 100) }),
-            targeting: { geo_locations: { countries: ["EG"] } },
+            targeting: {
+              geo_locations: { countries: ["EG"] },
+              age_min: 18,
+              age_max: 65,
+              targeting_automation: { advantage_audience: 1 },
+            },
             destination_type: "WEBSITE",
+            is_dynamic_creative: false,
+            ...(isSalesPurchaseBlueprint
+              ? {
+                  promoted_object: {
+                    pixel_id: pixelIdForBlueprint,
+                    custom_event_type: "PURCHASE",
+                  },
+                  attribution_spec: [
+                    { event_type: "CLICK_THROUGH", window_days: 7 },
+                    { event_type: "VIEW_THROUGH", window_days: 1 },
+                  ],
+                }
+              : {}),
             variants: variantsNested.flat(),
           };
         }),
@@ -3307,6 +3335,14 @@ router.post("/pipeboard/action", async (req: Request, res: Response) => {
         platform: "meta_ads",
         account_id: accountIdForBlueprint,
         page_id: pageIdForBlueprint,
+        pixel_id: pixelIdForBlueprint,
+        strict_rules: [
+          "For OUTCOME_SALES purchase campaigns, every adset MUST use optimization_goal=OFFSITE_CONVERSIONS.",
+          "Every purchase adset MUST include promoted_object.pixel_id and promoted_object.custom_event_type=PURCHASE.",
+          "NEVER fallback to LINK_CLICKS, LANDING_PAGE_VIEWS, or TRAFFIC for a Purchase/Sales campaign.",
+          "If OFFSITE_CONVERSIONS fails, stop and report the exact Meta error. Do not create a Link Clicks adset.",
+          "ZERO Dynamic Creative: is_dynamic_creative=false and no asset_feed_spec/DCO.",
+        ],
         campaign: {
           name: campaignNameForBlueprint,
           objective: campObjective,
