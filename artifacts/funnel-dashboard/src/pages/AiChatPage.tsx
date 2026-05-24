@@ -1749,7 +1749,7 @@ export default function AiChatPage() {
               <Paperclip className="h-4.5 w-4.5" />
             </button>
 
-            <button
+            {user?.role === "admin" && <button
               onClick={() => setDeepThink(v => !v)}
               title={deepThink ? "تفكير عميق مفعّل — انقر للإيقاف" : "تفعيل وضع التفكير العميق"}
               className={`h-11 w-11 shrink-0 flex items-center justify-center rounded-xl border transition-all text-base ${
@@ -1759,7 +1759,7 @@ export default function AiChatPage() {
               }`}
             >
               🧠
-            </button>
+            </button>}
 
             <textarea
               ref={inputRef}
