@@ -982,11 +982,13 @@ export default function AiChatPage() {
     const ids = allAccounts.map(a => a.id);
     setSelAccIds(new Set(ids));
     localStorage.setItem("chat_selected_accounts", JSON.stringify(ids));
+    setCampCtx(null);
   }, [allAccounts]);
 
   const clearAllAccounts = useCallback(() => {
     setSelAccIds(new Set());
     localStorage.setItem("chat_selected_accounts", JSON.stringify([]));
+    setCampCtx(null);
   }, []);
 
   // ── Conversation helpers ─────────────────────────────────────────────────────
