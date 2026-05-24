@@ -45,7 +45,8 @@ const router = Router();
 
 // ── Model constants — change here to switch globally ─────────────────────────
 // CHAT_MODEL: main conversational model (tool-use, streaming, Arabic)
-const CHAT_MODEL = "claude-sonnet-4-6";
+const CHAT_MODEL = "claude-haiku-4-5-20251001";
+const SONNET_MODEL = "claude-sonnet-4-6";
 const TOKEN_LIMIT = 150_000; // compress old tool results if context exceeds this
 
 const SYSTEM_PROMPT = `
@@ -4974,7 +4975,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
 
       // Build stream params — spread thinking only when active to avoid type error
       const baseStreamParams = {
-        model: CHAT_MODEL,
+        model: thinkingThisRound ? SONNET_MODEL : CHAT_MODEL,
         system: systemBlocks,
         messages: apiMessages as Parameters<typeof anthropic.messages.create>[0]["messages"],
         tools: anthropicTools as Parameters<typeof anthropic.messages.create>[0]["tools"],
