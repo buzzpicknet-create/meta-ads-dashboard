@@ -1262,7 +1262,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_campaigns",
-      description: "جيب قائمة كل الحملات الإعلانية مع أداءها (إنفاق، طلبات، CPA، CTR، الحالة) لفترة زمنية محددة. استخدم لما تحتاج مقارنة الحملات أو معرفة الأرقام الإجمالية. يمكنك تحديد فترة بالضبط باستخدام since وuntil (YYYY-MM-DD) أو استخدام days للرجوع للخلف من اليوم.",
+      description: "جيب قائمة الحملات مع الأداء (إنفاق، طلبات، CPA، CTR). استخدم days أو since/until.",
       parameters: {
         type: "object",
         properties: {
@@ -1278,7 +1278,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_campaign_daily",
-      description: "جيب الأداء اليومي لحملة معينة يوم بيوم (إنفاق، طلبات، CPA، نسبة النقر، ظهورات، نسبة الجذب). استخدم لما تحتاج تحليل تريند حملة معينة أو مقارنة أيام. يمكنك تحديد since/until لفترة بالضبط.",
+      description: "جيب الأداء اليومي لحملة معينة. مطلوب: campaign_id. اختياري: days أو since/until.",
       parameters: {
         type: "object",
         properties: {
@@ -1295,7 +1295,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_account_daily",
-      description: "جيب الأداء اليومي للحساب كله مجتمعاً يوم بيوم (إنفاق، طلبات، CPA). استخدم لمقارنة أيام أو تحليل اتجاه الأداء العام. يمكنك تحديد since/until لفترة بالضبط أو يوم واحد (since=until=اليوم المطلوب).",
+      description: "جيب الأداء اليومي للحساب كله. اختياري: days أو since/until.",
       parameters: {
         type: "object",
         properties: {
@@ -1311,7 +1311,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_adsets",
-      description: "جيب المجموعات الإعلانية (Ad Sets) لحملة معينة مع أداء كل مجموعة. استخدم لمقارنة الجماهير أو اكتشاف أي مجموعة بتهدر الميزانية.",
+      description: "جيب المجموعات الإعلانية لحملة مع أداء كل مجموعة. مطلوب: campaign_id.",
       parameters: {
         type: "object",
         properties: {
@@ -1326,7 +1326,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_campaign_status",
-      description: "جيب الحالة الحالية لحملة معينة (نشطة/موقوفة) مع الاسم. استخدم قبل اقتراح إيقاف أو تشغيل حملة للتحقق من حالتها الفعلية.",
+      description: "جيب حالة حملة (نشطة/موقوفة). استخدم قبل pause أو enable.",
       parameters: {
         type: "object",
         properties: {
@@ -1340,7 +1340,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_campaign_budget",
-      description: "جيب الميزانية الحالية لحملة معينة (يومية أو إجمالية) بالـ EGP. استخدم قبل اقتراح تعديل الميزانية للتحقق من القيمة الحالية.",
+      description: "جيب الميزانية الحالية لحملة بالـ EGP. استخدم قبل update_campaign_budget.",
       parameters: {
         type: "object",
         properties: {
@@ -1354,7 +1354,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_adset_status",
-      description: "جيب الحالة الحالية ومعلومات الميزانية لمجموعة إعلانية معينة. استخدم قبل اقتراح إيقاف أو تعديل مجموعة إعلانية.",
+      description: "جيب حالة وميزانية مجموعة إعلانية. استخدم قبل pause أو update.",
       parameters: {
         type: "object",
         properties: {
@@ -1368,7 +1368,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_ad_status",
-      description: "جيب الحالة الحالية لإعلان فردي (Ad). استخدم قبل اقتراح إيقاف أو تشغيل إعلان.",
+      description: "جيب حالة إعلان فردي. استخدم قبل pause أو enable.",
       parameters: {
         type: "object",
         properties: {
@@ -1382,7 +1382,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_ads_in_adset",
-      description: "جيب بيانات الفانل لكل إعلان داخل مجموعة إعلانية — يُعيد: Hook Rate% (video_view÷impressions ✅)، CTR%، LPR% (LP Views ÷ Clicks)، CVR% (Purchases ÷ LP Views)، CPA، Purchases، LP Views، Spend، CPM، Impressions، Frequency. ⚠️ Hold Rate فقط غير متوفر (thruplay لا يُرجعه Pipeboard). استخدمها لتشخيص: Media Problem (Hook Rate < 25%)، Funnel Leak (Hook جيد + CTR < 2%)، Landing Page Problem (CTR جيد + LPR < 70%)، Conversion Problem (LPR جيد + CVR < 1.5%). مطلوبة لأي تحليل Ad-level. لو رجعت رسالة 'لم يتم العثور' أعد المحاولة بـ days=30.",
+      description: "جيب بيانات الفانل لكل إعلان (Hook Rate، CTR، LPR، CVR، CPA). لتشخيص: Media/Funnel/LP/Conversion problems.",
       parameters: {
         type: "object",
         properties: {
@@ -1397,7 +1397,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "pause_campaign",
-      description: "اقتراح إيقاف مؤقت لحملة إعلانية. استخدم بعد تشخيص البيانات وإثبات ضعف الأداء فقط. سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      description: "اقتراح إيقاف حملة. يظهر تأكيد قبل التنفيذ.",
       parameters: {
         type: "object",
         properties: {
@@ -1412,7 +1412,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "enable_campaign",
-      description: "اقتراح تشغيل حملة موقوفة. سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      description: "اقتراح تشغيل حملة موقوفة. يظهر تأكيد قبل التنفيذ.",
       parameters: {
         type: "object",
         properties: {
@@ -1427,7 +1427,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "update_campaign_budget",
-      description: "اقتراح تعديل ميزانية حملة يومية أو إجمالية. استخدم بعد تحليل الأداء وتحديد القيمة المناسبة. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح تعديل ميزانية حملة (daily أو lifetime). يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1444,7 +1444,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "pause_adset",
-      description: "اقتراح إيقاف مجموعة إعلانية (Ad Set). استخدم بعد تشخيص أداءها الفعلي. سيظهر طلب تأكيد.",
+      description: "اقتراح إيقاف مجموعة إعلانية. يظهر تأكيد قبل التنفيذ.",
       parameters: {
         type: "object",
         properties: {
@@ -1459,7 +1459,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "update_adset_budget",
-      description: "اقتراح تعديل ميزانية مجموعة إعلانية. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح تعديل ميزانية مجموعة إعلانية. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1475,7 +1475,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "enable_adset",
-      description: "اقتراح تشغيل مجموعة إعلانية موقوفة. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح تشغيل مجموعة موقوفة. يظهر تأكيد قبل التنفيذ.",
       parameters: {
         type: "object",
         properties: {
@@ -1490,7 +1490,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "pause_ad",
-      description: "اقتراح إيقاف إعلان فردي (Ad). استخدم get_ad_status أولاً للتحقق من حالته. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح إيقاف إعلان فردي. استخدم get_ad_status أولاً. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1505,7 +1505,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "enable_ad",
-      description: "اقتراح تشغيل إعلان فردي موقوف. استخدم get_ad_status أولاً للتحقق من حالته. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح تشغيل إعلان موقوف. استخدم get_ad_status أولاً. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1520,7 +1520,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "rename_campaign",
-      description: "اقتراح تغيير اسم حملة إعلانية. سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      description: "اقتراح تغيير اسم حملة. يظهر تأكيد قبل التنفيذ.",
       parameters: {
         type: "object",
         properties: {
@@ -1536,7 +1536,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "rename_adset",
-      description: "اقتراح تغيير اسم مجموعة إعلانية (Ad Set). سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      description: "اقتراح تغيير اسم مجموعة إعلانية. يظهر تأكيد قبل التنفيذ.",
       parameters: {
         type: "object",
         properties: {
@@ -1552,7 +1552,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "rename_ad",
-      description: "اقتراح تغيير اسم إعلان فردي (Ad). سيظهر طلب تأكيد للمستخدم قبل التنفيذ.",
+      description: "اقتراح تغيير اسم إعلان فردي. يظهر تأكيد قبل التنفيذ.",
       parameters: {
         type: "object",
         properties: {
@@ -1568,7 +1568,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "duplicate_adset",
-      description: "اقتراح نسخ مجموعة إعلانية (إنشاء نسخة جديدة بنفس الإعدادات). سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح نسخ مجموعة إعلانية بنفس إعداداتها. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1583,7 +1583,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "search_campaigns",
-      description: "ابحث عن حملة بالاسم — يعرض النتائج حتى لو إنفاق 0 (بخلاف get_campaigns التي تتطلب إنفاق). استخدم بعد create_campaign للتحقق من وجود الحملة، أو للعثور على حملات قديمة أو حملات بـ 0 spend. يعمل على مستوى حساب إعلاني واحد in كل مرة.",
+      description: "ابحث عن حملة بالاسم (يعرض حتى إنفاق 0). استخدم بعد create_campaign للتحقق.",
       parameters: {
         type: "object",
         properties: {
@@ -1598,7 +1598,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "search_adsets",
-      description: "ابحث عن مجموعات إعلانية داخل حملة بالاسم — يعرض النتائج حتى لو إنفاق 0. استخدم بعد create_adset للتحقق الهيكلي بدون Insights، أو للعثور على مجموعة قديمة.",
+      description: "ابحث عن مجموعات إعلانية داخل حملة بالاسم (يعرض حتى إنفاق 0).",
       parameters: {
         type: "object",
         properties: {
@@ -1613,7 +1613,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "search_ads",
-      description: "ابحث عن إعلانات داخل مجموعة إعلانية بالاسم — يعرض النتائج حتى لو إنفاق 0. استخدم قبل create_ad_from_existing_post للحصول على id الإعلان المصدر (Winner)، ثم ضع هذا id in حقل adId in bulk_action. استخدم أيضاً بعد duplicate_ad للتحقق من وجود الإعلان.",
+      description: "ابحث عن إعلانات داخل مجموعة بالاسم. استخدم للحصول على ad_id قبل duplicate أو create_ad_from_existing_post.",
       parameters: {
         type: "object",
         properties: {
@@ -1628,7 +1628,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "scan_account_names",
-      description: "فحص شامل للحساب — يجلب أسماء وIDs كل الحملات والمجموعات والإعلانات بـ 3 API calls فقط (بدون insights). مثالي لمهام التنظيف الجماعي: اكتشاف أسماء تحتوي على رموز غريبة (|، backtick، RTL marks)، إعداد bulk_action للـ rename. يعرض فقط: id, name, effective_status, parent_id.",
+      description: "فحص شامل — يجلب أسماء وIDs كل الحملات والمجموعات والإعلانات بدون insights. للتنظيف الجماعي والـ bulk_action.",
       parameters: {
         type: "object",
         properties: {
@@ -1642,7 +1642,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "create_campaign",
-      description: "اقتراح إنشاء حملة إعلانية جديدة على Meta. بعد الإنشاء يُعيد campaign_id + effective_status مباشرةً من Meta (لا Insights). سيظهر طلب تأكيد للمستخدم قبل الإنشاء. استخدم search_campaigns بعده للتحقق.",
+      description: "اقتراح إنشاء حملة جديدة على Meta. يُعيد campaign_id بعد الإنشاء. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1653,9 +1653,9 @@ const TOOLS = [
             enum: ["OUTCOME_LEADS", "OUTCOME_SALES", "OUTCOME_AWARENESS", "OUTCOME_TRAFFIC", "OUTCOME_ENGAGEMENT", "OUTCOME_APP_PROMOTION"],
             description: "هدف الحملة: OUTCOME_SALES (مبيعات)، OUTCOME_LEADS (عملاء محتملين)، OUTCOME_TRAFFIC (زيارات)، OUTCOME_AWARENESS (وعي)، OUTCOME_ENGAGEMENT (تفاعل)",
           },
-          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — الحد الأدنى 30 EGP/يوم (متطلب Meta). للحملات CBO: الإجمالي = 30 × عدد المجموعات على الأقل." },
+          daily_budget: { type: "number", description: "الميزانية اليومية بـ EGP. الحد الأدنى 30 EGP/يوم." },
           status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة الحملة عند الإنشاء — PAUSED (موقوفة، للمراجعة) أو ACTIVE (نشطة مباشرةً)" },
-          special_ad_categories: { type: "string", description: "فئات الإعلانات الخاصة — اتركها فارغة إذا لم تكن إعلانات عقارية أو ائتمانية أو سياسية. افتراضي: NONE" },
+          special_ad_categories: { type: "string", description: "فئات خاصة (عقارات/ائتمان/سياسة). افتراضي: NONE" },
         },
         required: ["account_id", "name", "objective", "daily_budget"],
       },
@@ -1665,7 +1665,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "create_adset",
-      description: "اقتراح إنشاء مجموعة إعلانية جديدة داخل حملة موجودة. سيظهر طلب تأكيد للمستخدم قبل الإنشاء.",
+      description: "اقتراح إنشاء مجموعة إعلانية داخل حملة. ⚠️ لا ترسل daily_budget إذا كانت الحملة CBO. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1678,7 +1678,7 @@ const TOOLS = [
             description: "هدف التحسين: OFFSITE_CONVERSIONS (تحويلات)، LEAD_GENERATION (ليدز)، LINK_CLICKS (نقرات)، LANDING_PAGE_VIEWS (زيارات الصفحة)",
           },
           billing_event: { type: "string", enum: ["IMPRESSIONS", "LINK_CLICKS"], description: "حدث الفوترة: IMPRESSIONS (دفع لكل 1000 ظهور — الأشيع) أو LINK_CLICKS" },
-          daily_budget: { type: "number", description: "الميزانية اليومية بالـ EGP — للمجموعة إذا كانت الحملة ABO (بدون CBO). ⚠️ إذا كانت الحملة CBO (لها budget على مستوى الحملة) لا تُرسل هذا الحقل — الـ backend يحذفه تلقائياً لمنع Budget Conflict مع Meta." },
+          daily_budget: { type: "number", description: "الميزانية اليومية بـ EGP. ⚠️ لا ترسل إذا كانت الحملة CBO." },
           targeting: {
             type: "object",
             description: "إعدادات الاستهداف — مثال: {geo_locations: {countries: [\"EG\"]}, age_min: 25, age_max: 45, genders: [1,2]}",
@@ -1692,7 +1692,7 @@ const TOOLS = [
           status: { type: "string", enum: ["ACTIVE", "PAUSED"], description: "حالة المجموعة عند الإنشاء" },
           promoted_object: {
             type: "object",
-            description: "كائن التتبع — مطلوب لحملات OUTCOME_SALES. استخدم خريطة الدومين التلقائية: buzzpick.net → pixel_id: '1405391498274239'، dealme-eg.com → pixel_id: '1537301040808359'",
+            description: "كائن التتبع — مطلوب لـ OUTCOME_SALES.",
             properties: {
               pixel_id:         { type: "string", description: "رقم بيكسل Meta" },
               custom_event_type: { type: "string", description: "نوع الحدث: PURCHASE | LEAD | COMPLETE_REGISTRATION" },
@@ -1707,7 +1707,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "duplicate_campaign",
-      description: "اقتراح نسخ حملة إعلانية كاملة (مع مجموعاتها وإعلاناتها). الأسرع لإنشاء نسخة تجريبية أو موسمية. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح نسخ حملة كاملة مع مجموعاتها وإعلاناتها. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1726,7 +1726,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_ad_creative",
-      description: "اجلب محتوى إعلان كامل — primary_text (النص الرئيسي)، headline (العنوان)، video_id أو image_hash، link_url، call_to_action، object_story_id، page_id، instagram_actor_id. استخدم للتحليل أو لاستخراج object_story_id قبل create_ad_from_existing_post.",
+      description: "اجلب محتوى إعلان كامل (نص، عنوان، video_id، object_story_id، page_id). للتحليل أو استخراج object_story_id.",
       parameters: {
         type: "object",
         properties: {
@@ -1740,7 +1740,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "get_ad_post_id",
-      description: "اجلب Post ID (رقم المنشور) لإعلان معين — مطلوب قبل استخدام create_ad_from_post. يُعيد: object_story_id بصيغة {page_id}_{post_id} وcreative_id ومعرّفات الحملة والمجموعة. استخدمه عندما تريد نسخ إعلان Winner إلى CBO جديدة مع الحفاظ على Social Proof (نفس المنشور الأصلي).",
+      description: "اجلب Post ID لإعلان — مطلوب قبل create_ad_from_post للحفاظ على Social Proof.",
       parameters: {
         type: "object",
         properties: {
@@ -1754,7 +1754,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "duplicate_ad",
-      description: "اقتراح نسخ إعلان فردي إلى مجموعة إعلانية أخرى (في نفس الحملة أو حملة مختلفة). الإعلان المنسوخ يستخدم نفس الـ Creative (نفس المنشور الأصلي) — يحافظ على Social Proof (اللايكات والتعليقات). الناتج PAUSED للمراجعة. استخدم للـ Ad Winner Scale: نقل Winner إلى CBO مباشرةً. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح نسخ إعلان إلى مجموعة أخرى مع الحفاظ على Social Proof. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1770,7 +1770,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "create_ad_from_post",
-      description: "اقتراح إنشاء إعلان جديد من منشور Facebook موجود (Post ID) — يحافظ على Social Proof الأصلي (لايكات، تعليقات، مشاركات). استخدم بعد get_ad_post_id لتحديد post_id من إعلان Winner ثم أنشئ منه in مجموعة CBO جديدة. الإعلان الجديد PAUSED للمراجعة. سيظهر طلب تأكيد للمستخدم.",
+      description: "اقتراح إنشاء إعلان من Post ID موجود مع الحفاظ على Social Proof. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1788,7 +1788,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "create_ad_from_existing_post",
-      description: "اقتراح إنشاء إعلان جديد من منشور موجود — يحفظ Social Proof (افتراضي) أو ينشئ Advantage+ Flex creative (flex_mode=true). يقبل object_story_id أو post_id أو ad_id. الإعلان PAUSED للمراجعة. سيظهر طلب تأكيد.",
+      description: "اقتراح إنشاء إعلان من منشور موجود (object_story_id أو post_id أو ad_id). يدعم flex_mode. يظهر تأكيد.",
       parameters: {
         type: "object",
         properties: {
@@ -1796,10 +1796,10 @@ const TOOLS = [
           adset_id:         { type: "string", description: "رقم المجموعة الإعلانية الهدف" },
           object_story_id:  { type: "string", description: "الـ object_story_id الكامل بصيغة {page_id}_{post_id} — يُستخرج من get_ad_creative. إذا أُرسل يُتجاهل post_id وpage_id" },
           post_id:          { type: "string", description: "رقم المنشور — بديل عن object_story_id إذا لم يكن متاحاً مباشرةً" },
-          ad_id:            { type: "string", description: "⭐ الأسهل: رقم الإعلان المصدر (Winner) — الـ backend يجلب object_story_id تلقائياً بدون استدعاء get_ad_creative. استخدم هذا عندما تريد نقل winner بسرعة in bulk_action" },
+          ad_id:            { type: "string", description: "رقم الإعلان المصدر — backend يجلب object_story_id تلقائياً." },
           name:             { type: "string", description: "اسم الإعلان الجديد" },
           page_id:          { type: "string", description: "رقم صفحة Facebook — اختياري إذا أُرسل object_story_id (يُستخرج منه تلقائياً)" },
-          flex_mode:        { type: "boolean", description: "🚀 Single Asset Flex: true = ينشئ Advantage+ creative بـ degrees_of_freedom_spec + standard_enhancements OPT_IN — Meta يولّد تنسيقات Collection/Catalog تلقائياً. يتطلب ad_id. استخدم للـ Scale الكبير." },
+          flex_mode:        { type: "boolean", description: "true = Advantage+ Flex creative. يتطلب ad_id." },
         },
         required: ["account_id", "adset_id", "name"],
       },
@@ -1810,7 +1810,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "create_ad_from_creative_spec",
-      description: "🔧 Fallback: أنشئ إعلاناً من أصول خام (video_id أو image_hash + نص + رابط) بدون Social Proof — استخدم هذا فقط عندما يفشل create_ad_from_existing_post (لا يوجد object_story_id). يستدعي Meta Graph API مباشرةً لإنشاء adcreative ثم ad.",
+      description: "🔧 Fallback: أنشئ إعلان من أصول خام (video_id أو image_hash) بدون Social Proof. استخدم فقط إذا فشل create_ad_from_existing_post.",
       parameters: {
         type: "object",
         properties: {
@@ -1836,14 +1836,14 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "upload_video_to_meta", // DISABLED_BEFORE_LAUNCH
-      description: "أداة يدوية منفصلة لرفع فيديو أو صورة من Google Drive إلى Meta عند الحاجة فقط. لا تستخدمها في مسار Blueprint generation؛ launch_pipeboard_campaign لا يرفع إلى Meta بل يرجع video_url/image_url جاهزة للتنفيذ الخارجي.",
+      description: "رفع فيديو/صورة من Google Drive إلى Meta يدوياً. لا تستخدم في مسار Blueprint.",
       parameters: {
         type: "object",
         properties: {
           drive_folder_url: { type: "string", description: "رابط مجلد Google Drive (يحتوي /folders/) أو رابط ملف Drive مباشر" },
-          filename_hint:    { type: "string", description: "اسم الملف المطلوب (بدون امتداد) — مثال: 'hook1'. الـ backend يبحث بشكل غير حساس للحروف. أتركه فارغاً إذا استخدمت list_only." },
+          filename_hint:    { type: "string", description: "اسم الملف (بدون امتداد). فارغ إذا استخدمت list_only." },
           account_id:       { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXX أو الرقم فقط). غير مطلوب عند list_only=true." },
-          list_only:        { type: "boolean", description: "true = أعد قائمة أسماء جميع الفيديوهات في المجلد بدون رفع. استخدم قبل الرفع لاكتشاف الفيديوهات المتاحة (مثال: 3 فيديوهات × 3 نصوص = 9 إعلانات)." },
+          list_only:        { type: "boolean", description: "true = عرض قائمة الملفات فقط بدون رفع." },
         },
         required: ["drive_folder_url"],
       },
@@ -1854,15 +1854,15 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "publish_winners_to_destination",
-      description: "⭐ الأداة الأكثر قوة لنقل الرابحين: تنفّذ الـ pipeline الكامل تلقائياً — Social Proof أولاً، وإذا فشل Rebuild من raw assets. مع flex_mode=true: ينشئ Advantage+ Flex creative مباشرةً (SINGLE_IMAGE_OR_VIDEO + degrees_of_freedom_spec + standard_enhancements OPT_IN) للـ Scale الكبير.",
+      description: "⭐ نقل Winners تلقائياً: Social Proof أولاً، وإذا فشل Rebuild. يدعم flex_mode للـ Scale الكبير.",
       parameters: {
         type: "object",
         properties: {
           account_id:             { type: "string", description: "رقم حساب الإعلانات (اختياري — يُجلب تلقائياً من الإعلان المصدر)" },
           destination_adset_id:  { type: "string", description: "adset_id المجموعة الهدف in CBO — إلزامي" },
-          source_ad_ids:         { type: "array", items: { type: "string" }, description: "قائمة ad_ids الإعلانات الرابحة — كل إعلان سيُنشر in المجموعة الهدف. مثال: [\"120215671290270519\", \"120215671290270520\"]" },
+          source_ad_ids:         { type: "array", items: { type: "string" }, description: "قائمة ad_ids الإعلانات الرابحة للنشر في المجموعة الهدف." },
           naming_prefix:         { type: "string", description: "بادئة اسم الإعلانات الجديدة (افتراضي: Winner)" },
-          flex_mode:             { type: "boolean", description: "🚀 Single Asset Flex: true = يتجاوز Social Proof ويبني Advantage+ creative بـ degrees_of_freedom_spec + advantage_plus_creative OPT_IN — Meta يولّد Collection/Catalog تلقائياً. الأمثل للـ Scale الكبير وتوليد تنسيقات متعددة من asset واحد." },
+          flex_mode:             { type: "boolean", description: "true = Advantage+ Flex creative للـ Scale الكبير." },
         },
         required: ["destination_adset_id", "source_ad_ids"],
       },
@@ -1873,15 +1873,15 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "launch_pipeboard_campaign",
-      description: "ولّد Blueprint فقط لحملة STANDARD Meta Ads جاهزة للتنفيذ عبر ChatGPT MCP. لا ينشئ Campaign أو AdSet أو Creative أو Ad داخل Replit، ولا يرفع فيديوهات إلى Meta. يدعم Google Drive folder كـ input ويُرجع variants تحتوي video_url/image_url مباشرة. ممنوع DCO أو asset_feed_spec أو creative_features_spec أو instagram_actor_id.",
+      description: "توليد Blueprint فقط لحملة STANDARD جاهزة للتنفيذ عبر ChatGPT MCP. لا ينشئ حملة داخل Replit.",
       parameters: {
         type: "object",
         properties: {
           account_id: { type: "string", description: "رقم حساب الإعلانات (act_XXXXXXXXX)" },
           campaign_name: { type: "string", description: "اسم الحملة" },
           landing_page_url: { type: "string", description: "رابط الصفحة الهبوطية لجميع الإعلانات" },
-          pixel_id: { type: "string", description: "اختياري — يُنشئ OUTCOME_SALES. الـ backend يكتشفه من الدومين تلقائياً: buzzpick→1405391498274239، dealme/dealoop/alsouqalhor→1537301040808359" },
-          page_id: { type: "string", description: "اختياري — الـ backend يكتشفه من الدومين: buzzpick→878997831971062، dealme/dealoop/alsouqalhor→108193615487446. ⛔ لا تُرسل instagram_actor_id" },
+          pixel_id: { type: "string", description: "اختياري — backend يكتشفه من الدومين تلقائياً." },
+          page_id: { type: "string", description: "اختياري — backend يكتشفه من الدومين تلقائياً." },
           call_to_action: { type: "string", description: "زر CTA — LEARN_MORE | SHOP_NOW | SIGN_UP | SUBSCRIBE. افتراضي: LEARN_MORE" },
           adsets: {
             type: "array",
@@ -1898,7 +1898,7 @@ const TOOLS = [
           },
           creatives: {
             type: "array",
-            description: "مصفوفة creative specs لتوليد Blueprint فقط. أنشئ عنصر واحد لكل Adset/Angle يحتوي media_url=Google Drive folder أو direct media URL وtexts[] وheadlines[] وlink_url. الـ backend يحوّل Drive folder إلى variants فيها video_url/image_url مباشرة، ولا ينشئ إعلانات داخل Replit. ممنوع DCO أو asset_feed_spec.",
+            description: "مصفوفة creatives — عنصر لكل Adset/Angle (media_url، texts[]، headlines[]، link_url).",
             items: {
               type: "object",
               properties: {
@@ -1910,8 +1910,8 @@ const TOOLS = [
                 headlines: { type: "array", items: { type: "string" }, description: "العناوين in array. مثال: ['عنوان1', 'عنوان2']" },
                 primary_text: { type: "string", description: "(للتوافق فقط)" },
                 headline: { type: "string", description: "(للتوافق فقط)" },
-                  asset_file_name: { type: "string", description: "اسم ملف فيديو/صورة مطلوب للمطابقة داخل Drive. إذا لم يوجد، يتم اختيار ملف عشوائي بدون تكرار قبل استخدام كل الملفات." },
-                  asset_file_names: { type: "array", items: { type: "string" }, description: "أسماء ملفات متعددة بنفس ترتيب النصوص/العناوين. إذا لم يوجد اسم، يتم اختيار ملف عشوائي بدون تكرار قبل استخدام كل الملفات." },
+                  asset_file_name: { type: "string", description: "اسم الملف داخل Drive. فارغ = اختيار عشوائي." },
+                  asset_file_names: { type: "array", items: { type: "string" }, description: "أسماء ملفات متعددة بنفس ترتيب النصوص/العناوين." },
                   video_file_name: { type: "string", description: "اسم ملف فيديو مطلوب للمطابقة داخل Drive." },
                   video_file_names: { type: "array", items: { type: "string" }, description: "أسماء فيديوهات متعددة بنفس ترتيب النصوص/العناوين." },
                   image_file_name: { type: "string", description: "اسم ملف صورة مطلوب للمطابقة داخل Drive." },
@@ -1920,8 +1920,8 @@ const TOOLS = [
               required: ["media_url", "media_type"],
             },
           },
-          budget_type: { type: "string", enum: ["CBO", "ABO"], description: "نوع الميزانية: CBO = ميزانية على مستوى الحملة (daily_budget على الحملة فقط) | ABO = ميزانية على مستوى كل Adset (budget في كل adset). إلزامي — استخرجه من البلوبرنت." },
-          daily_budget: { type: "number", description: "الميزانية اليومية بـ EGP. للـ CBO: ضع الميزانية الإجمالية هنا (مثال: daily_budget=300) + في كل adset ضع نفس القيمة في budget (مطلوب للتحقق من الحد الأدنى). للـ ABO: لا تضع هنا — ضع budget في كل adset. الحد الأدنى 100 EGP/مجموعة." },
+          budget_type: { type: "string", enum: ["CBO", "ABO"], description: "CBO = ميزانية على الحملة | ABO = ميزانية على كل Adset." },
+          daily_budget: { type: "number", description: "الميزانية اليومية بـ EGP. CBO: هنا فقط. ABO: في كل adset. الحد الأدنى 100 EGP/مجموعة." },
           media_url: { type: "string", description: "(للتوافق) رابط ميديا واحد — استخدم creatives[] بدلاً منه" },
           media_type: { type: "string", enum: ["image", "video"], description: "(للتوافق) نوع الميديا" },
           primary_text: { type: "string", description: "(للتوافق) نص إعلاني" },
@@ -1936,7 +1936,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "fetch_account_metadata",
-      description: "استدعِ هذه الأداة تلقائياً قبل إنشاء أي حملة. تجلب: قائمة البيكسلات المتاحة (مع أسمائها)، صفحات Facebook المرتبطة، وآخر الحملات النشطة — حتى تقترح على المستخدم الإعدادات الصحيحة بذكاء بدل أن تسأله عن كل شيء من الصفر.",
+      description: "اجلب البيكسلات وصفحات Facebook وآخر الحملات. استدعِ تلقائياً قبل إنشاء أي حملة.",
       parameters: {
         type: "object",
         properties: {},
@@ -1949,7 +1949,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "ga_get_campaigns",
-      description: "جيب قائمة كل حملات Google Ads مع حالتها وميزانياتها عبر كل الحسابات المرتبطة. استخدم أولاً للحصول على customer_id وcampaign_id.",
+      description: "جيب حملات Google Ads مع حالتها وميزانياتها. استخدم أولاً للحصول على customer_id.",
       parameters: {
         type: "object",
         properties: {
@@ -1963,7 +1963,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "ga_get_campaign_metrics",
-      description: "جيب أداء حملات Google Ads (Clicks، Impressions، CTR، CPC، Conversions، Cost، ROAS). استخدم لتحليل الأداء ومقارنة الحملات.",
+      description: "جيب أداء حملات Google Ads (Clicks، CTR، CPC، Conversions، Cost).",
       parameters: {
         type: "object",
         properties: {
@@ -1995,7 +1995,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "research_latest_meta_strategies",
-      description: "يبحث عن أحدث استراتيجيات وتحديثات Meta Ads من 3 مصادر متخصصة: Jon Loomer Digital، Social Media Examiner، وأخبار Meta للأعمال عبر Google News. استخدم قبل اقتراح استراتيجية طويلة المدى، أو عند طلب أفضل ممارسات جديدة، أو عند تحليل منافس.",
+      description: "ابحث عن أحدث استراتيجيات Meta Ads. استخدم للأسئلة العامة عن best practices.",
       parameters: {
         type: "object",
         properties: {
@@ -2018,7 +2018,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "start_job",
-      description: "يُنشئ job أسنكروني resumable ويبدأ تنفيذه فوراً — مناسب للعمليات الكبيرة (أكثر من 15 كياناً) أو التي تتطلب rate-limit recovery. الأنواع المدعومة: cleanup_names (مسح وتنظيف أسماء الحساب) | bulk_write (تنفيذ قائمة rename/pause/budget) | scale_budgets (زيادة ميزانيات) | pause_ads (إيقاف إعلانات). بعد start_job استدعِ check_job مباشرةً ثم كرره حتى اكتمال الـ job — لا تطلب من المستخدم المتابعة.",
+      description: "ابدأ مهمة طويلة async. استخدم للعمليات التي تستغرق وقتاً.",
       parameters: {
         type: "object",
         properties: {
