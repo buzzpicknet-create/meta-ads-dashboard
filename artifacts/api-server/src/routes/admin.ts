@@ -253,4 +253,21 @@ router.put("/admin/users/:id/account-permissions", requireAdmin, async (req, res
   }
 });
 
+// GET /api/admin/all-accounts — list ALL ad accounts from DB cache (admin only)
+router.get("/admin/all-accounts", requireAdmin, async (_req, res) => {
+  try {
+    const rows = await query<{ account_id: string; account_name: string }>(
+      `SELECT DISTINCT account_id, account_name FROM meta_overview_cache ORDER BY account_name`
+    );
+    const accounts = rows.map(r => ({
+      id: r.account_id,
+      name: r.account_name ?? r.account_id,
+      type: "meta",
+    }));
+    res.json({ accounts });
+  } catch {
+    res.status(500).json({ error: "فشل جلب الحسابات" });
+  }
+});
+
 export default router;

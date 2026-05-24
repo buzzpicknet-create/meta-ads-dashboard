@@ -337,7 +337,7 @@ function AccountPermissionsPanel({ userId }: { userId: number }) {
   const { data: allAccountsData } = useQuery({
     queryKey: ["ai-accounts-admin"],
     queryFn: async () => {
-      const r = await fetch(`${API}/ai/accounts`, { credentials: "include" });
+      const r = await fetch(`${API}/admin/all-accounts`, { credentials: "include" });
       if (!r.ok) return { accounts: [] as AccountItem[] };
       return r.json() as Promise<{ accounts: AccountItem[] }>;
     },
