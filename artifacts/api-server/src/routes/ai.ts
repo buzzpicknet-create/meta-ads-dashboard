@@ -4826,7 +4826,7 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       systemContent += `\n\n══════════ ACTIVE AD ACCOUNT ══════════\n🏦 الحساب المختار في الواجهة (إلزامي — استخدمه في كل tool call بدون استثناء):\n${accountIds.map(id => `act_${id}`).join(", ")}\n\n⚠️ قواعد صارمة:\n- استخدمه في كل tool call (قراءة وكتابة) بدون استثناء\n- جميع الحملات والمجموعات التي تحللها يجب أن تكون تابعة لهذا الحساب فقط\n- إذا ظهرت حملات من حساب آخر في الـ context، تجاهلها تماماً — لا تحللها ولا تستند إليها\n- لا تسأل المستخدم عن account_id — هو محدد أعلاه\n\n🧠 قاعدة الـ THINKING PHASE:\nعند التفكير العميق (extended thinking)، ابدأ دائماً بتحديد: "الحساب النشط هو ${accountIds.map(id => `act_${id}`).join(", ")} — سأتجاهل أي بيانات من حسابات أخرى في تاريخ المحادثة."\nلا تُضيّع رموز التفكير في تحليل بيانات حسابات غير نشطة.\n══════════════════════════════════════`;
     }
 
-    if (campaignContext) systemContent += `\n\n══════════ CAMPAIGN CONTEXT ══════════\n${campaignContext}`;
+    // campaignContext removed — AI fetches data via tools instead
     if (fileText) systemContent += `\n\n══════════ ATTACHED FILE: ${fileName ?? "file"} ══════════\n${fileText}`;
 
     // ── Blueprint compression ──────────────────────────────────────────────────
