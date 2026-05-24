@@ -4955,8 +4955,8 @@ async function runChatStream(session: ChatSession, res: Response): Promise<void>
       void lastMsg; // already in place at lastMsgIdx+1 (or +2)
     }
 
-    // ── Agentic loop — up to 15 tool rounds ───────────────────────────────────
-    for (let round = 0; round < 15; round++) {
+    // ── Agentic loop — up to 6 tool rounds ───────────────────────────────────
+    for (let round = 0; round < 6; round++) {
       // ── Token guard: compress old tool results if context > 150k tokens ─────
       await compressIfOverLimit(apiMessages, systemBlocks, anthropicTools);
 
