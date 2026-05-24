@@ -731,7 +731,7 @@ function buildCtx(c30: CampData[], c7: CampData[], daily: DailyPt[]): string {
   const fmt = (n:number) => n.toLocaleString("ar-EG", {maximumFractionDigits:0});
   const fmtPct = (n:number) => `${n.toFixed(2)}%`;
   const map7 = new Map(c7.map(c=>[c.id,c]));
-  const base = [...c30].sort((a,b)=>b.spend-a.spend).slice(0,15);
+  const base = [...c30].sort((a,b)=>b.spend-a.spend).slice(0,8);
   const tot30s = c30.reduce((s,c)=>s+c.spend,0);
   const tot30p = c30.reduce((s,c)=>s+c.purchases,0);
   const cpa30  = tot30p>0 ? tot30s/tot30p : 0;
