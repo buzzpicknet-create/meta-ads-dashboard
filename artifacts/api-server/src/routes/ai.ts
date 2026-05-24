@@ -5233,6 +5233,7 @@ router.get("/ai/accounts", async (req: Request, res: Response): Promise<void> =>
   const allAccounts = [...metaAccounts, ...googleAccounts];
   const userId = req.session?.userId;
   const userRole = req.session?.role;
+  console.log("[ai/accounts] userId:", userId, "role:", userRole);
   if (userRole === "admin" || !userId) {
     res.json({ accounts: allAccounts });
     return;
