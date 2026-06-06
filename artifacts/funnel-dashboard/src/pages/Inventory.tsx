@@ -218,10 +218,6 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
           </div>
         </div>
       </div>
-
-      {taskProduct && (
-        <CreateTaskFromInventory product={taskProduct} onClose={() => setTaskProduct(null)} />
-      )}
     </div>
   );
 }
@@ -635,6 +631,10 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
+
+      {taskProduct && (
+        <CreateTaskFromInventory product={taskProduct} onClose={() => setTaskProduct(null)} />
+      )}
     </div>
   );
 }
