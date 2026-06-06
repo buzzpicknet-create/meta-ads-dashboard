@@ -569,6 +569,8 @@ export async function listCampaigns(opts: {
   const insightMap = new Map<string, AggregatedMetrics>();
   for (const row of insights) {
     if (!row.campaign_id) continue;
+    // جيب effective_status من campaign_status لو موجود وإلا ACTIVE افتراضي
+    const campStatus = (row as any).campaign_status ?? "ACTIVE";
     const cur = insightMap.get(row.campaign_id) ?? emptyMetrics();
     addRow(cur, row);
     insightMap.set(row.campaign_id, cur);
@@ -1156,6 +1158,7 @@ export async function getAccountOverview(opts: {
 export interface CpaAlertUnit {
   id: string;
   name: string;
+  effective_status: string;
   cpa: number;
   spend: number;
   purchases: number;
@@ -1187,6 +1190,8 @@ export interface CpaAlertsResult {
 
 const WINNER_CPA_THRESHOLD = 30;
 const WARNING_CPA_THRESHOLD = 40;
+const CPA_TARGET = 50; // الـ CPA المستهدف
+const MIN_SPEND_TO_JUDGE = CPA_TARGET * 2; // 100 EGP — الحد الأدنى للحكم على الحملة
 
 function buildWinnerReasons(c: CpaAlertUnit): string[] {
   const reasons: string[] = [];
@@ -1274,7 +1279,7 @@ export async function getCpaAlerts(opts: {
   ]);
 
   // Aggregate campaign metrics
-  const campMap = new Map<string, { metrics: AggregatedMetrics; name: string; freq: number; impressions: number; reach: number }>();
+  const campMap = new Map<string, { metrics: AggregatedMetrics; name: string; freq: number; impressions: number; reach: number; effective_status: string }>();
   for (const row of campaignRows) {
     if (!row.campaign_id) continue;
     const cur = campMap.get(row.campaign_id) ?? { metrics: emptyMetrics(), name: row.campaign_name ?? row.campaign_id, freq: 0, impressions: 0, reach: 0 };
@@ -1309,13 +1314,14 @@ export async function getCpaAlerts(opts: {
   const warnings: CpaWarning[] = [];
 
   for (const [campId, camp] of campMap.entries()) {
-    if (camp.metrics.spend < 10) continue; // skip negligible spend
+    if (camp.metrics.spend < MIN_SPEND_TO_JUDGE) continue; // لازم تصرف 2× CPA target على الأقل قبل الحكم
     const d = derive(camp.metrics);
     const freq = camp.reach > 0 ? camp.impressions / camp.reach : 0;
 
     const unit: CpaAlertUnit = {
       id: campId,
       name: camp.name,
+      effective_status: camp.effective_status ?? "ACTIVE",
       cpa: d.cpa,
       spend: d.spend,
       purchases: d.purchases,
@@ -1341,7 +1347,7 @@ export async function getCpaAlerts(opts: {
 
     if (d.purchases > 0 && d.cpa < WINNER_CPA_THRESHOLD) {
       winners.push({ ...unit, best_adset: bestAdset, best_ad: bestAd, reasons: buildWinnerReasons(unit) });
-    } else if (d.purchases === 0 || d.cpa > WARNING_CPA_THRESHOLD) {
+    } else if ((d.purchases === 0 && d.spend >= MIN_SPEND_TO_JUDGE) || (d.cpa > WARNING_CPA_THRESHOLD && d.spend >= MIN_SPEND_TO_JUDGE)) {
       warnings.push({ ...unit, worst_adset: worstAdset, worst_ad: worstAd, causes: buildWarningCauses(unit), solutions: buildWarningSolutions(unit) });
     }
   }

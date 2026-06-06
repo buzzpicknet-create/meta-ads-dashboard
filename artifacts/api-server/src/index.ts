@@ -766,7 +766,7 @@ async function startCreativeCacheWarmer() {
 // Deduplication: won't re-notify same campaign+type within 6 hours.
 
 const CPA_CRON_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
-const CPA_DEDUP_HOURS = 6;
+const CPA_DEDUP_HOURS = 24;
 const CPA_RECIPIENT_ROLES = ["admin", "media_buyer"];
 
 const CPA_ROUTE_CACHE_FRESH_MS = 15 * 60 * 1000; // same as route's CPA_FRESH_MS
@@ -820,6 +820,7 @@ async function runCpaAlertCron() {
       for (const w of result.winners) {
         const key = `${w.id}:winner`;
         if (recentSet.has(key)) continue;
+        if (w.effective_status && w.effective_status !== "ACTIVE") continue;
 
         await sendPushForCpaAlert(accountId, CPA_RECIPIENT_ROLES, {
           title: "🚀 حملة جاهزة للتوسع",
@@ -843,6 +844,7 @@ async function runCpaAlertCron() {
       for (const w of result.warnings) {
         const key = `${w.id}:warning`;
         if (recentSet.has(key)) continue;
+        if (w.effective_status && w.effective_status !== "ACTIVE") continue;
 
         const cpaText = w.purchases === 0
           ? `إنفاق ${w.spend.toFixed(0)} ج.م بدون أوردرات`
