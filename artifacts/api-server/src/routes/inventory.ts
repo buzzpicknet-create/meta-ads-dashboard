@@ -158,6 +158,65 @@ router.get("/inventory/no-movement", async (_req: Request, res: Response) => {
   }
 });
 
+
+// GET /api/inventory/sales-rate — معدل البيع اليومي لكل صنف
+router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
+  try {
+    const now = Date.now();
+    const since30 = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const since14 = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const since7  = new Date(now - 7  * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today   = new Date(now).toISOString().slice(0, 10);
+
+    const movRes = await fetch(`${INVENTORY_BASE}/api/movements?limit=10000`);
+    if (!movRes.ok) return res.status(502).json({ error: "فشل جلب الحركات" });
+    const movements: InventoryMovement[] = await movRes.json();
+
+    // فلتر حركات البيع (out) فقط
+    const outMovements = movements.filter(m => m.type === "out");
+
+    // تجميع حسب productId
+    const map = new Map<number, { sold1: number; sold7: number; sold14: number; sold30: number }>();
+
+    for (const m of outMovements) {
+      if (!map.has(m.productId)) {
+        map.set(m.productId, { sold1: 0, sold7: 0, sold14: 0, sold30: 0 });
+      }
+      const entry = map.get(m.productId)!;
+      if (m.date >= since30 && m.date <= today) entry.sold30 += (m as any).quantity ?? 1;
+      if (m.date >= since14 && m.date <= today) entry.sold14 += (m as any).quantity ?? 1;
+      if (m.date >= since7  && m.date <= today) entry.sold7  += (m as any).quantity ?? 1;
+      if (m.date === today)                     entry.sold1  += (m as any).quantity ?? 1;
+    }
+
+    // حسب المعدل اليومي
+    const result: Record<number, {
+      dailyRate1: number;
+      dailyRate7: number;
+      dailyRate14: number;
+      sold7: number;
+      sold14: number;
+      sold30: number;
+    }> = {};
+
+    for (const [productId, data] of map.entries()) {
+      result[productId] = {
+        dailyRate1:  Math.round(data.sold1  * 10) / 10,
+        dailyRate7:  Math.round((data.sold7  / 7)  * 10) / 10,
+        dailyRate14: Math.round((data.sold14 / 14) * 10) / 10,
+        sold7:   data.sold7,
+        sold14:  data.sold14,
+        sold30:  data.sold30,
+      };
+    }
+
+    res.json({ generatedAt: new Date().toISOString(), rates: result });
+  } catch (err) {
+    logger.error({ err }, "inventory/sales-rate failed");
+    res.status(500).json({ error: "فشل حساب معدل البيع" });
+  }
+});
+
 // POST /api/inventory/check-alerts — manual trigger
 router.post("/inventory/check-alerts", async (_req: Request, res: Response) => {
   try {

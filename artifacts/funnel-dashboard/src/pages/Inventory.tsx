@@ -26,6 +26,15 @@ interface Product {
   updatedAt: string;
 }
 
+interface SalesRate {
+  dailyRate1: number;
+  dailyRate7: number;
+  dailyRate14: number;
+  sold7: number;
+  sold14: number;
+  sold30: number;
+}
+
 interface Stats {
   totalProducts: number;
   lowStockCount: number;
@@ -55,6 +64,45 @@ function KpiCard({ label, value, sub, color }: { label: string; value: number | 
       <div className="text-2xl font-bold tabular-nums">{value}</div>
       <div className="text-sm font-medium">{label}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+
+// ── Sales Rate Badge ──────────────────────────────────────────────────────────
+
+function SalesRateBadge({ rate, loading, stock }: { rate: SalesRate | null; loading: boolean; stock: number }) {
+  if (loading) return <span className="text-xs text-muted-foreground animate-pulse">...</span>;
+  if (!rate) {
+    return (
+      <div className="flex flex-col items-center gap-0.5">
+        <span className="text-[10px] text-muted-foreground">🔴 راكد</span>
+        <span className="text-[10px] text-muted-foreground">0/يوم</span>
+      </div>
+    );
+  }
+
+  const r7  = rate.dailyRate7;
+  const r14 = rate.dailyRate14;
+
+  const coverage = r7 > 0 ? Math.round(stock / r7) : null;
+
+  const color = r7 === 0 ? "text-red-400" : r7 < 2 ? "text-amber-400" : "text-emerald-400";
+  const label = r7 === 0 ? "🔴 راكد" : r7 < 2 ? "🟡 بطيء" : "🟢 نشط";
+
+  return (
+    <div className="flex flex-col items-center gap-0.5 min-w-[80px]">
+      <span className="text-[10px] font-medium">{label}</span>
+      <div className="flex gap-1.5 text-[10px]">
+        <span className={`font-mono font-semibold ${color}`}>{r7}/يوم</span>
+        <span className="text-muted-foreground">|</span>
+        <span className="font-mono text-muted-foreground">{r14}/يوم</span>
+      </div>
+      {coverage !== null && (
+        <span className={`text-[10px] ${coverage < 14 ? "text-amber-400" : coverage > 90 ? "text-red-400" : "text-muted-foreground"}`}>
+          تغطية {coverage} يوم
+        </span>
+      )}
     </div>
   );
 }
@@ -243,6 +291,8 @@ export default function InventoryPage() {
 
   // "دون حركة مبيعات" filter data
   const [noMovementIds, setNoMovementIds]     = useState<Set<number> | null>(null);
+  const [salesRates, setSalesRates]           = useState<Record<number, SalesRate> | null>(null);
+  const [loadingRates, setLoadingRates]       = useState(false);
   const [loadingMovement, setLoadingMovement] = useState(false);
   const [movementSince, setMovementSince]     = useState<string | null>(null);
 
@@ -285,6 +335,21 @@ export default function InventoryPage() {
     }
   }, []);
 
+  const fetchSalesRates = useCallback(async () => {
+    if (salesRates) return;
+    setLoadingRates(true);
+    try {
+      const res = await fetch("/api/inventory/sales-rate", { credentials: "include" });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setSalesRates(data.rates);
+    } catch {
+      setSalesRates({});
+    } finally {
+      setLoadingRates(false);
+    }
+  }, [salesRates]);
+
   // Load movement data when filter is activated + auto-select مخزن السوق
   useEffect(() => {
     if (stockFilter === "no_movement") {
@@ -295,7 +360,7 @@ export default function InventoryPage() {
   }, [stockFilter, noMovementIds, fetchNoMovement]);
 
   // Initial load
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchData(); fetchSalesRates(); }, [fetchData, fetchSalesRates]);
 
   // Auto-refresh every 30 minutes
   useEffect(() => {
@@ -556,6 +621,7 @@ export default function InventoryPage() {
                   <th className="text-right px-3 py-3 font-semibold text-muted-foreground">المخزن</th>
                   <th className="text-right px-3 py-3 font-semibold text-muted-foreground">الوحدة</th>
                   <th className="text-center px-4 py-3 font-semibold">الكمية</th>
+                  <th className="text-center px-3 py-3 font-semibold text-muted-foreground">معدل البيع</th>
                 </tr>
               </thead>
               <tbody>
@@ -616,6 +682,9 @@ export default function InventoryPage() {
                       <td className="px-3 py-3 text-muted-foreground text-xs">{p.unit}</td>
                       <td className="px-4 py-3 text-center">
                         <StockBadge stock={p.currentStock} minStock={p.minStock} />
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={p.currentStock} />
                       </td>
                     </tr>
                   ))
