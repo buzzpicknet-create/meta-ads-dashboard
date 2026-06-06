@@ -196,13 +196,32 @@ router.get("/tasks/assignees", async (_req, res) => {
 router.post("/tasks", requireAdmin, async (req, res) => {
   const { title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes } =
     req.body as Partial<Task>;
+  const inventory_product_id = (req.body.inventory_product_id as number) ?? null;
+  const inventory_snapshot = req.body.inventory_snapshot ?? null;
+
   if (!title || !deadline) return res.status(400).json({ error: "title وdeadline مطلوبان" });
 
+  if (inventory_product_id) {
+    const existing = await query<{ id: number; title: string; assigned_to_name: string | null; status: string }>(
+      `SELECT id, title, assigned_to_name, status FROM tasks WHERE inventory_product_id = $1 AND status IN ('pending', 'in_progress') LIMIT 1`,
+      [inventory_product_id]
+    );
+    if (existing.length > 0) {
+      const t = existing[0];
+      return res.status(409).json({
+        error: "duplicate_task",
+        message: "فيه مهمة شغالة على المنتج ده بالفعل",
+        existing: { id: t.id, title: t.title, assigned_to_name: t.assigned_to_name, status: t.status },
+      });
+    }
+  }
+
   const [row] = await query<Task>(`
-    INSERT INTO tasks (title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes, created_by_id, created_by_name)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
+    INSERT INTO tasks (title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes, created_by_id, created_by_name, inventory_product_id, inventory_snapshot)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *
   `, [title, product_name ?? null, assigned_to_id ?? null, assigned_to_name ?? null,
-      deadline, success_metric ?? null, notes ?? null, req.session!.userId, req.session!.username]);
+      deadline, success_metric ?? null, notes ?? null, req.session!.userId, req.session!.username,
+      inventory_product_id, inventory_snapshot ? JSON.stringify(inventory_snapshot) : null]);
 
   const [withMedia] = await attachMedia([row]);
   res.status(201).json(withMedia);
