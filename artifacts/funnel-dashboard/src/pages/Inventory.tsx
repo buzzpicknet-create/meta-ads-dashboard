@@ -1,5 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { RefreshCw, Search, Package, AlertTriangle, CheckCircle, Warehouse, Clock, X, TrendingDown, Bell } from "lucide-react";
+import { RefreshCw, Search, Package, AlertTriangle, CheckCircle, Warehouse, Clock, X, TrendingDown, Bell, Plus, Target, Loader2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -8,8 +9,8 @@ const INVENTORY_BASE = "https://inventory-flow-seomasr.replit.app";
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const LOW_STOCK_THRESHOLD = 10;
 const ALERT_WAREHOUSE = "مخزن السوق";
+const API = "/api";
 
-const API = "";
 
 interface Product {
   id: number;
@@ -71,7 +72,165 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
   return <Badge className="text-xs bg-emerald-600 hover:bg-emerald-600">{stock}</Badge>;
 }
 
+
+// ── Create Task Modal (from Inventory) ───────────────────────────────────────
+
+interface Assignee { id: number; username: string; role: string; }
+
+function nowPlusHours(h: number): string {
+  const d = new Date(Date.now() + h * 3600000);
+  return d.toLocaleString("sv-SE", { timeZone: "Africa/Cairo" }).slice(0, 16).replace(" ", "T");
+}
+
+function CreateTaskFromInventory({ product, onClose }: { product: Product; onClose: () => void }) {
+  const [assignees, setAssignees] = useState<Assignee[]>([]);
+  const [assigneeId, setAssigneeId] = useState<number | "">("");
+  const [taskType, setTaskType] = useState<string[]>([]);
+  const [deadlineStr, setDeadlineStr] = useState(nowPlusHours(24));
+  const [presetHours, setPresetHours] = useState<number | null>(24);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/tasks/assignees`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: Assignee[]) => setAssignees(rows.filter((a: Assignee) => a.role === "media_buyer")))
+      .catch(() => {});
+  }, []);
+
+  const taskTypes = [
+    { key: "campaign", label: "🎯 حملة إعلانية" },
+    { key: "analysis", label: "📊 تحليل المنتج" },
+    { key: "creative", label: "🎨 تحسين الكريتيف" },
+  ];
+
+  const presets = [
+    { h: 24, label: "يوم" },
+    { h: 48, label: "يومان" },
+    { h: 72, label: "٣ أيام" },
+    { h: 168, label: "أسبوع" },
+  ];
+
+  function toggleType(key: string) {
+    setTaskType(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  }
+
+  async function handleSubmit() {
+    if (!assigneeId) { setError("يجب تعيين ميديا باير"); return; }
+    if (!taskType.length) { setError("يجب اختيار نوع المهمة"); return; }
+    setSaving(true);
+    setError(null);
+    const selectedAssignee = assignees.find(a => a.id === assigneeId);
+    const typeLabel = taskType.map(k => taskTypes.find(t => t.key === k)?.label ?? k).join(" + ");
+    const title = `${typeLabel} — ${product.name}`;
+    try {
+      const res = await fetch(`${API}/tasks`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          product_name: product.name,
+          assigned_to_id: assigneeId,
+          assigned_to_name: selectedAssignee?.username ?? null,
+          deadline: new Date(deadlineStr).toISOString(),
+          notes: notes.trim() || `كمية المخزون الحالية: ${product.currentStock} ${product.unit}`,
+          success_metric: null,
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "فشل الإنشاء"); }
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "حدث خطأ");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <div>
+            <h2 className="font-bold text-base flex items-center gap-2">
+              <Target className="h-4 w-4 text-primary" /> إنشاء مهمة
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{product.name}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs text-muted-foreground mb-2">نوع المهمة (اختر واحدة أو أكتر)</label>
+            <div className="flex flex-wrap gap-2">
+              {taskTypes.map(t => (
+                <button key={t.key} type="button" onClick={() => toggleType(t.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${taskType.includes(t.key) ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1.5">تعيين لـ (ميديا باير)</label>
+            <select value={assigneeId} onChange={e => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-primary">
+              <option value="">— اختر ميديا باير —</option>
+              {assignees.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-muted-foreground mb-2">الموعد النهائي</label>
+            <div className="flex gap-1.5 mb-2 flex-wrap">
+              {presets.map(p => (
+                <button key={p.h} type="button"
+                  onClick={() => { setDeadlineStr(nowPlusHours(p.h)); setPresetHours(p.h); }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${presetHours === p.h ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:border-primary/50"}`}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <input type="datetime-local" value={deadlineStr}
+              onChange={e => { setDeadlineStr(e.target.value); setPresetHours(null); }}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary [color-scheme:dark]" />
+          </div>
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1.5">ملاحظات إضافية</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+              placeholder={`كمية المخزون الحالية: ${product.currentStock} ${product.unit}`}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm placeholder-muted-foreground focus:outline-none focus:border-primary resize-none" />
+          </div>
+          {error && (
+            <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {error}
+            </div>
+          )}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm hover:bg-muted transition-colors">
+              إلغاء
+            </button>
+            <button type="button" onClick={handleSubmit} disabled={saving}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+              {saving ? <><Loader2 className="h-4 w-4 animate-spin" />جاري الإنشاء...</> : <><Plus className="h-4 w-4" />إنشاء المهمة</>}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {taskProduct && (
+        <CreateTaskFromInventory product={taskProduct} onClose={() => setTaskProduct(null)} />
+      )}
+    </div>
+  );
+}
+
 export default function InventoryPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [taskProduct, setTaskProduct] = useState<Product | null>(null);
+
   const [products, setProducts]       = useState<Product[]>([]);
   const [stats, setStats]             = useState<Stats | null>(null);
   const [loading, setLoading]         = useState(true);
@@ -443,6 +602,13 @@ export default function InventoryPage() {
                           }
                           <span className={p.currentStock === 0 ? "text-muted-foreground" : ""}>{p.name}</span>
                           {p.isBundle && <Badge variant="outline" className="text-[10px] h-4 px-1">مجموعة</Badge>}
+                          {isAdmin && stockFilter === "no_movement" && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setTaskProduct(p); }}
+                              className="mr-auto flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors">
+                              <Plus className="h-3 w-3" /> مهمة
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-muted-foreground font-mono text-xs">{p.sku || "—"}</td>
