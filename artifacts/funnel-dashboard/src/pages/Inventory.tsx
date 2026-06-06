@@ -116,7 +116,7 @@ export default function InventoryPage() {
   const fetchNoMovement = useCallback(async () => {
     setLoadingMovement(true);
     try {
-      const res = await fetch(`${API}/inventory/no-movement`, { credentials: "include" });
+      const res = await fetch(`/api/inventory/no-movement`, { credentials: "include" });
       if (!res.ok) throw new Error(`${res.status}`);
       const data: { sinceDate: string; activeProductIds: number[] } = await res.json();
       setNoMovementIds(new Set(data.activeProductIds));
