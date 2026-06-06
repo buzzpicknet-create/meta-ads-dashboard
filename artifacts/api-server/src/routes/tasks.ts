@@ -121,6 +121,24 @@ router.get("/tasks", async (req, res) => {
   res.json(withMedia);
 });
 
+
+// ── GET /api/tasks/by-product/:productId ─────────────────────────────────────
+
+router.get("/tasks/by-product/:productId", async (req, res) => {
+  const productId = parseInt(String(req.params.productId), 10);
+  if (isNaN(productId)) return res.status(400).json({ error: "productId غير صحيح" });
+
+  const rows = await query<Task>(`
+    SELECT * FROM tasks
+    WHERE inventory_product_id = $1
+    ORDER BY created_at DESC
+    LIMIT 20
+  `, [productId]);
+
+  const withMedia = await attachMedia(rows.map(t => ({ ...t, opus_score: calcScore(t) })));
+  res.json(withMedia);
+});
+
 // ── GET /api/tasks/stats ──────────────────────────────────────────────────────
 
 router.get("/tasks/stats", async (_req, res) => {

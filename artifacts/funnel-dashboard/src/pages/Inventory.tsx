@@ -26,6 +26,15 @@ interface Product {
   updatedAt: string;
 }
 
+interface ProductTask {
+  id: number;
+  title: string;
+  assigned_to_name: string | null;
+  status: "pending" | "in_progress" | "completed" | "expired";
+  deadline: string;
+  created_at: string;
+}
+
 interface SalesRate {
   dailyRate1: number;
   dailyRate7: number;
@@ -68,6 +77,110 @@ function KpiCard({ label, value, sub, color }: { label: string; value: number | 
   );
 }
 
+
+
+// ── Product Tasks Badge ───────────────────────────────────────────────────────
+
+const TASK_STATUS_LABEL: Record<string, string> = {
+  pending: "معلّقة", in_progress: "جارية", completed: "مكتملة", expired: "منتهية"
+};
+const TASK_STATUS_COLOR: Record<string, string> = {
+  pending: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  completed: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  expired: "bg-red-500/20 text-red-400 border-red-500/30",
+};
+
+function ProductTasksBadge({ product, tasks, isAdmin, onCreateTask, onShowHistory, onFetch }: {
+  product: Product;
+  tasks: ProductTask[] | undefined;
+  isAdmin: boolean;
+  onCreateTask: () => void;
+  onShowHistory: () => void;
+  onFetch: () => void;
+}) {
+  useEffect(() => { if (!tasks) onFetch(); }, []);
+
+  const activeTasks = tasks?.filter(t => t.status === "pending" || t.status === "in_progress") ?? [];
+  const hasActive = activeTasks.length > 0;
+  const latest = tasks?.[0] ?? null;
+
+  if (!tasks) return <span className="text-[10px] text-muted-foreground animate-pulse">...</span>;
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      {hasActive ? (
+        <button onClick={onShowHistory}
+          className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 transition-colors">
+          <span className="text-[10px] font-semibold text-blue-400">
+            🔵 مهمة {TASK_STATUS_LABEL[activeTasks[0].status]}
+          </span>
+          <span className="text-[10px] text-slate-400">{activeTasks[0].assigned_to_name ?? "غير معين"}</span>
+        </button>
+      ) : latest ? (
+        <button onClick={onShowHistory}
+          className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg border border-border hover:bg-muted transition-colors">
+          <span className="text-[10px] text-muted-foreground">آخر مهمة</span>
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${TASK_STATUS_COLOR[latest.status]}`}>
+            {TASK_STATUS_LABEL[latest.status]}
+          </span>
+        </button>
+      ) : null}
+      {isAdmin && !hasActive && (
+        <button onClick={onCreateTask}
+          className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors">
+          <Plus className="h-3 w-3" /> مهمة
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Product Tasks History Modal ───────────────────────────────────────────────
+
+function ProductTasksModal({ product, tasks, onClose }: {
+  product: Product;
+  tasks: ProductTask[];
+  onClose: () => void;
+}) {
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleString("ar-EG", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <div>
+            <h2 className="font-bold text-sm">سجل مهام المنتج</h2>
+            <p className="text-xs text-muted-foreground truncate max-w-xs mt-0.5">{product.name}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="overflow-y-auto flex-1 divide-y divide-border">
+          {tasks.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground text-sm">لا توجد مهام لهذا المنتج</div>
+          ) : tasks.map(t => (
+            <div key={t.id} className="p-3 flex items-start gap-3">
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 mt-0.5 ${TASK_STATUS_COLOR[t.status]}`}>
+                {TASK_STATUS_LABEL[t.status]}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">{t.title}</p>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  {t.assigned_to_name && (
+                    <span className="text-[10px] text-blue-400">{t.assigned_to_name}</span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground">{formatDate(t.created_at)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Sales Rate Badge ──────────────────────────────────────────────────────────
 
@@ -291,6 +404,8 @@ export default function InventoryPage() {
 
   // "دون حركة مبيعات" filter data
   const [noMovementIds, setNoMovementIds]     = useState<Set<number> | null>(null);
+  const [productTasks, setProductTasks]       = useState<Record<number, ProductTask[]>>({});
+  const [taskHistoryProduct, setTaskHistoryProduct] = useState<Product | null>(null);
   const [salesRates, setSalesRates]           = useState<Record<number, SalesRate> | null>(null);
   const [loadingRates, setLoadingRates]       = useState(false);
   const [loadingMovement, setLoadingMovement] = useState(false);
@@ -333,6 +448,15 @@ export default function InventoryPage() {
     } finally {
       setLoadingMovement(false);
     }
+  }, []);
+
+  const fetchProductTasks = useCallback(async (productId: number) => {
+    try {
+      const res = await fetch(`/api/tasks/by-product/${productId}`, { credentials: "include" });
+      if (!res.ok) return;
+      const tasks: ProductTask[] = await res.json();
+      setProductTasks(prev => ({ ...prev, [productId]: tasks }));
+    } catch {}
   }, []);
 
   const fetchSalesRates = useCallback(async () => {
@@ -622,6 +746,7 @@ export default function InventoryPage() {
                   <th className="text-right px-3 py-3 font-semibold text-muted-foreground">الوحدة</th>
                   <th className="text-center px-4 py-3 font-semibold">الكمية</th>
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground">معدل البيع</th>
+                  <th className="text-center px-3 py-3 font-semibold text-muted-foreground">المهام</th>
                 </tr>
               </thead>
               <tbody>
@@ -666,13 +791,7 @@ export default function InventoryPage() {
                           }
                           <span className={p.currentStock === 0 ? "text-muted-foreground" : ""}>{p.name}</span>
                           {p.isBundle && <Badge variant="outline" className="text-[10px] h-4 px-1">مجموعة</Badge>}
-                          {isAdmin && stockFilter === "no_movement" && (
-                            <button
-                              onClick={e => { e.stopPropagation(); setTaskProduct(p); }}
-                              className="mr-auto flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors">
-                              <Plus className="h-3 w-3" /> مهمة
-                            </button>
-                          )}
+
                         </div>
                       </td>
                       <td className="px-3 py-3 text-muted-foreground font-mono text-xs">{p.sku || "—"}</td>
@@ -685,6 +804,16 @@ export default function InventoryPage() {
                       </td>
                       <td className="px-3 py-3 text-center">
                         <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={p.currentStock} />
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <ProductTasksBadge
+                          product={p}
+                          tasks={productTasks[p.id]}
+                          isAdmin={isAdmin}
+                          onFetch={() => fetchProductTasks(p.id)}
+                          onCreateTask={() => setTaskProduct(p)}
+                          onShowHistory={() => setTaskHistoryProduct(p)}
+                        />
                       </td>
                     </tr>
                   ))
@@ -704,7 +833,14 @@ export default function InventoryPage() {
       </div>
 
       {taskProduct && (
-        <CreateTaskFromInventory product={taskProduct} onClose={() => setTaskProduct(null)} />
+        <CreateTaskFromInventory product={taskProduct} onClose={() => { setTaskProduct(null); fetchProductTasks(taskProduct.id); }} />
+      )}
+      {taskHistoryProduct && (
+        <ProductTasksModal
+          product={taskHistoryProduct}
+          tasks={productTasks[taskHistoryProduct.id] ?? []}
+          onClose={() => setTaskHistoryProduct(null)}
+        />
       )}
     </div>
   );
