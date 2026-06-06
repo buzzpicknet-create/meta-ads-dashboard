@@ -446,4 +446,63 @@ router.delete("/tasks/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+
+// ── GET /api/tasks/:id/inventory-result ──────────────────────────────────────
+// بيحسب حركة البيع للصنف بعد إتمام التاسك (3 أو 7 أيام)
+
+router.get("/tasks/:id/inventory-result", async (req, res) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
+
+  const [task] = await query<Task & { inventory_product_id?: number; inventory_snapshot?: any; completed_at?: string }>(`SELECT * FROM tasks WHERE id = $1`, [id]);
+  if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
+  if (!task.inventory_product_id) return res.status(400).json({ error: "التاسك مش مرتبط بصنف في المخزون" });
+  if (!task.completed_at) return res.status(400).json({ error: "التاسك لم يكتمل بعد" });
+
+  const INVENTORY_BASE = "https://inventory-flow-seomasr.replit.app";
+  const completedAt = new Date(task.completed_at).toISOString().slice(0, 10);
+
+  try {
+    // جيب حركات الصنف من تاريخ الإتمام
+    const movRes = await fetch(`${INVENTORY_BASE}/api/movements?productId=${task.inventory_product_id}&limit=1000`);
+    if (!movRes.ok) return res.status(502).json({ error: "فشل جلب حركات المخزون" });
+    const movements: any[] = await movRes.json();
+
+    // حركات البيع (out) بعد إتمام التاسك
+    const after3days  = new Date(new Date(task.completed_at).getTime() + 3  * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const after7days  = new Date(new Date(task.completed_at).getTime() + 7  * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today       = new Date().toISOString().slice(0, 10);
+
+    let sold3days = 0, sold7days = 0;
+    for (const m of movements) {
+      if (m.type !== "out") continue;
+      if (m.date >= completedAt && m.date <= after3days) sold3days += m.quantity;
+      if (m.date >= completedAt && m.date <= after7days) sold7days += m.quantity;
+    }
+
+    // الكمية الحالية
+    const prodRes = await fetch(`${INVENTORY_BASE}/api/products/${task.inventory_product_id}`);
+    const currentStock = prodRes.ok ? (await prodRes.json()).currentStock ?? null : null;
+    const snapshotStock = task.inventory_snapshot?.stock ?? null;
+
+    const result = {
+      productId: task.inventory_product_id,
+      snapshotStock,
+      currentStock,
+      sold3days,
+      sold7days,
+      completedAt: task.completed_at,
+      daysElapsed: Math.floor((Date.now() - new Date(task.completed_at).getTime()) / (24 * 60 * 60 * 1000)),
+      success: sold7days > 0,
+    };
+
+    // احفظ النتيجة في قاعدة البيانات
+    await query(`UPDATE tasks SET inventory_result = $1 WHERE id = $2`, [JSON.stringify(result), id]);
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "فشل حساب النتيجة" });
+  }
+});
+
 export default router;

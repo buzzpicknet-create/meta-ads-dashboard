@@ -137,6 +137,8 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
           deadline: new Date(deadlineStr).toISOString(),
           notes: notes.trim() || `كمية المخزون الحالية: ${product.currentStock} ${product.unit}`,
           success_metric: null,
+          inventory_product_id: product.id,
+          inventory_snapshot: { stock: product.currentStock, unit: product.unit, capturedAt: new Date().toISOString() },
         }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "فشل الإنشاء"); }

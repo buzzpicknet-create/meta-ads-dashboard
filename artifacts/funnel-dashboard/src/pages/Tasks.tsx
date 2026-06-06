@@ -41,6 +41,16 @@ interface Task {
   created_at: string;
   opus_score?: number;
   media: TaskMedia[];
+  inventory_product_id?: number | null;
+  inventory_snapshot?: { stock: number; unit: string; capturedAt: string } | null;
+  inventory_result?: {
+    snapshotStock: number | null;
+    currentStock: number | null;
+    sold3days: number;
+    sold7days: number;
+    daysElapsed: number;
+    success: boolean;
+  } | null;
 }
 
 interface BuyerStat {
@@ -645,6 +655,91 @@ function CompleteConfirmModal({ task, isAdmin, onConfirm, onClose }: {
 
 // ── Task Card ─────────────────────────────────────────────────────────────────
 
+
+// ── Inventory Result Section ──────────────────────────────────────────────────
+
+function InventoryResultSection({ taskId, existingResult }: {
+  taskId: number;
+  existingResult: {
+    snapshotStock: number | null;
+    currentStock: number | null;
+    sold3days: number;
+    sold7days: number;
+    daysElapsed: number;
+    success: boolean;
+  } | null;
+}) {
+  const [result, setResult] = useState(existingResult);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function fetchResult() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BASE}/tasks/${taskId}/inventory-result`, { credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "فشل"); }
+      setResult(await res.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "حدث خطأ");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-700/40">
+        <span className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+          📦 نتيجة المخزون بعد التاسك
+        </span>
+        <button onClick={fetchResult} disabled={loading}
+          className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 disabled:opacity-50">
+          {loading ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+          {result ? "تحديث" : "احسب النتيجة"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="px-3 py-2 text-xs text-red-400">{error}</div>
+      )}
+
+      {!result && !loading && !error && (
+        <div className="px-3 py-3 text-xs text-slate-500">اضغط "احسب النتيجة" لمعرفة تأثير التاسك على المبيعات</div>
+      )}
+
+      {result && (
+        <div className="p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
+              <div className="text-xs text-slate-500 mb-1">كمية قبل التاسك</div>
+              <div className="text-lg font-bold text-slate-300">{result.snapshotStock ?? "—"}</div>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
+              <div className="text-xs text-slate-500 mb-1">كمية الآن</div>
+              <div className="text-lg font-bold text-slate-300">{result.currentStock ?? "—"}</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className={`rounded-lg p-2.5 text-center ${result.sold3days > 0 ? "bg-emerald-900/30 border border-emerald-500/30" : "bg-slate-900/50"}`}>
+              <div className="text-xs text-slate-500 mb-1">مبيعات أول 3 أيام</div>
+              <div className={`text-lg font-bold ${result.sold3days > 0 ? "text-emerald-400" : "text-slate-500"}`}>{result.sold3days} وحدة</div>
+            </div>
+            <div className={`rounded-lg p-2.5 text-center ${result.sold7days > 0 ? "bg-emerald-900/30 border border-emerald-500/30" : "bg-slate-900/50"}`}>
+              <div className="text-xs text-slate-500 mb-1">مبيعات أول 7 أيام</div>
+              <div className={`text-lg font-bold ${result.sold7days > 0 ? "text-emerald-400" : "text-slate-500"}`}>{result.sold7days} وحدة</div>
+            </div>
+          </div>
+          <div className={`rounded-lg px-3 py-2 text-xs font-semibold text-center ${result.success ? "bg-emerald-900/30 text-emerald-400 border border-emerald-500/30" : "bg-red-900/20 text-red-400 border border-red-500/20"}`}>
+            {result.success ? "✅ الصنف تحرك بعد التاسك" : "❌ الصنف لم يتحرك بعد التاسك"}
+          </div>
+          <div className="text-[11px] text-slate-600 text-center">{result.daysElapsed} يوم منذ الإتمام</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Task Detail Modal ──────────────────────────────────────────────────────────
 
 function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit }: {
@@ -854,6 +949,11 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
                 </div>
               )}
             </div>
+
+            {/* ── Inventory Result ─────────────────────────────────────── */}
+            {task.inventory_product_id && task.status === "completed" && (
+              <InventoryResultSection taskId={task.id} existingResult={task.inventory_result ?? null} />
+            )}
 
             {/* ── Notes section ─────────────────────────────────────────────── */}
             <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl overflow-hidden">
