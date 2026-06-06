@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth-middleware.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
+import { sendPushToUser, sendPushToRoles } from "../lib/push.js";
 
 const router = Router();
 const objectStorage = new ObjectStorageService();
@@ -349,6 +350,14 @@ router.patch("/tasks/:id", async (req, res) => {
       WHERE id = $1 RETURNING *
     `, [id]);
     const [withMedia] = await attachMedia([updated]);
+
+    // إشعار للأدمن عند إتمام التاسك
+    sendPushToRoles(["admin"], {
+      title: "✅ مهمة مكتملة",
+      body: `${updated.assigned_to_name ?? "الميديا باير"} أكمل: ${updated.title}`,
+      url: "/tasks",
+    }).catch(() => null);
+
     return res.json({ ...withMedia, opus_score: calcScore(updated) });
   }
 
