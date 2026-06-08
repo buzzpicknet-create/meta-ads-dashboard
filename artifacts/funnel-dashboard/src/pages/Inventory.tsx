@@ -979,7 +979,7 @@ export default function InventoryPage() {
           product={taskHistoryProduct}
           tasks={productTasks[taskHistoryProduct.id] ?? []}
           onClose={() => setTaskHistoryProduct(null)}
-          onOpenTask={t => { setTaskHistoryProduct(null); setOpenTask(t); }}
+          onOpenTask={t => { window.location.href = `/tasks?taskId=${t.id}`; }}
         />
       )}
     </div>
