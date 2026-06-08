@@ -30,9 +30,16 @@ interface ProductTask {
   id: number;
   title: string;
   assigned_to_name: string | null;
+  assigned_to_id: number | null;
   status: "pending" | "in_progress" | "completed" | "expired";
   deadline: string;
   created_at: string;
+  completed_at: string | null;
+  notes: string | null;
+  success_metric: string | null;
+  created_by_name: string | null;
+  checkin_count: number;
+  inventory_snapshot: { stock: number; unit: string } | null;
 }
 
 interface SalesRate {
@@ -138,10 +145,11 @@ function ProductTasksBadge({ product, tasks, isAdmin, onCreateTask, onShowHistor
 
 // ── Product Tasks History Modal ───────────────────────────────────────────────
 
-function ProductTasksModal({ product, tasks, onClose }: {
+function ProductTasksModal({ product, tasks, onClose, onOpenTask }: {
   product: Product;
   tasks: ProductTask[];
   onClose: () => void;
+  onOpenTask: (t: ProductTask) => void;
 }) {
   function formatDate(iso: string) {
     return new Date(iso).toLocaleString("ar-EG", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -161,8 +169,8 @@ function ProductTasksModal({ product, tasks, onClose }: {
           {tasks.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground text-sm">لا توجد مهام لهذا المنتج</div>
           ) : tasks.map(t => (
-            <a key={t.id} href={`/tasks?taskId=${t.id}`}
-              className="p-3 flex items-start gap-3 hover:bg-muted/40 transition-colors cursor-pointer">
+            <button key={t.id} onClick={() => onOpenTask(t)}
+              className="w-full text-right p-3 flex items-start gap-3 hover:bg-muted/40 transition-colors cursor-pointer">
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 mt-0.5 ${TASK_STATUS_COLOR[t.status]}`}>
                 {TASK_STATUS_LABEL[t.status]}
               </span>
@@ -176,7 +184,7 @@ function ProductTasksModal({ product, tasks, onClose }: {
                 </div>
               </div>
               <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">←</span>
-            </a>
+            </button>
           ))}
         </div>
       </div>
@@ -387,6 +395,130 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
   );
 }
 
+
+// ── Task Detail Popup (inline في صفحة المخزون) ───────────────────────────────
+
+const TASK_STATUS_LABEL2: Record<string, string> = {
+  pending: "معلّقة", in_progress: "جارية", completed: "مكتملة", expired: "منتهية"
+};
+const TASK_STATUS_COLOR2: Record<string, string> = {
+  pending: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  completed: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  expired: "bg-red-500/20 text-red-400 border-red-500/30",
+};
+
+function TaskDetailPopup({ task, onClose }: { task: ProductTask; onClose: () => void }) {
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleString("ar-EG", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  const diff = new Date(task.deadline).getTime() - Date.now();
+  const isOverdue = diff <= 0;
+  const hours = Math.floor(Math.abs(diff) / 3600000);
+  const mins = Math.floor((Math.abs(diff) % 3600000) / 60000);
+  const countdownText = task.status === "completed"
+    ? "مكتملة ✓"
+    : isOverdue
+    ? `تأخر ${hours}س ${mins}د`
+    : hours >= 24
+    ? `${Math.floor(hours/24)} يوم متبقي`
+    : `${String(hours).padStart(2,"0")}:${String(mins).padStart(2,"0")} متبقي`;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 p-5 border-b border-border">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${TASK_STATUS_COLOR2[task.status]}`}>
+                {TASK_STATUS_LABEL2[task.status]}
+              </span>
+            </div>
+            <h2 className="font-bold text-sm leading-snug">{task.title}</h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          {/* المسؤول والديدلاين */}
+          <div className="grid grid-cols-2 gap-3">
+            {task.assigned_to_name && (
+              <div className="bg-muted/40 rounded-xl p-3">
+                <p className="text-[11px] text-muted-foreground mb-1">المسؤول</p>
+                <p className="text-sm font-semibold text-blue-400">{task.assigned_to_name}</p>
+              </div>
+            )}
+            <div className="bg-muted/40 rounded-xl p-3">
+              <p className="text-[11px] text-muted-foreground mb-1">الموعد النهائي</p>
+              <p className="text-sm font-semibold">{formatDate(task.deadline)}</p>
+            </div>
+          </div>
+
+          {/* العداد */}
+          <div className={`text-center text-sm font-mono font-semibold py-2 rounded-xl ${
+            task.status === "completed" ? "text-emerald-400 bg-emerald-500/10"
+            : isOverdue ? "text-red-400 bg-red-500/10"
+            : diff < 2 * 3600000 ? "text-orange-400 bg-orange-500/10 animate-pulse"
+            : "text-muted-foreground bg-muted/30"
+          }`}>
+            {countdownText}
+          </div>
+
+          {/* كمية المخزون */}
+          {task.inventory_snapshot && (
+            <div className="bg-muted/40 rounded-xl p-3">
+              <p className="text-[11px] text-muted-foreground mb-1">كمية المخزون عند إنشاء التاسك</p>
+              <p className="text-sm font-semibold">{task.inventory_snapshot.stock} {task.inventory_snapshot.unit}</p>
+            </div>
+          )}
+
+          {/* مقياس النجاح */}
+          {task.success_metric && (
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3">
+              <p className="text-[11px] text-muted-foreground mb-1">مقياس النجاح</p>
+              <p className="text-sm text-purple-300">{task.success_metric}</p>
+            </div>
+          )}
+
+          {/* الملاحظات */}
+          {task.notes && (
+            <div className="bg-muted/40 rounded-xl p-3">
+              <p className="text-[11px] text-muted-foreground mb-1">ملاحظات</p>
+              <p className="text-sm leading-relaxed">{task.notes}</p>
+            </div>
+          )}
+
+          {/* المتابعات */}
+          {task.checkin_count > 0 && (
+            <div className="bg-muted/40 rounded-xl p-3 flex items-center gap-2">
+              <div className="flex gap-1">
+                {Array.from({ length: Math.min(task.checkin_count, 10) }).map((_, i) => (
+                  <div key={i} className="w-2 h-2 rounded-full bg-blue-400/60" />
+                ))}
+              </div>
+              <span className="text-sm text-blue-300">{task.checkin_count} متابعة</span>
+            </div>
+          )}
+
+          {/* أُضيفت بواسطة */}
+          {task.created_by_name && (
+            <p className="text-[11px] text-muted-foreground">أُضيفت بواسطة: <span className="text-foreground">{task.created_by_name}</span> · {formatDate(task.created_at)}</p>
+          )}
+
+          {/* اكتملت */}
+          {task.completed_at && (
+            <p className="text-[11px] text-emerald-400">اكتملت في: {formatDate(task.completed_at)}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function InventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -408,6 +540,7 @@ export default function InventoryPage() {
   const [noMovementIds, setNoMovementIds]     = useState<Set<number> | null>(null);
   const [productTasks, setProductTasks]       = useState<Record<number, ProductTask[]>>({});
   const [taskHistoryProduct, setTaskHistoryProduct] = useState<Product | null>(null);
+  const [openTask, setOpenTask] = useState<ProductTask | null>(null);
   const [salesRates, setSalesRates]           = useState<Record<number, SalesRate> | null>(null);
   const [loadingRates, setLoadingRates]       = useState(false);
   const [loadingMovement, setLoadingMovement] = useState(false);
@@ -837,11 +970,16 @@ export default function InventoryPage() {
       {taskProduct && (
         <CreateTaskFromInventory product={taskProduct} onClose={() => { setTaskProduct(null); fetchProductTasks(taskProduct.id); }} />
       )}
+      {openTask && (
+        <TaskDetailPopup task={openTask} onClose={() => setOpenTask(null)} />
+      )}
+
       {taskHistoryProduct && (
         <ProductTasksModal
           product={taskHistoryProduct}
           tasks={productTasks[taskHistoryProduct.id] ?? []}
           onClose={() => setTaskHistoryProduct(null)}
+          onOpenTask={t => { setTaskHistoryProduct(null); setOpenTask(t); }}
         />
       )}
     </div>
