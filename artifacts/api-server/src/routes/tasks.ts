@@ -143,7 +143,13 @@ router.get("/tasks/by-product/:productId", async (req, res) => {
 // ── GET /api/tasks/stats ──────────────────────────────────────────────────────
 
 router.get("/tasks/stats", async (_req, res) => {
-  const rows = await query<Task>(`SELECT * FROM tasks WHERE assigned_to_id IS NOT NULL`);
+  const rows = await query<Task>(`
+    SELECT t.* FROM tasks t
+    INNER JOIN users u ON u.id = t.assigned_to_id
+    WHERE t.assigned_to_id IS NOT NULL
+      AND u.role = 'media_buyer'
+      AND u.deleted_at IS NULL
+  `);
 
   type BuyerStat = {
     userId: number; name: string; total_tasks: number;

@@ -161,7 +161,8 @@ function ProductTasksModal({ product, tasks, onClose }: {
           {tasks.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground text-sm">لا توجد مهام لهذا المنتج</div>
           ) : tasks.map(t => (
-            <div key={t.id} className="p-3 flex items-start gap-3">
+            <a key={t.id} href={`/tasks`}
+              className="p-3 flex items-start gap-3 hover:bg-muted/40 transition-colors cursor-pointer">
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 mt-0.5 ${TASK_STATUS_COLOR[t.status]}`}>
                 {TASK_STATUS_LABEL[t.status]}
               </span>
@@ -174,7 +175,8 @@ function ProductTasksModal({ product, tasks, onClose }: {
                   <span className="text-[10px] text-muted-foreground">{formatDate(t.created_at)}</span>
                 </div>
               </div>
-            </div>
+              <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">←</span>
+            </a>
           ))}
         </div>
       </div>
