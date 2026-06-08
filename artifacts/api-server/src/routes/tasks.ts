@@ -174,11 +174,23 @@ router.get("/tasks/stats", async (_req, res) => {
     else if (t.status === "expired") s.expired++;
   }
 
-  const stats = Array.from(map.values()).map(s => ({
+  const rawStats = Array.from(map.values()).map(s => ({
     ...s,
     avg_score: s.completed_on_time + s.completed_late > 0
       ? Math.round(s.score / (s.completed_on_time + s.completed_late)) : 0,
   }));
+
+  // أكبر عدد تاسكات مكتملة بين كل الميديا باير
+  const maxCompleted = Math.max(1, ...rawStats.map(s => s.completed_on_time + s.completed_late));
+
+  const stats = rawStats.map(s => {
+    const speedScore    = s.avg_score; // 0-100
+    const totalCompleted = s.completed_on_time + s.completed_late;
+    const volumeScore   = Math.round((totalCompleted / maxCompleted) * 100); // 0-100
+    const finalScore    = Math.round(speedScore * 0.7 + volumeScore * 0.3);
+    return { ...s, avg_score: finalScore, speed_score: speedScore, volume_score: volumeScore };
+  });
+
   stats.sort((a, b) => b.avg_score - a.avg_score);
   res.json(stats);
 });
