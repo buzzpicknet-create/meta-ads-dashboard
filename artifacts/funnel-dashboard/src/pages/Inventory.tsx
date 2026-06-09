@@ -133,7 +133,7 @@ function ProductTasksBadge({ product, tasks, isAdmin, onCreateTask, onShowHistor
           </span>
         </button>
       ) : null}
-      {isAdmin && !hasActive && (
+      {isAdmin && (
         <button onClick={onCreateTask}
           className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors">
           <Plus className="h-3 w-3" /> مهمة
