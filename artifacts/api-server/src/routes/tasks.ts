@@ -220,19 +220,13 @@ router.post("/tasks", requireAdmin, async (req, res) => {
 
   if (!title || !deadline) return res.status(400).json({ error: "title وdeadline مطلوبان" });
 
+  // تحقق من وجود تاسكات شغالة — للمعلومية بس مش للمنع
+  let existingTasks: { id: number; title: string; assigned_to_name: string | null; status: string }[] = [];
   if (inventory_product_id) {
-    const existing = await query<{ id: number; title: string; assigned_to_name: string | null; status: string }>(
-      `SELECT id, title, assigned_to_name, status FROM tasks WHERE inventory_product_id = $1 AND status IN ('pending', 'in_progress') LIMIT 1`,
+    existingTasks = await query<{ id: number; title: string; assigned_to_name: string | null; status: string }>(
+      `SELECT id, title, assigned_to_name, status FROM tasks WHERE inventory_product_id = $1 AND status IN ('pending', 'in_progress')`,
       [inventory_product_id]
     );
-    if (existing.length > 0) {
-      const t = existing[0];
-      return res.status(409).json({
-        error: "duplicate_task",
-        message: "فيه مهمة شغالة على المنتج ده بالفعل",
-        existing: { id: t.id, title: t.title, assigned_to_name: t.assigned_to_name, status: t.status },
-      });
-    }
   }
 
   const [row] = await query<Task>(`

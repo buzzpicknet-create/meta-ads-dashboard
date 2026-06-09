@@ -312,7 +312,7 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
           inventory_snapshot: { stock: product.currentStock, unit: product.unit, capturedAt: new Date().toISOString() },
         }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error ?? "فشل الإنشاء"); }
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message ?? e.error ?? "فشل الإنشاء"); }
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "حدث خطأ");
