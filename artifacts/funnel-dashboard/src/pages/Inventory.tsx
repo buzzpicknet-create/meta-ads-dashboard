@@ -18,12 +18,19 @@ interface Product {
   sku: string;
   unit: string;
   currentStock: number;
+  reservedQty?: number;
+  availableStock?: number;
   minStock: number;
   sellingPrice: number | null;
   costPrice: number | null;
   warehouseLocation: string;
   isBundle: boolean;
   updatedAt: string;
+}
+
+// الكمية المتاحة بعد خصم الحجوزات (الأوردرات المفتوحة وغير المشحونة بعد)
+function available(p: Product): number {
+  return p.availableStock ?? p.currentStock;
 }
 
 interface ProductTask {
@@ -639,8 +646,8 @@ export default function InventoryPage() {
 
     if (warehouse !== "all") list = list.filter(p => p.warehouseLocation === warehouse);
 
-    if (stockFilter === "available")    list = list.filter(p => p.currentStock > 0);
-    else if (stockFilter === "zero")    list = list.filter(p => p.currentStock === 0);
+    if (stockFilter === "available")    list = list.filter(p => available(p) > 0);
+    else if (stockFilter === "zero")    list = list.filter(p => available(p) <= 0);
     else if (stockFilter === "no_movement" && noMovementIds !== null) {
       list = list.filter(p => !noMovementIds.has(p.id));
     }
@@ -654,8 +661,8 @@ export default function InventoryPage() {
     }
 
     list = [...list].sort((a, b) => {
-      if (sort === "stock_asc")  return a.currentStock - b.currentStock;
-      if (sort === "stock_desc") return b.currentStock - a.currentStock;
+      if (sort === "stock_asc")  return available(a) - available(b);
+      if (sort === "stock_desc") return available(b) - available(a);
       if (sort === "name")       return a.name.localeCompare(b.name, "ar");
       if (sort === "updated")    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
       return 0;
@@ -665,12 +672,12 @@ export default function InventoryPage() {
   }, [products, warehouse, stockFilter, search, sort, noMovementIds]);
 
   // KPIs
-  const availableCount = products.filter(p => p.currentStock > 0).length;
-  const zeroCount      = products.filter(p => p.currentStock === 0).length;
-  const totalUnits     = products.reduce((s, p) => s + p.currentStock, 0);
+  const availableCount = products.filter(p => available(p) > 0).length;
+  const zeroCount      = products.filter(p => available(p) <= 0).length;
+  const totalUnits     = products.reduce((s, p) => s + available(p), 0);
   // Low-stock banner only for مخزن السوق
   const lowStockList   = products.filter(
-    p => p.warehouseLocation === ALERT_WAREHOUSE && p.currentStock > 0 && p.currentStock <= LOW_STOCK_THRESHOLD
+    p => p.warehouseLocation === ALERT_WAREHOUSE && available(p) > 0 && available(p) <= LOW_STOCK_THRESHOLD
   );
 
   return (
@@ -908,9 +915,9 @@ export default function InventoryPage() {
                     <tr
                       key={p.id}
                       className={`border-b border-border/50 transition-colors hover:bg-muted/30 ${
-                        p.currentStock === 0
+                        available(p) <= 0
                           ? "bg-red-50/30 dark:bg-red-950/10"
-                          : p.currentStock <= LOW_STOCK_THRESHOLD
+                          : available(p) <= LOW_STOCK_THRESHOLD
                           ? "bg-amber-50/30 dark:bg-amber-950/10"
                           : ""
                       }`}
@@ -918,14 +925,19 @@ export default function InventoryPage() {
                       <td className="px-4 py-3 text-muted-foreground tabular-nums text-xs">{idx + 1}</td>
                       <td className="px-4 py-3 font-medium">
                         <div className="flex items-center gap-2">
-                          {p.currentStock === 0
+                          {available(p) <= 0
                             ? <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
-                            : p.currentStock <= LOW_STOCK_THRESHOLD
+                            : available(p) <= LOW_STOCK_THRESHOLD
                             ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                             : <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                           }
-                          <span className={p.currentStock === 0 ? "text-muted-foreground" : ""}>{p.name}</span>
+                          <span className={available(p) <= 0 ? "text-muted-foreground" : ""}>{p.name}</span>
                           {p.isBundle && <Badge variant="outline" className="text-[10px] h-4 px-1">مجموعة</Badge>}
+                          {(p.reservedQty ?? 0) > 0 && (
+                            <span className="text-[10px] text-amber-500/80 whitespace-nowrap">
+                              (محجوز {p.reservedQty})
+                            </span>
+                          )}
 
                         </div>
                       </td>
@@ -935,10 +947,10 @@ export default function InventoryPage() {
                       </td>
                       <td className="px-3 py-3 text-muted-foreground text-xs">{p.unit}</td>
                       <td className="px-4 py-3 text-center">
-                        <StockBadge stock={p.currentStock} minStock={p.minStock} />
+                        <StockBadge stock={available(p)} minStock={p.minStock} />
                       </td>
                       <td className="px-3 py-3 text-center">
-                        <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={p.currentStock} />
+                        <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={available(p)} />
                       </td>
                       <td className="px-3 py-3 text-center">
                         <ProductTasksBadge
