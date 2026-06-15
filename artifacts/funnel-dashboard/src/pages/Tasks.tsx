@@ -46,6 +46,7 @@ interface Task {
   inventory_result?: {
     snapshotStock: number | null;
     currentStock: number | null;
+    reservedQty?: number;
     sold3days: number;
     sold7days: number;
     daysElapsed: number;
@@ -663,6 +664,7 @@ function InventoryResultSection({ taskId, existingResult }: {
   existingResult: {
     snapshotStock: number | null;
     currentStock: number | null;
+    reservedQty?: number;
     sold3days: number;
     sold7days: number;
     daysElapsed: number;
@@ -716,8 +718,11 @@ function InventoryResultSection({ taskId, existingResult }: {
               <div className="text-lg font-bold text-slate-300">{result.snapshotStock ?? "—"}</div>
             </div>
             <div className="bg-slate-900/50 rounded-lg p-2.5 text-center">
-              <div className="text-xs text-slate-500 mb-1">كمية الآن</div>
-              <div className="text-lg font-bold text-slate-300">{result.currentStock ?? "—"}</div>
+              <div className="text-xs text-slate-500 mb-1">كمية الآن (متاح للإعلانات)</div>
+              <div className={`text-lg font-bold ${(result.currentStock ?? 0) < 0 ? "text-red-400" : "text-slate-300"}`}>{result.currentStock ?? "—"}</div>
+              {(result.reservedQty ?? 0) > 0 && (
+                <div className="text-[10px] text-amber-400/80 mt-0.5">محجوز {result.reservedQty}</div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">

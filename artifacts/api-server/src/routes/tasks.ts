@@ -540,13 +540,17 @@ router.get("/tasks/:id/inventory-result", async (req, res) => {
 
     // الكمية الحالية
     const prodRes = await fetch(`${INVENTORY_BASE}/api/products/${task.inventory_product_id}`);
-    const currentStock = prodRes.ok ? (await prodRes.json()).currentStock ?? null : null;
+    const prodData = prodRes.ok ? await prodRes.json() : null;
+    // الكمية الحالية بعد خصم الحجوزات — نفس الرقم الظاهر للميديا باير في صفحة المخزون
+    const currentStock = prodData?.availableStock ?? prodData?.currentStock ?? null;
+    const reservedQty = prodData?.reservedQty ?? 0;
     const snapshotStock = task.inventory_snapshot?.stock ?? null;
 
     const result = {
       productId: task.inventory_product_id,
       snapshotStock,
       currentStock,
+      reservedQty,
       sold3days,
       sold7days,
       completedAt: task.completed_at,
