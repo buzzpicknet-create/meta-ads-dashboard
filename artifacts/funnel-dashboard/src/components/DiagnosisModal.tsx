@@ -920,12 +920,13 @@ function PerformanceCompareTab({
     return generateAnalysis(effectiveCurrent, effectivePrevious, segScope === "campaign" ? turning : null);
   }, [effectiveCurrent, effectivePrevious, segScope, turning]);
 
-  const prev0 = effectivePrevious ?? { spend: 0, purchases: 0, cpa: 0, ctr: 0, cr: 0, cpm: 0, lpv: 0 };
-  const ec = effectiveCurrent;
+  const ZERO_METRICS = { spend: 0, purchases: 0, cpa: 0, ctr: 0, cr: 0, cpm: 0, lpv: 0 };
+  const prev0 = effectivePrevious ?? ZERO_METRICS;
+  const ec = effectiveCurrent ?? ZERO_METRICS;
   const rows: { label: string; curr: string; prev: string; delta: number | null; lowerBetter: boolean | null }[] = [
     { label: "CPA",        curr: ec.cpa > 0 ? `${Math.round(ec.cpa)} EGP` : "—",       prev: prev0.cpa > 0 ? `${Math.round(prev0.cpa)} EGP` : "—",       delta: ec.cpa > 0 && prev0.cpa > 0 ? (ec.cpa - prev0.cpa) / prev0.cpa * 100 : null, lowerBetter: true  },
-    { label: "CTR",        curr: `${ec.ctr.toFixed(2)}%`,                               prev: `${prev0.ctr.toFixed(2)}%`,                                  delta: prev0.ctr > 0 ? (ec.ctr - prev0.ctr) / prev0.ctr * 100 : null,                   lowerBetter: false },
-    { label: "Conv. Rate", curr: `${ec.cr.toFixed(2)}%`,                                prev: `${prev0.cr.toFixed(2)}%`,                                   delta: prev0.cr > 0 ? (ec.cr - prev0.cr) / prev0.cr * 100 : null,                      lowerBetter: false },
+    { label: "CTR",        curr: `${(ec.ctr ?? 0).toFixed(2)}%`,                               prev: `${(prev0.ctr ?? 0).toFixed(2)}%`,                                  delta: prev0.ctr > 0 ? (ec.ctr - prev0.ctr) / prev0.ctr * 100 : null,                   lowerBetter: false },
+    { label: "Conv. Rate", curr: `${(ec.cr ?? 0).toFixed(2)}%`,                                prev: `${(prev0.cr ?? 0).toFixed(2)}%`,                                   delta: prev0.cr > 0 ? (ec.cr - prev0.cr) / prev0.cr * 100 : null,                      lowerBetter: false },
     { label: "CPM",        curr: `${Math.round(ec.cpm)} EGP`,                           prev: `${Math.round(prev0.cpm)} EGP`,                              delta: prev0.cpm > 0 ? (ec.cpm - prev0.cpm) / prev0.cpm * 100 : null,                  lowerBetter: true  },
     { label: "Purchases",  curr: `${ec.purchases}`,                                     prev: `${prev0.purchases}`,                                        delta: prev0.purchases > 0 ? (ec.purchases - prev0.purchases) / prev0.purchases * 100 : null, lowerBetter: false },
     { label: "Spend",      curr: `${Math.round(ec.spend)} EGP`,                         prev: `${Math.round(prev0.spend)} EGP`,                            delta: prev0.spend > 0 ? (ec.spend - prev0.spend) / prev0.spend * 100 : null,            lowerBetter: null  },
