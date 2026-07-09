@@ -48,3 +48,10 @@ Thumbs.db
 .cache/
 .local/
 backup_final2.zip
+.chatgpt-audits/
+replit-*-audit-*.zip
+replit-*-audit-*.tar.gz
+*.chatgpt-backup*
+.env
+.env.local
+.env.*.local
