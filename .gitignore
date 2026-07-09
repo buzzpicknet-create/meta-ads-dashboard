@@ -57,3 +57,6 @@ replit-*-audit-*.tar.gz
 .env.*.local
 final-push-meta-dashboard*.log
 final-push-meta-dashboard*.sh
+.chatgpt-db-migration/
+*.dump
+*.sql
