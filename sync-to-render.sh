@@ -1,11 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NEW_REMOTE="https://github.com/buzzpicknet-create/meta-ads-dashboard.git"
-
 cd "$(git rev-parse --show-toplevel)"
 
+REPO_URL="https://github.com/buzzpicknet-create/meta-ads-dashboard.git"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "STOP: GITHUB_TOKEN is missing in Replit Secrets"
+  exit 10
+fi
+
+if [ -z "${GITHUB_USER:-}" ]; then
+  echo "STOP: GITHUB_USER is missing in Replit Secrets"
+  exit 11
+fi
+
+ASKPASS="/tmp/replit-github-askpass-$STAMP.sh"
+cat > "$ASKPASS" <<'ASK'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf "%s" "$GITHUB_USER" ;;
+  *Password*) printf "%s" "$GITHUB_TOKEN" ;;
+  *) printf "" ;;
+esac
+ASK
+chmod 700 "$ASKPASS"
+
+cleanup() {
+  rm -f "$ASKPASS"
+}
+trap cleanup EXIT
 
 echo "=== REPLIT -> GITHUB MAIN -> RENDER PRODUCTION ==="
 echo "Stamp: $STAMP"
@@ -13,17 +38,14 @@ echo "Stamp: $STAMP"
 echo "=== CLEAN TEMP FILES ==="
 rm -rf .chatgpt-audits
 rm -f replit-meta-dashboard-audit-*.zip replit-meta-dashboard-audit-*.tar.gz
+rm -f final-push-meta-dashboard*.sh final-push-meta-dashboard*.log
+rm -f final-push-meta-dashboard-auth*.sh final-push-meta-dashboard-auth*.log
 
-echo "=== ENSURE ORIGIN ==="
-git remote remove origin 2>/dev/null || true
-git remote add origin "$NEW_REMOTE"
-
-echo "=== ENSURE MAIN BRANCH ==="
-git branch -M main
-
-echo "=== GIT IDENTITY ==="
+echo "=== SAFE GIT CONFIG ==="
 git config user.name "Replit Sync Bot"
 git config user.email "replit-sync@buzzpick.local"
+git remote set-url origin "$REPO_URL"
+git branch -M main
 
 echo "=== COMMIT CURRENT REPLIT CHANGES IF ANY ==="
 git add -A
@@ -37,28 +59,30 @@ else
   git commit -m "sync: replit update $STAMP"
 fi
 
-echo "=== FETCH GITHUB MAIN ==="
-git fetch origin main --prune || true
+echo "=== FETCH REMOTE MAIN IF EXISTS ==="
+GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0 git fetch origin main --prune || true
 
 if git show-ref --verify --quiet refs/remotes/origin/main; then
   if git merge-base --is-ancestor origin/main HEAD; then
-    echo "Local main already contains GitHub main."
+    echo "Local main already contains remote main."
   else
-    echo "GitHub main has changes not in Replit. Trying safe merge..."
+    echo "Remote main has changes not in Replit. Trying safe merge..."
     if ! git merge --no-edit origin/main; then
       echo ""
-      echo "STOP: Merge conflict happened."
-      echo "Nothing was pushed to production."
+      echo "STOP: Merge conflict happened. Nothing was pushed."
       git merge --abort || true
-      echo "Send this output to ChatGPT."
       exit 20
     fi
   fi
 fi
 
 echo "=== PUSH TO GITHUB MAIN ==="
-git push -u origin main
+GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0 git push -u origin main
+
+echo "=== FINAL STATUS ==="
+git status --short --branch
+git log --oneline -5
 
 echo ""
 echo "DONE: Latest Replit code pushed to GitHub main."
-echo "Render should deploy automatically if connected to this repo/branch."
+echo "Render should deploy automatically if connected to this repo."

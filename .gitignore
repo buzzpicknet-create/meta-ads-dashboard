@@ -55,3 +55,5 @@ replit-*-audit-*.tar.gz
 .env
 .env.local
 .env.*.local
+final-push-meta-dashboard*.log
+final-push-meta-dashboard*.sh
