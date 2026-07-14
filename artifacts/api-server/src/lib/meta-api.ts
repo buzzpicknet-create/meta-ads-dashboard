@@ -349,7 +349,7 @@ function actionVal7dClick(actions: FbActionEntry[] | undefined, type: string): n
   const e = actions.find((a) => a.action_type === type);
   if (!e) return 0;
   if (e["7d_click"] !== undefined) return Number(e["7d_click"]) || 0;
-  return Number(e.value) || 0;
+  return 0; // absent = 0 for 7d_click window (consistent with 1d_click behavior)
 }
 function purchaseCount(row: FbInsightRow): number {
   // Use 7d_click attribution for purchases (matches Meta Ads Manager default)
