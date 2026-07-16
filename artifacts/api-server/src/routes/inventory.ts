@@ -5,7 +5,9 @@ import { sendPushForEvent } from "../lib/push.js";
 
 const router = Router();
 
-const INVENTORY_BASE = "https://inventory-flow-seomasr.replit.app";
+// DEALME_INVENTORY_SOURCE_V1B
+const DEALME_ERP_BASE_URL = String(process.env.DEALME_ERP_BASE_URL || "").replace(/\/+$/, "");
+const DEALME_INVENTORY_API_KEY = String(process.env.DEALME_INVENTORY_API_KEY || "");
 const LOW_STOCK_THRESHOLD = 10;
 const ALERT_DEDUP_HOURS = 24;
 const NO_MOVEMENT_DAYS = 10;
@@ -13,31 +15,85 @@ const ALERT_WAREHOUSE = "مخزن السوق"; // alerts only apply to this ware
 
 interface InventoryProduct {
   id: number;
+  sourceProductId: string;
   name: string;
   sku: string;
+  unit: string;
   currentStock: number;
+  reservedQty: number;
+  availableStock: number;
+  minStock: number;
+  sellingPrice: null;
+  costPrice: null;
   warehouseLocation: string;
+  isBundle: boolean;
+  updatedAt: string;
 }
 
-interface InventoryMovement {
-  id: number;
-  productId: number;
-  type: "in" | "out";
-  date: string; // YYYY-MM-DD
+interface DealmeInventoryItem {
+  productId: string;
+  name: string;
+  sku: string;
+  physicalQty: number;
+  reservedQty: number;
+  availableQty: number;
+  shortageQty: number;
+  updatedAt: string | null;
+}
+
+interface DealmeInventoryResponse {
+  success: boolean;
+  data: DealmeInventoryItem[];
+  pagination?: { total: number; page: number; limit: number; totalPages: number };
+}
+
+function stableNumericProductId(sourceId: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < sourceId.length; i++) {
+    hash ^= sourceId.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) || 1;
+}
+
+async function fetchDealmeInventory(): Promise<InventoryProduct[]> {
+  if (!DEALME_ERP_BASE_URL || !DEALME_INVENTORY_API_KEY) {
+    throw new Error("Dealme inventory integration environment variables are missing");
+  }
+
+  const url = new URL("/api/inventory/media-buying", DEALME_ERP_BASE_URL);
+  url.searchParams.set("page", "1");
+  url.searchParams.set("limit", "500");
+
+  const response = await fetch(url, {
+    headers: { "X-Inventory-Api-Key": DEALME_INVENTORY_API_KEY },
+  });
+  if (!response.ok) {
+    throw new Error("Dealme inventory API failed: " + response.status);
+  }
+
+  const payload = (await response.json()) as DealmeInventoryResponse;
+  return (payload.data || []).map((item) => ({
+    id: stableNumericProductId(item.productId),
+    sourceProductId: item.productId,
+    name: item.name || "",
+    sku: item.sku || "",
+    unit: "قطعة",
+    currentStock: Number(item.physicalQty || 0),
+    reservedQty: Number(item.reservedQty || 0),
+    availableStock: Number(item.availableQty || 0),
+    minStock: LOW_STOCK_THRESHOLD,
+    sellingPrice: null,
+    costPrice: null,
+    warehouseLocation: "مخزون Dealme",
+    isBundle: false,
+    updatedAt: item.updatedAt || new Date().toISOString(),
+  }));
 }
 
 export async function checkInventoryAlerts(): Promise<void> {
   try {
-    const res = await fetch(`${INVENTORY_BASE}/api/products`);
-    if (!res.ok) {
-      logger.warn({ status: res.status }, "Inventory alert check: API failed");
-      return;
-// @ts-ignore
-    }
-    // @ts-ignore
-    const allProducts: InventoryProduct[] = await res.json();
-    // Only monitor the target warehouse
-    const products = allProducts.filter(p => p.warehouseLocation === ALERT_WAREHOUSE);
+    const products = await fetchDealmeInventory();
 
     const stateRows = await query<{
       product_id: number;
@@ -123,98 +179,46 @@ export async function checkInventoryAlerts(): Promise<void> {
   }
 }
 
-// GET /api/inventory/no-movement — product IDs with no OUT movement in last N days
-router.get("/inventory/no-movement", async (_req: Request, res: Response) => {
+// GET /api/inventory/products — Dealme ERP stock feed
+router.get("/inventory/products", async (_req: Request, res: Response) => {
   try {
-    const sinceDate = new Date(
-      Date.now() - NO_MOVEMENT_DAYS * 24 * 60 * 60 * 1000
-    )
-      .toISOString()
-      .slice(0, 10); // YYYY-MM-DD
-
-    // Fetch a large batch of recent movements from the external API
-    const movRes = await fetch(
-      `${INVENTORY_BASE}/api/movements?limit=5000`
-    );
-    if (!movRes.ok) {
-      return res.status(502).json({ error: "Inventory movements API failed" });
-// @ts-ignore
-    }
-    // @ts-ignore
-    const movements: InventoryMovement[] = await movRes.json();
-
-    // Collect product IDs that had ANY movement (in or out) in the last 10 days
-    const activeIds = new Set<number>();
-    for (const m of movements) {
-      if (m.date >= sinceDate) {
-        activeIds.add(m.productId);
-      }
-    }
-
-    res.json({ sinceDate, activeProductIds: Array.from(activeIds) });
+    const products = await fetchDealmeInventory();
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json(products);
   } catch (err) {
-    logger.error({ err }, "inventory/no-movement failed");
-    res.status(500).json({ error: "فشل جلب حركات المخزون" });
+    logger.error({ err }, "inventory/products failed");
+    res.status(502).json({ error: "فشل جلب مخزون Dealme" });
   }
 });
 
-
-// GET /api/inventory/sales-rate — معدل البيع اليومي لكل صنف
-router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
+// GET /api/inventory/products/stats — Dealme stock KPIs
+router.get("/inventory/products/stats", async (_req: Request, res: Response) => {
   try {
-    const now = Date.now();
-    const since30 = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const since14 = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const since7  = new Date(now - 7  * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const today   = new Date(now).toISOString().slice(0, 10);
-
-    const movRes = await fetch(`${INVENTORY_BASE}/api/movements?limit=10000`);
-    if (!movRes.ok) return res.status(502).json({ error: "فشل جلب الحركات" });
-    const movements: InventoryMovement[] = await movRes.json();
-
-    // فلتر حركات البيع (out) فقط
-    const outMovements = movements.filter(m => m.type === "out");
-
-    // تجميع حسب productId
-    const map = new Map<number, { sold1: number; sold7: number; sold14: number; sold30: number }>();
-
-    for (const m of outMovements) {
-      if (!map.has(m.productId)) {
-        map.set(m.productId, { sold1: 0, sold7: 0, sold14: 0, sold30: 0 });
-      }
-      const entry = map.get(m.productId)!;
-      if (m.date >= since30 && m.date <= today) entry.sold30 += (m as any).quantity ?? 1;
-      if (m.date >= since14 && m.date <= today) entry.sold14 += (m as any).quantity ?? 1;
-      if (m.date >= since7  && m.date <= today) entry.sold7  += (m as any).quantity ?? 1;
-      if (m.date === today)                     entry.sold1  += (m as any).quantity ?? 1;
-    }
-
-    // حسب المعدل اليومي
-    const result: Record<number, {
-      dailyRate1: number;
-      dailyRate7: number;
-      dailyRate14: number;
-      sold7: number;
-      sold14: number;
-      sold30: number;
-    }> = {};
-
-    for (const [productId, data] of map.entries()) {
-      result[productId] = {
-        dailyRate1:  Math.round(data.sold1  * 10) / 10,
-        dailyRate7:  Math.round((data.sold7  / 7)  * 10) / 10,
-        dailyRate14: Math.round((data.sold14 / 14) * 10) / 10,
-        sold7:   data.sold7,
-        sold14:  data.sold14,
-        sold30:  data.sold30,
-      };
-    }
-
-    res.json({ generatedAt: new Date().toISOString(), rates: result });
+    const products = await fetchDealmeInventory();
+    res.json({
+      totalProducts: products.length,
+      lowStockCount: products.filter((p) => p.availableStock > 0 && p.availableStock <= LOW_STOCK_THRESHOLD).length,
+      totalMovementsToday: 0,
+      totalSalesToday: 0,
+      totalInToday: 0,
+      totalPhysicalQty: products.reduce((sum, p) => sum + p.currentStock, 0),
+      totalReservedQty: products.reduce((sum, p) => sum + p.reservedQty, 0),
+      totalAvailableQty: products.reduce((sum, p) => sum + p.availableStock, 0),
+      source: "dealme-erp-inventory",
+    });
   } catch (err) {
-    logger.error({ err }, "inventory/sales-rate failed");
-    res.status(500).json({ error: "فشل حساب معدل البيع" });
+    logger.error({ err }, "inventory/products/stats failed");
+    res.status(502).json({ error: "فشل جلب إحصائيات مخزون Dealme" });
   }
+});
+
+// Old movement analytics are disabled to avoid mixing InventoryFlow history with Dealme stock.
+router.get("/inventory/no-movement", async (_req: Request, res: Response) => {
+  res.json({ sinceDate: null, activeProductIds: [], available: false });
+});
+
+router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
+  res.json({ generatedAt: new Date().toISOString(), rates: {}, available: false });
 });
 
 // POST /api/inventory/check-alerts — manual trigger

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
-const INVENTORY_BASE = "https://inventory-flow-seomasr.replit.app";
+// DEALME_INVENTORY_SOURCE_V1B
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const LOW_STOCK_THRESHOLD = 10;
 const ALERT_WAREHOUSE = "مخزن السوق";
@@ -64,6 +64,9 @@ interface Stats {
   totalMovementsToday: number;
   totalSalesToday: number;
   totalInToday: number;
+  totalPhysicalQty?: number;
+  totalReservedQty?: number;
+  totalAvailableQty?: number;
 }
 
 type StockFilter = "all" | "available" | "zero" | "no_movement";
@@ -560,8 +563,8 @@ export default function InventoryPage() {
     setError(null);
     try {
       const [prodRes, statsRes] = await Promise.all([
-        fetch(`${INVENTORY_BASE}/api/products`),
-        fetch(`${INVENTORY_BASE}/api/products/stats`),
+        fetch("/api/inventory/products", { credentials: "include" }),
+        fetch("/api/inventory/products/stats", { credentials: "include" }),
       ]);
       if (!prodRes.ok)  throw new Error(`Products API: ${prodRes.status}`);
       if (!statsRes.ok) throw new Error(`Stats API: ${statsRes.status}`);
@@ -974,7 +977,7 @@ export default function InventoryPage() {
         {lastUpdated && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground pb-4">
             <Clock className="h-3.5 w-3.5" />
-            <span>البيانات من نظام InventoryFlow — تتحدث تلقائياً كل 30 دقيقة · تنبيهات المخزون تُرسل كل 30 دقيقة</span>
+            <span>البيانات من مخزون Dealme ERP — الكمية المتاحة بعد خصم المحجوز · تتحدث تلقائياً كل 30 دقيقة</span>
           </div>
         )}
       </div>
