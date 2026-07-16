@@ -126,8 +126,21 @@ router.get("/tasks", async (req, res) => {
 // ── GET /api/tasks/by-product/:productId ─────────────────────────────────────
 
 router.get("/tasks/by-product/:productId", async (req, res) => {
-  const productId = parseInt(String(req.params.productId), 10);
-  if (isNaN(productId)) return res.status(400).json({ error: "productId غير صحيح" });
+  const productId = Number(String(req.params.productId));
+
+  // META_INVENTORY_TASKS_STABILITY_V1
+  // inventory_product_id is PostgreSQL INTEGER, so never send an unsigned
+  // 32-bit hash to the database.
+  if (
+    !Number.isSafeInteger(productId)
+    || productId < 1
+    || productId > 2147483647
+  ) {
+    return res.status(400).json({
+      error: "productId خارج النطاق المسموح",
+      tasks: [],
+    });
+  }
 
   const rows = await query<Task>(`
     SELECT * FROM tasks

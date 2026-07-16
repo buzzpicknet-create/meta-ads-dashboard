@@ -67,13 +67,16 @@ interface DealmeSalesRateResponse {
   generatedAt: string;
 }
 
+// META_INVENTORY_TASKS_STABILITY_V1
+// Task and inventory-state tables use PostgreSQL INTEGER (signed 32-bit).
+// Mask the FNV hash to 31 bits so generated Dealme IDs never overflow.
 function stableNumericProductId(sourceId: string): number {
   let hash = 2166136261;
   for (let i = 0; i < sourceId.length; i++) {
     hash ^= sourceId.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0) || 1;
+  return ((hash >>> 0) & 0x7fffffff) || 1;
 }
 
 // DEALME_SALES_RATE_SOURCE_V1

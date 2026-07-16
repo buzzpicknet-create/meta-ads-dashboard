@@ -255,6 +255,7 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
 
 
 // ── Create Task Modal (from Inventory) ───────────────────────────────────────
+// META_INVENTORY_TASKS_STABILITY_V1
 
 interface Assignee { id: number; username: string; role: string; }
 
@@ -266,6 +267,8 @@ function nowPlusHours(h: number): string {
 function CreateTaskFromInventory({ product, onClose }: { product: Product; onClose: () => void }) {
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [assigneeId, setAssigneeId] = useState<number | "">("");
+  const [assigneesLoading, setAssigneesLoading] = useState(true);
+  const [assigneesError, setAssigneesError] = useState<string | null>(null);
   const [taskType, setTaskType] = useState<string[]>([]);
   const [deadlineStr, setDeadlineStr] = useState(nowPlusHours(24));
   const [presetHours, setPresetHours] = useState<number | null>(24);
@@ -274,10 +277,56 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API}/tasks/assignees`, { credentials: "include" })
-      .then(r => r.ok ? r.json() : [])
-      .then((rows: Assignee[]) => setAssignees(rows.filter((a: Assignee) => a.role === "media_buyer")))
-      .catch(() => {});
+    let cancelled = false;
+
+    async function loadAssignees() {
+      setAssigneesLoading(true);
+      setAssigneesError(null);
+
+      try {
+        const response = await fetch(`${API}/tasks/assignees`, {
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          throw new Error(`تعذر تحميل المستخدمين (${response.status})`);
+        }
+
+        const payload = await response.json();
+        const rows: Assignee[] = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+
+        const mediaBuyers = rows.filter(
+          (assignee) => assignee.role === "media_buyer",
+        );
+
+        if (!cancelled) {
+          setAssignees(mediaBuyers);
+          if (mediaBuyers.length === 0) {
+            setAssigneesError("لا يوجد ميديا باير نشط");
+          }
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setAssignees([]);
+          setAssigneesError(
+            loadError instanceof Error
+              ? loadError.message
+              : "تعذر تحميل قائمة الميديا باير",
+          );
+        }
+      } finally {
+        if (!cancelled) setAssigneesLoading(false);
+      }
+    }
+
+    loadAssignees();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const taskTypes = [
@@ -357,11 +406,26 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
           </div>
           <div>
             <label className="block text-xs text-muted-foreground mb-1.5">تعيين لـ (ميديا باير)</label>
-            <select value={assigneeId} onChange={e => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-primary">
-              <option value="">— اختر ميديا باير —</option>
+            <select
+              value={assigneeId}
+              onChange={e => setAssigneeId(e.target.value ? Number(e.target.value) : "")}
+              disabled={assigneesLoading || assignees.length === 0}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-primary disabled:opacity-60"
+            >
+              <option value="">
+                {assigneesLoading
+                  ? "جاري تحميل الميديا باير..."
+                  : assignees.length === 0
+                    ? "لا يوجد ميديا باير متاح"
+                    : "— اختر ميديا باير —"}
+              </option>
               {assignees.map(a => <option key={a.id} value={a.id}>{a.username}</option>)}
             </select>
+            {assigneesError && (
+              <p className="mt-1.5 text-xs text-destructive">
+                {assigneesError}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-xs text-muted-foreground mb-2">الموعد النهائي</label>
