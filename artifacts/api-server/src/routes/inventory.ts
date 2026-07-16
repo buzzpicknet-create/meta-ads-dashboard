@@ -47,6 +47,26 @@ interface DealmeInventoryResponse {
   pagination?: { total: number; page: number; limit: number; totalPages: number };
 }
 
+interface DealmeSalesRateItem {
+  productId: string;
+  name: string;
+  sku: string;
+  sold7: number;
+  sold14: number;
+  sold30: number;
+  dailyRate7: number;
+  dailyRate14: number;
+  dailyRate30: number;
+  lastSaleAt: string | null;
+}
+
+interface DealmeSalesRateResponse {
+  success: boolean;
+  data: DealmeSalesRateItem[];
+  windowDays: number;
+  generatedAt: string;
+}
+
 function stableNumericProductId(sourceId: string): number {
   let hash = 2166136261;
   for (let i = 0; i < sourceId.length; i++) {
@@ -54,6 +74,24 @@ function stableNumericProductId(sourceId: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0) || 1;
+}
+
+// DEALME_SALES_RATE_SOURCE_V1
+async function fetchDealmeSalesRates(): Promise<DealmeSalesRateResponse> {
+  if (!DEALME_ERP_BASE_URL || !DEALME_INVENTORY_API_KEY) {
+    throw new Error("Dealme inventory integration environment variables are missing");
+  }
+
+  const url = new URL("/api/inventory/media-buying-sales-rate", DEALME_ERP_BASE_URL);
+  const response = await fetch(url, {
+    headers: { "X-Inventory-Api-Key": DEALME_INVENTORY_API_KEY },
+  });
+
+  if (!response.ok) {
+    throw new Error("Dealme sales-rate API failed: " + response.status);
+  }
+
+  return (await response.json()) as DealmeSalesRateResponse;
 }
 
 async function fetchDealmeInventory(): Promise<InventoryProduct[]> {
@@ -212,13 +250,65 @@ router.get("/inventory/products/stats", async (_req: Request, res: Response) => 
   }
 });
 
-// Old movement analytics are disabled to avoid mixing InventoryFlow history with Dealme stock.
+// DEALME_SALES_RATE_SOURCE_V1
+// Uses Dealme SHIPMENT_OUT movements and maps ERP UUIDs to the same stable
+// numeric IDs used by the inventory page.
 router.get("/inventory/no-movement", async (_req: Request, res: Response) => {
-  res.json({ sinceDate: null, activeProductIds: [], available: false });
+  try {
+    const payload = await fetchDealmeSalesRates();
+    const activeProductIds = (payload.data || [])
+      .filter((item) => Number(item.sold30 || 0) > 0)
+      .map((item) => stableNumericProductId(item.productId));
+
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({
+      sinceDate: new Date(Date.now() - 30 * 86400000).toISOString(),
+      activeProductIds,
+      available: true,
+      source: "dealme-erp-shipment-out-movements",
+    });
+  } catch (err) {
+    logger.error({ err }, "inventory/no-movement failed");
+    res.status(502).json({ error: "فشل جلب بيانات حركة مبيعات Dealme" });
+  }
 });
 
 router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
-  res.json({ generatedAt: new Date().toISOString(), rates: {}, available: false });
+  try {
+    const payload = await fetchDealmeSalesRates();
+    const rates: Record<number, {
+      sold7: number;
+      sold14: number;
+      sold30: number;
+      dailyRate7: number;
+      dailyRate14: number;
+      dailyRate30: number;
+      lastSaleAt: string | null;
+    }> = {};
+
+    for (const item of payload.data || []) {
+      rates[stableNumericProductId(item.productId)] = {
+        sold7: Number(item.sold7 || 0),
+        sold14: Number(item.sold14 || 0),
+        sold30: Number(item.sold30 || 0),
+        dailyRate7: Number(item.dailyRate7 || 0),
+        dailyRate14: Number(item.dailyRate14 || 0),
+        dailyRate30: Number(item.dailyRate30 || 0),
+        lastSaleAt: item.lastSaleAt || null,
+      };
+    }
+
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({
+      generatedAt: payload.generatedAt || new Date().toISOString(),
+      rates,
+      available: true,
+      source: "dealme-erp-shipment-out-movements",
+    });
+  } catch (err) {
+    logger.error({ err }, "inventory/sales-rate failed");
+    res.status(502).json({ error: "فشل جلب معدل مبيعات Dealme" });
+  }
 });
 
 // POST /api/inventory/check-alerts — manual trigger
