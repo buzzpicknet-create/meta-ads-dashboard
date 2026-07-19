@@ -5,17 +5,45 @@ import { sendPushForEvent } from "../lib/push.js";
 
 const router = Router();
 
-// DEALME_INVENTORY_SOURCE_V1B
+// MULTI_STORE_INVENTORY_SOURCE_V2
 const DEALME_ERP_BASE_URL = String(process.env.DEALME_ERP_BASE_URL || "").replace(/\/+$/, "");
 const DEALME_INVENTORY_API_KEY = String(process.env.DEALME_INVENTORY_API_KEY || "");
+const BUZZPICK_ERP_BASE_URL = String(process.env.BUZZPICK_ERP_BASE_URL || "").replace(/\/+$/, "");
+const BUZZPICK_INVENTORY_API_KEY = String(process.env.BUZZPICK_INVENTORY_API_KEY || "");
+
 const LOW_STOCK_THRESHOLD = 10;
 const ALERT_DEDUP_HOURS = 24;
 const NO_MOVEMENT_DAYS = 10;
-const ALERT_WAREHOUSE = "مخزن السوق"; // alerts only apply to this warehouse
+
+type SourceStore = "dealme" | "buzzpick";
+
+interface InventorySource {
+  key: SourceStore;
+  label: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
+const INVENTORY_SOURCES: InventorySource[] = [
+  {
+    key: "dealme",
+    label: "Dealme",
+    baseUrl: DEALME_ERP_BASE_URL,
+    apiKey: DEALME_INVENTORY_API_KEY,
+  },
+  {
+    key: "buzzpick",
+    label: "Buzzpick",
+    baseUrl: BUZZPICK_ERP_BASE_URL,
+    apiKey: BUZZPICK_INVENTORY_API_KEY,
+  },
+];
 
 interface InventoryProduct {
   id: number;
   sourceProductId: string;
+  sourceStore: SourceStore;
+  storeName: string;
   name: string;
   sku: string;
   unit: string;
@@ -30,7 +58,7 @@ interface InventoryProduct {
   updatedAt: string;
 }
 
-interface DealmeInventoryItem {
+interface ErpInventoryItem {
   productId: string;
   name: string;
   sku: string;
@@ -41,13 +69,13 @@ interface DealmeInventoryItem {
   updatedAt: string | null;
 }
 
-interface DealmeInventoryResponse {
+interface ErpInventoryResponse {
   success: boolean;
-  data: DealmeInventoryItem[];
+  data: ErpInventoryItem[];
   pagination?: { total: number; page: number; limit: number; totalPages: number };
 }
 
-interface DealmeSalesRateItem {
+interface ErpSalesRateItem {
   productId: string;
   name: string;
   sku: string;
@@ -60,16 +88,21 @@ interface DealmeSalesRateItem {
   lastSaleAt: string | null;
 }
 
-interface DealmeSalesRateResponse {
+interface ErpSalesRateResponse {
   success: boolean;
-  data: DealmeSalesRateItem[];
+  data: ErpSalesRateItem[];
   windowDays: number;
   generatedAt: string;
 }
 
-// META_INVENTORY_TASKS_STABILITY_V1
-// Task and inventory-state tables use PostgreSQL INTEGER (signed 32-bit).
-// Mask the FNV hash to 31 bits so generated Dealme IDs never overflow.
+interface SalesRateResult {
+  source: InventorySource;
+  payload: ErpSalesRateResponse;
+}
+
+// Dealme IDs must remain unchanged because tasks and stock-state records already
+// reference them. Buzzpick uses the negative integer range, which guarantees that
+// it can never collide with existing positive Dealme IDs.
 function stableNumericProductId(sourceId: string): number {
   let hash = 2166136261;
   for (let i = 0; i < sourceId.length; i++) {
@@ -79,44 +112,34 @@ function stableNumericProductId(sourceId: string): number {
   return ((hash >>> 0) & 0x7fffffff) || 1;
 }
 
-// DEALME_SALES_RATE_SOURCE_V1
-async function fetchDealmeSalesRates(): Promise<DealmeSalesRateResponse> {
-  if (!DEALME_ERP_BASE_URL || !DEALME_INVENTORY_API_KEY) {
-    throw new Error("Dealme inventory integration environment variables are missing");
-  }
-
-  const url = new URL("/api/inventory/media-buying-sales-rate", DEALME_ERP_BASE_URL);
-  const response = await fetch(url, {
-    headers: { "X-Inventory-Api-Key": DEALME_INVENTORY_API_KEY },
-  });
-
-  if (!response.ok) {
-    throw new Error("Dealme sales-rate API failed: " + response.status);
-  }
-
-  return (await response.json()) as DealmeSalesRateResponse;
+function sourceNumericProductId(source: SourceStore, sourceId: string): number {
+  const positiveId = stableNumericProductId(sourceId);
+  return source === "dealme" ? positiveId : -positiveId;
 }
 
-async function fetchDealmeInventory(): Promise<InventoryProduct[]> {
-  if (!DEALME_ERP_BASE_URL || !DEALME_INVENTORY_API_KEY) {
-    throw new Error("Dealme inventory integration environment variables are missing");
-  }
+function enabledSources(): InventorySource[] {
+  return INVENTORY_SOURCES.filter((source) => source.baseUrl && source.apiKey);
+}
 
-  const url = new URL("/api/inventory/media-buying", DEALME_ERP_BASE_URL);
+async function fetchInventorySource(source: InventorySource): Promise<InventoryProduct[]> {
+  const url = new URL("/api/inventory/media-buying", source.baseUrl);
   url.searchParams.set("page", "1");
   url.searchParams.set("limit", "500");
 
   const response = await fetch(url, {
-    headers: { "X-Inventory-Api-Key": DEALME_INVENTORY_API_KEY },
+    headers: { "X-Inventory-Api-Key": source.apiKey },
   });
+
   if (!response.ok) {
-    throw new Error("Dealme inventory API failed: " + response.status);
+    throw new Error(`${source.label} inventory API failed: ${response.status}`);
   }
 
-  const payload = (await response.json()) as DealmeInventoryResponse;
+  const payload = (await response.json()) as ErpInventoryResponse;
   return (payload.data || []).map((item) => ({
-    id: stableNumericProductId(item.productId),
+    id: sourceNumericProductId(source.key, item.productId),
     sourceProductId: item.productId,
+    sourceStore: source.key,
+    storeName: source.label,
     name: item.name || "",
     sku: item.sku || "",
     unit: "قطعة",
@@ -126,37 +149,132 @@ async function fetchDealmeInventory(): Promise<InventoryProduct[]> {
     minStock: LOW_STOCK_THRESHOLD,
     sellingPrice: null,
     costPrice: null,
-    warehouseLocation: "مخزون Dealme",
+    warehouseLocation: `مخزون ${source.label}`,
     isBundle: false,
     updatedAt: item.updatedAt || new Date().toISOString(),
   }));
 }
 
+async function fetchAllInventory(): Promise<{
+  products: InventoryProduct[];
+  availableSources: SourceStore[];
+  failedSources: SourceStore[];
+}> {
+  const sources = enabledSources();
+  if (!sources.length) {
+    throw new Error("Inventory integration environment variables are missing");
+  }
+
+  const results = await Promise.allSettled(
+    sources.map(async (source) => ({
+      source,
+      products: await fetchInventorySource(source),
+    }))
+  );
+
+  const products: InventoryProduct[] = [];
+  const availableSources: SourceStore[] = [];
+  const failedSources: SourceStore[] = [];
+
+  results.forEach((result, index) => {
+    const source = sources[index];
+    if (result.status === "fulfilled") {
+      products.push(...result.value.products);
+      availableSources.push(source.key);
+    } else {
+      failedSources.push(source.key);
+      logger.warn(
+        { err: result.reason, source: source.key },
+        "Inventory source failed; returning other available sources"
+      );
+    }
+  });
+
+  if (!availableSources.length) {
+    throw new Error("All configured inventory sources failed");
+  }
+
+  return { products, availableSources, failedSources };
+}
+
+async function fetchSalesRateSource(source: InventorySource): Promise<SalesRateResult> {
+  const url = new URL("/api/inventory/media-buying-sales-rate", source.baseUrl);
+  const response = await fetch(url, {
+    headers: { "X-Inventory-Api-Key": source.apiKey },
+  });
+
+  if (!response.ok) {
+    throw new Error(`${source.label} sales-rate API failed: ${response.status}`);
+  }
+
+  return {
+    source,
+    payload: (await response.json()) as ErpSalesRateResponse,
+  };
+}
+
+async function fetchAllSalesRates(): Promise<{
+  results: SalesRateResult[];
+  failedSources: SourceStore[];
+}> {
+  const sources = enabledSources();
+  if (!sources.length) {
+    throw new Error("Inventory integration environment variables are missing");
+  }
+
+  const settled = await Promise.allSettled(sources.map(fetchSalesRateSource));
+  const results: SalesRateResult[] = [];
+  const failedSources: SourceStore[] = [];
+
+  settled.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      results.push(result.value);
+    } else {
+      failedSources.push(sources[index].key);
+      logger.warn(
+        { err: result.reason, source: sources[index].key },
+        "Sales-rate source failed; returning other available sources"
+      );
+    }
+  });
+
+  if (!results.length) {
+    throw new Error("All configured sales-rate sources failed");
+  }
+
+  return { results, failedSources };
+}
+
 export async function checkInventoryAlerts(): Promise<void> {
   try {
-    const products = await fetchDealmeInventory();
+    const { products } = await fetchAllInventory();
 
     const stateRows = await query<{
       product_id: number;
       last_stock: number;
       alert_sent_at: Date | null;
     }>(`SELECT product_id, last_stock, alert_sent_at FROM inventory_stock_state`);
-    const stateMap = new Map(stateRows.map((r) => [r.product_id, r]));
+    const stateMap = new Map(stateRows.map((row) => [row.product_id, row]));
 
     let lowCount = 0;
     let restockCount = 0;
 
-    for (const p of products) {
-      const prev = stateMap.get(p.id);
-      const prevStock = prev?.last_stock ?? null;
-      const alertSentAt = prev?.alert_sent_at ?? null;
-
-      const isNowLow = p.currentStock > 0 && p.currentStock <= LOW_STOCK_THRESHOLD;
+    for (const product of products) {
+      const previous = stateMap.get(product.id);
+      const previousStock = previous?.last_stock ?? null;
+      const alertSentAt = previous?.alert_sent_at ?? null;
+      const isNowLow =
+        product.availableStock > 0 &&
+        product.availableStock <= LOW_STOCK_THRESHOLD;
       const wasLow =
-        prevStock !== null && prevStock > 0 && prevStock <= LOW_STOCK_THRESHOLD;
+        previousStock !== null &&
+        previousStock > 0 &&
+        previousStock <= LOW_STOCK_THRESHOLD;
 
-      // Low stock transition: was OK (or first time) → now low
-      if (isNowLow && (prevStock === null || prevStock > LOW_STOCK_THRESHOLD)) {
+      if (
+        isNowLow &&
+        (previousStock === null || previousStock > LOW_STOCK_THRESHOLD)
+      ) {
         const dedupMs = ALERT_DEDUP_HOURS * 60 * 60 * 1000;
         const shouldSend =
           !alertSentAt ||
@@ -164,121 +282,157 @@ export async function checkInventoryAlerts(): Promise<void> {
 
         if (shouldSend) {
           await sendPushForEvent("inventory_low_stock", {
-            title: "⚠️ مخزون منخفض",
-            body: `${p.name} — متبقي ${p.currentStock} قطعة فقط`,
+            title: `⚠️ مخزون منخفض — ${product.storeName}`,
+            body: `${product.name} — متبقي ${product.availableStock} قطعة فقط`,
             url: "/inventory",
           });
           lowCount++;
           await query(
-            `INSERT INTO inventory_stock_state (product_id, product_name, last_stock, alert_sent_at, updated_at)
+            `INSERT INTO inventory_stock_state
+               (product_id, product_name, last_stock, alert_sent_at, updated_at)
              VALUES ($1, $2, $3, NOW(), NOW())
              ON CONFLICT (product_id) DO UPDATE SET
-               product_name = $2, last_stock = $3,
-               alert_sent_at = NOW(), updated_at = NOW()`,
-            [p.id, p.name, p.currentStock]
+               product_name = $2,
+               last_stock = $3,
+               alert_sent_at = NOW(),
+               updated_at = NOW()`,
+            [
+              product.id,
+              `${product.storeName}: ${product.name}`,
+              product.availableStock,
+            ]
           );
           continue;
         }
       }
 
-      // Restock transition: was low → now above threshold
-      if (wasLow && p.currentStock > LOW_STOCK_THRESHOLD) {
+      if (wasLow && product.availableStock > LOW_STOCK_THRESHOLD) {
         await sendPushForEvent("inventory_restock", {
-          title: "✅ تم إعادة تعبئة المخزون",
-          body: `${p.name} — الكمية الحالية: ${p.currentStock} قطعة`,
+          title: `✅ تم إعادة تعبئة المخزون — ${product.storeName}`,
+          body: `${product.name} — الكمية المتاحة: ${product.availableStock} قطعة`,
           url: "/inventory",
         });
         restockCount++;
         await query(
-          `INSERT INTO inventory_stock_state (product_id, product_name, last_stock, alert_sent_at, updated_at)
+          `INSERT INTO inventory_stock_state
+             (product_id, product_name, last_stock, alert_sent_at, updated_at)
            VALUES ($1, $2, $3, NULL, NOW())
            ON CONFLICT (product_id) DO UPDATE SET
-             product_name = $2, last_stock = $3,
-             alert_sent_at = NULL, updated_at = NOW()`,
-          [p.id, p.name, p.currentStock]
+             product_name = $2,
+             last_stock = $3,
+             alert_sent_at = NULL,
+             updated_at = NOW()`,
+          [
+            product.id,
+            `${product.storeName}: ${product.name}`,
+            product.availableStock,
+          ]
         );
         continue;
       }
 
-      // Update stock level (no alert)
       await query(
-        `INSERT INTO inventory_stock_state (product_id, product_name, last_stock, updated_at)
+        `INSERT INTO inventory_stock_state
+           (product_id, product_name, last_stock, updated_at)
          VALUES ($1, $2, $3, NOW())
          ON CONFLICT (product_id) DO UPDATE SET
-           product_name = $2, last_stock = $3, updated_at = NOW()`,
-        [p.id, p.name, p.currentStock]
+           product_name = $2,
+           last_stock = $3,
+           updated_at = NOW()`,
+        [
+          product.id,
+          `${product.storeName}: ${product.name}`,
+          product.availableStock,
+        ]
       );
     }
 
     if (lowCount > 0 || restockCount > 0) {
       logger.info({ lowCount, restockCount }, "Inventory alerts sent");
     } else {
-      logger.info({ checked: products.length }, "Inventory alert check complete — no alerts");
+      logger.info(
+        { checked: products.length },
+        "Inventory alert check complete — no alerts"
+      );
     }
   } catch (err) {
     logger.warn({ err }, "checkInventoryAlerts failed");
   }
 }
 
-// GET /api/inventory/products — Dealme ERP stock feed
 router.get("/inventory/products", async (_req: Request, res: Response) => {
   try {
-    const products = await fetchDealmeInventory();
+    const result = await fetchAllInventory();
     res.setHeader("Cache-Control", "private, no-store");
-    res.json(products);
+    res.json(result.products);
   } catch (err) {
     logger.error({ err }, "inventory/products failed");
-    res.status(502).json({ error: "فشل جلب مخزون Dealme" });
+    res.status(502).json({ error: "فشل جلب المخزون من مصادر ERP" });
   }
 });
 
-// GET /api/inventory/products/stats — Dealme stock KPIs
 router.get("/inventory/products/stats", async (_req: Request, res: Response) => {
   try {
-    const products = await fetchDealmeInventory();
+    const { products, availableSources, failedSources } = await fetchAllInventory();
     res.json({
       totalProducts: products.length,
-      lowStockCount: products.filter((p) => p.availableStock > 0 && p.availableStock <= LOW_STOCK_THRESHOLD).length,
+      lowStockCount: products.filter(
+        (product) =>
+          product.availableStock > 0 &&
+          product.availableStock <= LOW_STOCK_THRESHOLD
+      ).length,
       totalMovementsToday: 0,
       totalSalesToday: 0,
       totalInToday: 0,
-      totalPhysicalQty: products.reduce((sum, p) => sum + p.currentStock, 0),
-      totalReservedQty: products.reduce((sum, p) => sum + p.reservedQty, 0),
-      totalAvailableQty: products.reduce((sum, p) => sum + p.availableStock, 0),
-      source: "dealme-erp-inventory",
+      totalPhysicalQty: products.reduce(
+        (sum, product) => sum + product.currentStock,
+        0
+      ),
+      totalReservedQty: products.reduce(
+        (sum, product) => sum + product.reservedQty,
+        0
+      ),
+      totalAvailableQty: products.reduce(
+        (sum, product) => sum + product.availableStock,
+        0
+      ),
+      source: "multi-erp-inventory",
+      availableSources,
+      failedSources,
     });
   } catch (err) {
     logger.error({ err }, "inventory/products/stats failed");
-    res.status(502).json({ error: "فشل جلب إحصائيات مخزون Dealme" });
+    res.status(502).json({ error: "فشل جلب إحصائيات المخزون" });
   }
 });
 
-// DEALME_SALES_RATE_SOURCE_V1
-// Uses Dealme SHIPMENT_OUT movements and maps ERP UUIDs to the same stable
-// numeric IDs used by the inventory page.
 router.get("/inventory/no-movement", async (_req: Request, res: Response) => {
   try {
-    const payload = await fetchDealmeSalesRates();
-    const activeProductIds = (payload.data || [])
-      .filter((item) => Number(item.sold30 || 0) > 0)
-      .map((item) => stableNumericProductId(item.productId));
+    const { results, failedSources } = await fetchAllSalesRates();
+    const activeProductIds = results.flatMap(({ source, payload }) =>
+      (payload.data || [])
+        .filter((item) => Number(item.sold30 || 0) > 0)
+        .map((item) => sourceNumericProductId(source.key, item.productId))
+    );
 
     res.setHeader("Cache-Control", "private, no-store");
     res.json({
-      sinceDate: new Date(Date.now() - 30 * 86400000).toISOString(),
+      sinceDate: new Date(Date.now() - NO_MOVEMENT_DAYS * 86400000).toISOString(),
       activeProductIds,
       available: true,
-      source: "dealme-erp-shipment-out-movements",
+      source: "multi-erp-shipment-out-movements",
+      availableSources: results.map((result) => result.source.key),
+      failedSources,
     });
   } catch (err) {
     logger.error({ err }, "inventory/no-movement failed");
-    res.status(502).json({ error: "فشل جلب بيانات حركة مبيعات Dealme" });
+    res.status(502).json({ error: "فشل جلب بيانات حركة المبيعات" });
   }
 });
 
 router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
   try {
-    const payload = await fetchDealmeSalesRates();
+    const { results, failedSources } = await fetchAllSalesRates();
     const rates: Record<number, {
       sold7: number;
       sold14: number;
@@ -289,32 +443,35 @@ router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
       lastSaleAt: string | null;
     }> = {};
 
-    for (const item of payload.data || []) {
-      rates[stableNumericProductId(item.productId)] = {
-        sold7: Number(item.sold7 || 0),
-        sold14: Number(item.sold14 || 0),
-        sold30: Number(item.sold30 || 0),
-        dailyRate7: Number(item.dailyRate7 || 0),
-        dailyRate14: Number(item.dailyRate14 || 0),
-        dailyRate30: Number(item.dailyRate30 || 0),
-        lastSaleAt: item.lastSaleAt || null,
-      };
+    for (const { source, payload } of results) {
+      for (const item of payload.data || []) {
+        rates[sourceNumericProductId(source.key, item.productId)] = {
+          sold7: Number(item.sold7 || 0),
+          sold14: Number(item.sold14 || 0),
+          sold30: Number(item.sold30 || 0),
+          dailyRate7: Number(item.dailyRate7 || 0),
+          dailyRate14: Number(item.dailyRate14 || 0),
+          dailyRate30: Number(item.dailyRate30 || 0),
+          lastSaleAt: item.lastSaleAt || null,
+        };
+      }
     }
 
     res.setHeader("Cache-Control", "private, no-store");
     res.json({
-      generatedAt: payload.generatedAt || new Date().toISOString(),
+      generatedAt: new Date().toISOString(),
       rates,
       available: true,
-      source: "dealme-erp-shipment-out-movements",
+      source: "multi-erp-shipment-out-movements",
+      availableSources: results.map((result) => result.source.key),
+      failedSources,
     });
   } catch (err) {
     logger.error({ err }, "inventory/sales-rate failed");
-    res.status(502).json({ error: "فشل جلب معدل مبيعات Dealme" });
+    res.status(502).json({ error: "فشل جلب معدلات المبيعات" });
   }
 });
 
-// POST /api/inventory/check-alerts — manual trigger
 router.post("/inventory/check-alerts", async (_req: Request, res: Response) => {
   try {
     await checkInventoryAlerts();

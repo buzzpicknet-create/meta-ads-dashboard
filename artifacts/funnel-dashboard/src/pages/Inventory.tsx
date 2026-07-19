@@ -14,6 +14,9 @@ const API = "/api";
 
 interface Product {
   id: number;
+  sourceProductId: string;
+  sourceStore: "dealme" | "buzzpick";
+  storeName: string;
   name: string;
   sku: string;
   unit: string;
@@ -71,6 +74,7 @@ interface Stats {
 
 type StockFilter = "all" | "available" | "zero" | "no_movement";
 type SortKey = "name" | "stock_asc" | "stock_desc" | "updated";
+type StoreFilter = "all" | "dealme" | "buzzpick";
 
 function useCountdown(targetMs: number) {
   const [remaining, setRemaining] = useState(targetMs - Date.now());
@@ -607,6 +611,7 @@ export default function InventoryPage() {
 
   const [search, setSearch]               = useState("");
   const [warehouse, setWarehouse]         = useState<string>("all");
+  const [storeFilter, setStoreFilter]     = useState<StoreFilter>("all");
   const [stockFilter, setStockFilter]     = useState<StockFilter>("all");
   const [sort, setSort]                   = useState<SortKey>("stock_desc");
 
@@ -711,6 +716,7 @@ export default function InventoryPage() {
   const filtered = useMemo(() => {
     let list = products;
 
+    if (storeFilter !== "all") list = list.filter(p => p.sourceStore === storeFilter);
     if (warehouse !== "all") list = list.filter(p => p.warehouseLocation === warehouse);
 
     if (stockFilter === "available")    list = list.filter(p => available(p) > 0);
@@ -736,7 +742,7 @@ export default function InventoryPage() {
     });
 
     return list;
-  }, [products, warehouse, stockFilter, search, sort, noMovementIds]);
+  }, [products, storeFilter, warehouse, stockFilter, search, sort, noMovementIds]);
 
   // KPIs
   const availableCount = products.filter(p => available(p) > 0).length;
@@ -866,9 +872,30 @@ export default function InventoryPage() {
             )}
           </div>
 
-          {/* Warehouse filter */}
+          {/* Store source filter */}
           <div className="flex items-center gap-1">
             <Warehouse className="h-4 w-4 text-muted-foreground" />
+            {([
+              ["all", "كل المتاجر"],
+              ["dealme", "Dealme"],
+              ["buzzpick", "Buzzpick"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setStoreFilter(value)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                  storeFilter === value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background border-border hover:border-primary/50"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Warehouse filter */}
+          <div className="flex items-center gap-1">
             {["all", ...warehouses].map(loc => (
               <button
                 key={loc}
@@ -879,7 +906,7 @@ export default function InventoryPage() {
                     : "bg-background border-border hover:border-primary/50"
                 }`}
               >
-                {loc === "all" ? "الكل" : loc}
+                {loc === "all" ? "كل المخازن" : loc}
               </button>
             ))}
           </div>
@@ -999,6 +1026,9 @@ export default function InventoryPage() {
                             : <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                           }
                           <span className={available(p) <= 0 ? "text-muted-foreground" : ""}>{p.name}</span>
+                          <Badge variant="outline" className="text-[10px] h-4 px-1">
+                            {p.storeName}
+                          </Badge>
                           {p.isBundle && <Badge variant="outline" className="text-[10px] h-4 px-1">مجموعة</Badge>}
                           {(p.reservedQty ?? 0) > 0 && (
                             <span className="text-[10px] text-amber-500/80 whitespace-nowrap">

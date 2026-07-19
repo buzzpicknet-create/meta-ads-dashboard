@@ -1282,7 +1282,7 @@ export async function getCpaAlerts(opts: {
   const campMap = new Map<string, { metrics: AggregatedMetrics; name: string; freq: number; impressions: number; reach: number; effective_status: string }>();
   for (const row of campaignRows) {
     if (!row.campaign_id) continue;
-    const cur = campMap.get(row.campaign_id) ?? { metrics: emptyMetrics(), name: row.campaign_name ?? row.campaign_id, freq: 0, impressions: 0, reach: 0 };
+    const cur = campMap.get(row.campaign_id) ?? { metrics: emptyMetrics(), name: row.campaign_name ?? row.campaign_id, freq: 0, impressions: 0, reach: 0, effective_status: "" };
     addRow(cur.metrics, row);
     cur.impressions += Number(row.impressions || 0);
     cur.reach += Number(row.reach || 0);

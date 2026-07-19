@@ -537,7 +537,15 @@ router.get("/tasks/:id/inventory-result", async (req, res) => {
     // جيب حركات الصنف من تاريخ الإتمام
     const movRes = await fetch(`${INVENTORY_BASE}/api/movements?productId=${task.inventory_product_id}&limit=1000`);
     if (!movRes.ok) return res.status(502).json({ error: "فشل جلب حركات المخزون" });
-    const movements: any[] = await movRes.json();
+    type InventoryMovementResponse = {
+      type?: string;
+      date?: string;
+      quantity?: number;
+    };
+    const movementPayload: unknown = await movRes.json();
+    const movements: InventoryMovementResponse[] = Array.isArray(movementPayload)
+      ? movementPayload
+      : [];
 
     // حركات البيع (out) بعد إتمام التاسك
     const after3days  = new Date(new Date(task.completed_at).getTime() + 3  * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -546,14 +554,22 @@ router.get("/tasks/:id/inventory-result", async (req, res) => {
 
     let sold3days = 0, sold7days = 0;
     for (const m of movements) {
-      if (m.type !== "out") continue;
-      if (m.date >= completedAt && m.date <= after3days) sold3days += m.quantity;
-      if (m.date >= completedAt && m.date <= after7days) sold7days += m.quantity;
+      if (m.type !== "out" || !m.date) continue;
+      const quantity = Number(m.quantity || 0);
+      if (m.date >= completedAt && m.date <= after3days) sold3days += quantity;
+      if (m.date >= completedAt && m.date <= after7days) sold7days += quantity;
     }
 
     // الكمية الحالية
     const prodRes = await fetch(`${INVENTORY_BASE}/api/products/${task.inventory_product_id}`);
-    const prodData = prodRes.ok ? await prodRes.json() : null;
+    type InventoryProductResponse = {
+      availableStock?: number;
+      currentStock?: number;
+      reservedQty?: number;
+    };
+    const prodData: InventoryProductResponse | null = prodRes.ok
+      ? (await prodRes.json()) as InventoryProductResponse
+      : null;
     // الكمية الحالية بعد خصم الحجوزات — نفس الرقم الظاهر للميديا باير في صفحة المخزون
     const currentStock = prodData?.availableStock ?? prodData?.currentStock ?? null;
     const reservedQty = prodData?.reservedQty ?? 0;

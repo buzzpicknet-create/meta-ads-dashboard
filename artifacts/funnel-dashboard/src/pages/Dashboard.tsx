@@ -1064,7 +1064,7 @@ function DeliveryWarnings({ byAd }: { byAd: SegmentEntry[] }) {
           // Build fix list — one per issue, or one based on status if no issues
           const fixes = (ad.issues ?? []).length > 0
             ? (ad.issues ?? []).map((iss) => ({ issue: iss, fix: getDashFix(iss) }))
-            : [{ issue: { summary: ad.effective_status, error_message: ad.effective_status, error_code: 0, level: "" } as AdIssue, fix: getDashFix({ summary: ad.effective_status ?? "", error_message: ad.effective_status ?? "", error_code: 0, level: "" } as AdIssue) }];
+            : [{ issue: { summary: ad.effective_status, error_message: ad.effective_status, error_code: 0, level: "AD" } as AdIssue, fix: getDashFix({ summary: ad.effective_status ?? "", error_message: ad.effective_status ?? "", error_code: 0, level: "AD" } as AdIssue) }];
 
           return (
             <details key={ad.id} className={`rounded-xl ring-1 ${c.bg} group`}>

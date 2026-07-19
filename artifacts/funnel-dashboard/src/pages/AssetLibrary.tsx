@@ -2934,7 +2934,7 @@ function ScaleAdSetsForm({ accountId, onAccountChange }: { accountId: string; on
 }
 
 // ── Scale Creative Component ───────────────────────────────────────────────────
-type AdCreativeRow = { id: string; name: string; adset_id: string; video_id: string | null; image_hash: string | null; body: string | null; title: string | null; link_url: string | null; call_to_action_type: string; creative_id: string | null; spend: number | null; cpa: number | null; ctr: number | null; purchases: number | null };
+type AdCreativeRow = { id: string; name: string; adset_id: string; video_id: string | null; image_hash: string | null; body: string | null; title: string | null; link_url: string | null; call_to_action_type: string; creative_id: string | null; spend: number | null; cpa: number | null; ctr: number | null; cvr?: number | null; purchases: number | null };
 
 function ScaleCreativeForm({ accountId, onAccountChange }: { accountId: string; onAccountChange: (v: string) => void }) {
   const { data: accountsData } = useAccounts();

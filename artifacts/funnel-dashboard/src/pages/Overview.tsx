@@ -1848,7 +1848,7 @@ function AdIssueCard({ ad, accountId, since, until }: { ad: AdWithIssues; accoun
 
   const fixes = ad.issues.length > 0
     ? ad.issues.map((iss) => ({ issue: iss, fix: getFixSuggestion(iss) }))
-    : [{ issue: { summary: ad.effective_status, error_message: "", error_code: 0, level: "" } as AdIssue, fix: getFixSuggestion({ summary: ad.effective_status, error_message: ad.effective_status, error_code: 0, level: "" } as AdIssue) }];
+    : [{ issue: { summary: ad.effective_status, error_message: "", error_code: 0, level: "AD" } as AdIssue, fix: getFixSuggestion({ summary: ad.effective_status, error_message: ad.effective_status, error_code: 0, level: "AD" } as AdIssue) }];
 
   return (
     <div className={`rounded-xl border ${borderCls} overflow-hidden`}>
