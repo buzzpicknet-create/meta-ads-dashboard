@@ -133,7 +133,8 @@ router.get("/tasks/by-product/:productId", async (req, res) => {
   // 32-bit hash to the database.
   if (
     !Number.isSafeInteger(productId)
-    || productId < 1
+    || productId === 0
+    || productId < -2147483647
     || productId > 2147483647
   ) {
     return res.status(400).json({

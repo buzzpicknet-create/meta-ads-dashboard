@@ -1371,35 +1371,78 @@ export default function TasksPage() {
     if (!res.ok) throw new Error((await res.json()).error ?? "فشل الإنشاء");
     const created: Task = await res.json();
 
-    // Upload files via GCS presigned URL (two-step: request URL → PUT to GCS → confirm)
+    // Upload files, then register every successful upload on the created task.
+    // Render returns a same-origin relative upload URL, while object storage may
+    // return an absolute URL. Resolve both forms and never hide upload failures.
+    const failedUploads: string[] = [];
+
     for (const file of files) {
       try {
-        // Step 1: request presigned URL
-        const urlRes = await fetch(`${BASE}/storage/uploads/request-url`, {
-          method: "POST", credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
-        });
-        if (!urlRes.ok) continue;
-        const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+        const contentType = file.type || "application/octet-stream";
 
-        // Step 2: PUT file directly to GCS
-        const putRes = await fetch(uploadURL, {
+        const urlRes = await fetch(`${BASE}/storage/uploads/request-url`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: file.name,
+            size: file.size,
+            contentType,
+          }),
+        });
+
+        if (!urlRes.ok) {
+          throw new Error(`request-url failed: ${urlRes.status}`);
+        }
+
+        const { uploadURL, objectPath } = await urlRes.json() as {
+          uploadURL: string;
+          objectPath: string;
+        };
+
+        const resolvedUploadURL = new URL(uploadURL, window.location.origin).toString();
+        const putRes = await fetch(resolvedUploadURL, {
           method: "PUT",
-          headers: { "Content-Type": file.type },
+          credentials: "include",
+          headers: { "Content-Type": contentType },
           body: file,
         });
-        if (!putRes.ok) continue;
 
-        // Step 3: register media record in DB
-        await fetch(`${BASE}/tasks/${created.id}/media`, {
-          method: "POST", credentials: "include",
+        if (!putRes.ok) {
+          throw new Error(`upload failed: ${putRes.status}`);
+        }
+
+        const registerRes = await fetch(`${BASE}/tasks/${created.id}/media`, {
+          method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ objectPath, originalName: file.name, mimeType: file.type }),
+          body: JSON.stringify({
+            objectPath,
+            originalName: file.name,
+            mimeType: contentType,
+          }),
         });
-      } catch { /* skip failed uploads silently */ }
+
+        if (!registerRes.ok) {
+          throw new Error(`media registration failed: ${registerRes.status}`);
+        }
+      } catch (uploadError) {
+        console.error("Task media upload failed", {
+          taskId: created.id,
+          fileName: file.name,
+          error: uploadError,
+        });
+        failedUploads.push(file.name);
+      }
     }
+
     await fetchAll(true);
+
+    if (failedUploads.length > 0) {
+      setError(
+        `تم إنشاء المهمة، لكن فشل إرفاق ${failedUploads.length} ملف: ${failedUploads.join("، ")}`,
+      );
+    }
   }
 
   async function patchTask(id: number, body: Record<string, unknown>) {
