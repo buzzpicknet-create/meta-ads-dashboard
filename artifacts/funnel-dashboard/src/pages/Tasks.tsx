@@ -42,7 +42,13 @@ interface Task {
   opus_score?: number;
   media: TaskMedia[];
   inventory_product_id?: number | null;
-  inventory_snapshot?: { stock: number; unit: string; capturedAt: string } | null;
+  inventory_snapshot?: {
+    stock: number;
+    unit: string;
+    capturedAt: string;
+    sourceStore?: "dealme" | "buzzpick";
+    storeName?: string;
+  } | null;
   inventory_result?: {
     snapshotStock: number | null;
     currentStock: number | null;
@@ -52,6 +58,16 @@ interface Task {
     daysElapsed: number;
     success: boolean;
   } | null;
+}
+
+function getTaskStoreName(task: Task): string | null {
+  const explicitName = task.inventory_snapshot?.storeName?.trim();
+  if (explicitName) return explicitName;
+
+  if (task.inventory_snapshot?.sourceStore === "buzzpick") return "Buzzpick";
+  if (task.inventory_snapshot?.sourceStore === "dealme") return "Dealme";
+
+  return null;
 }
 
 interface BuyerStat {
@@ -825,6 +841,11 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
                   {task.product_name}
                 </span>
               )}
+              {getTaskStoreName(task) && (
+                <span className="text-xs text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-full">
+                  المتجر: {getTaskStoreName(task)}
+                </span>
+              )}
               {task.status === "completed" && score > 0 && <ScoreBadge score={score} />}
             </div>
             <h2 className="text-white font-bold text-lg leading-snug">{task.title}</h2>
@@ -1113,6 +1134,11 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
               {task.product_name && (
                 <span className="text-[11px] text-slate-400 bg-slate-700/60 px-2 py-0.5 rounded-full">
                   {task.product_name}
+                </span>
+              )}
+              {getTaskStoreName(task) && (
+                <span className="text-[11px] text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full">
+                  المتجر: {getTaskStoreName(task)}
                 </span>
               )}
             </div>

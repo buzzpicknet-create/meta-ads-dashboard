@@ -371,7 +371,13 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
           notes: notes.trim() || `كمية المخزون الحالية: ${product.currentStock} ${product.unit}`,
           success_metric: null,
           inventory_product_id: product.id,
-          inventory_snapshot: { stock: product.currentStock, unit: product.unit, capturedAt: new Date().toISOString() },
+          inventory_snapshot: {
+            stock: product.currentStock,
+            unit: product.unit,
+            capturedAt: new Date().toISOString(),
+            sourceStore: product.sourceStore,
+            storeName: product.storeName,
+          },
         }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.message ?? e.error ?? "فشل الإنشاء"); }
@@ -392,6 +398,7 @@ function CreateTaskFromInventory({ product, onClose }: { product: Product; onClo
               <Target className="h-4 w-4 text-primary" /> إنشاء مهمة
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{product.name}</p>
+            <p className="text-[11px] text-primary mt-1">المتجر: {product.storeName}</p>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
