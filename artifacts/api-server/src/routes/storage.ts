@@ -151,7 +151,10 @@ router.post(
 
         res.json(
           RequestUploadUrlResponse.parse({
-            uploadURL: `/api/storage/uploads/local/${objectId}`,
+            uploadURL: new URL(
+              `/api/storage/uploads/local/${objectId}`,
+              `${String(req.headers["x-forwarded-proto"] || req.protocol).split(",")[0].trim()}://${String(req.headers["x-forwarded-host"] || req.get("host") || "").split(",")[0].trim()}`,
+            ).toString(),
             objectPath: `/objects/uploads/${objectId}`,
             metadata: { name, size, contentType },
           }),
