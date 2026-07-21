@@ -122,37 +122,145 @@ function enabledSources(): InventorySource[] {
 }
 
 async function fetchInventorySource(source: InventorySource): Promise<InventoryProduct[]> {
-  const url = new URL("/api/inventory/media-buying", source.baseUrl);
-  url.searchParams.set("page", "1");
-  url.searchParams.set("limit", "500");
+  const products: InventoryProduct[] = [];
+  const seenProductIds = new Set<string>();
+  const requestedLimit = 500;
 
-  const response = await fetch(url, {
-    headers: { "X-Inventory-Api-Key": source.apiKey },
-  });
+  let page = 1;
+  let totalPages = 1;
 
-  if (!response.ok) {
-    throw new Error(`${source.label} inventory API failed: ${response.status}`);
-  }
+  do {
+    const url = new URL("/api/inventory/media-buying", source.baseUrl);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("limit", String(requestedLimit));
 
-  const payload = (await response.json()) as ErpInventoryResponse;
-  return (payload.data || []).map((item) => ({
-    id: sourceNumericProductId(source.key, item.productId),
-    sourceProductId: item.productId,
-    sourceStore: source.key,
-    storeName: source.label,
-    name: item.name || "",
-    sku: item.sku || "",
-    unit: "قطعة",
-    currentStock: Number(item.physicalQty || 0),
-    reservedQty: Number(item.reservedQty || 0),
-    availableStock: Number(item.availableQty || 0),
-    minStock: LOW_STOCK_THRESHOLD,
-    sellingPrice: null,
-    costPrice: null,
-    warehouseLocation: `مخزون ${source.label}`,
-    isBundle: false,
-    updatedAt: item.updatedAt || new Date().toISOString(),
-  }));
+    const response = await fetch(url, {
+      headers: { "X-Inventory-Api-Key": source.apiKey },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `${source.label} inventory API failed on page ${page}: ${response.status}`
+      );
+    }
+
+    const payload = (await response.json()) as ErpInventoryResponse;
+    const pageItems = Array.isArray(payload.data) ? payload.data : [];
+
+    for (const item of pageItems) {
+      const sourceProductId = String(item.productId || "").trim();
+
+      if (!sourceProductId) {
+        logger.warn(
+          { source: source.key, page, item },
+          "Inventory item skipped because productId is missing"
+        );
+        continue;
+      }
+
+      if (seenProductIds.has(sourceProductId)) {
+        logger.warn(
+          { source: source.key, page, sourceProductId },
+          "Duplicate inventory product skipped"
+        );
+        continue;
+      }
+
+      seenProductIds.add(sourceProductId);
+
+      const physicalQty = Number(item.physicalQty || 0);
+      const reservedQty = Number(item.reservedQty || 0);
+
+      const safePhysicalQty = Number.isFinite(physicalQty) ? physicalQty : 0;
+      const safeReservedQty = Number.isFinite(reservedQty) ? reservedQty : 0;
+
+      const calculatedAvailableQty = Math.max(
+        0,
+        safePhysicalQty - safeReservedQty
+      );
+
+      const receivedAvailableQty = Number(item.availableQty);
+
+      if (
+        Number.isFinite(receivedAvailableQty)
+        && receivedAvailableQty !== calculatedAvailableQty
+      ) {
+        logger.warn(
+          {
+            source: source.key,
+            sourceProductId,
+            physicalQty: safePhysicalQty,
+            reservedQty: safeReservedQty,
+            receivedAvailableQty,
+            calculatedAvailableQty,
+          },
+          "ERP available quantity mismatch; dashboard uses physical minus reserved"
+        );
+      }
+
+      products.push({
+        id: sourceNumericProductId(source.key, sourceProductId),
+        sourceProductId,
+        sourceStore: source.key,
+        storeName: source.label,
+        name: item.name || "",
+        sku: item.sku || "",
+        unit: "????",
+
+        // The dashboard's displayed stock is always available stock
+        // after subtracting reservations.
+        currentStock: calculatedAvailableQty,
+        reservedQty: safeReservedQty,
+        availableStock: calculatedAvailableQty,
+
+        minStock: LOW_STOCK_THRESHOLD,
+        sellingPrice: null,
+        costPrice: null,
+        warehouseLocation: `????? ${source.label}`,
+        isBundle: false,
+        updatedAt: item.updatedAt || new Date().toISOString(),
+      });
+    }
+
+    const pagination = payload.pagination;
+
+    const reportedTotalPages = Number(pagination?.totalPages || 0);
+    const reportedTotal = Number(pagination?.total || 0);
+    const reportedLimit = Number(pagination?.limit || requestedLimit);
+
+    if (reportedTotalPages > 0) {
+      totalPages = reportedTotalPages;
+    } else if (reportedTotal > 0 && reportedLimit > 0) {
+      totalPages = Math.max(
+        1,
+        Math.ceil(reportedTotal / reportedLimit)
+      );
+    } else if (pageItems.length >= requestedLimit) {
+      totalPages = page + 1;
+    } else {
+      totalPages = page;
+    }
+
+    page += 1;
+
+    if (page > 1000) {
+      throw new Error(
+        `${source.label} inventory pagination exceeded safe limit`
+      );
+    }
+  } while (page <= totalPages);
+
+  logger.info(
+    {
+      source: source.key,
+      productCount: products.length,
+      pagesFetched: page - 1,
+    },
+    "Inventory source fully loaded with available quantities"
+  );
+
+  return products;
 }
 
 async function fetchAllInventory(): Promise<{
@@ -363,7 +471,17 @@ export async function checkInventoryAlerts(): Promise<void> {
 router.get("/inventory/products", async (_req: Request, res: Response) => {
   try {
     const result = await fetchAllInventory();
-    res.setHeader("Cache-Control", "private, no-store");
+
+    if (result.failedSources.length > 0) {
+      throw new Error(
+        `Inventory sources failed: ${result.failedSources.join(", ")}`
+      );
+    }
+
+    res.setHeader(
+      "Cache-Control",
+      "private, no-store, no-cache, must-revalidate, max-age=0"
+    );
     res.json(result.products);
   } catch (err) {
     logger.error({ err }, "inventory/products failed");
@@ -374,6 +492,18 @@ router.get("/inventory/products", async (_req: Request, res: Response) => {
 router.get("/inventory/products/stats", async (_req: Request, res: Response) => {
   try {
     const { products, availableSources, failedSources } = await fetchAllInventory();
+
+    if (failedSources.length > 0) {
+      throw new Error(
+        `Inventory sources failed: ${failedSources.join(", ")}`
+      );
+    }
+
+    res.setHeader(
+      "Cache-Control",
+      "private, no-store, no-cache, must-revalidate, max-age=0"
+    );
+
     res.json({
       totalProducts: products.length,
       lowStockCount: products.filter(
