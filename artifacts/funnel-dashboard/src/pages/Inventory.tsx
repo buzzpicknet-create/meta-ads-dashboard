@@ -20,6 +20,7 @@ interface Product {
   name: string;
   sku: string;
   unit: string;
+  physicalQty?: number;
   currentStock: number;
   reservedQty?: number;
   availableStock?: number;
@@ -628,6 +629,7 @@ export default function InventoryPage() {
   const [salesRates, setSalesRates]           = useState<Record<number, SalesRate> | null>(null);
   const [loadingRates, setLoadingRates]       = useState(false);
   const [loadingMovement, setLoadingMovement] = useState(false);
+  const [movementError, setMovementError]     = useState<string | null>(null);
   const [movementSince, setMovementSince]     = useState<string | null>(null);
 
   const countdown = useCountdown(nextRefresh);
@@ -656,14 +658,17 @@ export default function InventoryPage() {
 
   const fetchNoMovement = useCallback(async () => {
     setLoadingMovement(true);
+    setMovementError(null);
     try {
       const res = await fetch(`/api/inventory/no-movement`, { credentials: "include" });
       if (!res.ok) throw new Error(`${res.status}`);
       const data: { sinceDate: string; activeProductIds: number[] } = await res.json();
       setNoMovementIds(new Set(data.activeProductIds));
       setMovementSince(data.sinceDate);
-    } catch {
-      setNoMovementIds(new Set()); // empty set = show all as "no movement" on error
+    } catch (e) {
+      setNoMovementIds(null);
+      setMovementSince(null);
+      setMovementError(`Movement API: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLoadingMovement(false);
     }
@@ -948,6 +953,13 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
             <RefreshCw className="h-4 w-4 animate-spin" />
             جاري تحليل حركات المخزون خلال آخر 10 أيام...
+          </div>
+        )}
+
+        {stockFilter === "no_movement" && movementError && (
+          <div className="flex items-center gap-2 text-sm text-destructive py-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {movementError}
           </div>
         )}
 

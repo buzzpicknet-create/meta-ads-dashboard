@@ -47,6 +47,7 @@ interface InventoryProduct {
   name: string;
   sku: string;
   unit: string;
+  physicalQty: number;
   currentStock: number;
   reservedQty: number;
   availableStock: number;
@@ -210,6 +211,7 @@ async function fetchInventorySource(source: InventorySource): Promise<InventoryP
 
         // The dashboard's displayed stock is always available stock
         // after subtracting reservations.
+        physicalQty: safePhysicalQty,
         currentStock: calculatedAvailableQty,
         reservedQty: safeReservedQty,
         availableStock: calculatedAvailableQty,
@@ -515,7 +517,7 @@ router.get("/inventory/products/stats", async (_req: Request, res: Response) => 
       totalSalesToday: 0,
       totalInToday: 0,
       totalPhysicalQty: products.reduce(
-        (sum, product) => sum + product.currentStock,
+        (sum, product) => sum + product.physicalQty,
         0
       ),
       totalReservedQty: products.reduce(
@@ -539,6 +541,13 @@ router.get("/inventory/products/stats", async (_req: Request, res: Response) => 
 router.get("/inventory/no-movement", async (_req: Request, res: Response) => {
   try {
     const { results, failedSources } = await fetchAllSalesRates();
+
+    if (failedSources.length > 0) {
+      throw new Error(
+        `Sales-rate sources failed: ${failedSources.join(", ")}`
+      );
+    }
+
     const activeProductIds = results.flatMap(({ source, payload }) =>
       (payload.data || [])
         .filter((item) => Number(item.sold30 || 0) > 0)
@@ -563,6 +572,13 @@ router.get("/inventory/no-movement", async (_req: Request, res: Response) => {
 router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
   try {
     const { results, failedSources } = await fetchAllSalesRates();
+
+    if (failedSources.length > 0) {
+      throw new Error(
+        `Sales-rate sources failed: ${failedSources.join(", ")}`
+      );
+    }
+
     const rates: Record<number, {
       sold7: number;
       sold14: number;
