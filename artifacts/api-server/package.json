@@ -7,7 +7,8 @@
     "dev": "export NODE_ENV=development && fuser -k 8080/tcp 2>/dev/null; pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:notifications": "esbuild tests/notification-rules.test.ts --bundle --platform=node --format=esm --outfile=.tmp/notification-rules.test.mjs --log-level=error && node --test .tmp/notification-rules.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

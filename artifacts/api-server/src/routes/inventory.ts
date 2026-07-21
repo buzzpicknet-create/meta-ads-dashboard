@@ -1,7 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { query } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
-import { sendPushForEvent } from "../lib/push.js";
+import { createInboxAndPush, findInventoryResponsibleUserIds } from "../lib/notifications.js";
+import { fallbackInventoryRoles } from "../lib/notification-rules.js";
 
 const router = Router();
 
@@ -391,10 +392,19 @@ export async function checkInventoryAlerts(): Promise<void> {
           Date.now() - new Date(alertSentAt).getTime() > dedupMs;
 
         if (shouldSend) {
-          await sendPushForEvent("inventory_low_stock", {
+          const responsibleUserIds = await findInventoryResponsibleUserIds(product.id);
+          await createInboxAndPush({
+            eventType: "inventory_low_stock",
+            recipientUserIds: responsibleUserIds,
+            recipientRoles: fallbackInventoryRoles(responsibleUserIds.length > 0),
             title: `⚠️ مخزون منخفض — ${product.storeName}`,
             body: `${product.name} — متبقي ${product.availableStock} قطعة فقط`,
             url: "/inventory",
+            metadata: {
+              productId: product.id,
+              sourceStore: product.sourceStore,
+              availableStock: product.availableStock,
+            },
           });
           lowCount++;
           await query(
@@ -417,10 +427,19 @@ export async function checkInventoryAlerts(): Promise<void> {
       }
 
       if (wasLow && product.availableStock > LOW_STOCK_THRESHOLD) {
-        await sendPushForEvent("inventory_restock", {
+        const responsibleUserIds = await findInventoryResponsibleUserIds(product.id);
+        await createInboxAndPush({
+          eventType: "inventory_restock",
+          recipientUserIds: responsibleUserIds,
+          recipientRoles: fallbackInventoryRoles(responsibleUserIds.length > 0),
           title: `✅ تم إعادة تعبئة المخزون — ${product.storeName}`,
           body: `${product.name} — الكمية المتاحة: ${product.availableStock} قطعة`,
           url: "/inventory",
+          metadata: {
+            productId: product.id,
+            sourceStore: product.sourceStore,
+            availableStock: product.availableStock,
+          },
         });
         restockCount++;
         await query(

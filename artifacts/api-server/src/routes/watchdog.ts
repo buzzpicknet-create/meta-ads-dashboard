@@ -4,6 +4,7 @@ import { listAdAccounts, listCampaigns } from "../lib/meta-api.js";
 import { getAdAccountIds, getAccessToken } from "../lib/meta-token.js";
 import { query } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
+import { scopeAiNotificationSql, type UserRole } from "../lib/notification-rules.js";
 
 const router = Router();
 
@@ -112,8 +113,9 @@ export async function runWatchdogScan(): Promise<void> {
   }
 
   await query(
-    `INSERT INTO ai_notifications (campaign_id, campaign_name, severity, message, recommended_action)
-     VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO ai_notifications
+       (campaign_id, campaign_name, severity, message, recommended_action, recipient_role)
+     VALUES ($1, $2, $3, $4, $5, 'admin')`,
     [campaignId || null, campaignName || null, severity, message, JSON.stringify(recommendedAction)]
   );
 
@@ -121,7 +123,10 @@ export async function runWatchdogScan(): Promise<void> {
 }
 
 // ── GET /api/ai/notifications ─────────────────────────────────────────────────
-router.get("/ai/notifications", async (_req, res) => {
+router.get("/ai/notifications", async (req, res) => {
+  const userId = req.session!.userId;
+  const role = req.session!.role as UserRole;
+  const scopeSql = scopeAiNotificationSql(role);
   try {
     const rows = await query<{
       id: number;
@@ -138,10 +143,20 @@ router.get("/ai/notifications", async (_req, res) => {
               recommended_action, is_read, is_executed, created_at
        FROM ai_notifications
        WHERE is_executed = FALSE
+         AND ${scopeSql}
        ORDER BY created_at DESC
-       LIMIT 20`
+       LIMIT 20`,
+      [userId, role]
     );
-    res.json({ notifications: rows });
+    const countRows = await query<{ unread_count: string }>(
+      `SELECT COUNT(*) AS unread_count
+       FROM ai_notifications
+       WHERE is_executed = FALSE
+         AND is_read = FALSE
+         AND ${scopeSql}`,
+      [userId, role]
+    );
+    res.json({ notifications: rows, unread_count: Number(countRows[0]?.unread_count ?? 0) });
   } catch (err) {
     logger.error({ err }, "Failed to fetch AI notifications");
     res.status(500).json({ error: "فشل جلب الإشعارات" });
@@ -151,8 +166,14 @@ router.get("/ai/notifications", async (_req, res) => {
 // ── POST /api/ai/notifications/:id/read ──────────────────────────────────────
 router.post("/ai/notifications/:id/read", async (req, res) => {
   const id = Number(req.params["id"]);
+  const userId = req.session!.userId;
+  const role = req.session!.role as UserRole;
+  const scopeSql = scopeAiNotificationSql(role);
   try {
-    await query(`UPDATE ai_notifications SET is_read = TRUE WHERE id = $1`, [id]);
+    await query(
+      `UPDATE ai_notifications SET is_read = TRUE WHERE id = $3 AND ${scopeSql}`,
+      [userId, role, id]
+    );
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, "Failed to mark notification as read");
@@ -160,17 +181,41 @@ router.post("/ai/notifications/:id/read", async (req, res) => {
   }
 });
 
+router.post("/ai/notifications/read-all", async (req, res) => {
+  const userId = req.session!.userId;
+  const role = req.session!.role as UserRole;
+  const scopeSql = scopeAiNotificationSql(role);
+  try {
+    await query(
+      `UPDATE ai_notifications SET is_read = TRUE
+       WHERE is_executed = FALSE
+         AND is_read = FALSE
+         AND ${scopeSql}`,
+      [userId, role]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Failed to mark all AI notifications as read");
+    res.status(500).json({ error: "فشل تحديث الإشعارات" });
+  }
+});
+
 // ── POST /api/ai/notifications/:id/execute ───────────────────────────────────
 router.post("/ai/notifications/:id/execute", async (req, res) => {
   const id = Number(req.params["id"]);
+  const userId = req.session!.userId;
+  const role = req.session!.role as UserRole;
+  const scopeSql = scopeAiNotificationSql(role);
   try {
     const rows = await query<{
       recommended_action: unknown;
       campaign_id: string | null;
       campaign_name: string | null;
     }>(
-      `SELECT recommended_action, campaign_id, campaign_name FROM ai_notifications WHERE id = $1`,
-      [id]
+      `SELECT recommended_action, campaign_id, campaign_name
+       FROM ai_notifications
+       WHERE id = $3 AND ${scopeSql}`,
+      [userId, role, id]
     );
     if (rows.length === 0) {
       res.status(404).json({ error: "الإشعار غير موجود" });
@@ -227,12 +272,15 @@ router.post("/ai/notifications/:id/execute", async (req, res) => {
 // ── POST /api/ai/notifications/:id/dismiss ───────────────────────────────────
 router.post("/ai/notifications/:id/dismiss", async (req, res) => {
   const id = Number(req.params["id"]);
+  const userId = req.session!.userId;
+  const role = req.session!.role as UserRole;
+  const scopeSql = scopeAiNotificationSql(role);
   try {
     await query(
       `UPDATE ai_notifications
        SET is_executed = TRUE, is_read = TRUE, executed_by = 'dismissed'
-       WHERE id = $1`,
-      [id]
+       WHERE id = $3 AND ${scopeSql}`,
+      [userId, role, id]
     );
     res.json({ ok: true });
   } catch (err) {

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { query } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth-middleware.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
-import { sendPushToUser, sendPushToRoles } from "../lib/push.js";
+import { createInboxAndPush } from "../lib/notifications.js";
 
 const router = Router();
 const objectStorage = new ObjectStorageService();
@@ -251,6 +251,16 @@ router.post("/tasks", requireAdmin, async (req, res) => {
       inventory_product_id, inventory_snapshot ? JSON.stringify(inventory_snapshot) : null]);
 
   const [withMedia] = await attachMedia([row]);
+  if (row.assigned_to_id) {
+    await createInboxAndPush({
+      eventType: "task_assigned",
+      recipientUserIds: [row.assigned_to_id],
+      title: "مهمة جديدة",
+      body: row.title,
+      url: "/tasks",
+      metadata: { taskId: row.id },
+    });
+  }
   res.status(201).json(withMedia);
 });
 
@@ -377,12 +387,14 @@ router.patch("/tasks/:id", async (req, res) => {
     `, [id]);
     const [withMedia] = await attachMedia([updated]);
 
-    // إشعار للأدمن عند إتمام التاسك
-    sendPushToRoles(["admin"], {
-      title: "✅ مهمة مكتملة",
+    await createInboxAndPush({
+      eventType: "task_completed",
+      recipientRoles: ["admin", "media_manager"],
+      title: "مهمة مكتملة",
       body: `${updated.assigned_to_name ?? "الميديا باير"} أكمل: ${updated.title}`,
       url: "/tasks",
-    }).catch(() => null);
+      metadata: { taskId: updated.id, assignedToId: updated.assigned_to_id },
+    });
 
     return res.json({ ...withMedia, opus_score: calcScore(updated) });
   }
@@ -422,6 +434,20 @@ router.patch("/tasks/:id", async (req, res) => {
         assigned_to_name ?? null, newDeadline, success_metric ?? null,
         status ?? null, notes ?? null]);
     const [withMedia] = await attachMedia([updated]);
+    if (
+      assigned_to_id !== undefined &&
+      assigned_to_id !== null &&
+      assigned_to_id !== task.assigned_to_id
+    ) {
+      await createInboxAndPush({
+        eventType: "task_assigned",
+        recipientUserIds: [assigned_to_id],
+        title: "مهمة مسندة لك",
+        body: updated.title,
+        url: "/tasks",
+        metadata: { taskId: updated.id },
+      });
+    }
     return res.json(withMedia);
   }
 

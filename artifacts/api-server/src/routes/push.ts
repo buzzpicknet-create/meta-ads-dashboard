@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "../lib/db";
 import { getVapidPublicKey, sendPushToUser, sendPushToRoles, logNotificationEvent } from "../lib/push";
+import { assertValidRoles } from "../lib/notification-rules";
 
 interface NotifSetting {
   event_type: string;
@@ -73,6 +74,9 @@ router.post("/push/broadcast", async (req, res) => {
     }
     if (!Array.isArray(roles) || roles.length === 0) {
       return res.status(400).json({ error: "اختر مستقبلاً واحداً على الأقل" });
+    }
+    if (!assertValidRoles(roles)) {
+      return res.status(400).json({ error: "Invalid recipient role" });
     }
     await sendPushToRoles(roles, {
       title: title.trim(),
@@ -156,6 +160,9 @@ router.put("/push/settings", async (req, res) => {
     const { settings } = req.body as { settings: NotifSetting[] };
     if (!Array.isArray(settings)) return res.status(400).json({ error: "Invalid body" });
     for (const s of settings) {
+      if (!Array.isArray(s.recipient_roles) || !assertValidRoles(s.recipient_roles)) {
+        return res.status(400).json({ error: "Invalid recipient role" });
+      }
       await query(
         `UPDATE notification_settings SET enabled = $2, recipient_roles = $3 WHERE event_type = $1`,
         [s.event_type, s.enabled, s.recipient_roles]

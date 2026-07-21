@@ -2,6 +2,7 @@ import webpush from "web-push";
 import { query } from "./db";
 import { logger } from "./logger";
 import { randomUUID } from "crypto";
+import { assertValidRoles, dedupeUserIds } from "./notification-rules";
 
 interface PushSubscriptionRow {
   id: number;
@@ -80,13 +81,25 @@ async function sendToSubs(subs: PushSubscriptionRow[], payload: PushPayload) {
       (r.status === "fulfilled" && r.value.statusCode === 410)
     ) {
       expired.push(sub.id);
+      logger.warn(
+        {
+          subscriptionId: sub.id,
+          userId: sub.user_id,
+          notificationId,
+          err: r.status === "rejected" ? r.reason : undefined,
+          statusCode: r.status === "fulfilled" ? r.value.statusCode : undefined,
+        },
+        "Push notification delivery failed",
+      );
     } else {
       // Log successful sends
       await query(
         `INSERT INTO notification_log (notification_id, user_id, title, body, url, sent_at)
          VALUES ($1, $2, $3, $4, $5, NOW())`,
         [notificationId, sub.user_id, payload.title, payload.body, payload.url ?? null]
-      ).catch(() => null);
+      ).catch((err) => {
+        logger.warn({ err, notificationId, userId: sub.user_id }, "Push notification log insert failed");
+      });
     }
   }
   if (expired.length > 0) {
@@ -110,6 +123,10 @@ export async function logNotificationEvent(
 export async function sendPushToRoles(roles: string[], payload: PushPayload) {
   if (!vapidPublicKey) return;
   try {
+    if (!assertValidRoles(roles)) {
+      logger.warn({ roles }, "sendPushToRoles rejected invalid role");
+      return;
+    }
     const subs = await query<PushSubscriptionRow>(
       `SELECT ps.* FROM push_subscriptions ps
        JOIN users u ON u.id = ps.user_id
@@ -160,6 +177,10 @@ export async function sendPushForEvent(eventType: string, payload: PushPayload) 
     );
     const setting = rows[0];
     if (!setting || !setting.enabled || setting.recipient_roles.length === 0) return;
+    if (!assertValidRoles(setting.recipient_roles)) {
+      logger.warn({ eventType, roles: setting.recipient_roles }, "Notification setting contains invalid role");
+      return;
+    }
     await sendPushToRoles(setting.recipient_roles, payload);
   } catch (err) {
     logger.warn({ err }, "sendPushForEvent failed");
@@ -177,6 +198,23 @@ export async function sendPushToUser(userId: number, payload: PushPayload) {
     return subs.length;
   } catch (err) {
     logger.warn({ err }, "sendPushToUser failed");
+    return 0;
+  }
+}
+
+export async function sendPushToUserIds(userIds: number[], payload: PushPayload) {
+  if (!vapidPublicKey) return 0;
+  const safeUserIds = dedupeUserIds(userIds);
+  if (!safeUserIds.length) return 0;
+  try {
+    const subs = await query<PushSubscriptionRow>(
+      `SELECT * FROM push_subscriptions WHERE user_id = ANY($1::int[])`,
+      [safeUserIds]
+    );
+    await sendToSubs(subs, payload);
+    return subs.length;
+  } catch (err) {
+    logger.warn({ err, userIds: safeUserIds }, "sendPushToUserIds failed");
     return 0;
   }
 }

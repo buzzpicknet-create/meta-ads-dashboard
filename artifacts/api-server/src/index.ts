@@ -258,6 +258,15 @@ async function runMigrations() {
     )
   `);
   await query(`
+    ALTER TABLE notification_settings
+    DROP CONSTRAINT IF EXISTS notification_settings_valid_roles
+  `);
+  await query(`
+    ALTER TABLE notification_settings
+    ADD CONSTRAINT notification_settings_valid_roles
+    CHECK (recipient_roles <@ ARRAY['admin','media_manager','media_buyer']::text[])
+  `);
+  await query(`
     INSERT INTO notification_settings (event_type, enabled, recipient_roles) VALUES
       ('manual_request_created', true, ARRAY['media_manager']),
       ('request_completed', true, ARRAY['admin','media_buyer']),
@@ -303,10 +312,50 @@ async function runMigrations() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await query(`ALTER TABLE ai_notifications ADD COLUMN IF NOT EXISTS recipient_user_id INT REFERENCES users(id)`);
+  await query(`ALTER TABLE ai_notifications ADD COLUMN IF NOT EXISTS recipient_role VARCHAR(20)`);
+  await query(`ALTER TABLE ai_notifications ADD COLUMN IF NOT EXISTS account_id VARCHAR(50)`);
+  await query(`
+    ALTER TABLE ai_notifications
+    DROP CONSTRAINT IF EXISTS ai_notifications_valid_recipient_role
+  `);
+  await query(`
+    ALTER TABLE ai_notifications
+    ADD CONSTRAINT ai_notifications_valid_recipient_role
+    CHECK (recipient_role IS NULL OR recipient_role IN ('admin','media_manager','media_buyer'))
+  `);
   await query(`
     CREATE INDEX IF NOT EXISTS idx_ai_notifications_active
     ON ai_notifications (created_at DESC)
     WHERE is_executed = FALSE
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_ai_notifications_recipient_user
+    ON ai_notifications (recipient_user_id, created_at DESC)
+    WHERE is_executed = FALSE
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_ai_notifications_recipient_role
+    ON ai_notifications (recipient_role, created_at DESC)
+    WHERE is_executed = FALSE
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_notifications (
+      id SERIAL PRIMARY KEY,
+      recipient_user_id INT NOT NULL REFERENCES users(id),
+      event_type VARCHAR(80) NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      url TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}',
+      is_read BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_app_notifications_recipient_unread
+    ON app_notifications (recipient_user_id, is_read, created_at DESC)
   `);
 
   // CPA alert log — tracks sent push notifications to avoid duplicates

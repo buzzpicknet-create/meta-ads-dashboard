@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query } from "../lib/db";
 import { runMediaScan } from "../lib/media-scan";
 import { sendPushForEvent } from "../lib/push";
+import { createInboxAndPush, findBuyerIdsForAccountOrCampaign } from "../lib/notifications";
 import "../lib/auth-middleware";
 
 const router = Router();
@@ -188,11 +189,23 @@ router.patch("/media-requests/:id", async (req, res) => {
     if (prev.status !== updated.status) {
       const name = updated.campaign_name.slice(0, 40);
       if (updated.status === "completed") {
-        sendPushForEvent("request_completed", {
-          title: "✅ طلب ميديا مكتمل",
+        const buyerIds = await findBuyerIdsForAccountOrCampaign({
+          accountId: updated.account_id,
+          campaignId: updated.campaign_id,
+        });
+        await createInboxAndPush({
+          eventType: "request_completed",
+          recipientRoles: ["admin"],
+          recipientUserIds: buyerIds,
+          title: "طلب ميديا مكتمل",
           body: `تم تسليم الميديا لحملة "${name}"`,
           url: "/media",
-        }).catch(() => null);
+          metadata: {
+            requestId: updated.id,
+            campaignId: updated.campaign_id,
+            accountId: updated.account_id,
+          },
+        });
       } else if (updated.status === "rejected") {
         sendPushForEvent("request_rejected", {
           title: "🔴 طلب ميديا مرفوض",

@@ -67,6 +67,7 @@ interface AiNotification {
 function AiWatchdogBell() {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<AiNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [executing, setExecuting] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -77,8 +78,9 @@ function AiWatchdogBell() {
     try {
       const r = await fetch(`${API_BASE}/api/ai/notifications`, { credentials: "include" });
       if (r.ok) {
-        const d = await r.json() as { notifications: AiNotification[] };
+        const d = await r.json() as { notifications: AiNotification[]; unread_count?: number };
         setNotifications(d.notifications ?? []);
+        setUnreadCount(d.unread_count ?? 0);
       }
     } catch { /* silent */ }
   }, []);
@@ -96,16 +98,11 @@ function AiWatchdogBell() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const unread = notifications.filter((n) => !n.is_read).length;
-
   const markAllRead = useCallback(() => {
-    notifications
-      .filter((n) => !n.is_read)
-      .forEach((n) => {
-        fetch(`${API_BASE}/api/ai/notifications/${n.id}/read`, { method: "POST", credentials: "include" }).catch(() => {});
-      });
+    fetch(`${API_BASE}/api/ai/notifications/read-all`, { method: "POST", credentials: "include" }).catch(() => {});
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-  }, [notifications]);
+    setUnreadCount(0);
+  }, []);
 
   const execute = useCallback(async (id: number) => {
     setExecuting(id);
@@ -161,9 +158,9 @@ function AiWatchdogBell() {
         className="relative inline-flex items-center justify-center h-8 w-8 rounded-lg transition-colors text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
       >
         <ShieldAlert className="h-4 w-4" />
-        {unread > 0 && (
+        {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 h-4 w-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none animate-pulse">
-            {unread > 9 ? "9+" : unread}
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
