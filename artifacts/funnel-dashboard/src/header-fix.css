@@ -1,0 +1,67 @@
+/* Desktop dashboard header polish.
+   Keep the existing nav structure but prevent the crowded horizontal scrollbar. */
+@media (min-width: 640px) {
+  nav.sticky.top-0 {
+    overflow: visible;
+  }
+
+  nav.sticky.top-0 > div {
+    max-width: none !important;
+    width: 100% !important;
+    padding-inline: 18px !important;
+  }
+
+  nav.sticky.top-0 > div > div {
+    height: auto !important;
+    min-height: 58px;
+    padding-block: 8px;
+    gap: 12px !important;
+  }
+
+  nav.sticky.top-0 .overflow-x-auto {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: visible !important;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    column-gap: 2px !important;
+    row-gap: 4px !important;
+    scrollbar-width: none;
+  }
+
+  nav.sticky.top-0 .overflow-x-auto::-webkit-scrollbar {
+    display: none;
+  }
+
+  nav.sticky.top-0 .overflow-x-auto > a {
+    padding-inline: 9px !important;
+    padding-block: 6px !important;
+    gap: 5px !important;
+    font-size: 12px !important;
+    line-height: 1.1rem !important;
+    border-radius: 10px !important;
+  }
+
+  nav.sticky.top-0 .overflow-x-auto > a svg {
+    width: 15px !important;
+    height: 15px !important;
+    flex: none;
+  }
+
+  nav.sticky.top-0 > div > div > div:first-child,
+  nav.sticky.top-0 > div > div > div:last-child {
+    flex: 0 0 auto;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1180px) {
+  nav.sticky.top-0 .overflow-x-auto > a {
+    padding-inline: 7px !important;
+    font-size: 11px !important;
+  }
+
+  nav.sticky.top-0 > div > div {
+    align-items: flex-start;
+  }
+}
