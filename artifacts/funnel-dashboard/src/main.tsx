@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import CreativeRoutinePreview from "./pages/CreativeRoutinePreview";
 import "./index.css";
 import "./header-fix.css";
 
@@ -10,4 +11,8 @@ w.__API_URL__ = "";
 import { setBaseUrl } from "@workspace/api-client-react";
 setBaseUrl(w.__API_URL__);
 
-createRoot(document.getElementById("root")!).render(<App />);
+const isCreativeRoutinePreview = window.location.pathname === "/creative-routine-preview";
+
+createRoot(document.getElementById("root")!).render(
+  isCreativeRoutinePreview ? <CreativeRoutinePreview /> : <App />,
+);
