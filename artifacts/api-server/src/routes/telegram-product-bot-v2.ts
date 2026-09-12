@@ -7,6 +7,24 @@ type Media = { type: "image" | "video"; url: string; thumbnail_url?: string | nu
 
 function token() { return String(process.env.TELEGRAM_BOT_TOKEN || "").trim(); }
 function secret() { return token() ? createHash("sha256").update(`${token()}:${process.env.SESSION_SECRET || "dealme"}`).digest("hex") : ""; }
+function api(method: string) { return `https://api.telegram.org/bot${token()}/${method}`; }
+
+async function telegram(method: string, body: Record<string, unknown>) {
+  if (!token()) return null;
+  const r = await fetch(api(method), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(12000),
+  });
+  const data = await r.json() as any;
+  if (!r.ok || !data?.ok) throw new Error(data?.description || `Telegram API ${r.status}`);
+  return data.result;
+}
+
+async function ack(chatId: number, text: string) {
+  try { await telegram("sendMessage", { chat_id: chatId, text }); } catch { /* non-fatal */ }
+}
 
 function senderName(m: any) {
   const u = m?.from || {};
@@ -20,13 +38,56 @@ function sourceName(m: any) {
   if (o?.type === "hidden_user") return o.sender_user_name || "Telegram";
   return m?.forward_from_chat?.title || m?.forward_from_chat?.username || "Telegram";
 }
+
+function privateChannelPart(chatId: unknown) {
+  const n = Number(chatId);
+  if (!Number.isFinite(n)) return null;
+  const raw = String(Math.trunc(Math.abs(n)));
+  return raw.startsWith("100") ? raw.slice(3) : raw;
+}
+
+function sourcePostLink(m: any): string | null {
+  const o = m?.forward_origin;
+  if (o?.type === "channel") {
+    const postId = Number(o.message_id);
+    const chat = o.chat || {};
+    if (!Number.isFinite(postId)) return null;
+    if (chat.username) return `https://t.me/${chat.username}/${postId}`;
+    const internal = privateChannelPart(chat.id);
+    return internal ? `https://t.me/c/${internal}/${postId}` : null;
+  }
+  const legacyChat = m?.forward_from_chat;
+  const legacyPost = Number(m?.forward_from_message_id);
+  if (legacyChat && Number.isFinite(legacyPost)) {
+    if (legacyChat.username) return `https://t.me/${legacyChat.username}/${legacyPost}`;
+    const internal = privateChannelPart(legacyChat.id);
+    return internal ? `https://t.me/c/${internal}/${legacyPost}` : null;
+  }
+  return null;
+}
+
+function proxy(fileId: string) {
+  return `/api/telegram-product-bot/media/${encodeURIComponent(fileId)}`;
+}
 function mediaFor(m: any): Media[] {
   if (Array.isArray(m?.photo) && m.photo.length) {
     const best = [...m.photo].sort((a, b) => ((b.file_size || 0) - (a.file_size || 0)) || ((b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0)))[0];
-    return best?.file_id ? [{ type: "image", url: `/api/telegram-product-bot/media/${encodeURIComponent(best.file_id)}` }] : [];
+    return best?.file_id ? [{ type: "image", url: proxy(best.file_id) }] : [];
   }
   if (m?.video?.file_id) {
-    return [{ type: "video", url: `/api/telegram-product-bot/media/${encodeURIComponent(m.video.file_id)}`, thumbnail_url: m.video.thumbnail?.file_id ? `/api/telegram-product-bot/media/${encodeURIComponent(m.video.thumbnail.file_id)}` : null }];
+    return [{ type: "video", url: proxy(m.video.file_id), thumbnail_url: m.video.thumbnail?.file_id ? proxy(m.video.thumbnail.file_id) : null }];
+  }
+  if (m?.animation?.file_id) {
+    return [{ type: "video", url: proxy(m.animation.file_id), thumbnail_url: m.animation.thumbnail?.file_id ? proxy(m.animation.thumbnail.file_id) : null }];
+  }
+  if (m?.video_note?.file_id) {
+    return [{ type: "video", url: proxy(m.video_note.file_id), thumbnail_url: m.video_note.thumbnail?.file_id ? proxy(m.video_note.thumbnail.file_id) : null }];
+  }
+  if (m?.document?.file_id) {
+    const mime = String(m.document.mime_type || "").toLowerCase();
+    const name = String(m.document.file_name || "").toLowerCase();
+    if (mime.startsWith("image/") || /\.(jpg|jpeg|png|webp|gif)$/i.test(name)) return [{ type: "image", url: proxy(m.document.file_id) }];
+    if (mime.startsWith("video/") || /\.(mp4|mov|webm|m4v)$/i.test(name)) return [{ type: "video", url: proxy(m.document.file_id), thumbnail_url: m.document.thumbnail?.file_id ? proxy(m.document.thumbnail.file_id) : null }];
   }
   return [];
 }
@@ -54,81 +115,84 @@ async function ensureTable() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
 }
 
-function chooseChannel(current: string | null | undefined, incoming: string) {
-  const cur = String(current || "").trim();
-  if (!cur || cur === "Telegram" || cur === "Telegram Channel" || cur === "Telegram Chat") return incoming;
-  return cur;
-}
-
-async function mergeInto(row: any, media: Media[], text: string | null, channel: string) {
-  const current: Media[] = Array.isArray(row.media) ? row.media : [];
-  const seen = new Set(current.map(x => x.url));
-  const merged = [...current, ...media.filter(x => !seen.has(x.url))];
-  const oldText = String(row.description || "").trim();
-  const desc = oldText || text;
-  const cover = row.image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
-  const channelName = chooseChannel(row.channel_name, channel);
-  await query(`UPDATE product_hunting_items SET
-    media=$1::jsonb,
-    image_url=$2,
-    description=$3,
-    title=$4,
-    channel_name=$5,
-    target_price_egp=COALESCE(target_price_egp,$6),
-    notes='تم تجميع Forward متعدد الرسائل تلقائياً في منتج واحد.',
-    updated_at=NOW()
-    WHERE id=$7`,
-    [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channelName), channelName, egp(desc || null), row.id]);
-}
-
 async function ingest(m: any) {
   await ensureTable();
   const chatId = Number(m?.chat?.id);
   const messageId = Number(m?.message_id);
   if (!Number.isFinite(chatId) || !Number.isFinite(messageId)) return;
   const text = String(m?.caption || m?.text || "").trim() || null;
-  if (text?.startsWith("/start")) return;
+  if (text?.startsWith("/start")) {
+    await ack(chatId, "ابعت أو اعمل Forward لبوست المنتج هنا، وأنا هجمع النص والصور والفيديوهات في منتج واحد داخل Product Hunting.");
+    return;
+  }
 
   const sender = senderName(m);
   const channel = sourceName(m);
   const media = mediaFor(m);
+  const originalLink = sourcePostLink(m);
   const group = m?.media_group_id ? String(m.media_group_id) : null;
+  const normalized = group ? `telegram-bot://chat/${chatId}/album/${group}` : `telegram-bot://chat/${chatId}/message/${messageId}`;
 
-  // First try to attach every selected/forwarded message to the latest burst from the same user/chat.
-  // Telegram can report different forward source metadata for text vs media, so source label is deliberately ignored here.
+  if (group) {
+    const rows = await query<any>(`SELECT * FROM product_hunting_items WHERE normalized_url=$1 LIMIT 1`, [normalized]);
+    if (rows[0]) {
+      const current: Media[] = Array.isArray(rows[0].media) ? rows[0].media : [];
+      const seen = new Set(current.map(x => x.url));
+      const merged = [...current, ...media.filter(x => !seen.has(x.url))];
+      const desc = String(rows[0].description || "").trim() || text;
+      const cover = rows[0].image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
+      await query(`UPDATE product_hunting_items SET media=$1::jsonb, image_url=$2, description=$3,
+        title=$4, target_price_egp=COALESCE(target_price_egp,$5),
+        source_url=CASE WHEN $6::text IS NOT NULL THEN $6 ELSE source_url END,
+        channel_name=CASE WHEN channel_name IS NULL OR channel_name='' OR channel_name='Telegram' THEN $7 ELSE channel_name END,
+        updated_at=NOW() WHERE id=$8`,
+        [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channel), egp(desc || null), originalLink, channel, rows[0].id]);
+      if (text) await ack(chatId, `✅ تم تحديث المنتج وتجميع ${merged.length} ملف ميديا مع النص.`);
+      return;
+    }
+  }
+
   const recent = await query<any>(`SELECT * FROM product_hunting_items
-    WHERE source_type='telegram_bot'
-      AND source_url LIKE $1
-      AND added_by_name=$2
-      AND updated_at >= NOW() - INTERVAL '25 seconds'
+    WHERE source_type='telegram_bot' AND normalized_url LIKE $1 AND added_by_name=$2
+      AND updated_at >= NOW() - INTERVAL '20 seconds'
     ORDER BY updated_at DESC LIMIT 1`, [`telegram-bot://chat/${chatId}/%`, sender]);
 
   if (recent[0]) {
     const oldText = String(recent[0].description || "").trim();
-    const hasOldMedia = Array.isArray(recent[0].media) && recent[0].media.length > 0;
-    const isComplementary = (!oldText && !!text) || (!hasOldMedia && media.length > 0) || (!!oldText && !text && media.length > 0) || (!oldText && !text && media.length > 0);
-    if (isComplementary) {
-      await mergeInto(recent[0], media, text, channel);
-      return;
+    const current: Media[] = Array.isArray(recent[0].media) ? recent[0].media : [];
+    const recentComplete = Boolean(oldText && current.length > 0);
+    const incomingIsMediaOnly = !text && media.length > 0;
+
+    // Do not attach the beginning of a NEW product to an already complete previous product.
+    if (!(recentComplete && incomingIsMediaOnly)) {
+      if (!(oldText && text)) {
+        const seen = new Set(current.map(x => x.url));
+        const merged = [...current, ...media.filter(x => !seen.has(x.url))];
+        const desc = oldText || text;
+        const cover = recent[0].image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
+        await query(`UPDATE product_hunting_items SET media=$1::jsonb, image_url=$2, description=$3, title=$4,
+          target_price_egp=COALESCE(target_price_egp,$5),
+          source_url=CASE WHEN $6::text IS NOT NULL THEN $6 ELSE source_url END,
+          channel_name=CASE WHEN channel_name IS NULL OR channel_name='' OR channel_name='Telegram' THEN $7 ELSE channel_name END,
+          notes='تم تجميع Forward متعدد الرسائل تلقائياً في منتج واحد.', updated_at=NOW() WHERE id=$8`,
+          [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channel), egp(desc || null), originalLink, channel, recent[0].id]);
+        if (text) await ack(chatId, `✅ تم إضافة المنتج وتجميع ${merged.length} صورة/فيديو مع النص.`);
+        return;
+      }
     }
   }
 
-  // Albums still use Telegram's media_group_id so all album parts collapse to one card.
-  if (group) {
-    const norm = `telegram-bot://chat/${chatId}/album/${group}`;
-    const rows = await query<any>(`SELECT * FROM product_hunting_items WHERE normalized_url=$1 LIMIT 1`, [norm]);
-    if (rows[0]) {
-      await mergeInto(rows[0], media, text, channel);
-      return;
-    }
-  }
-
-  const norm = group ? `telegram-bot://chat/${chatId}/album/${group}` : `telegram-bot://chat/${chatId}/message/${messageId}`;
   const cover = media.find(x => x.type === "image")?.url || media.find(x => x.thumbnail_url)?.thumbnail_url || null;
   await query(`INSERT INTO product_hunting_items
     (source_url,normalized_url,source_type,title,description,image_url,media,channel_name,target_price_egp,added_by_name)
-    VALUES ($1,$1,'telegram_bot',$2,$3,$4,$5::jsonb,$6,$7,$8) ON CONFLICT (normalized_url) DO NOTHING`,
-    [norm, titleFrom(text, channel), text, cover, JSON.stringify(media), channel, egp(text), sender]);
+    VALUES ($1,$2,'telegram_bot',$3,$4,$5,$6::jsonb,$7,$8,$9) ON CONFLICT (normalized_url) DO NOTHING`,
+    [originalLink || normalized, normalized, titleFrom(text, channel), text, cover, JSON.stringify(media), channel, egp(text), sender]);
+
+  if (text) {
+    await ack(chatId, media.length
+      ? `✅ تم إضافة المنتج إلى Product Hunting ومعاه ${media.length} صورة/فيديو.`
+      : "✅ تم استلام النص وإضافة المنتج. لو كنت مختار الميديا معاه هتتجمع تلقائياً خلال ثواني.");
+  }
 }
 
 router.post("/telegram-product-bot/webhook", async (req: Request, res: Response) => {
