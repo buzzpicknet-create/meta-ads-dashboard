@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight, Bot, CheckCircle2, ChevronDown, ChevronUp, Clock3, ExternalLink,
+  ArrowRight, CheckCircle2, ChevronDown, ChevronUp, Clock3, ExternalLink,
   Film, FolderOpen, Link2, Loader2, Package, Play, RefreshCw, Save,
   Sparkles, Users,
 } from "lucide-react";
@@ -49,15 +49,24 @@ type LandingLibraryItem = {
   publishedAt: string | null;
 };
 
+type ShopifyStore = {
+  id: number;
+  domain?: string;
+  shopName?: string;
+};
+
+type ShopifySimpleProduct = {
+  id: string;
+  title: string;
+  handle: string;
+};
+
 type QueueItem = Product & {
   stock: number;
   sold7: number;
   dailyRate7: number;
   sold30: number;
   priorityScore: number;
-  angle: string;
-  hook: string;
-  visual: string;
 };
 
 const LANDING_LIBRARY_URL = "https://google.ecom-egypt.com/api/integrations/meta/landing-pages?latestPerProduct=true&limit=200";
@@ -100,13 +109,8 @@ function findLanding(product: Product, items: LandingLibraryItem[]) {
   return byName?.landingPageUrl || "";
 }
 
-function buildSafeBrief(product: Product, sold30: number) {
-  const lowSales = sold30 <= 3;
-  return {
-    angle: lowSales ? "إعادة تقديم المنتج بوضوح واختبار سبب ضعف الطلب" : "اختبار زاوية استخدام جديدة بدون تغيير حقيقة المنتج",
-    hook: `ابدأ أول 3 ثواني بإظهار ${product.name} نفسه أو استخدامه الحقيقي كما هو موضح في اللاندينج. ممنوع افتراض فائدة أو استخدام غير موجود في الصفحة.`,
-    visual: "افتح اللاندينج أولًا وحدد الوظيفة الأساسية والميزة البصرية الواضحة فقط. اختَر أقوى لقطة Demo موجودة في الماتريال، ثم اعرض المشكلة/الاستخدام والنتيجة الحقيقية بدون وعود طبية أو مبالغات أو Claims غير مكتوبة في الصفحة.",
-  };
+function publicProductBase(store: Product["sourceStore"]) {
+  return store === "dealme" ? "https://www.dealme-eg.com/products/" : "https://buzzpick.net/products/";
 }
 
 function kpi(label: string, value: string | number, sub: string) {
@@ -123,6 +127,7 @@ export default function CreativeRoutinePreview() {
   const [products, setProducts] = useState<Product[]>([]);
   const [rates, setRates] = useState<Record<number, SalesRate>>({});
   const [records, setRecords] = useState<Record<number, RoutineRecord>>({});
+  const [productUrls, setProductUrls] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dailyLimit, setDailyLimit] = useState(8);
@@ -148,6 +153,43 @@ export default function CreativeRoutinePreview() {
     }
   }
 
+  async function loadShopifyProductUrls(productList: Product[]) {
+    try {
+      const storesRes = await fetch("/api/shopify/stores", { credentials: "include" });
+      if (!storesRes.ok) return;
+      const storesData = await storesRes.json() as { stores?: ShopifyStore[] };
+      const stores = Array.isArray(storesData.stores) ? storesData.stores : [];
+      if (!stores.length) return;
+
+      const lists = await Promise.allSettled(stores.map(async (store) => {
+        const res = await fetch(`/api/shopify/products-simple?storeId=${store.id}`, { credentials: "include" });
+        if (!res.ok) return [] as ShopifySimpleProduct[];
+        const data = await res.json() as { products?: ShopifySimpleProduct[] };
+        return Array.isArray(data.products) ? data.products : [];
+      }));
+
+      const handleById = new Map<string, string>();
+      for (const result of lists) {
+        if (result.status !== "fulfilled") continue;
+        for (const p of result.value) {
+          if (p.id && p.handle && !handleById.has(String(p.id))) {
+            handleById.set(String(p.id), p.handle);
+          }
+        }
+      }
+
+      const nextUrls: Record<number, string> = {};
+      for (const product of productList) {
+        const handle = handleById.get(String(product.sourceProductId));
+        if (!handle) continue;
+        nextUrls[product.id] = `${publicProductBase(product.sourceStore)}${encodeURIComponent(handle)}`;
+      }
+      setProductUrls(nextUrls);
+    } catch {
+      // Shopify fallback is optional; landing links continue to work if unavailable.
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -164,6 +206,7 @@ export default function CreativeRoutinePreview() {
       const p = await pRes.json() as Product[];
       const productList = Array.isArray(p) ? p : [];
       setProducts(productList);
+      void loadShopifyProductUrls(productList);
 
       if (rRes.ok) {
         const r = await rRes.json() as { rates?: Record<number, SalesRate> };
@@ -244,15 +287,12 @@ export default function CreativeRoutinePreview() {
       const noSalesBoost = sold30 === 0 ? 100000 : 0;
       const lowSalesBoost = Math.max(0, 10000 - (sold30 * 100));
       const stockBoost = Math.min(5000, Math.max(0, p.stock));
-      const priorityScore = noSalesBoost + lowSalesBoost + stockBoost;
-      const brief = buildSafeBrief(p, sold30);
       return {
         ...p,
         sold7,
         dailyRate7,
         sold30,
-        priorityScore,
-        ...brief,
+        priorityScore: noSalesBoost + lowSalesBoost + stockBoost,
       };
     })
     .sort((a, b) => {
@@ -351,7 +391,7 @@ export default function CreativeRoutinePreview() {
           <div>
             <div className="mb-1 flex items-center gap-2 text-xs font-bold text-primary"><Sparkles className="h-4 w-4" /> Creative Operations Queue</div>
             <h1 className="text-3xl font-black">مهام الكريتف اليومية</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">الأولوية الآن للمنتجات اللي عليها ستوك ومبيعاتها صفر أو قليلة. عند تساوي المبيعات، المنتج ذو الستوك الأكبر يطلع أولًا.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">الأولوية للمنتجات اللي عليها ستوك ومبيعاتها صفر أو قليلة. لو مفيش Landing Page، النظام يعرض صفحة المنتج الأصلية من Shopify تلقائيًا.</p>
             {libraryImported > 0 && <div className="mt-2 text-xs font-bold text-emerald-600">تم استيراد {libraryImported} رابط لاندينج تلقائيًا من المكتبة.</div>}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -379,8 +419,7 @@ export default function CreativeRoutinePreview() {
           <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><Package className="h-4 w-4 text-primary" /> ستوك متاح</span><span>→</span>
             <span>أقل مبيعات</span><span>→</span>
-            <span className="inline-flex items-center gap-1.5"><Link2 className="h-4 w-4 text-primary" /> لاندينج + ماتريال</span><span>→</span>
-            <span className="inline-flex items-center gap-1.5"><Bot className="h-4 w-4 text-primary" /> بريف محافظ</span><span>→</span>
+            <span className="inline-flex items-center gap-1.5"><Link2 className="h-4 w-4 text-primary" /> لاندينج أو صفحة المنتج</span><span>→</span>
             <span className="inline-flex items-center gap-1.5"><Film className="h-4 w-4 text-primary" /> مونتاج</span><span>→</span>
             <span className="inline-flex items-center gap-1.5"><FolderOpen className="h-4 w-4 text-primary" /> Drive</span><span>→</span>
             <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-emerald-500" /> مراجعة</span>
@@ -397,6 +436,10 @@ export default function CreativeRoutinePreview() {
               const isOpen = expanded === item.id;
               const d = getDraft(item.id);
               const materialLinks = splitLinks(d.materials);
+              const fallbackProductUrl = productUrls[item.id] || "";
+              const primaryProductUrl = d.landing && looksLikeUrl(d.landing) ? d.landing : fallbackProductUrl;
+              const hasLanding = !!(d.landing && looksLikeUrl(d.landing));
+
               return (
                 <article key={item.id} className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
                   <div className="p-5">
@@ -423,9 +466,12 @@ export default function CreativeRoutinePreview() {
                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
                       <div className="rounded-xl border border-border p-3">
                         <div className="mb-1 text-[11px] font-black text-muted-foreground">صفحة المنتج</div>
-                        {d.landing && looksLikeUrl(d.landing) ? (
-                          <a href={d.landing} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm font-bold text-primary hover:underline"><ExternalLink className="h-3.5 w-3.5" /> فتح اللاندينج بيدج</a>
-                        ) : <div className="text-sm text-amber-500">لم يتم ربط اللاندينج بعد</div>}
+                        {primaryProductUrl ? (
+                          <a href={primaryProductUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-sm font-bold text-primary hover:underline">
+                            <ExternalLink className="h-3.5 w-3.5" /> {hasLanding ? "فتح اللاندينج بيدج" : "فتح صفحة المنتج على Shopify"}
+                          </a>
+                        ) : <div className="text-sm text-amber-500">لم يتم العثور على صفحة للمنتج</div>}
+                        {!hasLanding && fallbackProductUrl && <div className="mt-1 text-[11px] text-muted-foreground">لا توجد Landing Page مرتبطة، تم استخدام صفحة المنتج الأصلية.</div>}
                       </div>
                       <div className="rounded-xl border border-border p-3">
                         <div className="mb-1 text-[11px] font-black text-muted-foreground">ماتريال الشغل</div>
@@ -433,20 +479,12 @@ export default function CreativeRoutinePreview() {
                       </div>
                     </div>
 
-                    <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
-                      <div className="mb-2 flex items-center gap-2 text-xs font-black text-primary"><Bot className="h-4 w-4" /> البريف المقترح</div>
-                      <div className="space-y-2 text-sm">
-                        <p><span className="font-bold text-muted-foreground">الهدف:</span> <b>{item.angle}</b></p>
-                        <p className="leading-6"><span className="font-bold text-muted-foreground">الهوك:</span> {item.hook}</p>
-                        <p className="leading-6"><span className="font-bold text-muted-foreground">قاعدة التنفيذ:</span> راجع اللاندينج قبل المونتاج؛ البريف لا يضيف أي Claim أو استخدام من عنده.</p>
-                      </div>
-                    </div>
-
                     {isOpen && (
                       <div className="mt-4 space-y-4 rounded-2xl bg-muted/35 p-4">
                         <div>
                           <div className="mb-1.5 flex items-center gap-2 text-sm font-black"><Link2 className="h-4 w-4 text-primary" /> لينك اللاندينج بيدج</div>
-                          <input value={d.landing} onChange={(e) => updateDraft(item.id, { landing: e.target.value })} dir="ltr" placeholder="https://dealme-eg.com/pages/..." className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
+                          <input value={d.landing} onChange={(e) => updateDraft(item.id, { landing: e.target.value })} dir="ltr" placeholder="اختياري — لو مفيش لاندينج هنستخدم صفحة Shopify تلقائيًا" className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
+                          {!d.landing && fallbackProductUrl && <a href={fallbackProductUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"><ExternalLink className="h-3 w-3" /> فتح صفحة Shopify الحالية</a>}
                         </div>
                         <div>
                           <div className="mb-1.5 flex items-center gap-2 text-sm font-black"><Film className="h-4 w-4 text-primary" /> الماتريال المصدر</div>
@@ -457,10 +495,6 @@ export default function CreativeRoutinePreview() {
                           <div className="mb-1.5 flex items-center gap-2 text-sm font-black"><FolderOpen className="h-4 w-4 text-primary" /> تسليم الشغل — Google Drive</div>
                           <input value={d.output} onChange={(e) => updateDraft(item.id, { output: e.target.value })} dir="ltr" placeholder="https://drive.google.com/..." className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
                           <p className="mt-1.5 text-xs text-muted-foreground">بعد ما يبدأ المهمة، يحط هنا لينك فولدر أو ملف Drive النهائي. لن يقدر يرسل للمراجعة بدون اللينك.</p>
-                        </div>
-                        <div><span className="font-black text-sm">Visual Hook</span><p className="mt-1 text-sm leading-6 text-muted-foreground">{item.visual}</p></div>
-                        <div className="grid gap-2 sm:grid-cols-4">
-                          {["0–3ث: المنتج/المشكلة", "3–7ث: الاستخدام الحقيقي", "7–14ث: Demo", "14–18ث: CTA"].map((x) => <div key={x} className="rounded-xl border border-border bg-background p-2.5 text-center text-xs font-bold">{x}</div>)}
                         </div>
                         <button onClick={() => saveLinks(item.id)} disabled={savingId === item.id} className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-bold hover:bg-muted disabled:opacity-50">
                           {savingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} حفظ اللينكات
@@ -486,7 +520,7 @@ export default function CreativeRoutinePreview() {
         )}
 
         <section className="rounded-2xl border border-dashed border-border bg-muted/20 p-5">
-          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">منطق الاختيار الجديد</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">يدخل الطابور فقط المنتج اللي عليه ستوك. بعد كده الترتيب: أقل مبيعات 30 يوم أولًا، ثم أقل مبيعات 7 أيام، ثم الستوك الأكبر. البريف لم يعد عشوائيًا ولا يفترض وظيفة المنتج؛ لازم يعتمد على اللاندينج والماتريال الفعلي.</p></div></div>
+          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">منطق الاختيار</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">يدخل الطابور فقط المنتج اللي عليه ستوك. الترتيب: أقل مبيعات 30 يوم أولًا، ثم أقل مبيعات 7 أيام، ثم الستوك الأكبر. لا يوجد بريف تلقائي في الصفحة؛ المونتير يعتمد على صفحة المنتج والماتريال الفعلي.</p></div></div>
         </section>
       </main>
     </div>
