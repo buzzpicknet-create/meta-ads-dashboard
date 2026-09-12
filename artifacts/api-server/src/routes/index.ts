@@ -23,6 +23,7 @@ import landingPageRecordsRouter from "./landing-page-records";
 import shopifyStoresRouter, { shopifyPublicRouter } from "./shopify-stores";
 import productHuntingRouter from "./product-hunting";
 import productHuntingPrivateGuardRouter from "./product-hunting-private-guard";
+import telegramProductBotRouter, { telegramProductBotPublicRouter } from "./telegram-product-bot";
 import creativeRoutineRouter from "./creative-routine";
 import landingLibraryIntegrationRouter from "./landing-library-integration";
 import creativeShopifyProductsRouter from "./creative-shopify-products";
@@ -33,6 +34,7 @@ warmUpPipeboard();
 router.use(authRouter);
 router.use(healthRouter);
 router.use(shopifyPublicRouter);
+router.use(telegramProductBotPublicRouter);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (!req.session?.userId) {
@@ -62,6 +64,7 @@ router.use(landingPageGenRouter);
 router.use(landingPageRecordsRouter);
 router.use(creativeShopifyProductsRouter);
 router.use(shopifyStoresRouter);
+router.use(telegramProductBotRouter);
 router.use(productHuntingPrivateGuardRouter);
 router.use(productHuntingRouter);
 router.use(creativeRoutineRouter);
