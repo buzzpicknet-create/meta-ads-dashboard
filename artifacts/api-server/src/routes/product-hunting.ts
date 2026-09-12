@@ -93,7 +93,7 @@ async function scrapePublicTelegram(url: string) {
   }
 }
 
-router.get("/api/product-hunting", async (req: Request, res: Response) => {
+router.get("/product-hunting", async (req: Request, res: Response) => {
   try {
     await ensureTable();
     const status = typeof req.query.status === "string" ? req.query.status : "";
@@ -129,7 +129,7 @@ router.get("/api/product-hunting", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/api/product-hunting", async (req: Request, res: Response) => {
+router.post("/product-hunting", async (req: Request, res: Response) => {
   try {
     await ensureTable();
     const sourceUrl = String(req.body?.source_url ?? "").trim();
@@ -178,7 +178,7 @@ router.post("/api/product-hunting", async (req: Request, res: Response) => {
   }
 });
 
-router.patch("/api/product-hunting/:id", async (req: Request, res: Response) => {
+router.patch("/product-hunting/:id", async (req: Request, res: Response) => {
   try {
     await ensureTable();
     const id = Number(req.params.id);
@@ -214,7 +214,7 @@ router.patch("/api/product-hunting/:id", async (req: Request, res: Response) => 
   }
 });
 
-router.delete("/api/product-hunting/:id", async (req: Request, res: Response) => {
+router.delete("/product-hunting/:id", async (req: Request, res: Response) => {
   try {
     await ensureTable();
     const id = Number(req.params.id);
