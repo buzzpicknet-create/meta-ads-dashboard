@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Plus, Star, ExternalLink, RefreshCw, PackageSearch, Heart, Clock3, CheckCircle2, FlaskConical, Trash2, Pencil, X, Save, Tag, Banknote, Link2, Images, Video } from "lucide-react";
+import { Search, Plus, Star, ExternalLink, RefreshCw, PackageSearch, Heart, Clock3, CheckCircle2, FlaskConical, Trash2, Pencil, X, Save, Tag, Banknote, Link2, Images, Video, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface ProductMedia {
   type: "image" | "video";
@@ -93,6 +93,7 @@ export default function ProductHuntingPage() {
   const [editing, setEditing] = useState<ProductItem | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
+  const [viewer, setViewer] = useState<{ media: ProductMedia[]; index: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,6 +122,17 @@ export default function ProductHuntingPage() {
     return () => clearTimeout(t);
   }, [message]);
 
+  useEffect(() => {
+    if (!viewer) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setViewer(null);
+      if (e.key === "ArrowLeft" && viewer.media.length > 1) setViewer(v => v ? ({ ...v, index: (v.index + 1) % v.media.length }) : v);
+      if (e.key === "ArrowRight" && viewer.media.length > 1) setViewer(v => v ? ({ ...v, index: (v.index - 1 + v.media.length) % v.media.length }) : v);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [viewer]);
+
   const addProduct = useCallback(async () => {
     const source_url = link.trim();
     if (!source_url) return;
@@ -136,7 +148,11 @@ export default function ProductHuntingPage() {
       if (!r.ok) throw new Error(data.error || "تعذر إضافة المنتج");
       setLink("");
       const count = Number(data.media_count || 0);
-      setMessage(count > 0 ? `تمت الإضافة واستيراد ${count} صورة/فيديو من Telegram` : data.scraped ? "تمت الإضافة واستيراد البيانات المتاحة تلقائياً" : "تمت إضافة الرابط — افتح تعديل المنتج لإكمال البيانات الناقصة");
+      if (data.media_from_post_id) {
+        setMessage(`تمت الإضافة: البوست نص فقط، فتم سحب ${count} صورة/فيديو من البوست السابق #${data.media_from_post_id}`);
+      } else {
+        setMessage(count > 0 ? `تمت الإضافة واستيراد ${count} صورة/فيديو من Telegram` : data.scraped ? "تمت الإضافة واستيراد البيانات المتاحة تلقائياً" : "تمت إضافة الرابط — افتح تعديل المنتج لإكمال البيانات الناقصة");
+      }
       await load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "تعذر إضافة المنتج");
@@ -174,7 +190,11 @@ export default function ProductHuntingPage() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "تعذر تحديث الوسائط");
       setItems(prev => prev.map(item => item.id === id ? data.item : item));
-      setMessage(`تم تحديث الوسائط: ${Number(data.media_count || 0)} صورة/فيديو`);
+      if (data.media_from_post_id) {
+        setMessage(`البوست الحالي نص فقط — تم أخذ الوسائط من البوست السابق #${data.media_from_post_id}`);
+      } else {
+        setMessage(`تم تحديث الوسائط: ${Number(data.media_count || 0)} صورة/فيديو`);
+      }
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "تعذر تحديث الوسائط");
     } finally {
@@ -255,11 +275,33 @@ export default function ProductHuntingPage() {
     { label: "تم الاستيراد", value: stats.imported ?? 0, Icon: CheckCircle2 },
   ], [stats]);
 
+  const viewerItem = viewer ? viewer.media[viewer.index] : null;
+
   return (
     <main className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8 py-6 pb-24 sm:pb-8" dir="rtl">
       {message && (
         <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[100] rounded-xl bg-foreground text-background px-4 py-2.5 text-sm shadow-xl">
           {message}
+        </div>
+      )}
+
+      {viewer && viewerItem && (
+        <div className="fixed inset-0 z-[150] bg-black/90 flex items-center justify-center p-3 sm:p-6" onMouseDown={e => { if (e.currentTarget === e.target) setViewer(null); }}>
+          <button onClick={() => setViewer(null)} className="absolute top-4 right-4 h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 text-white inline-flex items-center justify-center" title="إغلاق"><X className="h-6 w-6" /></button>
+          {viewer.media.length > 1 && (
+            <>
+              <button onClick={() => setViewer(v => v ? ({ ...v, index: (v.index + 1) % v.media.length }) : v)} className="absolute left-3 sm:left-6 h-11 w-11 rounded-full bg-white/10 hover:bg-white/20 text-white inline-flex items-center justify-center" title="التالي"><ChevronLeft className="h-7 w-7" /></button>
+              <button onClick={() => setViewer(v => v ? ({ ...v, index: (v.index - 1 + v.media.length) % v.media.length }) : v)} className="absolute right-3 sm:right-6 h-11 w-11 rounded-full bg-white/10 hover:bg-white/20 text-white inline-flex items-center justify-center" title="السابق"><ChevronRight className="h-7 w-7" /></button>
+            </>
+          )}
+          <div className="max-w-[92vw] max-h-[88vh] flex flex-col items-center gap-3">
+            {viewerItem.type === "image" ? (
+              <img src={viewerItem.url} alt="product media" className="max-w-full max-h-[82vh] object-contain rounded-xl" />
+            ) : (
+              <video src={viewerItem.url} poster={viewerItem.thumbnail_url || undefined} controls autoPlay playsInline className="max-w-full max-h-[82vh] rounded-xl bg-black" />
+            )}
+            <div className="text-white/80 text-xs">{viewer.index + 1} / {viewer.media.length}</div>
+          </div>
         </div>
       )}
 
@@ -402,16 +444,21 @@ export default function ProductHuntingPage() {
             const imageCount = media.filter(m => m.type === "image").length;
             const videoCount = media.filter(m => m.type === "video").length;
             const cover = item.image_url || media.find(m => m.type === "image")?.url || media[0]?.thumbnail_url || null;
+            const coverIndex = Math.max(0, media.findIndex(m => m.url === cover || m.thumbnail_url === cover));
             return (
               <article key={item.id} className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm flex flex-col min-h-[440px]">
                 <div className="relative aspect-[4/3] bg-muted overflow-hidden">
-                  {cover ? <img src={cover} alt={item.title || "product"} className="w-full h-full object-cover" loading="lazy" /> : (
+                  {cover ? (
+                    <button onClick={() => media.length > 0 && setViewer({ media, index: coverIndex })} className="block w-full h-full cursor-zoom-in" title="عرض الوسائط داخل الداشبورد">
+                      <img src={cover} alt={item.title || "product"} className="w-full h-full object-cover" loading="lazy" />
+                    </button>
+                  ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground gap-2"><PackageSearch className="h-10 w-10 opacity-40" /><span className="text-xs">لا توجد صورة — أضفها من تعديل المنتج</span></div>
                   )}
                   <button onClick={() => safePatch(item.id, { is_favorite: !item.is_favorite })} className="absolute top-3 left-3 h-9 w-9 rounded-full bg-background/90 backdrop-blur border border-border inline-flex items-center justify-center shadow-sm" title="مفضلة"><Star className={`h-4 w-4 ${item.is_favorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`} /></button>
                   <span className="absolute top-3 right-3 text-[11px] px-2 py-1 rounded-full bg-background/90 backdrop-blur border border-border font-medium">{domainLabel(item.source_type)}</span>
                   {media.length > 0 && (
-                    <div className="absolute bottom-3 right-3 flex gap-1.5">
+                    <div className="absolute bottom-3 right-3 flex gap-1.5 pointer-events-none">
                       {imageCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-black/70 text-white px-2 py-1 text-[11px]"><Images className="h-3 w-3" /> {imageCount}</span>}
                       {videoCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-black/70 text-white px-2 py-1 text-[11px]"><Video className="h-3 w-3" /> {videoCount}</span>}
                     </div>
@@ -421,7 +468,7 @@ export default function ProductHuntingPage() {
                 {media.length > 1 || videoCount > 0 ? (
                   <div className="border-b border-border bg-muted/30 p-2 flex gap-2 overflow-x-auto" dir="ltr">
                     {media.slice(0, 8).map((m, index) => (
-                      <a key={`${m.type}-${m.url}-${index}`} href={m.url} target="_blank" rel="noreferrer" className="relative shrink-0 h-14 w-16 rounded-lg overflow-hidden border border-border bg-muted" title={m.type === "video" ? "فتح الفيديو" : "فتح الصورة"}>
+                      <button key={`${m.type}-${m.url}-${index}`} onClick={() => setViewer({ media, index })} className="relative shrink-0 h-14 w-16 rounded-lg overflow-hidden border border-border bg-muted cursor-pointer hover:ring-2 hover:ring-primary/40" title={m.type === "video" ? "تشغيل الفيديو داخل الداشبورد" : "عرض الصورة داخل الداشبورد"}>
                         {m.type === "image" ? (
                           <img src={m.url} alt="" className="h-full w-full object-cover" loading="lazy" />
                         ) : m.thumbnail_url || cover ? (
@@ -429,7 +476,7 @@ export default function ProductHuntingPage() {
                         ) : (
                           <span className="h-full w-full flex items-center justify-center"><Video className="h-5 w-5 text-muted-foreground" /></span>
                         )}
-                      </a>
+                      </button>
                     ))}
                   </div>
                 ) : null}
