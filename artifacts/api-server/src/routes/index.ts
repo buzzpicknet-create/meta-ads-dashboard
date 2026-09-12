@@ -25,6 +25,7 @@ import productHuntingRouter from "./product-hunting";
 import productHuntingPrivateGuardRouter from "./product-hunting-private-guard";
 import telegramProductBotRouter, { telegramProductBotPublicRouter } from "./telegram-product-bot";
 import telegramProductBotSetupRouter from "./telegram-product-bot-setup";
+import telegramProductBotV2Router from "./telegram-product-bot-v2";
 import "./telegram-product-bot-autoregister";
 import creativeRoutineRouter from "./creative-routine";
 import landingLibraryIntegrationRouter from "./landing-library-integration";
@@ -37,6 +38,7 @@ router.use(authRouter);
 router.use(healthRouter);
 router.use(shopifyPublicRouter);
 router.use(telegramProductBotSetupRouter);
+router.use(telegramProductBotV2Router);
 router.use(telegramProductBotPublicRouter);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
