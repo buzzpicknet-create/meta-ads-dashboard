@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Plus, Star, ExternalLink, RefreshCw, PackageSearch, Heart, Clock3, CheckCircle2, FlaskConical, Trash2, Pencil, X, Save, Tag, Banknote, Link2 } from "lucide-react";
+import { Search, Plus, Star, ExternalLink, RefreshCw, PackageSearch, Heart, Clock3, CheckCircle2, FlaskConical, Trash2, Pencil, X, Save, Tag, Banknote, Link2, Images, Video } from "lucide-react";
+
+interface ProductMedia {
+  type: "image" | "video";
+  url: string;
+  thumbnail_url?: string | null;
+}
 
 interface ProductItem {
   id: number;
@@ -9,6 +15,7 @@ interface ProductItem {
   title: string | null;
   description: string | null;
   image_url: string | null;
+  media?: ProductMedia[] | null;
   channel_name: string | null;
   status: string;
   is_favorite: boolean;
@@ -77,6 +84,7 @@ export default function ProductHuntingPage() {
   const [stats, setStats] = useState<Stats>({});
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [link, setLink] = useState("");
   const [queryText, setQueryText] = useState("");
   const [status, setStatus] = useState("");
@@ -127,7 +135,8 @@ export default function ProductHuntingPage() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "تعذر إضافة المنتج");
       setLink("");
-      setMessage(data.scraped ? "تمت الإضافة واستيراد البيانات المتاحة تلقائياً" : "تمت إضافة الرابط — افتح تعديل المنتج لإكمال البيانات الناقصة");
+      const count = Number(data.media_count || 0);
+      setMessage(count > 0 ? `تمت الإضافة واستيراد ${count} صورة/فيديو من Telegram` : data.scraped ? "تمت الإضافة واستيراد البيانات المتاحة تلقائياً" : "تمت إضافة الرابط — افتح تعديل المنتج لإكمال البيانات الناقصة");
       await load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "تعذر إضافة المنتج");
@@ -157,6 +166,21 @@ export default function ProductHuntingPage() {
       setMessage(e instanceof Error ? e.message : "تعذر التحديث");
     }
   }, [patchItem]);
+
+  const refreshMedia = useCallback(async (id: number) => {
+    setRefreshingId(id);
+    try {
+      const r = await fetch(`/api/product-hunting/${id}/refresh`, { method: "POST", credentials: "include" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "تعذر تحديث الوسائط");
+      setItems(prev => prev.map(item => item.id === id ? data.item : item));
+      setMessage(`تم تحديث الوسائط: ${Number(data.media_count || 0)} صورة/فيديو`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "تعذر تحديث الوسائط");
+    } finally {
+      setRefreshingId(null);
+    }
+  }, []);
 
   const removeItem = useCallback(async (id: number) => {
     if (!confirm("حذف المنتج من قائمة البحث؟")) return;
@@ -289,7 +313,7 @@ export default function ProductHuntingPage() {
               </div>
 
               <label className="grid gap-1.5">
-                <span className="text-sm font-medium">رابط صورة المنتج</span>
+                <span className="text-sm font-medium">رابط صورة الغلاف</span>
                 <input value={editForm.image_url} onChange={e => setEditForm({ ...editForm, image_url: e.target.value })} className="h-10 rounded-xl border border-input bg-background px-3 text-sm" placeholder="https://..." dir="ltr" />
               </label>
 
@@ -319,7 +343,7 @@ export default function ProductHuntingPage() {
           <PackageSearch className="h-5 w-5 text-emerald-500" />
           <h1 className="text-2xl font-bold tracking-tight">Product Hunting</h1>
         </div>
-        <p className="text-sm text-muted-foreground">الفريق يضيف الرابط فقط، والنظام يحاول استيراد البيانات المتاحة. أي تفاصيل ناقصة تقدر تكملها يدويًا من زر تعديل.</p>
+        <p className="text-sm text-muted-foreground">الفريق يضيف الرابط فقط، والنظام يحاول استيراد تفاصيل وصور وفيديوهات بوست Telegram العام تلقائيًا.</p>
       </div>
 
       <section className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-sm mb-5">
@@ -372,15 +396,43 @@ export default function ProductHuntingPage() {
             const smeta = statusMeta[item.status] ?? statusMeta.new;
             const sellPrice = priceText(item.target_price_egp, "ج.م");
             const buyPrice = priceText(item.cost_price, item.cost_currency || "CNY");
+            const media: ProductMedia[] = Array.isArray(item.media) && item.media.length > 0
+              ? item.media
+              : item.image_url ? [{ type: "image", url: item.image_url }] : [];
+            const imageCount = media.filter(m => m.type === "image").length;
+            const videoCount = media.filter(m => m.type === "video").length;
+            const cover = item.image_url || media.find(m => m.type === "image")?.url || media[0]?.thumbnail_url || null;
             return (
               <article key={item.id} className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm flex flex-col min-h-[440px]">
                 <div className="relative aspect-[4/3] bg-muted overflow-hidden">
-                  {item.image_url ? <img src={item.image_url} alt={item.title || "product"} className="w-full h-full object-cover" loading="lazy" /> : (
+                  {cover ? <img src={cover} alt={item.title || "product"} className="w-full h-full object-cover" loading="lazy" /> : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground gap-2"><PackageSearch className="h-10 w-10 opacity-40" /><span className="text-xs">لا توجد صورة — أضفها من تعديل المنتج</span></div>
                   )}
                   <button onClick={() => safePatch(item.id, { is_favorite: !item.is_favorite })} className="absolute top-3 left-3 h-9 w-9 rounded-full bg-background/90 backdrop-blur border border-border inline-flex items-center justify-center shadow-sm" title="مفضلة"><Star className={`h-4 w-4 ${item.is_favorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`} /></button>
                   <span className="absolute top-3 right-3 text-[11px] px-2 py-1 rounded-full bg-background/90 backdrop-blur border border-border font-medium">{domainLabel(item.source_type)}</span>
+                  {media.length > 0 && (
+                    <div className="absolute bottom-3 right-3 flex gap-1.5">
+                      {imageCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-black/70 text-white px-2 py-1 text-[11px]"><Images className="h-3 w-3" /> {imageCount}</span>}
+                      {videoCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-black/70 text-white px-2 py-1 text-[11px]"><Video className="h-3 w-3" /> {videoCount}</span>}
+                    </div>
+                  )}
                 </div>
+
+                {media.length > 1 || videoCount > 0 ? (
+                  <div className="border-b border-border bg-muted/30 p-2 flex gap-2 overflow-x-auto" dir="ltr">
+                    {media.slice(0, 8).map((m, index) => (
+                      <a key={`${m.type}-${m.url}-${index}`} href={m.url} target="_blank" rel="noreferrer" className="relative shrink-0 h-14 w-16 rounded-lg overflow-hidden border border-border bg-muted" title={m.type === "video" ? "فتح الفيديو" : "فتح الصورة"}>
+                        {m.type === "image" ? (
+                          <img src={m.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        ) : m.thumbnail_url || cover ? (
+                          <><img src={m.thumbnail_url || cover || ""} alt="" className="h-full w-full object-cover opacity-80" loading="lazy" /><span className="absolute inset-0 flex items-center justify-center"><Video className="h-5 w-5 text-white drop-shadow" /></span></>
+                        ) : (
+                          <span className="h-full w-full flex items-center justify-center"><Video className="h-5 w-5 text-muted-foreground" /></span>
+                        )}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
 
                 <div className="p-4 flex flex-col gap-3 flex-1">
                   <div className="flex items-start justify-between gap-3">
@@ -410,6 +462,7 @@ export default function ProductHuntingPage() {
 
                     <div className="flex items-center gap-2">
                       <button onClick={() => openEdit(item)} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground inline-flex items-center justify-center gap-2 text-sm font-medium"><Pencil className="h-4 w-4" /> تعديل التفاصيل</button>
+                      {item.source_type === "telegram" && <button onClick={() => refreshMedia(item.id)} disabled={refreshingId === item.id} className="h-9 px-3 rounded-lg border border-input inline-flex items-center justify-center hover:bg-muted disabled:opacity-50" title="إعادة جلب الصور والفيديوهات من Telegram"><RefreshCw className={`h-4 w-4 ${refreshingId === item.id ? "animate-spin" : ""}`} /></button>}
                       <a href={item.source_url} target="_blank" rel="noreferrer" className="h-9 px-3 rounded-lg border border-input inline-flex items-center justify-center gap-1.5 text-sm font-medium hover:bg-muted transition-colors" title="فتح المصدر"><ExternalLink className="h-4 w-4" /></a>
                       {item.supplier_url && <a href={item.supplier_url} target="_blank" rel="noreferrer" className="h-9 px-3 rounded-lg border border-input inline-flex items-center justify-center gap-1.5 text-sm font-medium hover:bg-muted transition-colors" title="فتح المورد"><Link2 className="h-4 w-4" /></a>}
                       <button onClick={() => removeItem(item.id)} className="h-9 w-9 rounded-lg border border-red-200 text-red-500 inline-flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-950/20" title="حذف"><Trash2 className="h-4 w-4" /></button>
