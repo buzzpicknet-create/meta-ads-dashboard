@@ -23,6 +23,7 @@ import landingPageRecordsRouter from "./landing-page-records";
 import shopifyStoresRouter, { shopifyPublicRouter } from "./shopify-stores";
 import productHuntingRouter from "./product-hunting";
 import creativeRoutineRouter from "./creative-routine";
+import landingLibraryIntegrationRouter from "./landing-library-integration";
 const router = Router();
 
 warmUpPipeboard();
@@ -60,5 +61,6 @@ router.use(landingPageRecordsRouter);
 router.use(shopifyStoresRouter);
 router.use(productHuntingRouter);
 router.use(creativeRoutineRouter);
+router.use(landingLibraryIntegrationRouter);
 
 export default router;
