@@ -1,7 +1,7 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
-import { join, extname } from "path";
+import { join } from "path";
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { query } from "../lib/db";
@@ -40,6 +40,41 @@ async function ensureTable() {
     connected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
+}
+
+async function ensureProductTable() {
+  await query(`CREATE TABLE IF NOT EXISTS product_hunting_items (
+    id SERIAL PRIMARY KEY,
+    source_url TEXT NOT NULL,
+    normalized_url TEXT NOT NULL UNIQUE,
+    source_type VARCHAR(30) NOT NULL DEFAULT 'telegram',
+    title TEXT,
+    description TEXT,
+    image_url TEXT,
+    media JSONB NOT NULL DEFAULT '[]'::jsonb,
+    channel_name TEXT,
+    status VARCHAR(30) NOT NULL DEFAULT 'new',
+    is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
+    category VARCHAR(100),
+    notes TEXT,
+    supplier_url TEXT,
+    target_price_egp NUMERIC(12,2),
+    cost_price NUMERIC(12,2),
+    cost_currency VARCHAR(10) DEFAULT 'CNY',
+    added_by_user_id INT REFERENCES users(id),
+    added_by_name VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+  await query(`ALTER TABLE product_hunting_items ADD COLUMN IF NOT EXISTS media JSONB NOT NULL DEFAULT '[]'::jsonb`);
+}
+
+function normalizeUrl(raw: string) {
+  try {
+    const u = new URL(raw.trim());
+    u.hash = "";
+    return u.toString().replace(/\/$/, "");
+  } catch { return raw.trim(); }
 }
 
 export async function getTelegramClient() {
@@ -185,8 +220,8 @@ export async function scrapePrivateTelegramLink(rawUrl: string) {
   const entity: any = await resolvePrivateEntity(client, internalId);
   if (!entity) return { error: "PRIVATE_TELEGRAM_CHANNEL_NOT_FOUND" };
 
-  let messages = await messageSet(client, entity, postId);
-  const original: any = messages[0];
+  const messages = await messageSet(client, entity, postId);
+  const original: any = messages.find((m: any) => m?.id === postId) || messages[0];
   const description = original?.message || null;
   let mediaMessages = messages.filter(m => mediaType(m));
   let mediaFromPostId: number | null = null;
@@ -222,6 +257,66 @@ export async function scrapePrivateTelegramLink(rawUrl: string) {
     private: true,
   };
 }
+
+function privateErrorMessage(code: string) {
+  if (code === "PRIVATE_TELEGRAM_NOT_CONNECTED") return "رابط Telegram خاص. اربط حساب Telegram من صفحة صيد المنتجات أولاً.";
+  if (code === "PRIVATE_TELEGRAM_CHANNEL_NOT_FOUND") return "الحساب المربوط ليس عضوًا في القناة/الجروب الخاص الموجود في الرابط.";
+  return "تعذر قراءة رابط Telegram الخاص";
+}
+
+// Intercept private t.me/c links before the public product-hunting router.
+router.post("/product-hunting", async (req: Request, res: Response, next: NextFunction) => {
+  const sourceUrl = String(req.body?.source_url || "").trim();
+  if (!/^https?:\/\/(?:www\.)?t\.me\/c\/\d+\/\d+/i.test(sourceUrl)) return next();
+  try {
+    await ensureProductTable();
+    const scraped: any = await scrapePrivateTelegramLink(sourceUrl);
+    if (scraped?.error) return res.status(409).json({ error: privateErrorMessage(scraped.error), code: scraped.error });
+
+    const normalized = normalizeUrl(sourceUrl);
+    const existing = await query<any>(`SELECT id FROM product_hunting_items WHERE normalized_url=$1 LIMIT 1`, [normalized]);
+    const userId = req.session?.userId ?? null;
+    let addedByName: string | null = null;
+    if (userId) {
+      const users = await query<any>(`SELECT username FROM users WHERE id=$1 LIMIT 1`, [userId]);
+      addedByName = users[0]?.username ?? null;
+    }
+    const media = Array.isArray(scraped.media) ? scraped.media : [];
+
+    if (existing[0]) {
+      const rows = await query(`UPDATE product_hunting_items SET title=COALESCE($1,title), description=COALESCE($2,description), image_url=COALESCE($3,image_url), media=$4::jsonb, channel_name=COALESCE($5,channel_name), updated_at=NOW() WHERE id=$6 RETURNING *`,
+        [scraped.title ?? null, scraped.description ?? null, scraped.image_url ?? null, JSON.stringify(media), scraped.channel_name ?? null, existing[0].id]);
+      return res.json({ item: rows[0], duplicate: true, refreshed: true, scraped: true, media_count: media.length, media_from_post_id: scraped.media_from_post_id ?? null });
+    }
+
+    const rows = await query(`INSERT INTO product_hunting_items (source_url,normalized_url,source_type,title,description,image_url,media,channel_name,added_by_user_id,added_by_name) VALUES ($1,$2,'telegram',$3,$4,$5,$6::jsonb,$7,$8,$9) RETURNING *`,
+      [sourceUrl, normalized, scraped.title ?? null, scraped.description ?? null, scraped.image_url ?? null, JSON.stringify(media), scraped.channel_name ?? null, userId, addedByName]);
+    res.status(201).json({ item: rows[0], scraped: true, media_count: media.length, media_from_post_id: scraped.media_from_post_id ?? null });
+  } catch (e: any) {
+    console.error("private telegram product import error", e);
+    res.status(500).json({ error: e?.message || "تعذر استيراد رابط Telegram الخاص" });
+  }
+});
+
+router.post("/product-hunting/:id/refresh", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await ensureProductTable();
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return next();
+    const rows = await query<any>(`SELECT source_url FROM product_hunting_items WHERE id=$1 LIMIT 1`, [id]);
+    const sourceUrl = rows[0]?.source_url || "";
+    if (!/^https?:\/\/(?:www\.)?t\.me\/c\/\d+\/\d+/i.test(sourceUrl)) return next();
+    const scraped: any = await scrapePrivateTelegramLink(sourceUrl);
+    if (scraped?.error) return res.status(409).json({ error: privateErrorMessage(scraped.error), code: scraped.error });
+    const media = Array.isArray(scraped.media) ? scraped.media : [];
+    const updated = await query(`UPDATE product_hunting_items SET title=COALESCE(NULLIF(title,''),$1), description=COALESCE(NULLIF(description,''),$2), image_url=COALESCE($3,image_url), media=CASE WHEN jsonb_array_length($4::jsonb)>0 THEN $4::jsonb ELSE media END, channel_name=COALESCE($5,channel_name), updated_at=NOW() WHERE id=$6 RETURNING *`,
+      [scraped.title ?? null, scraped.description ?? null, scraped.image_url ?? null, JSON.stringify(media), scraped.channel_name ?? null, id]);
+    return res.json({ item: updated[0], media_count: media.length, media_from_post_id: scraped.media_from_post_id ?? null });
+  } catch (e: any) {
+    console.error("private telegram refresh error", e);
+    res.status(500).json({ error: e?.message || "تعذر تحديث رابط Telegram الخاص" });
+  }
+});
 
 router.get("/product-hunting/media/:filename", async (req: Request, res: Response) => {
   const filename = String(req.params.filename || "");
