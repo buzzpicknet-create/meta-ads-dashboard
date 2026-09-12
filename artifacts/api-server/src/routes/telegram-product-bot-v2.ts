@@ -54,6 +54,33 @@ async function ensureTable() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
 }
 
+function chooseChannel(current: string | null | undefined, incoming: string) {
+  const cur = String(current || "").trim();
+  if (!cur || cur === "Telegram" || cur === "Telegram Channel" || cur === "Telegram Chat") return incoming;
+  return cur;
+}
+
+async function mergeInto(row: any, media: Media[], text: string | null, channel: string) {
+  const current: Media[] = Array.isArray(row.media) ? row.media : [];
+  const seen = new Set(current.map(x => x.url));
+  const merged = [...current, ...media.filter(x => !seen.has(x.url))];
+  const oldText = String(row.description || "").trim();
+  const desc = oldText || text;
+  const cover = row.image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
+  const channelName = chooseChannel(row.channel_name, channel);
+  await query(`UPDATE product_hunting_items SET
+    media=$1::jsonb,
+    image_url=$2,
+    description=$3,
+    title=$4,
+    channel_name=$5,
+    target_price_egp=COALESCE(target_price_egp,$6),
+    notes='تم تجميع Forward متعدد الرسائل تلقائياً في منتج واحد.',
+    updated_at=NOW()
+    WHERE id=$7`,
+    [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channelName), channelName, egp(desc || null), row.id]);
+}
+
 async function ingest(m: any) {
   await ensureTable();
   const chatId = Number(m?.chat?.id);
@@ -67,37 +94,31 @@ async function ingest(m: any) {
   const media = mediaFor(m);
   const group = m?.media_group_id ? String(m.media_group_id) : null;
 
-  if (group) {
-    const norm = `telegram-bot://chat/${chatId}/album/${group}`;
-    const rows = await query<any>(`SELECT * FROM product_hunting_items WHERE normalized_url=$1 LIMIT 1`, [norm]);
-    if (rows[0]) {
-      const current: Media[] = Array.isArray(rows[0].media) ? rows[0].media : [];
-      const seen = new Set(current.map(x => x.url));
-      const merged = [...current, ...media.filter(x => !seen.has(x.url))];
-      const desc = String(rows[0].description || "").trim() || text;
-      await query(`UPDATE product_hunting_items SET media=$1::jsonb, image_url=COALESCE(image_url,$2), description=$3,
-        title=$4, target_price_egp=COALESCE(target_price_egp,$5), updated_at=NOW() WHERE id=$6`,
-        [JSON.stringify(merged), media.find(x => x.type === "image")?.url || null, desc, titleFrom(desc || null, channel), egp(desc || null), rows[0].id]);
+  // First try to attach every selected/forwarded message to the latest burst from the same user/chat.
+  // Telegram can report different forward source metadata for text vs media, so source label is deliberately ignored here.
+  const recent = await query<any>(`SELECT * FROM product_hunting_items
+    WHERE source_type='telegram_bot'
+      AND source_url LIKE $1
+      AND added_by_name=$2
+      AND updated_at >= NOW() - INTERVAL '25 seconds'
+    ORDER BY updated_at DESC LIMIT 1`, [`telegram-bot://chat/${chatId}/%`, sender]);
+
+  if (recent[0]) {
+    const oldText = String(recent[0].description || "").trim();
+    const hasOldMedia = Array.isArray(recent[0].media) && recent[0].media.length > 0;
+    const isComplementary = (!oldText && !!text) || (!hasOldMedia && media.length > 0) || (!!oldText && !text && media.length > 0) || (!oldText && !text && media.length > 0);
+    if (isComplementary) {
+      await mergeInto(recent[0], media, text, channel);
       return;
     }
   }
 
-  const recent = await query<any>(`SELECT * FROM product_hunting_items
-    WHERE source_type='telegram_bot' AND source_url LIKE $1 AND channel_name=$2 AND added_by_name=$3
-      AND updated_at >= NOW() - INTERVAL '12 seconds'
-    ORDER BY updated_at DESC LIMIT 1`, [`telegram-bot://chat/${chatId}/%`, channel, sender]);
-
-  if (recent[0]) {
-    const oldText = String(recent[0].description || "").trim();
-    if (!(oldText && text)) {
-      const current: Media[] = Array.isArray(recent[0].media) ? recent[0].media : [];
-      const seen = new Set(current.map(x => x.url));
-      const merged = [...current, ...media.filter(x => !seen.has(x.url))];
-      const desc = oldText || text;
-      const cover = recent[0].image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
-      await query(`UPDATE product_hunting_items SET media=$1::jsonb, image_url=$2, description=$3, title=$4,
-        target_price_egp=COALESCE(target_price_egp,$5), notes='تم تجميع Forward متعدد الرسائل تلقائياً في منتج واحد.', updated_at=NOW() WHERE id=$6`,
-        [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channel), egp(desc || null), recent[0].id]);
+  // Albums still use Telegram's media_group_id so all album parts collapse to one card.
+  if (group) {
+    const norm = `telegram-bot://chat/${chatId}/album/${group}`;
+    const rows = await query<any>(`SELECT * FROM product_hunting_items WHERE normalized_url=$1 LIMIT 1`, [norm]);
+    if (rows[0]) {
+      await mergeInto(rows[0], media, text, channel);
       return;
     }
   }
