@@ -59,10 +59,10 @@ router.use(tasksRouter);
 router.use(storageRouter);
 router.use(landingPageGenRouter);
 router.use(landingPageRecordsRouter);
+router.use(creativeShopifyProductsRouter);
 router.use(shopifyStoresRouter);
 router.use(productHuntingRouter);
 router.use(creativeRoutineRouter);
 router.use(landingLibraryIntegrationRouter);
-router.use(creativeShopifyProductsRouter);
 
 export default router;
