@@ -2,13 +2,22 @@ import { Router, type Request, type Response } from "express";
 import { query } from "../lib/db";
 
 const router = Router();
-
 const STATUSES = new Set(["new", "reviewing", "interested", "sample", "imported", "rejected"]);
 
 type ProductMedia = {
   type: "image" | "video";
   url: string;
   thumbnail_url?: string | null;
+};
+
+type TelegramScrape = {
+  title?: string | null;
+  description?: string | null;
+  image_url?: string | null;
+  media?: ProductMedia[];
+  channel_name?: string | null;
+  target_price_egp?: number | null;
+  scrape_source?: string;
 };
 
 async function ensureTable() {
@@ -68,6 +77,15 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">");
 }
 
+function stripHtml(value: string) {
+  return decodeHtml(value)
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .trim();
+}
+
 function meta(html: string, key: string) {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [
@@ -79,6 +97,11 @@ function meta(html: string, key: string) {
     if (m?.[1]) return decodeHtml(m[1].trim());
   }
   return null;
+}
+
+function extractMessageText(html: string) {
+  const m = html.match(/<div[^>]+class=["'][^"']*tgme_widget_message_text[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+  return m?.[1] ? stripHtml(m[1]) : null;
 }
 
 function extractEgpPrice(text?: string | null) {
@@ -99,79 +122,130 @@ function extractEgpPrice(text?: string | null) {
 
 function cleanMediaUrl(raw: string | undefined | null) {
   if (!raw) return null;
-  const value = decodeHtml(raw).replace(/\\\//g, "/").trim();
+  let value = decodeHtml(raw).replace(/\\\//g, "/").trim();
+  value = value.replace(/^['"]|['"]$/g, "");
+  try { value = decodeURIComponent(value); } catch { /* keep original */ }
   if (!/^https?:\/\//i.test(value)) return null;
   return value;
 }
 
-function pushMedia(target: ProductMedia[], seen: Set<string>, media: ProductMedia) {
-  const url = cleanMediaUrl(media.url);
+function pushMedia(target: ProductMedia[], seen: Set<string>, item: ProductMedia) {
+  const url = cleanMediaUrl(item.url);
   if (!url || seen.has(url)) return;
   seen.add(url);
-  target.push({ ...media, url, thumbnail_url: cleanMediaUrl(media.thumbnail_url) });
+  target.push({ type: item.type, url, thumbnail_url: cleanMediaUrl(item.thumbnail_url) });
 }
 
 function extractTelegramMedia(html: string, fallbackImage?: string | null): ProductMedia[] {
   const media: ProductMedia[] = [];
   const seen = new Set<string>();
-
   if (fallbackImage) pushMedia(media, seen, { type: "image", url: fallbackImage });
 
-  // Telegram public/embed photo blocks use background-image:url(...).
-  const photoBlocks = html.matchAll(/class=["'][^"']*tgme_widget_message_photo_wrap[^"']*["'][^>]*style=["'][^"']*background-image\s*:\s*url\((?:'|&quot;|\")?([^)'";&]+)(?:'|&quot;|\")?\)/gi);
-  for (const match of photoBlocks) pushMedia(media, seen, { type: "image", url: match[1] });
+  // Telegram photo widgets: accept both single/double quote CSS and encoded entities.
+  for (const match of html.matchAll(/background-image\s*:\s*url\(([^)]+)\)/gi)) {
+    const raw = match[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim().replace(/^['"]|['"]$/g, "");
+    if (/cdn\d*\.telegram-cdn|cdn\d*\.telesco|telegram/i.test(raw) || /^https?:\/\//i.test(raw)) {
+      pushMedia(media, seen, { type: "image", url: raw });
+    }
+  }
 
-  // Some Telegram markup puts the style before class.
-  const reversePhotoBlocks = html.matchAll(/style=["'][^"']*background-image\s*:\s*url\((?:'|&quot;|\")?([^)'";&]+)(?:'|&quot;|\")?\)[^"']*["'][^>]*class=["'][^"']*tgme_widget_message_photo_wrap[^"']*["']/gi);
-  for (const match of reversePhotoBlocks) pushMedia(media, seen, { type: "image", url: match[1] });
+  // Direct image tags in message widgets.
+  for (const match of html.matchAll(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)) {
+    const src = match[1];
+    if (/telegram|cdn|telesco/i.test(src)) pushMedia(media, seen, { type: "image", url: src });
+  }
 
-  // Direct video/source tags in Telegram's public message widget.
-  const videoTags = html.matchAll(/<(?:video|source)\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi);
-  for (const match of videoTags) pushMedia(media, seen, { type: "video", url: match[1], thumbnail_url: fallbackImage });
+  // Native video/source tags.
+  for (const match of html.matchAll(/<(?:video|source)\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)) {
+    pushMedia(media, seen, { type: "video", url: match[1], thumbnail_url: fallbackImage });
+  }
 
-  // Telegram sometimes exposes the MP4 as a data attribute.
-  const dataVideos = html.matchAll(/\bdata-(?:video|src)=["'](https?:\/\/[^"']+\.(?:mp4|webm)(?:\?[^"']*)?)["']/gi);
-  for (const match of dataVideos) pushMedia(media, seen, { type: "video", url: match[1], thumbnail_url: fallbackImage });
+  // MP4 links/data attributes sometimes embedded in scripts or widget attributes.
+  for (const match of html.matchAll(/(?:src|data-video|data-src)[\\"'=:\s]+(https?:\\?\/\\?\/[^\s"'<>]+?\.(?:mp4|webm)(?:\?[^\s"'<>]*)?)/gi)) {
+    pushMedia(media, seen, { type: "video", url: match[1], thumbnail_url: fallbackImage });
+  }
 
-  return media.slice(0, 20);
+  return media.slice(0, 30);
 }
 
 async function fetchTelegramHtml(url: URL) {
   const response = await fetch(url.toString(), {
     redirect: "follow",
-    signal: AbortSignal.timeout(9000),
+    signal: AbortSignal.timeout(10000),
     headers: {
-      "user-agent": "Mozilla/5.0 (compatible; ProductHuntingDashboard/1.0)",
-      "accept-language": "ar,en;q=0.8",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+      "accept-language": "ar,en-US;q=0.9,en;q=0.8",
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
   });
   return response.ok ? await response.text() : "";
 }
 
-async function scrapePublicTelegram(url: string) {
+function targetMessageSnippet(html: string, channel: string, postId: string) {
+  if (!html) return "";
+  const needles = [
+    `data-post=\"${channel}/${postId}\"`,
+    `data-post='${channel}/${postId}'`,
+    `data-post=\"${channel.toLowerCase()}/${postId}\"`,
+  ];
+  let at = -1;
+  for (const needle of needles) {
+    at = html.toLowerCase().indexOf(needle.toLowerCase());
+    if (at >= 0) break;
+  }
+  if (at < 0) return "";
+
+  const wrapperToken = "tgme_widget_message_wrap";
+  let start = html.lastIndexOf(wrapperToken, at);
+  if (start < 0) start = Math.max(0, at - 8000);
+  else start = Math.max(0, html.lastIndexOf("<", start));
+  let end = html.indexOf(wrapperToken, at + 1);
+  if (end < 0) end = Math.min(html.length, at + 50000);
+  else end = Math.max(at + 1, html.lastIndexOf("<", end));
+  return html.slice(start, end);
+}
+
+async function scrapePublicTelegram(rawUrl: string): Promise<TelegramScrape> {
   let parsed: URL;
-  try { parsed = new URL(url); } catch { return {}; }
+  try { parsed = new URL(rawUrl); } catch { return {}; }
   const host = parsed.hostname.toLowerCase();
   if (!["t.me", "www.t.me", "telegram.me", "www.telegram.me"].includes(host)) return {};
 
-  try {
-    const html = await fetchTelegramHtml(parsed);
-    if (!html) return {};
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  if (parts[0] === "s") parts.shift();
+  const channel = parts[0] ?? "";
+  const postId = parts[1] ?? "";
+  if (!channel || !/^\d+$/.test(postId)) return { channel_name: channel || null };
 
-    const embed = new URL(parsed.toString());
+  try {
+    const direct = new URL(`https://t.me/${channel}/${postId}`);
+    const embed = new URL(`https://t.me/${channel}/${postId}`);
     embed.searchParams.set("embed", "1");
     embed.searchParams.set("mode", "tme");
-    let embedHtml = "";
-    try { embedHtml = await fetchTelegramHtml(embed); } catch { /* main page still useful */ }
+    const publicPreview = new URL(`https://t.me/s/${channel}/${postId}`);
 
-    const combinedHtml = `${html}\n${embedHtml}`;
-    const title = meta(html, "og:title") ?? meta(html, "twitter:title");
-    const description = meta(html, "og:description") ?? meta(html, "twitter:description");
-    const image = meta(html, "og:image") ?? meta(html, "twitter:image");
-    const media = extractTelegramMedia(combinedHtml, image);
-    const cover = media.find((m) => m.type === "image")?.url ?? media.find((m) => m.thumbnail_url)?.thumbnail_url ?? image ?? null;
-    const pathParts = parsed.pathname.split("/").filter(Boolean);
-    const channel = pathParts[0] && !pathParts[0].startsWith("+") ? pathParts[0] : null;
+    const results = await Promise.allSettled([
+      fetchTelegramHtml(direct),
+      fetchTelegramHtml(embed),
+      fetchTelegramHtml(publicPreview),
+    ]);
+    const directHtml = results[0].status === "fulfilled" ? results[0].value : "";
+    const embedHtml = results[1].status === "fulfilled" ? results[1].value : "";
+    const previewHtml = results[2].status === "fulfilled" ? results[2].value : "";
+    const previewTarget = targetMessageSnippet(previewHtml, channel, postId);
+
+    const usefulHtml = [embedHtml, previewTarget, directHtml].filter(Boolean).join("\n");
+    if (!usefulHtml) return { channel_name: channel };
+
+    const title = meta(directHtml, "og:title") ?? meta(embedHtml, "og:title") ?? `Telegram • @${channel}`;
+    const description =
+      meta(directHtml, "og:description") ??
+      meta(embedHtml, "og:description") ??
+      extractMessageText(previewTarget) ??
+      extractMessageText(embedHtml);
+    const ogImage = meta(directHtml, "og:image") ?? meta(embedHtml, "og:image");
+    const media = extractTelegramMedia(usefulHtml, ogImage);
+    const cover = media.find((m) => m.type === "image")?.url ?? media.find((m) => m.thumbnail_url)?.thumbnail_url ?? ogImage ?? null;
 
     return {
       title,
@@ -180,10 +254,38 @@ async function scrapePublicTelegram(url: string) {
       media,
       channel_name: channel,
       target_price_egp: extractEgpPrice(description),
+      scrape_source: previewTarget ? "public-preview" : embedHtml ? "embed" : "direct",
     };
-  } catch {
-    return {};
+  } catch (error) {
+    console.error("telegram scrape failed", { rawUrl, error });
+    return { channel_name: channel };
   }
+}
+
+async function refreshExistingTelegram(id: number, sourceUrl: string) {
+  const scraped = await scrapePublicTelegram(sourceUrl);
+  const media = Array.isArray(scraped.media) ? scraped.media : [];
+  const rows = await query(
+    `UPDATE product_hunting_items SET
+       title = COALESCE(NULLIF(title, ''), $1),
+       description = COALESCE(NULLIF(description, ''), $2),
+       image_url = COALESCE($3, image_url),
+       media = CASE WHEN jsonb_array_length($4::jsonb) > 0 THEN $4::jsonb ELSE media END,
+       channel_name = COALESCE($5, channel_name),
+       target_price_egp = COALESCE(target_price_egp, $6),
+       updated_at = NOW()
+     WHERE id = $7 RETURNING *`,
+    [
+      scraped.title ?? null,
+      scraped.description ?? null,
+      scraped.image_url ?? null,
+      JSON.stringify(media),
+      scraped.channel_name ?? null,
+      scraped.target_price_egp ?? null,
+      id,
+    ],
+  );
+  return { item: rows[0], media_count: media.length, scraped };
 }
 
 router.get("/product-hunting", async (req: Request, res: Response) => {
@@ -192,9 +294,9 @@ router.get("/product-hunting", async (req: Request, res: Response) => {
     const status = typeof req.query.status === "string" ? req.query.status : "";
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const favorite = req.query.favorite === "true";
-
     const params: unknown[] = [];
     const where: string[] = [];
+
     if (status && STATUSES.has(status)) {
       params.push(status);
       where.push(`status = $${params.length}`);
@@ -209,9 +311,7 @@ router.get("/product-hunting", async (req: Request, res: Response) => {
       `SELECT * FROM product_hunting_items ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY is_favorite DESC, created_at DESC LIMIT 500`,
       params,
     );
-    const statsRows = await query<{ status: string; count: string }>(
-      `SELECT status, COUNT(*)::text AS count FROM product_hunting_items GROUP BY status`,
-    );
+    const statsRows = await query<{ status: string; count: string }>(`SELECT status, COUNT(*)::text AS count FROM product_hunting_items GROUP BY status`);
     const favorites = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM product_hunting_items WHERE is_favorite = TRUE`);
     const total = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM product_hunting_items`);
     const stats: Record<string, number> = { total: Number(total[0]?.count ?? 0), favorites: Number(favorites[0]?.count ?? 0) };
@@ -231,14 +331,31 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
     try { new URL(sourceUrl); } catch { return res.status(400).json({ error: "الرابط غير صالح" }); }
 
     const normalized = normalizeUrl(sourceUrl);
-    const existing = await query(`SELECT * FROM product_hunting_items WHERE normalized_url = $1 LIMIT 1`, [normalized]);
-    if (existing[0]) return res.status(409).json({ error: "المنتج مضاف بالفعل", duplicate: existing[0] });
+    const existing = await query<{ id: number; source_type: string; source_url: string }>(
+      `SELECT id, source_type, source_url FROM product_hunting_items WHERE normalized_url = $1 LIMIT 1`,
+      [normalized],
+    );
+
+    // Re-pasting an existing Telegram link now refreshes it instead of failing as duplicate.
+    if (existing[0]) {
+      if (existing[0].source_type === "telegram") {
+        const refreshed = await refreshExistingTelegram(existing[0].id, existing[0].source_url);
+        return res.status(200).json({
+          item: refreshed.item,
+          duplicate: true,
+          refreshed: true,
+          scraped: refreshed.media_count > 0 || Boolean(refreshed.scraped.description || refreshed.scraped.image_url),
+          media_count: refreshed.media_count,
+        });
+      }
+      return res.status(409).json({ error: "المنتج مضاف بالفعل" });
+    }
 
     const parsed = new URL(sourceUrl);
     const host = parsed.hostname.toLowerCase();
     const sourceType = host.includes("t.me") || host.includes("telegram.me") ? "telegram" : host.includes("tiktok") ? "tiktok" : host.includes("aliexpress") ? "aliexpress" : "other";
     const scraped = sourceType === "telegram" ? await scrapePublicTelegram(sourceUrl) : {};
-    const scrapedMedia = Array.isArray((scraped as any).media) ? (scraped as any).media : [];
+    const scrapedMedia = Array.isArray((scraped as TelegramScrape).media) ? (scraped as TelegramScrape).media! : [];
 
     const userId = req.session?.userId ?? null;
     let addedByName: string | null = null;
@@ -256,15 +373,15 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
         sourceUrl,
         normalized,
         sourceType,
-        (scraped as any).title ?? req.body?.title ?? null,
-        (scraped as any).description ?? req.body?.description ?? null,
-        (scraped as any).image_url ?? req.body?.image_url ?? null,
+        (scraped as TelegramScrape).title ?? req.body?.title ?? null,
+        (scraped as TelegramScrape).description ?? req.body?.description ?? null,
+        (scraped as TelegramScrape).image_url ?? req.body?.image_url ?? null,
         JSON.stringify(scrapedMedia),
-        (scraped as any).channel_name ?? null,
+        (scraped as TelegramScrape).channel_name ?? null,
         req.body?.category ?? null,
         req.body?.notes ?? null,
         req.body?.supplier_url ?? null,
-        (scraped as any).target_price_egp ?? req.body?.target_price_egp ?? null,
+        (scraped as TelegramScrape).target_price_egp ?? req.body?.target_price_egp ?? null,
         req.body?.cost_price ?? null,
         req.body?.cost_currency ?? "CNY",
         userId,
@@ -273,7 +390,7 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
     );
     res.status(201).json({
       item: rows[0],
-      scraped: Boolean((scraped as any).title || (scraped as any).image_url || (scraped as any).description || scrapedMedia.length),
+      scraped: Boolean((scraped as TelegramScrape).title || (scraped as TelegramScrape).image_url || (scraped as TelegramScrape).description || scrapedMedia.length),
       media_count: scrapedMedia.length,
     });
   } catch (error) {
@@ -287,36 +404,15 @@ router.post("/product-hunting/:id/refresh", async (req: Request, res: Response) 
     await ensureTable();
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "رقم المنتج غير صالح" });
-    const current = await query<{ source_url: string; source_type: string; title: string | null; description: string | null; target_price_egp: number | null }>(
-      `SELECT source_url, source_type, title, description, target_price_egp FROM product_hunting_items WHERE id = $1 LIMIT 1`,
+    const current = await query<{ source_url: string; source_type: string }>(
+      `SELECT source_url, source_type FROM product_hunting_items WHERE id = $1 LIMIT 1`,
       [id],
     );
     if (!current[0]) return res.status(404).json({ error: "المنتج غير موجود" });
     if (current[0].source_type !== "telegram") return res.status(400).json({ error: "تحديث الوسائط التلقائي متاح حاليًا لروابط Telegram" });
 
-    const scraped = await scrapePublicTelegram(current[0].source_url);
-    const media = Array.isArray((scraped as any).media) ? (scraped as any).media : [];
-    const rows = await query(
-      `UPDATE product_hunting_items SET
-         title = COALESCE(NULLIF(title, ''), $1),
-         description = COALESCE(NULLIF(description, ''), $2),
-         image_url = COALESCE($3, image_url),
-         media = $4::jsonb,
-         channel_name = COALESCE($5, channel_name),
-         target_price_egp = COALESCE(target_price_egp, $6),
-         updated_at = NOW()
-       WHERE id = $7 RETURNING *`,
-      [
-        (scraped as any).title ?? null,
-        (scraped as any).description ?? null,
-        (scraped as any).image_url ?? null,
-        JSON.stringify(media),
-        (scraped as any).channel_name ?? null,
-        (scraped as any).target_price_egp ?? null,
-        id,
-      ],
-    );
-    res.json({ item: rows[0], media_count: media.length });
+    const refreshed = await refreshExistingTelegram(id, current[0].source_url);
+    res.json({ item: refreshed.item, media_count: refreshed.media_count });
   } catch (error) {
     console.error("product-hunting refresh error", error);
     res.status(500).json({ error: "تعذر تحديث وسائط Telegram" });
@@ -354,10 +450,7 @@ router.patch("/product-hunting/:id", async (req: Request, res: Response) => {
     if (!updates.length) return res.status(400).json({ error: "لا توجد تعديلات" });
 
     params.push(id);
-    const rows = await query(
-      `UPDATE product_hunting_items SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${params.length} RETURNING *`,
-      params,
-    );
+    const rows = await query(`UPDATE product_hunting_items SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${params.length} RETURNING *`, params);
     if (!rows[0]) return res.status(404).json({ error: "المنتج غير موجود" });
     res.json({ item: rows[0] });
   } catch (error) {
