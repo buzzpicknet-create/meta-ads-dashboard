@@ -10,6 +10,8 @@ type ShopifyProduct = {
   id: number;
   title?: string;
   handle?: string;
+  variants?: Array<{ price?: string; compare_at_price?: string }>;
+  images?: Array<{ src?: string }>;
 };
 
 function publicBase(store: SourceStore) {
@@ -17,6 +19,66 @@ function publicBase(store: SourceStore) {
     ? "https://www.dealme-eg.com/products/"
     : "https://buzzpick.net/products/";
 }
+
+function nextLink(linkHeader: string | null) {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    if (!part.includes('rel="next"')) continue;
+    const match = part.match(/<([^>]+)>/);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+router.get("/shopify/products-simple", async (req: Request, res: Response): Promise<void> => {
+  const storeId = req.query.storeId ? Number(req.query.storeId) : NaN;
+  if (!Number.isFinite(storeId)) {
+    res.status(400).json({ error: "storeId غير صحيح", products: [] });
+    return;
+  }
+
+  try {
+    const stores = await db.select().from(shopifyStores);
+    const store = stores.find((row) => Number(row.id) === storeId);
+    if (!store?.domain || !store?.accessToken) {
+      res.status(404).json({ error: "المتجر غير مربوط", products: [] });
+      return;
+    }
+
+    const products: ShopifyProduct[] = [];
+    let url: string | null = `https://${store.domain}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250&fields=id,title,handle,variants,images`;
+    let pages = 0;
+
+    while (url && pages < 20) {
+      const upstream = await fetch(url, {
+        headers: { "X-Shopify-Access-Token": store.accessToken },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!upstream.ok) {
+        res.status(upstream.status).json({ error: `فشل جلب المنتجات (${upstream.status})`, products: [] });
+        return;
+      }
+      const payload = await upstream.json() as { products?: ShopifyProduct[] };
+      products.push(...(payload.products ?? []));
+      url = nextLink(upstream.headers.get("link"));
+      pages += 1;
+    }
+
+    res.json({
+      products: products.map((p) => ({
+        id: String(p.id),
+        title: p.title ?? "",
+        handle: p.handle ?? "",
+        image: p.images?.[0]?.src ?? "",
+        price: p.variants?.[0]?.price ?? "",
+        comparePrice: p.variants?.[0]?.compare_at_price ?? "",
+      })),
+    });
+  } catch (error) {
+    console.error("creative routine paginated Shopify product list failed", error);
+    res.status(500).json({ error: "تعذر جلب منتجات Shopify", products: [] });
+  }
+});
 
 router.get("/creative-routine/shopify-product-pages", async (req: Request, res: Response): Promise<void> => {
   const store = String(req.query.store || "") as SourceStore;
