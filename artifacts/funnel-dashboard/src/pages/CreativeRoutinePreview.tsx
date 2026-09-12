@@ -136,6 +136,7 @@ export default function CreativeRoutinePreview() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, { landing: string; materials: string; output: string }>>({});
   const [libraryImported, setLibraryImported] = useState(0);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   async function persistImportedLanding(productId: number, landingUrl: string) {
     try {
@@ -307,6 +308,8 @@ export default function CreativeRoutinePreview() {
   const inProgress = states.filter((s) => s === "in_progress").length;
   const review = states.filter((s) => s === "review").length;
   const done = states.filter((s) => s === "done").length;
+  const activeQueue = useMemo(() => queue.filter((item) => records[item.id]?.status !== "done"), [queue, records]);
+  const completedQueue = useMemo(() => queue.filter((item) => records[item.id]?.status === "done"), [queue, records]);
 
   function getDraft(id: number) {
     const record = records[id];
@@ -373,6 +376,7 @@ export default function CreativeRoutinePreview() {
       output_drive_url: d.output.trim() || null,
     });
     if (next === "in_progress") setExpanded(id);
+    if (next === "done") setExpanded(null);
   }
 
   const stateLabel = (s: TaskState) => s === "queued" ? "ابدأ المهمة" : s === "in_progress" ? "إرسال للمراجعة" : s === "review" ? "اعتماد وإنهاء" : "مكتمل ✓";
@@ -412,7 +416,7 @@ export default function CreativeRoutinePreview() {
           {kpi("مهام اليوم", queue.length, "الأقل مبيعًا أولًا")}
           {kpi("جاري التنفيذ", inProgress, "المونتير بدأ فيها")}
           {kpi("تحت المراجعة", review, "مستنية اعتماد")}
-          {kpi("مكتمل", done, "تم إغلاقها")}
+          {kpi("مكتمل", done, "مخفي من الطابور الرئيسي")}
         </section>
 
         <section className="rounded-2xl border border-border bg-card p-4">
@@ -430,7 +434,7 @@ export default function CreativeRoutinePreview() {
           <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-border bg-card"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
         ) : (
           <section className="grid gap-4 xl:grid-cols-2">
-            {queue.map((item, index) => {
+            {activeQueue.map((item, index) => {
               const record = records[item.id];
               const state = record?.status ?? "queued";
               const isOpen = expanded === item.id;
@@ -519,8 +523,44 @@ export default function CreativeRoutinePreview() {
           </section>
         )}
 
+        {!loading && completedQueue.length > 0 && (
+          <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+            <button onClick={() => setShowCompleted((value) => !value)} className="flex w-full items-center justify-between gap-3 text-right">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <div>
+                  <div className="font-black">المكتمل ({completedQueue.length})</div>
+                  <div className="text-xs text-muted-foreground">مخفي افتراضيًا علشان الطابور يفضل نظيف</div>
+                </div>
+              </div>
+              {showCompleted ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+            </button>
+
+            {showCompleted && (
+              <div className="mt-4 grid gap-2 md:grid-cols-2">
+                {completedQueue.map((item) => {
+                  const record = records[item.id];
+                  return (
+                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-background p-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-black">{item.name}</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">{item.storeName} · ستوك {item.stock}</div>
+                      </div>
+                      {record?.output_drive_url && (
+                        <a href={record.output_drive_url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-primary hover:underline">
+                          <FolderOpen className="h-3.5 w-3.5" /> Drive
+                        </a>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
         <section className="rounded-2xl border border-dashed border-border bg-muted/20 p-5">
-          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">منطق الاختيار</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">يدخل الطابور فقط المنتج اللي عليه ستوك. الترتيب: أقل مبيعات 30 يوم أولًا، ثم أقل مبيعات 7 أيام، ثم الستوك الأكبر. لا يوجد بريف تلقائي في الصفحة؛ المونتير يعتمد على صفحة المنتج والماتريال الفعلي.</p></div></div>
+          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">منطق الاختيار</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">يدخل الطابور فقط المنتج اللي عليه ستوك. الترتيب: أقل مبيعات 30 يوم أولًا، ثم أقل مبيعات 7 أيام، ثم الستوك الأكبر. المهام المكتملة تختفي من الطابور الرئيسي وتفضل متاحة في قسم المكتمل عند الحاجة.</p></div></div>
         </section>
       </main>
     </div>
