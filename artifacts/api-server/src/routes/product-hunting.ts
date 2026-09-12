@@ -18,6 +18,7 @@ type TelegramScrape = {
   channel_name?: string | null;
   target_price_egp?: number | null;
   scrape_source?: string;
+  media_from_post_id?: string | null;
 };
 
 async function ensureTable() {
@@ -141,7 +142,6 @@ function extractTelegramMedia(html: string, fallbackImage?: string | null): Prod
   const seen = new Set<string>();
   if (fallbackImage) pushMedia(media, seen, { type: "image", url: fallbackImage });
 
-  // Telegram photo widgets: accept both single/double quote CSS and encoded entities.
   for (const match of html.matchAll(/background-image\s*:\s*url\(([^)]+)\)/gi)) {
     const raw = match[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim().replace(/^['"]|['"]$/g, "");
     if (/cdn\d*\.telegram-cdn|cdn\d*\.telesco|telegram/i.test(raw) || /^https?:\/\//i.test(raw)) {
@@ -149,23 +149,24 @@ function extractTelegramMedia(html: string, fallbackImage?: string | null): Prod
     }
   }
 
-  // Direct image tags in message widgets.
   for (const match of html.matchAll(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)) {
     const src = match[1];
     if (/telegram|cdn|telesco/i.test(src)) pushMedia(media, seen, { type: "image", url: src });
   }
 
-  // Native video/source tags.
   for (const match of html.matchAll(/<(?:video|source)\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)) {
     pushMedia(media, seen, { type: "video", url: match[1], thumbnail_url: fallbackImage });
   }
 
-  // MP4 links/data attributes sometimes embedded in scripts or widget attributes.
   for (const match of html.matchAll(/(?:src|data-video|data-src)[\\"'=:\s]+(https?:\\?\/\\?\/[^\s"'<>]+?\.(?:mp4|webm)(?:\?[^\s"'<>]*)?)/gi)) {
     pushMedia(media, seen, { type: "video", url: match[1], thumbnail_url: fallbackImage });
   }
 
   return media.slice(0, 30);
+}
+
+function hasMessageMediaMarkup(html: string) {
+  return /tgme_widget_message_(?:photo|video)|<video\b|<source\b|background-image\s*:\s*url\(/i.test(html);
 }
 
 async function fetchTelegramHtml(url: URL) {
@@ -203,6 +204,42 @@ function targetMessageSnippet(html: string, channel: string, postId: string) {
   if (end < 0) end = Math.min(html.length, at + 50000);
   else end = Math.max(at + 1, html.lastIndexOf("<", end));
   return html.slice(start, end);
+}
+
+async function scrapePostMediaOnly(channel: string, postId: string): Promise<ProductMedia[]> {
+  const embed = new URL(`https://t.me/${channel}/${postId}`);
+  embed.searchParams.set("embed", "1");
+  embed.searchParams.set("mode", "tme");
+  const publicPreview = new URL(`https://t.me/s/${channel}/${postId}`);
+
+  const results = await Promise.allSettled([
+    fetchTelegramHtml(embed),
+    fetchTelegramHtml(publicPreview),
+  ]);
+  const embedHtml = results[0].status === "fulfilled" ? results[0].value : "";
+  const previewHtml = results[1].status === "fulfilled" ? results[1].value : "";
+  const previewTarget = targetMessageSnippet(previewHtml, channel, postId);
+  const usefulHtml = [embedHtml, previewTarget].filter(Boolean).join("\n");
+  if (!usefulHtml || !hasMessageMediaMarkup(usefulHtml)) return [];
+
+  const ogImage = meta(embedHtml, "og:image");
+  return extractTelegramMedia(usefulHtml, ogImage);
+}
+
+async function findPreviousTelegramMedia(channel: string, currentPostId: string) {
+  const current = Number(currentPostId);
+  if (!Number.isFinite(current) || current <= 1) return { media: [] as ProductMedia[], postId: null as string | null };
+
+  // Telegram message IDs can have gaps, so search backwards rather than assuming n-1 exists.
+  for (let offset = 1; offset <= 12; offset += 1) {
+    const candidate = String(current - offset);
+    if (Number(candidate) <= 0) break;
+    try {
+      const media = await scrapePostMediaOnly(channel, candidate);
+      if (media.length > 0) return { media, postId: candidate };
+    } catch { /* continue looking backwards */ }
+  }
+  return { media: [] as ProductMedia[], postId: null as string | null };
 }
 
 async function scrapePublicTelegram(rawUrl: string): Promise<TelegramScrape> {
@@ -244,8 +281,22 @@ async function scrapePublicTelegram(rawUrl: string): Promise<TelegramScrape> {
       extractMessageText(previewTarget) ??
       extractMessageText(embedHtml);
     const ogImage = meta(directHtml, "og:image") ?? meta(embedHtml, "og:image");
-    const media = extractTelegramMedia(usefulHtml, ogImage);
-    const cover = media.find((m) => m.type === "image")?.url ?? media.find((m) => m.thumbnail_url)?.thumbnail_url ?? ogImage ?? null;
+
+    // Do not treat a generic OG/channel image as product media for a text-only post.
+    let media = hasMessageMediaMarkup([embedHtml, previewTarget].filter(Boolean).join("\n"))
+      ? extractTelegramMedia([embedHtml, previewTarget].filter(Boolean).join("\n"), ogImage)
+      : [];
+    let mediaFromPostId: string | null = null;
+
+    // Product hunters often post the text immediately after the media post.
+    // Preserve THIS post's text/details, but borrow media from the nearest prior post with media.
+    if (media.length === 0) {
+      const previous = await findPreviousTelegramMedia(channel, postId);
+      media = previous.media;
+      mediaFromPostId = previous.postId;
+    }
+
+    const cover = media.find((m) => m.type === "image")?.url ?? media.find((m) => m.thumbnail_url)?.thumbnail_url ?? null;
 
     return {
       title,
@@ -254,7 +305,8 @@ async function scrapePublicTelegram(rawUrl: string): Promise<TelegramScrape> {
       media,
       channel_name: channel,
       target_price_egp: extractEgpPrice(description),
-      scrape_source: previewTarget ? "public-preview" : embedHtml ? "embed" : "direct",
+      scrape_source: mediaFromPostId ? `previous-post:${mediaFromPostId}` : previewTarget ? "public-preview" : embedHtml ? "embed" : "direct",
+      media_from_post_id: mediaFromPostId,
     };
   } catch (error) {
     console.error("telegram scrape failed", { rawUrl, error });
@@ -336,7 +388,6 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
       [normalized],
     );
 
-    // Re-pasting an existing Telegram link now refreshes it instead of failing as duplicate.
     if (existing[0]) {
       if (existing[0].source_type === "telegram") {
         const refreshed = await refreshExistingTelegram(existing[0].id, existing[0].source_url);
@@ -346,6 +397,7 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
           refreshed: true,
           scraped: refreshed.media_count > 0 || Boolean(refreshed.scraped.description || refreshed.scraped.image_url),
           media_count: refreshed.media_count,
+          media_from_post_id: refreshed.scraped.media_from_post_id ?? null,
         });
       }
       return res.status(409).json({ error: "المنتج مضاف بالفعل" });
@@ -392,6 +444,7 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
       item: rows[0],
       scraped: Boolean((scraped as TelegramScrape).title || (scraped as TelegramScrape).image_url || (scraped as TelegramScrape).description || scrapedMedia.length),
       media_count: scrapedMedia.length,
+      media_from_post_id: (scraped as TelegramScrape).media_from_post_id ?? null,
     });
   } catch (error) {
     console.error("product-hunting create error", error);
@@ -412,7 +465,7 @@ router.post("/product-hunting/:id/refresh", async (req: Request, res: Response) 
     if (current[0].source_type !== "telegram") return res.status(400).json({ error: "تحديث الوسائط التلقائي متاح حاليًا لروابط Telegram" });
 
     const refreshed = await refreshExistingTelegram(id, current[0].source_url);
-    res.json({ item: refreshed.item, media_count: refreshed.media_count });
+    res.json({ item: refreshed.item, media_count: refreshed.media_count, media_from_post_id: refreshed.scraped.media_from_post_id ?? null });
   } catch (error) {
     console.error("product-hunting refresh error", error);
     res.status(500).json({ error: "تعذر تحديث وسائط Telegram" });
