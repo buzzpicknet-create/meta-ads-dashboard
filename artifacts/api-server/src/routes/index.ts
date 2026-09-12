@@ -25,6 +25,7 @@ import productHuntingRouter from "./product-hunting";
 import productHuntingPrivateGuardRouter from "./product-hunting-private-guard";
 import telegramProductBotRouter, { telegramProductBotPublicRouter } from "./telegram-product-bot";
 import telegramProductBotSetupRouter from "./telegram-product-bot-setup";
+import "./telegram-product-bot-autoregister";
 import creativeRoutineRouter from "./creative-routine";
 import landingLibraryIntegrationRouter from "./landing-library-integration";
 import creativeShopifyProductsRouter from "./creative-shopify-products";
