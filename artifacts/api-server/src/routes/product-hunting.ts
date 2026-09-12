@@ -20,12 +20,20 @@ async function ensureTable() {
       is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
       category VARCHAR(100),
       notes TEXT,
+      supplier_url TEXT,
+      target_price_egp NUMERIC(12,2),
+      cost_price NUMERIC(12,2),
+      cost_currency VARCHAR(10) DEFAULT 'CNY',
       added_by_user_id INT REFERENCES users(id),
       added_by_name VARCHAR(100),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await query(`ALTER TABLE product_hunting_items ADD COLUMN IF NOT EXISTS supplier_url TEXT`);
+  await query(`ALTER TABLE product_hunting_items ADD COLUMN IF NOT EXISTS target_price_egp NUMERIC(12,2)`);
+  await query(`ALTER TABLE product_hunting_items ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2)`);
+  await query(`ALTER TABLE product_hunting_items ADD COLUMN IF NOT EXISTS cost_currency VARCHAR(10) DEFAULT 'CNY'`);
   await query(`CREATE INDEX IF NOT EXISTS idx_product_hunting_status ON product_hunting_items(status)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_product_hunting_created ON product_hunting_items(created_at DESC)`);
 }
@@ -65,6 +73,22 @@ function meta(html: string, key: string) {
   return null;
 }
 
+function extractEgpPrice(text?: string | null) {
+  if (!text) return null;
+  const patterns = [
+    /(?:EGP|ج\.م|جنيه)\s*[:\-]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i,
+    /([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:EGP|ج\.م|جنيه)/i,
+  ];
+  for (const pattern of patterns) {
+    const m = text.match(pattern);
+    if (m?.[1]) {
+      const value = Number(m[1].replace(/,/g, ""));
+      if (Number.isFinite(value) && value > 0 && value < 1000000) return value;
+    }
+  }
+  return null;
+}
+
 async function scrapePublicTelegram(url: string) {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return {}; }
@@ -87,7 +111,7 @@ async function scrapePublicTelegram(url: string) {
     const image = meta(html, "og:image") ?? meta(html, "twitter:image");
     const pathParts = parsed.pathname.split("/").filter(Boolean);
     const channel = pathParts[0] && !pathParts[0].startsWith("+") ? pathParts[0] : null;
-    return { title, description, image_url: image, channel_name: channel };
+    return { title, description, image_url: image, channel_name: channel, target_price_egp: extractEgpPrice(description) };
   } catch {
     return {};
   }
@@ -108,7 +132,7 @@ router.get("/product-hunting", async (req: Request, res: Response) => {
     }
     if (q) {
       params.push(`%${q}%`);
-      where.push(`(COALESCE(title,'') ILIKE $${params.length} OR COALESCE(description,'') ILIKE $${params.length} OR source_url ILIKE $${params.length} OR COALESCE(channel_name,'') ILIKE $${params.length})`);
+      where.push(`(COALESCE(title,'') ILIKE $${params.length} OR COALESCE(description,'') ILIKE $${params.length} OR source_url ILIKE $${params.length} OR COALESCE(channel_name,'') ILIKE $${params.length} OR COALESCE(category,'') ILIKE $${params.length} OR COALESCE(notes,'') ILIKE $${params.length})`);
     }
     if (favorite) where.push("is_favorite = TRUE");
 
@@ -120,7 +144,8 @@ router.get("/product-hunting", async (req: Request, res: Response) => {
       `SELECT status, COUNT(*)::text AS count FROM product_hunting_items GROUP BY status`,
     );
     const favorites = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM product_hunting_items WHERE is_favorite = TRUE`);
-    const stats: Record<string, number> = { total: rows.length, favorites: Number(favorites[0]?.count ?? 0) };
+    const total = await query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM product_hunting_items`);
+    const stats: Record<string, number> = { total: Number(total[0]?.count ?? 0), favorites: Number(favorites[0]?.count ?? 0) };
     for (const row of statsRows) stats[row.status] = Number(row.count);
     res.json({ items: rows, stats });
   } catch (error) {
@@ -154,24 +179,28 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
 
     const rows = await query(
       `INSERT INTO product_hunting_items
-       (source_url, normalized_url, source_type, title, description, image_url, channel_name, category, notes, added_by_user_id, added_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       (source_url, normalized_url, source_type, title, description, image_url, channel_name, category, notes, supplier_url, target_price_egp, cost_price, cost_currency, added_by_user_id, added_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING *`,
       [
         sourceUrl,
         normalized,
         sourceType,
         (scraped as any).title ?? req.body?.title ?? null,
-        (scraped as any).description ?? null,
-        (scraped as any).image_url ?? null,
+        (scraped as any).description ?? req.body?.description ?? null,
+        (scraped as any).image_url ?? req.body?.image_url ?? null,
         (scraped as any).channel_name ?? null,
         req.body?.category ?? null,
         req.body?.notes ?? null,
+        req.body?.supplier_url ?? null,
+        (scraped as any).target_price_egp ?? req.body?.target_price_egp ?? null,
+        req.body?.cost_price ?? null,
+        req.body?.cost_currency ?? "CNY",
         userId,
         addedByName,
       ],
     );
-    res.status(201).json({ item: rows[0], scraped: Boolean((scraped as any).title || (scraped as any).image_url) });
+    res.status(201).json({ item: rows[0], scraped: Boolean((scraped as any).title || (scraped as any).image_url || (scraped as any).description) });
   } catch (error) {
     console.error("product-hunting create error", error);
     res.status(500).json({ error: "تعذر إضافة المنتج" });
@@ -197,8 +226,14 @@ router.patch("/product-hunting/:id", async (req: Request, res: Response) => {
     }
     if (typeof req.body?.is_favorite === "boolean") add("is_favorite", req.body.is_favorite);
     if (typeof req.body?.title === "string") add("title", req.body.title.trim() || null);
+    if (typeof req.body?.description === "string") add("description", req.body.description.trim() || null);
+    if (typeof req.body?.image_url === "string") add("image_url", req.body.image_url.trim() || null);
     if (typeof req.body?.category === "string") add("category", req.body.category.trim() || null);
     if (typeof req.body?.notes === "string") add("notes", req.body.notes.trim() || null);
+    if (typeof req.body?.supplier_url === "string") add("supplier_url", req.body.supplier_url.trim() || null);
+    if (req.body?.target_price_egp === null || typeof req.body?.target_price_egp === "number") add("target_price_egp", req.body.target_price_egp);
+    if (req.body?.cost_price === null || typeof req.body?.cost_price === "number") add("cost_price", req.body.cost_price);
+    if (typeof req.body?.cost_currency === "string") add("cost_currency", req.body.cost_currency.trim().toUpperCase().slice(0, 10) || "CNY");
     if (!updates.length) return res.status(400).json({ error: "لا توجد تعديلات" });
 
     params.push(id);
