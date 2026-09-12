@@ -21,6 +21,7 @@ import storageRouter from "./storage";
 import landingPageGenRouter from "./landing-page-gen";
 import landingPageRecordsRouter from "./landing-page-records";
 import shopifyStoresRouter, { shopifyPublicRouter } from "./shopify-stores";
+import productHuntingRouter from "./product-hunting";
 const router = Router();
 
 // Pre-warm Pipeboard MCP connection so the first chat request doesn't
@@ -61,5 +62,6 @@ router.use(storageRouter);
 router.use(landingPageGenRouter);
 router.use(landingPageRecordsRouter);
 router.use(shopifyStoresRouter);
+router.use(productHuntingRouter);
 
 export default router;
