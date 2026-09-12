@@ -24,6 +24,7 @@ import shopifyStoresRouter, { shopifyPublicRouter } from "./shopify-stores";
 import productHuntingRouter from "./product-hunting";
 import productHuntingPrivateGuardRouter from "./product-hunting-private-guard";
 import telegramProductBotRouter, { telegramProductBotPublicRouter } from "./telegram-product-bot";
+import telegramProductBotSetupRouter from "./telegram-product-bot-setup";
 import creativeRoutineRouter from "./creative-routine";
 import landingLibraryIntegrationRouter from "./landing-library-integration";
 import creativeShopifyProductsRouter from "./creative-shopify-products";
@@ -34,6 +35,7 @@ warmUpPipeboard();
 router.use(authRouter);
 router.use(healthRouter);
 router.use(shopifyPublicRouter);
+router.use(telegramProductBotSetupRouter);
 router.use(telegramProductBotPublicRouter);
 
 router.use((req: Request, res: Response, next: NextFunction) => {
