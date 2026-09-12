@@ -51,6 +51,7 @@ type LandingLibraryItem = {
 
 type QueueItem = Product & {
   stock: number;
+  sold7: number;
   dailyRate7: number;
   sold30: number;
   priorityScore: number;
@@ -60,31 +61,6 @@ type QueueItem = Product & {
 };
 
 const LANDING_LIBRARY_URL = "https://google.ecom-egypt.com/api/integrations/meta/landing-pages?latestPerProduct=true&limit=200";
-
-const ANGLES = [
-  "المشكلة → الحل",
-  "إظهار الواو فاكتور",
-  "استخدام يومي واقعي",
-  "اعتراض شائع ثم الرد عليه",
-  "قبل / بعد بشكل بصري",
-  "UGC وتجربة أول مرة",
-  "3 أسباب تخليك تستخدمه",
-];
-
-const HOOKS = [
-  "المشكلة دي بتحصل كل يوم من غير ما تاخد بالك…",
-  "أول 3 ثواني هنا هي كل الفرق.",
-  "لو المنتج بيتشرح في لقطة واحدة، فهي دي.",
-  "بدل ما نشرح كتير… خلّي النتيجة تتكلم.",
-  "مش إعلان تقليدي: ورّي الاستخدام الحقيقي فورًا.",
-  "ابدأ بالمشهد اللي يخلي المشاهد يقول: إيه ده؟",
-];
-
-function hashNumber(input: string) {
-  let h = 0;
-  for (let i = 0; i < input.length; i++) h = Math.imul(31, h) + input.charCodeAt(i) | 0;
-  return Math.abs(h);
-}
 
 function splitLinks(value: string) {
   return value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
@@ -122,6 +98,15 @@ function findLanding(product: Product, items: LandingLibraryItem[]) {
     storeMatches(product, x.storeDomain) && normalizeName(x.productName) === name
   );
   return byName?.landingPageUrl || "";
+}
+
+function buildSafeBrief(product: Product, sold30: number) {
+  const lowSales = sold30 <= 3;
+  return {
+    angle: lowSales ? "إعادة تقديم المنتج بوضوح واختبار سبب ضعف الطلب" : "اختبار زاوية استخدام جديدة بدون تغيير حقيقة المنتج",
+    hook: `ابدأ أول 3 ثواني بإظهار ${product.name} نفسه أو استخدامه الحقيقي كما هو موضح في اللاندينج. ممنوع افتراض فائدة أو استخدام غير موجود في الصفحة.`,
+    visual: "افتح اللاندينج أولًا وحدد الوظيفة الأساسية والميزة البصرية الواضحة فقط. اختَر أقوى لقطة Demo موجودة في الماتريال، ثم اعرض المشكلة/الاستخدام والنتيجة الحقيقية بدون وعود طبية أو مبالغات أو Claims غير مكتوبة في الصفحة.",
+  };
 }
 
 function kpi(label: string, value: string | number, sub: string) {
@@ -253,23 +238,29 @@ export default function CreativeRoutinePreview() {
   const queue = useMemo<QueueItem[]>(() => eligible
     .map((p) => {
       const rate = rates[p.id];
+      const sold7 = Number(rate?.sold7 || 0);
       const dailyRate7 = Number(rate?.dailyRate7 || 0);
       const sold30 = Number(rate?.sold30 || 0);
-      const h = hashNumber(`${p.id}-${new Date().toISOString().slice(0, 10)}`);
-      const priorityScore = 40 + (h % 55) + Math.min(30, Math.round(Math.log10(Math.max(1, p.stock)) * 12)) + Math.min(25, Math.round(dailyRate7 * 4));
+      const noSalesBoost = sold30 === 0 ? 100000 : 0;
+      const lowSalesBoost = Math.max(0, 10000 - (sold30 * 100));
+      const stockBoost = Math.min(5000, Math.max(0, p.stock));
+      const priorityScore = noSalesBoost + lowSalesBoost + stockBoost;
+      const brief = buildSafeBrief(p, sold30);
       return {
         ...p,
+        sold7,
         dailyRate7,
         sold30,
         priorityScore,
-        angle: ANGLES[h % ANGLES.length],
-        hook: HOOKS[(h + 2) % HOOKS.length],
-        visual: dailyRate7 > 2
-          ? "ابدأ بلقطة استخدام سريعة جدًا ثم اقفل على النتيجة قبل شرح التفاصيل."
-          : "ابدأ بالمشكلة بصريًا ثم دخّل المنتج كحل في لقطة واحدة واضحة.",
+        ...brief,
       };
     })
-    .sort((a, b) => b.priorityScore - a.priorityScore)
+    .sort((a, b) => {
+      if (a.sold30 !== b.sold30) return a.sold30 - b.sold30;
+      if (a.sold7 !== b.sold7) return a.sold7 - b.sold7;
+      if (a.stock !== b.stock) return b.stock - a.stock;
+      return a.name.localeCompare(b.name, "ar");
+    })
     .slice(0, dailyLimit), [eligible, rates, dailyLimit]);
 
   const states = queue.map((item) => records[item.id]?.status ?? "queued");
@@ -360,7 +351,7 @@ export default function CreativeRoutinePreview() {
           <div>
             <div className="mb-1 flex items-center gap-2 text-xs font-bold text-primary"><Sparkles className="h-4 w-4" /> Creative Operations Queue</div>
             <h1 className="text-3xl font-black">مهام الكريتف اليومية</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">اللاندينج بيدج يتم استيرادها تلقائيًا من مكتبة Google Dashboard ومطابقتها مع المنتج حسب Shopify Product ID والمتجر.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">الأولوية الآن للمنتجات اللي عليها ستوك ومبيعاتها صفر أو قليلة. عند تساوي المبيعات، المنتج ذو الستوك الأكبر يطلع أولًا.</p>
             {libraryImported > 0 && <div className="mt-2 text-xs font-bold text-emerald-600">تم استيراد {libraryImported} رابط لاندينج تلقائيًا من المكتبة.</div>}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -377,8 +368,8 @@ export default function CreativeRoutinePreview() {
         {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500">{error}</div>}
 
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          {kpi("منتجات مؤهلة", eligible.length, "عليها مخزون حاليًا")}
-          {kpi("مهام اليوم", queue.length, `من أصل ${eligible.length} منتج مؤهل`)}
+          {kpi("منتجات عليها ستوك", eligible.length, "المؤهلة لدخول الطابور")}
+          {kpi("مهام اليوم", queue.length, "الأقل مبيعًا أولًا")}
           {kpi("جاري التنفيذ", inProgress, "المونتير بدأ فيها")}
           {kpi("تحت المراجعة", review, "مستنية اعتماد")}
           {kpi("مكتمل", done, "تم إغلاقها")}
@@ -386,9 +377,10 @@ export default function CreativeRoutinePreview() {
 
         <section className="rounded-2xl border border-border bg-card p-4">
           <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5"><Package className="h-4 w-4 text-primary" /> مخزون</span><span>→</span>
+            <span className="inline-flex items-center gap-1.5"><Package className="h-4 w-4 text-primary" /> ستوك متاح</span><span>→</span>
+            <span>أقل مبيعات</span><span>→</span>
             <span className="inline-flex items-center gap-1.5"><Link2 className="h-4 w-4 text-primary" /> لاندينج + ماتريال</span><span>→</span>
-            <span className="inline-flex items-center gap-1.5"><Bot className="h-4 w-4 text-primary" /> AI Brief</span><span>→</span>
+            <span className="inline-flex items-center gap-1.5"><Bot className="h-4 w-4 text-primary" /> بريف محافظ</span><span>→</span>
             <span className="inline-flex items-center gap-1.5"><Film className="h-4 w-4 text-primary" /> مونتاج</span><span>→</span>
             <span className="inline-flex items-center gap-1.5"><FolderOpen className="h-4 w-4 text-primary" /> Drive</span><span>→</span>
             <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-emerald-500" /> مراجعة</span>
@@ -414,11 +406,14 @@ export default function CreativeRoutinePreview() {
                           <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-black text-primary">الدور #{index + 1}</span>
                           <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold">{item.storeName}</span>
                           <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-500">ستوك {item.stock}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${item.sold30 === 0 ? "bg-red-500/10 text-red-500" : item.sold30 <= 5 ? "bg-amber-500/10 text-amber-600" : "bg-muted text-muted-foreground"}`}>
+                            {item.sold30 === 0 ? "بدون مبيعات 30 يوم" : `مبيعات 30 يوم: ${item.sold30}`}
+                          </span>
                           <span className="rounded-full border border-border px-2.5 py-1 text-[11px] font-bold">{stateLabel(state)}</span>
                         </div>
                         <h2 className="truncate text-lg font-black" title={item.name}>{item.name}</h2>
                         <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                          <span>مبيعات 30 يوم: <b className="text-foreground">{item.sold30}</b></span>
+                          <span>مبيعات 7 أيام: <b className="text-foreground">{item.sold7}</b></span>
                           <span>معدل 7 أيام: <b className="text-foreground">{item.dailyRate7.toFixed(1)}/يوم</b></span>
                         </div>
                       </div>
@@ -441,8 +436,9 @@ export default function CreativeRoutinePreview() {
                     <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
                       <div className="mb-2 flex items-center gap-2 text-xs font-black text-primary"><Bot className="h-4 w-4" /> البريف المقترح</div>
                       <div className="space-y-2 text-sm">
-                        <p><span className="font-bold text-muted-foreground">الزاوية:</span> <b>{item.angle}</b></p>
+                        <p><span className="font-bold text-muted-foreground">الهدف:</span> <b>{item.angle}</b></p>
                         <p className="leading-6"><span className="font-bold text-muted-foreground">الهوك:</span> {item.hook}</p>
+                        <p className="leading-6"><span className="font-bold text-muted-foreground">قاعدة التنفيذ:</span> راجع اللاندينج قبل المونتاج؛ البريف لا يضيف أي Claim أو استخدام من عنده.</p>
                       </div>
                     </div>
 
@@ -464,7 +460,7 @@ export default function CreativeRoutinePreview() {
                         </div>
                         <div><span className="font-black text-sm">Visual Hook</span><p className="mt-1 text-sm leading-6 text-muted-foreground">{item.visual}</p></div>
                         <div className="grid gap-2 sm:grid-cols-4">
-                          {["0–3ث: هوك", "3–7ث: المنتج", "7–14ث: Demo", "14–18ث: CTA"].map((x) => <div key={x} className="rounded-xl border border-border bg-background p-2.5 text-center text-xs font-bold">{x}</div>)}
+                          {["0–3ث: المنتج/المشكلة", "3–7ث: الاستخدام الحقيقي", "7–14ث: Demo", "14–18ث: CTA"].map((x) => <div key={x} className="rounded-xl border border-border bg-background p-2.5 text-center text-xs font-bold">{x}</div>)}
                         </div>
                         <button onClick={() => saveLinks(item.id)} disabled={savingId === item.id} className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-bold hover:bg-muted disabled:opacity-50">
                           {savingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} حفظ اللينكات
@@ -490,7 +486,7 @@ export default function CreativeRoutinePreview() {
         )}
 
         <section className="rounded-2xl border border-dashed border-border bg-muted/20 p-5">
-          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">طريقة الشغل</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">اللاندينج تتسحب تلقائيًا من مكتبة Google Dashboard. المونتير يضغط ابدأ، يفتح اللاندينج والماتريال، ينفذ، يحط لينك Drive، ثم يرسل للمراجعة.</p></div></div>
+          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">منطق الاختيار الجديد</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">يدخل الطابور فقط المنتج اللي عليه ستوك. بعد كده الترتيب: أقل مبيعات 30 يوم أولًا، ثم أقل مبيعات 7 أيام، ثم الستوك الأكبر. البريف لم يعد عشوائيًا ولا يفترض وظيفة المنتج؛ لازم يعتمد على اللاندينج والماتريال الفعلي.</p></div></div>
         </section>
       </main>
     </div>
