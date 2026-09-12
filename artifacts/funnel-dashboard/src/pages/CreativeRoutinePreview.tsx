@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight, Bot, CheckCircle2, ChevronDown, ChevronUp, Clock3, ExternalLink,
   Film, FolderOpen, Link2, Loader2, Package, Play, RefreshCw, Save,
-  Sparkles, Target, Users,
+  Sparkles, Users,
 } from "lucide-react";
 
 type Product = {
@@ -39,6 +39,16 @@ type RoutineRecord = {
   approved_at?: string | null;
 };
 
+type LandingLibraryItem = {
+  landingPageId: number;
+  shopifyProductId: string | null;
+  productName: string | null;
+  productHandle: string | null;
+  storeDomain: string | null;
+  landingPageUrl: string;
+  publishedAt: string | null;
+};
+
 type QueueItem = Product & {
   stock: number;
   dailyRate7: number;
@@ -48,6 +58,8 @@ type QueueItem = Product & {
   hook: string;
   visual: string;
 };
+
+const LANDING_LIBRARY_URL = "https://google.ecom-egypt.com/api/integrations/meta/landing-pages?latestPerProduct=true&limit=200";
 
 const ANGLES = [
   "المشكلة → الحل",
@@ -74,6 +86,44 @@ function hashNumber(input: string) {
   return Math.abs(h);
 }
 
+function splitLinks(value: string) {
+  return value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+}
+
+function looksLikeUrl(value: string) {
+  return /^https?:\/\//i.test(value.trim());
+}
+
+function normalizeName(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .replace(/[^a-z0-9\u0600-\u06ff]+/g, " ")
+    .trim();
+}
+
+function storeMatches(product: Product, domain: string | null) {
+  const d = String(domain || "").toLowerCase().replace(/^www\./, "");
+  if (product.sourceStore === "dealme") return d.includes("dealme-eg.com");
+  if (product.sourceStore === "buzzpick") return d.includes("buzzpick.net");
+  return false;
+}
+
+function findLanding(product: Product, items: LandingLibraryItem[]) {
+  const exact = items.find((x) =>
+    storeMatches(product, x.storeDomain) &&
+    String(x.shopifyProductId || "").trim() === String(product.sourceProductId || "").trim()
+  );
+  if (exact?.landingPageUrl) return exact.landingPageUrl;
+
+  const name = normalizeName(product.name);
+  if (!name) return "";
+  const byName = items.find((x) =>
+    storeMatches(product, x.storeDomain) && normalizeName(x.productName) === name
+  );
+  return byName?.landingPageUrl || "";
+}
+
 function kpi(label: string, value: string | number, sub: string) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
@@ -82,14 +132,6 @@ function kpi(label: string, value: string | number, sub: string) {
       <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
     </div>
   );
-}
-
-function splitLinks(value: string) {
-  return value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
-}
-
-function looksLikeUrl(value: string) {
-  return /^https?:\/\//i.test(value.trim());
 }
 
 export default function CreativeRoutinePreview() {
@@ -103,39 +145,96 @@ export default function CreativeRoutinePreview() {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, { landing: string; materials: string; output: string }>>({});
+  const [libraryImported, setLibraryImported] = useState(0);
+
+  async function persistImportedLanding(productId: number, landingUrl: string) {
+    try {
+      const res = await fetch(`/api/creative-routine/items/${productId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ landing_url: landingUrl }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { item?: RoutineRecord };
+      return data.item ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   async function load() {
     setLoading(true);
     setError(null);
+    setLibraryImported(0);
     try {
-      const [pRes, rRes, cRes] = await Promise.all([
+      const [pRes, rRes, cRes, libraryRes] = await Promise.all([
         fetch("/api/inventory/products", { credentials: "include" }),
         fetch("/api/inventory/sales-rate", { credentials: "include" }),
         fetch("/api/creative-routine/items", { credentials: "include" }),
+        fetch(LANDING_LIBRARY_URL, { mode: "cors", cache: "no-store" }).catch(() => null),
       ]);
+
       if (!pRes.ok) throw new Error("تعذر تحميل المخزون");
       const p = await pRes.json() as Product[];
-      setProducts(Array.isArray(p) ? p : []);
+      const productList = Array.isArray(p) ? p : [];
+      setProducts(productList);
+
       if (rRes.ok) {
         const r = await rRes.json() as { rates?: Record<number, SalesRate> };
         setRates(r.rates ?? {});
       }
+
+      const next: Record<number, RoutineRecord> = {};
       if (cRes.ok) {
         const c = await cRes.json() as { items?: RoutineRecord[] };
-        const next: Record<number, RoutineRecord> = {};
         for (const item of c.items ?? []) next[item.inventory_product_id] = item;
-        setRecords(next);
-        setDrafts((prev) => {
-          const d = { ...prev };
-          for (const item of c.items ?? []) {
-            d[item.inventory_product_id] = {
-              landing: item.landing_url ?? "",
-              materials: (item.material_links ?? []).join("\n"),
-              output: item.output_drive_url ?? "",
-            };
-          }
-          return d;
-        });
+      }
+
+      let library: LandingLibraryItem[] = [];
+      if (libraryRes?.ok) {
+        const payload = await libraryRes.json() as { data?: LandingLibraryItem[] };
+        library = Array.isArray(payload.data) ? payload.data : [];
+      }
+
+      const imported: Array<{ productId: number; landing: string }> = [];
+      if (library.length) {
+        for (const product of productList) {
+          if (next[product.id]?.landing_url) continue;
+          const landing = findLanding(product, library);
+          if (!landing) continue;
+          imported.push({ productId: product.id, landing });
+          next[product.id] = {
+            inventory_product_id: product.id,
+            landing_url: landing,
+            material_links: next[product.id]?.material_links ?? [],
+            output_drive_url: next[product.id]?.output_drive_url ?? null,
+            status: next[product.id]?.status ?? "queued",
+          };
+        }
+      }
+
+      setRecords(next);
+      setDrafts((prev) => {
+        const d = { ...prev };
+        for (const product of productList) {
+          const item = next[product.id];
+          if (!item) continue;
+          d[product.id] = {
+            landing: item.landing_url ?? "",
+            materials: (item.material_links ?? []).join("\n"),
+            output: item.output_drive_url ?? "",
+          };
+        }
+        return d;
+      });
+
+      if (imported.length) {
+        setLibraryImported(imported.length);
+        void Promise.allSettled(imported.map(async ({ productId, landing }) => {
+          const saved = await persistImportedLanding(productId, landing);
+          if (saved) setRecords((prev) => ({ ...prev, [productId]: saved }));
+        }));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "تعذر تحميل البيانات");
@@ -146,34 +245,32 @@ export default function CreativeRoutinePreview() {
 
   useEffect(() => { load(); }, []);
 
-  const eligible = useMemo(() => {
-    return products
-      .map((p) => ({ ...p, stock: p.availableStock ?? p.currentStock ?? 0 }))
-      .filter((p) => p.stock > 0)
-      .filter((p) => storeFilter === "all" || p.sourceStore === storeFilter);
-  }, [products, storeFilter]);
+  const eligible = useMemo(() => products
+    .map((p) => ({ ...p, stock: p.availableStock ?? p.currentStock ?? 0 }))
+    .filter((p) => p.stock > 0)
+    .filter((p) => storeFilter === "all" || p.sourceStore === storeFilter), [products, storeFilter]);
 
-  const queue = useMemo<QueueItem[]>(() => {
-    return eligible
-      .map((p) => {
-        const rate = rates[p.id];
-        const dailyRate7 = Number(rate?.dailyRate7 || 0);
-        const sold30 = Number(rate?.sold30 || 0);
-        const h = hashNumber(`${p.id}-${new Date().toISOString().slice(0, 10)}`);
-        const fairnessSeed = 40 + (h % 55);
-        const stockBoost = Math.min(30, Math.round(Math.log10(Math.max(1, p.stock)) * 12));
-        const activityBoost = Math.min(25, Math.round(dailyRate7 * 4));
-        const priorityScore = fairnessSeed + stockBoost + activityBoost;
-        const angle = ANGLES[h % ANGLES.length];
-        const hook = HOOKS[(h + 2) % HOOKS.length];
-        const visual = dailyRate7 > 2
+  const queue = useMemo<QueueItem[]>(() => eligible
+    .map((p) => {
+      const rate = rates[p.id];
+      const dailyRate7 = Number(rate?.dailyRate7 || 0);
+      const sold30 = Number(rate?.sold30 || 0);
+      const h = hashNumber(`${p.id}-${new Date().toISOString().slice(0, 10)}`);
+      const priorityScore = 40 + (h % 55) + Math.min(30, Math.round(Math.log10(Math.max(1, p.stock)) * 12)) + Math.min(25, Math.round(dailyRate7 * 4));
+      return {
+        ...p,
+        dailyRate7,
+        sold30,
+        priorityScore,
+        angle: ANGLES[h % ANGLES.length],
+        hook: HOOKS[(h + 2) % HOOKS.length],
+        visual: dailyRate7 > 2
           ? "ابدأ بلقطة استخدام سريعة جدًا ثم اقفل على النتيجة قبل شرح التفاصيل."
-          : "ابدأ بالمشكلة بصريًا ثم دخّل المنتج كحل في لقطة واحدة واضحة.";
-        return { ...p, dailyRate7, sold30, priorityScore, angle, hook, visual };
-      })
-      .sort((a, b) => b.priorityScore - a.priorityScore)
-      .slice(0, dailyLimit);
-  }, [eligible, rates, dailyLimit]);
+          : "ابدأ بالمشكلة بصريًا ثم دخّل المنتج كحل في لقطة واحدة واضحة.",
+      };
+    })
+    .sort((a, b) => b.priorityScore - a.priorityScore)
+    .slice(0, dailyLimit), [eligible, rates, dailyLimit]);
 
   const states = queue.map((item) => records[item.id]?.status ?? "queued");
   const inProgress = states.filter((s) => s === "in_progress").length;
@@ -253,10 +350,7 @@ export default function CreativeRoutinePreview() {
     <div dir="rtl" className="min-h-screen bg-background text-foreground pb-16">
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[1450px] items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-2 font-black">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-            Meta Ads <span className="text-muted-foreground">/</span> روتين الكريتف
-          </div>
+          <div className="flex items-center gap-2 font-black"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Meta Ads <span className="text-muted-foreground">/</span> روتين الكريتف</div>
           <a href="/overview" className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-bold hover:bg-muted">رجوع للداشبورد <ArrowRight className="h-3.5 w-3.5" /></a>
         </div>
       </header>
@@ -266,7 +360,8 @@ export default function CreativeRoutinePreview() {
           <div>
             <div className="mb-1 flex items-center gap-2 text-xs font-bold text-primary"><Sparkles className="h-4 w-4" /> Creative Operations Queue</div>
             <h1 className="text-3xl font-black">مهام الكريتف اليومية</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">كل مهمة فيها اللاندينج بيدج، الماتريال اللي هيتشتغل عليه، البريف، ومكان تسليم لينك Google Drive — كله في نفس الكارت.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">اللاندينج بيدج يتم استيرادها تلقائيًا من مكتبة Google Dashboard ومطابقتها مع المنتج حسب Shopify Product ID والمتجر.</p>
+            {libraryImported > 0 && <div className="mt-2 text-xs font-bold text-emerald-600">تم استيراد {libraryImported} رابط لاندينج تلقائيًا من المكتبة.</div>}
           </div>
           <div className="flex flex-wrap gap-2">
             <select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value as typeof storeFilter)} className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold">
@@ -367,10 +462,7 @@ export default function CreativeRoutinePreview() {
                           <input value={d.output} onChange={(e) => updateDraft(item.id, { output: e.target.value })} dir="ltr" placeholder="https://drive.google.com/..." className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
                           <p className="mt-1.5 text-xs text-muted-foreground">بعد ما يبدأ المهمة، يحط هنا لينك فولدر أو ملف Drive النهائي. لن يقدر يرسل للمراجعة بدون اللينك.</p>
                         </div>
-                        <div>
-                          <span className="font-black text-sm">Visual Hook</span>
-                          <p className="mt-1 text-sm leading-6 text-muted-foreground">{item.visual}</p>
-                        </div>
+                        <div><span className="font-black text-sm">Visual Hook</span><p className="mt-1 text-sm leading-6 text-muted-foreground">{item.visual}</p></div>
                         <div className="grid gap-2 sm:grid-cols-4">
                           {["0–3ث: هوك", "3–7ث: المنتج", "7–14ث: Demo", "14–18ث: CTA"].map((x) => <div key={x} className="rounded-xl border border-border bg-background p-2.5 text-center text-xs font-bold">{x}</div>)}
                         </div>
@@ -398,7 +490,7 @@ export default function CreativeRoutinePreview() {
         )}
 
         <section className="rounded-2xl border border-dashed border-border bg-muted/20 p-5">
-          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">طريقة الشغل بعد التعديل</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">الأدمن يربط اللاندينج والماتريال بالمنتج مرة واحدة. المونتير يضغط ابدأ، يفتح كل المصادر من نفس الكارت، ينفذ، يحط لينك Drive في خانة التسليم، ثم يرسل للمراجعة. كل اللينكات والحالة محفوظين على السيرفر ومش بيضيعوا مع Refresh.</p></div></div>
+          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">طريقة الشغل</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">اللاندينج تتسحب تلقائيًا من مكتبة Google Dashboard. المونتير يضغط ابدأ، يفتح اللاندينج والماتريال، ينفذ، يحط لينك Drive، ثم يرسل للمراجعة.</p></div></div>
         </section>
       </main>
     </div>
