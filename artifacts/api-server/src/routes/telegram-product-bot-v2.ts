@@ -115,6 +115,14 @@ async function ensureTable() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
 }
 
+function pickDescription(oldText: string, incomingText: string | null) {
+  const incoming = String(incomingText || "").trim();
+  if (!oldText) return incoming || null;
+  if (!incoming) return oldText;
+  if (incoming === oldText) return oldText;
+  return incoming.length > oldText.length ? incoming : oldText;
+}
+
 async function ingest(m: any) {
   await ensureTable();
   const chatId = Number(m?.chat?.id);
@@ -133,53 +141,50 @@ async function ingest(m: any) {
   const group = m?.media_group_id ? String(m.media_group_id) : null;
   const normalized = group ? `telegram-bot://chat/${chatId}/album/${group}` : `telegram-bot://chat/${chatId}/message/${messageId}`;
 
+  // Exact Telegram album: all members always belong to one product.
   if (group) {
     const rows = await query<any>(`SELECT * FROM product_hunting_items WHERE normalized_url=$1 LIMIT 1`, [normalized]);
     if (rows[0]) {
       const current: Media[] = Array.isArray(rows[0].media) ? rows[0].media : [];
       const seen = new Set(current.map(x => x.url));
       const merged = [...current, ...media.filter(x => !seen.has(x.url))];
-      const desc = String(rows[0].description || "").trim() || text;
+      const oldText = String(rows[0].description || "").trim();
+      const desc = pickDescription(oldText, text);
       const cover = rows[0].image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
+      const chosenLink = (text && originalLink) || rows[0].source_url || originalLink || normalized;
       await query(`UPDATE product_hunting_items SET media=$1::jsonb, image_url=$2, description=$3,
-        title=$4, target_price_egp=COALESCE(target_price_egp,$5),
-        source_url=CASE WHEN $6::text IS NOT NULL THEN $6 ELSE source_url END,
+        title=$4, target_price_egp=COALESCE(target_price_egp,$5), source_url=$6,
         channel_name=CASE WHEN channel_name IS NULL OR channel_name='' OR channel_name='Telegram' THEN $7 ELSE channel_name END,
-        updated_at=NOW() WHERE id=$8`,
-        [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channel), egp(desc || null), originalLink, channel, rows[0].id]);
-      if (text) await ack(chatId, `✅ تم تحديث المنتج وتجميع ${merged.length} ملف ميديا مع النص.`);
+        notes='تم تجميع Album/Forward تلقائياً في منتج واحد.', updated_at=NOW() WHERE id=$8`,
+        [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channel), egp(desc || null), chosenLink, channel, rows[0].id]);
+      if (text) await ack(chatId, `✅ تم تجميع المنتج: ${merged.length} صورة/فيديو.`);
       return;
     }
   }
 
+  // Telegram can split a multi-select forward into several independent messages/media groups.
+  // Treat updates arriving from the same employee within a very short burst as ONE product,
+  // even when more than one forwarded message carries a caption.
   const recent = await query<any>(`SELECT * FROM product_hunting_items
     WHERE source_type='telegram_bot' AND normalized_url LIKE $1 AND added_by_name=$2
-      AND updated_at >= NOW() - INTERVAL '20 seconds'
+      AND updated_at >= NOW() - INTERVAL '6 seconds'
     ORDER BY updated_at DESC LIMIT 1`, [`telegram-bot://chat/${chatId}/%`, sender]);
 
   if (recent[0]) {
     const oldText = String(recent[0].description || "").trim();
     const current: Media[] = Array.isArray(recent[0].media) ? recent[0].media : [];
-    const recentComplete = Boolean(oldText && current.length > 0);
-    const incomingIsMediaOnly = !text && media.length > 0;
-
-    // Do not attach the beginning of a NEW product to an already complete previous product.
-    if (!(recentComplete && incomingIsMediaOnly)) {
-      if (!(oldText && text)) {
-        const seen = new Set(current.map(x => x.url));
-        const merged = [...current, ...media.filter(x => !seen.has(x.url))];
-        const desc = oldText || text;
-        const cover = recent[0].image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
-        await query(`UPDATE product_hunting_items SET media=$1::jsonb, image_url=$2, description=$3, title=$4,
-          target_price_egp=COALESCE(target_price_egp,$5),
-          source_url=CASE WHEN $6::text IS NOT NULL THEN $6 ELSE source_url END,
-          channel_name=CASE WHEN channel_name IS NULL OR channel_name='' OR channel_name='Telegram' THEN $7 ELSE channel_name END,
-          notes='تم تجميع Forward متعدد الرسائل تلقائياً في منتج واحد.', updated_at=NOW() WHERE id=$8`,
-          [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channel), egp(desc || null), originalLink, channel, recent[0].id]);
-        if (text) await ack(chatId, `✅ تم إضافة المنتج وتجميع ${merged.length} صورة/فيديو مع النص.`);
-        return;
-      }
-    }
+    const seen = new Set(current.map(x => x.url));
+    const merged = [...current, ...media.filter(x => !seen.has(x.url))];
+    const desc = pickDescription(oldText, text);
+    const cover = recent[0].image_url || merged.find(x => x.type === "image")?.url || merged.find(x => x.thumbnail_url)?.thumbnail_url || null;
+    const chosenLink = (text && originalLink) || recent[0].source_url || originalLink || normalized;
+    await query(`UPDATE product_hunting_items SET media=$1::jsonb, image_url=$2, description=$3, title=$4,
+      target_price_egp=COALESCE(target_price_egp,$5), source_url=$6,
+      channel_name=CASE WHEN channel_name IS NULL OR channel_name='' OR channel_name='Telegram' THEN $7 ELSE channel_name END,
+      notes='تم تجميع دفعة Forward متعددة الرسائل تلقائياً في منتج واحد.', updated_at=NOW() WHERE id=$8`,
+      [JSON.stringify(merged), cover, desc, titleFrom(desc || null, channel), egp(desc || null), chosenLink, channel, recent[0].id]);
+    if (text) await ack(chatId, `✅ تم تجميع المنتج في كارت واحد ومعاه ${merged.length} صورة/فيديو.`);
+    return;
   }
 
   const cover = media.find(x => x.type === "image")?.url || media.find(x => x.thumbnail_url)?.thumbnail_url || null;
@@ -191,7 +196,7 @@ async function ingest(m: any) {
   if (text) {
     await ack(chatId, media.length
       ? `✅ تم إضافة المنتج إلى Product Hunting ومعاه ${media.length} صورة/فيديو.`
-      : "✅ تم استلام النص وإضافة المنتج. لو كنت مختار الميديا معاه هتتجمع تلقائياً خلال ثواني.");
+      : "✅ تم استلام النص. أي ميديا من نفس دفعة الـForward هتتجمع معاه تلقائياً.");
   }
 }
 
