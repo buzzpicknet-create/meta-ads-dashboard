@@ -9,7 +9,7 @@ type ShopifyProduct = {
   id: number;
   title?: string;
   handle?: string;
-  variants?: Array<{ price?: string; compare_at_price?: string }>;
+  variants?: Array<{ price?: string; compare_at_price?: string; sku?: string }>;
   images?: Array<{ src?: string }>;
 };
 
@@ -37,6 +37,10 @@ function normalizeName(value: string | null | undefined) {
     .replace(/[\u064B-\u065F\u0670]/g, "")
     .replace(/[^a-z0-9\u0600-\u06ff]+/g, " ")
     .trim();
+}
+
+function normalizeSku(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, "");
 }
 
 async function loadPublicProducts(sourceStore: SourceStore): Promise<ShopifyProduct[]> {
@@ -119,10 +123,20 @@ async function loadErpInventory(sourceStore: SourceStore): Promise<ErpInventoryI
 
 function mapCreativeProducts(erpItems: ErpInventoryItem[], shopifyProducts: ShopifyProduct[]) {
   const shopifyById = new Map<string, ShopifyProduct>();
+  const shopifyBySku = new Map<string, ShopifyProduct[]>();
   const shopifyByName = new Map<string, ShopifyProduct[]>();
 
   for (const product of shopifyProducts) {
     shopifyById.set(String(product.id), product);
+
+    for (const variant of product.variants ?? []) {
+      const sku = normalizeSku(variant.sku);
+      if (!sku) continue;
+      const rows = shopifyBySku.get(sku) || [];
+      if (!rows.some((row) => row.id === product.id)) rows.push(product);
+      shopifyBySku.set(sku, rows);
+    }
+
     const name = normalizeName(product.title);
     if (!name) continue;
     const rows = shopifyByName.get(name) || [];
@@ -146,6 +160,11 @@ function mapCreativeProducts(erpItems: ErpInventoryItem[], shopifyProducts: Shop
     let shopifyProduct: ShopifyProduct | undefined;
     const externalId = String(item.externalProductId || "").trim();
     if (externalId) shopifyProduct = shopifyById.get(externalId);
+
+    if (!shopifyProduct) {
+      const skuMatches = shopifyBySku.get(normalizeSku(item.sku)) || [];
+      if (skuMatches.length === 1) shopifyProduct = skuMatches[0];
+    }
 
     if (!shopifyProduct) {
       const nameMatches = shopifyByName.get(normalizeName(item.name)) || [];
