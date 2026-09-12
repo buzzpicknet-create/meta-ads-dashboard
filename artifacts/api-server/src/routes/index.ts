@@ -22,18 +22,15 @@ import landingPageGenRouter from "./landing-page-gen";
 import landingPageRecordsRouter from "./landing-page-records";
 import shopifyStoresRouter, { shopifyPublicRouter } from "./shopify-stores";
 import productHuntingRouter from "./product-hunting";
+import creativeRoutineRouter from "./creative-routine";
 const router = Router();
 
-// Pre-warm Pipeboard MCP connection so the first chat request doesn't
-// pay the connect+handshake overhead (usually 2-5 seconds).
 warmUpPipeboard();
 
-// ── Public routes (no auth required) ──────────────────────────────────────────
 router.use(authRouter);
 router.use(healthRouter);
 router.use(shopifyPublicRouter);
 
-// ── Auth guard for all routes below ───────────────────────────────────────────
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (!req.session?.userId) {
     return res.status(401).json({ error: "غير مصرح — يجب تسجيل الدخول أولاً" });
@@ -41,7 +38,6 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ── Protected routes ───────────────────────────────────────────────────────────
 router.use(metaRouter);
 router.use(alertsRouter);
 router.use(mediaRouter);
@@ -63,5 +59,6 @@ router.use(landingPageGenRouter);
 router.use(landingPageRecordsRouter);
 router.use(shopifyStoresRouter);
 router.use(productHuntingRouter);
+router.use(creativeRoutineRouter);
 
 export default router;
