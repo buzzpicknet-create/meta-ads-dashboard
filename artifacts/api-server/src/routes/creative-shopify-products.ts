@@ -185,14 +185,36 @@ function mapCreativeProducts(erpItems: ErpInventoryItem[], shopifyProducts: Shop
   return mapped;
 }
 
-router.get("/shopify/products-simple", async (req: Request, res: Response): Promise<void> => {
-  const storeId = req.query.storeId ? Number(req.query.storeId) : NaN;
-  if (!Number.isFinite(storeId)) {
-    res.status(400).json({ error: "storeId غير صحيح", products: [] });
-    return;
-  }
+async function loadCreativeRoutineProductsAcrossStores() {
+  const stores: SourceStore[] = ["dealme", "buzzpick"];
+  const settled = await Promise.allSettled(stores.map(async (store) => {
+    const [shopifyProducts, erpItems] = await Promise.all([
+      loadPublicProducts(store),
+      loadErpInventory(store),
+    ]);
+    return mapCreativeProducts(erpItems, shopifyProducts);
+  }));
 
+  return settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+}
+
+router.get("/shopify/products-simple", async (req: Request, res: Response): Promise<void> => {
   try {
+    const referer = String(req.headers.referer || "");
+    const isCreativeRoutine = referer.includes("/creative-routine-preview");
+
+    if (isCreativeRoutine) {
+      const products = await loadCreativeRoutineProductsAcrossStores();
+      res.json({ products });
+      return;
+    }
+
+    const storeId = req.query.storeId ? Number(req.query.storeId) : NaN;
+    if (!Number.isFinite(storeId)) {
+      res.status(400).json({ error: "storeId غير صحيح", products: [] });
+      return;
+    }
+
     const stores = await db.select().from(shopifyStores);
     const connectedStore = stores.find((row) => Number(row.id) === storeId);
     if (!connectedStore?.domain) {
@@ -207,15 +229,6 @@ router.get("/shopify/products-simple", async (req: Request, res: Response): Prom
     }
 
     const products = await loadPublicProducts(sourceStore);
-    const referer = String(req.headers.referer || "");
-    const isCreativeRoutine = referer.includes("/creative-routine-preview");
-
-    if (isCreativeRoutine) {
-      const erpItems = await loadErpInventory(sourceStore);
-      res.json({ products: mapCreativeProducts(erpItems, products) });
-      return;
-    }
-
     res.json({
       products: products.map((p) => ({
         id: String(p.id),
