@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import "./header-fix.css";
 
 // Configure API base URL
 const w = window as unknown as { __API_URL__: string };
