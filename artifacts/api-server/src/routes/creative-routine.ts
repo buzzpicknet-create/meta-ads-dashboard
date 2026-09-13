@@ -21,7 +21,28 @@ async function ensureTable() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await query(`ALTER TABLE creative_routine_items ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE creative_routine_items ADD COLUMN IF NOT EXISTS hidden_by_user_id INTEGER REFERENCES users(id)`);
+  await query(`ALTER TABLE creative_routine_items ADD COLUMN IF NOT EXISTS hidden_by_name VARCHAR(100)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_creative_routine_status ON creative_routine_items(status)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_creative_routine_hidden ON creative_routine_items(hidden_at)`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS creative_routine_history (
+      id BIGSERIAL PRIMARY KEY,
+      inventory_product_id INTEGER NOT NULL,
+      product_name TEXT,
+      source_store VARCHAR(30),
+      landing_url TEXT,
+      material_links JSONB NOT NULL DEFAULT '[]'::jsonb,
+      output_drive_url TEXT,
+      completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      completed_by_user_id INTEGER REFERENCES users(id),
+      completed_by_name VARCHAR(100)
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_creative_routine_history_product ON creative_routine_history(inventory_product_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_creative_routine_history_completed ON creative_routine_history(completed_at DESC)`);
 }
 
 router.get("/creative-routine/items", async (_req, res) => {
@@ -32,6 +53,56 @@ router.get("/creative-routine/items", async (_req, res) => {
   } catch (error) {
     console.error("creative-routine list failed", error);
     res.status(500).json({ error: "تعذر تحميل بيانات روتين الكريتف" });
+  }
+});
+
+router.get("/creative-routine/history", async (_req, res) => {
+  try {
+    await ensureTable();
+    const rows = await query(`
+      SELECT *
+      FROM creative_routine_history
+      ORDER BY completed_at DESC
+      LIMIT 1000
+    `);
+    res.json({ items: rows });
+  } catch (error) {
+    console.error("creative-routine history failed", error);
+    res.status(500).json({ error: "تعذر تحميل سجل الميديا" });
+  }
+});
+
+router.delete("/creative-routine/items/:productId", async (req, res) => {
+  try {
+    await ensureTable();
+    if (req.session?.role !== "admin") {
+      return res.status(403).json({ error: "الحذف متاح للأدمن فقط" });
+    }
+
+    const productId = Number(req.params.productId);
+    if (!Number.isSafeInteger(productId) || productId === 0 || productId < -2147483647 || productId > 2147483647) {
+      return res.status(400).json({ error: "productId غير صحيح" });
+    }
+
+    const rows = await query(`
+      INSERT INTO creative_routine_items (
+        inventory_product_id, status, hidden_at, hidden_by_user_id, hidden_by_name,
+        updated_by_user_id, updated_by_name
+      ) VALUES ($1, 'queued', NOW(), $2, $3, $2, $3)
+      ON CONFLICT (inventory_product_id) DO UPDATE SET
+        hidden_at = NOW(),
+        hidden_by_user_id = $2,
+        hidden_by_name = $3,
+        updated_by_user_id = $2,
+        updated_by_name = $3,
+        updated_at = NOW()
+      RETURNING *
+    `, [productId, req.session!.userId, req.session!.username]);
+
+    res.json({ item: rows[0], hidden: true });
+  } catch (error) {
+    console.error("creative-routine admin hide failed", error);
+    res.status(500).json({ error: "تعذر حذف الكارت من الطابور" });
   }
 });
 
@@ -48,6 +119,8 @@ router.patch("/creative-routine/items/:productId", async (req, res) => {
       material_links?: string[] | null;
       output_drive_url?: string | null;
       status?: string;
+      product_name?: string | null;
+      source_store?: string | null;
     };
 
     if (body.status !== undefined && !VALID_STATUS.has(body.status)) {
@@ -105,6 +178,26 @@ router.patch("/creative-routine/items/:productId", async (req, res) => {
       req.session!.userId,
       req.session!.username,
     ]);
+
+    if (nextStatus === "done" && current?.status !== "done") {
+      await query(`
+        INSERT INTO creative_routine_history (
+          inventory_product_id, product_name, source_store, landing_url,
+          material_links, output_drive_url, completed_at,
+          completed_by_user_id, completed_by_name
+        ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9)
+      `, [
+        productId,
+        body.product_name?.trim() || null,
+        body.source_store?.trim() || null,
+        landingUrl || null,
+        JSON.stringify(materialLinks),
+        outputDriveUrl || null,
+        approvedAt,
+        req.session!.userId,
+        req.session!.username,
+      ]);
+    }
 
     res.json({ item: rows[0] });
   } catch (error) {
