@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight, CheckCircle2, ChevronDown, ChevronUp, Clock3, ExternalLink,
-  Film, FolderOpen, Link2, Loader2, Package, Play, RefreshCw, Save,
-  Sparkles, Users,
+  Film, FolderOpen, History, Link2, Loader2, Package, Play, RefreshCw, Save,
+  Sparkles, Trash2, Users,
 } from "lucide-react";
 
 type Product = {
@@ -37,6 +37,20 @@ type RoutineRecord = {
   started_at?: string | null;
   submitted_at?: string | null;
   approved_at?: string | null;
+  hidden_at?: string | null;
+  hidden_by_name?: string | null;
+};
+
+type HistoryItem = {
+  id: number;
+  inventory_product_id: number;
+  product_name: string | null;
+  source_store: string | null;
+  landing_url: string | null;
+  material_links: string[] | null;
+  output_drive_url: string | null;
+  completed_at: string;
+  completed_by_name: string | null;
 };
 
 type LandingLibraryItem = {
@@ -113,6 +127,30 @@ function publicProductBase(store: Product["sourceStore"]) {
   return store === "dealme" ? "https://www.dealme-eg.com/products/" : "https://buzzpick.net/products/";
 }
 
+function formatCairoDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ar-EG", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function cairoDay(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 function kpi(label: string, value: string | number, sub: string) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4">
@@ -127,6 +165,8 @@ export default function CreativeRoutinePreview() {
   const [products, setProducts] = useState<Product[]>([]);
   const [rates, setRates] = useState<Record<number, SalesRate>>({});
   const [records, setRecords] = useState<Record<number, RoutineRecord>>({});
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [role, setRole] = useState<string>("");
   const [productUrls, setProductUrls] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,7 +176,18 @@ export default function CreativeRoutinePreview() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, { landing: string; materials: string; output: string }>>({});
   const [libraryImported, setLibraryImported] = useState(0);
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  async function refreshHistory() {
+    try {
+      const res = await fetch("/api/creative-routine/history", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json() as { items?: HistoryItem[] };
+      setHistory(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      // History is supplementary; the active queue should keep working if it fails.
+    }
+  }
 
   async function persistImportedLanding(productId: number, landingUrl: string) {
     try {
@@ -196,10 +247,12 @@ export default function CreativeRoutinePreview() {
     setError(null);
     setLibraryImported(0);
     try {
-      const [pRes, rRes, cRes, libraryRes] = await Promise.all([
+      const [pRes, rRes, cRes, hRes, meRes, libraryRes] = await Promise.all([
         fetch("/api/inventory/products", { credentials: "include" }),
         fetch("/api/inventory/sales-rate", { credentials: "include" }),
-        fetch("/api/creative-routine/items", { credentials: "include" }),
+        fetch("/api/creative-routine/items", { credentials: "include", cache: "no-store" }),
+        fetch("/api/creative-routine/history", { credentials: "include", cache: "no-store" }),
+        fetch("/api/auth/me", { credentials: "include" }),
         fetch(LANDING_LIBRARY_URL, { mode: "cors", cache: "no-store" }).catch(() => null),
       ]);
 
@@ -212,6 +265,16 @@ export default function CreativeRoutinePreview() {
       if (rRes.ok) {
         const r = await rRes.json() as { rates?: Record<number, SalesRate> };
         setRates(r.rates ?? {});
+      }
+
+      if (meRes.ok) {
+        const me = await meRes.json() as { user?: { role?: string } };
+        setRole(me.user?.role || "");
+      }
+
+      if (hRes.ok) {
+        const h = await hRes.json() as { items?: HistoryItem[] };
+        setHistory(Array.isArray(h.items) ? h.items : []);
       }
 
       const next: Record<number, RoutineRecord> = {};
@@ -239,6 +302,7 @@ export default function CreativeRoutinePreview() {
             material_links: next[product.id]?.material_links ?? [],
             output_drive_url: next[product.id]?.output_drive_url ?? null,
             status: next[product.id]?.status ?? "queued",
+            hidden_at: next[product.id]?.hidden_at ?? null,
           };
         }
       }
@@ -277,7 +341,8 @@ export default function CreativeRoutinePreview() {
   const eligible = useMemo(() => products
     .map((p) => ({ ...p, stock: p.availableStock ?? p.currentStock ?? 0 }))
     .filter((p) => p.stock > 0)
-    .filter((p) => storeFilter === "all" || p.sourceStore === storeFilter), [products, storeFilter]);
+    .filter((p) => !records[p.id]?.hidden_at)
+    .filter((p) => storeFilter === "all" || p.sourceStore === storeFilter), [products, records, storeFilter]);
 
   const queue = useMemo<QueueItem[]>(() => eligible
     .map((p) => {
@@ -307,9 +372,9 @@ export default function CreativeRoutinePreview() {
   const states = queue.map((item) => records[item.id]?.status ?? "queued");
   const inProgress = states.filter((s) => s === "in_progress").length;
   const review = states.filter((s) => s === "review").length;
-  const done = states.filter((s) => s === "done").length;
   const activeQueue = useMemo(() => queue.filter((item) => records[item.id]?.status !== "done"), [queue, records]);
-  const completedQueue = useMemo(() => queue.filter((item) => records[item.id]?.status === "done"), [queue, records]);
+  const todayKey = cairoDay(new Date());
+  const doneToday = history.filter((item) => cairoDay(item.completed_at) === todayKey).length;
 
   function getDraft(id: number) {
     const record = records[id];
@@ -324,7 +389,14 @@ export default function CreativeRoutinePreview() {
     setDrafts((prev) => ({ ...prev, [id]: { ...getDraft(id), ...patch } }));
   }
 
-  async function saveRecord(id: number, patch: Partial<{ landing_url: string | null; material_links: string[]; output_drive_url: string | null; status: TaskState }>) {
+  async function saveRecord(id: number, patch: Partial<{
+    landing_url: string | null;
+    material_links: string[];
+    output_drive_url: string | null;
+    status: TaskState;
+    product_name: string | null;
+    source_store: string | null;
+  }>) {
     setSavingId(id);
     try {
       const res = await fetch(`/api/creative-routine/items/${id}`, {
@@ -344,8 +416,10 @@ export default function CreativeRoutinePreview() {
           output: data.item!.output_drive_url ?? "",
         },
       }));
+      return data.item;
     } catch (e) {
       setError(e instanceof Error ? e.message : "تعذر حفظ المهمة");
+      return null;
     } finally {
       setSavingId(null);
     }
@@ -369,14 +443,43 @@ export default function CreativeRoutinePreview() {
       setExpanded(id);
       return;
     }
-    await saveRecord(id, {
+    const product = products.find((p) => p.id === id);
+    const saved = await saveRecord(id, {
       status: next,
       landing_url: d.landing.trim() || null,
       material_links: splitLinks(d.materials),
       output_drive_url: d.output.trim() || null,
+      product_name: product?.name ?? null,
+      source_store: product?.sourceStore ?? null,
     });
+    if (!saved) return;
     if (next === "in_progress") setExpanded(id);
-    if (next === "done") setExpanded(null);
+    if (next === "done") {
+      setExpanded(null);
+      await refreshHistory();
+    }
+  }
+
+  async function removeCard(id: number, name: string) {
+    if (role !== "admin") return;
+    const ok = window.confirm(`حذف ${name} من طابور الكريتف؟\n\nالسجل التاريخي لن يتم حذفه.`);
+    if (!ok) return;
+
+    setSavingId(id);
+    try {
+      const res = await fetch(`/api/creative-routine/items/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json() as { item?: RoutineRecord; error?: string };
+      if (!res.ok || !data.item) throw new Error(data.error || "تعذر حذف الكارت");
+      setRecords((prev) => ({ ...prev, [id]: data.item! }));
+      setExpanded((value) => value === id ? null : value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تعذر حذف الكارت");
+    } finally {
+      setSavingId(null);
+    }
   }
 
   const stateLabel = (s: TaskState) => s === "queued" ? "ابدأ المهمة" : s === "in_progress" ? "إرسال للمراجعة" : s === "review" ? "اعتماد وإنهاء" : "مكتمل ✓";
@@ -416,7 +519,7 @@ export default function CreativeRoutinePreview() {
           {kpi("مهام اليوم", queue.length, "الأقل مبيعًا أولًا")}
           {kpi("جاري التنفيذ", inProgress, "المونتير بدأ فيها")}
           {kpi("تحت المراجعة", review, "مستنية اعتماد")}
-          {kpi("مكتمل", done, "مخفي من الطابور الرئيسي")}
+          {kpi("مكتمل اليوم", doneToday, "محفوظ في سجل الميديا")}
         </section>
 
         <section className="rounded-2xl border border-border bg-card p-4">
@@ -464,7 +567,19 @@ export default function CreativeRoutinePreview() {
                           <span>معدل 7 أيام: <b className="text-foreground">{item.dailyRate7.toFixed(1)}/يوم</b></span>
                         </div>
                       </div>
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Film className="h-6 w-6" /></div>
+                      <div className="flex items-center gap-2">
+                        {role === "admin" && (
+                          <button
+                            onClick={() => removeCard(item.id, item.name)}
+                            disabled={savingId === item.id}
+                            title="حذف من طابور الكريتف"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-500/20 text-red-500 hover:bg-red-500/10 disabled:opacity-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Film className="h-6 w-6" /></div>
+                      </div>
                     </div>
 
                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -523,44 +638,61 @@ export default function CreativeRoutinePreview() {
           </section>
         )}
 
-        {!loading && completedQueue.length > 0 && (
-          <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-            <button onClick={() => setShowCompleted((value) => !value)} className="flex w-full items-center justify-between gap-3 text-right">
+        {!loading && history.length > 0 && (
+          <section className="rounded-2xl border border-border bg-card p-4">
+            <button onClick={() => setShowHistory((value) => !value)} className="flex w-full items-center justify-between gap-3 text-right">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <History className="h-5 w-5 text-primary" />
                 <div>
-                  <div className="font-black">المكتمل ({completedQueue.length})</div>
-                  <div className="text-xs text-muted-foreground">مخفي افتراضيًا علشان الطابور يفضل نظيف</div>
+                  <div className="font-black">سجل الميديا ({history.length})</div>
+                  <div className="text-xs text-muted-foreground">كل المنتجات اللي تم اعتمادها، بالتاريخ والموظف ولينك التسليم</div>
                 </div>
               </div>
-              {showCompleted ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+              {showHistory ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
             </button>
 
-            {showCompleted && (
-              <div className="mt-4 grid gap-2 md:grid-cols-2">
-                {completedQueue.map((item) => {
-                  const record = records[item.id];
-                  return (
-                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-background p-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-black">{item.name}</div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">{item.storeName} · ستوك {item.stock}</div>
-                      </div>
-                      {record?.output_drive_url && (
-                        <a href={record.output_drive_url} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-primary hover:underline">
-                          <FolderOpen className="h-3.5 w-3.5" /> Drive
-                        </a>
-                      )}
-                    </div>
-                  );
-                })}
+            {showHistory && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="text-xs text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-3 py-2 text-right">المنتج</th>
+                      <th className="px-3 py-2 text-right">المتجر</th>
+                      <th className="px-3 py-2 text-right">تاريخ الإنجاز</th>
+                      <th className="px-3 py-2 text-right">بواسطة</th>
+                      <th className="px-3 py-2 text-right">التسليم</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((entry) => {
+                      const product = products.find((p) => p.id === entry.inventory_product_id);
+                      const name = entry.product_name || product?.name || `Product #${entry.inventory_product_id}`;
+                      const store = entry.source_store || product?.storeName || "—";
+                      return (
+                        <tr key={entry.id} className="border-b border-border/60 last:border-0">
+                          <td className="px-3 py-3 font-bold">{name}</td>
+                          <td className="px-3 py-3">{store}</td>
+                          <td className="px-3 py-3 whitespace-nowrap">{formatCairoDate(entry.completed_at)}</td>
+                          <td className="px-3 py-3">{entry.completed_by_name || "—"}</td>
+                          <td className="px-3 py-3">
+                            {entry.output_drive_url ? (
+                              <a href={entry.output_drive_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-bold text-primary hover:underline">
+                                <FolderOpen className="h-3.5 w-3.5" /> Drive
+                              </a>
+                            ) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
         )}
 
         <section className="rounded-2xl border border-dashed border-border bg-muted/20 p-5">
-          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">منطق الاختيار</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">يدخل الطابور فقط المنتج اللي عليه ستوك. الترتيب: أقل مبيعات 30 يوم أولًا، ثم أقل مبيعات 7 أيام، ثم الستوك الأكبر. المهام المكتملة تختفي من الطابور الرئيسي وتفضل متاحة في قسم المكتمل عند الحاجة.</p></div></div>
+          <div className="flex items-start gap-3"><Users className="mt-0.5 h-5 w-5 text-primary" /><div><h3 className="font-black">منطق الاختيار</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">يدخل الطابور فقط المنتج اللي عليه ستوك. الترتيب: أقل مبيعات 30 يوم أولًا، ثم أقل مبيعات 7 أيام، ثم الستوك الأكبر. المنتج المكتمل لا يرجع تلقائيًا للطابور حاليًا، والمنتج اللي يحذفه الأدمن يتم استبعاده بدون مسح سجله التاريخي.</p></div></div>
         </section>
       </main>
     </div>
