@@ -9,6 +9,7 @@ async function ensureTable() {
     CREATE TABLE IF NOT EXISTS creative_routine_items (
       inventory_product_id INTEGER PRIMARY KEY,
       landing_url TEXT,
+      custom_product_url TEXT,
       material_links JSONB NOT NULL DEFAULT '[]'::jsonb,
       output_drive_url TEXT,
       status VARCHAR(30) NOT NULL DEFAULT 'queued',
@@ -21,6 +22,7 @@ async function ensureTable() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await query(`ALTER TABLE creative_routine_items ADD COLUMN IF NOT EXISTS custom_product_url TEXT`);
   await query(`ALTER TABLE creative_routine_items ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMPTZ`);
   await query(`ALTER TABLE creative_routine_items ADD COLUMN IF NOT EXISTS hidden_by_user_id INTEGER REFERENCES users(id)`);
   await query(`ALTER TABLE creative_routine_items ADD COLUMN IF NOT EXISTS hidden_by_name VARCHAR(100)`);
@@ -134,6 +136,7 @@ router.patch("/creative-routine/items/:productId", async (req, res) => {
 
     const body = req.body as {
       landing_url?: string | null;
+      custom_product_url?: string | null;
       material_links?: string[] | null;
       output_drive_url?: string | null;
       status?: string;
@@ -144,6 +147,9 @@ router.patch("/creative-routine/items/:productId", async (req, res) => {
     if (body.status !== undefined && !VALID_STATUS.has(body.status)) {
       return res.status(400).json({ error: "status غير صحيح" });
     }
+    if (body.custom_product_url !== undefined && req.session?.role !== "admin") {
+      return res.status(403).json({ error: "تعديل رابط المنتج متاح للأدمن فقط" });
+    }
 
     const currentRows = await query<any>(
       `SELECT * FROM creative_routine_items WHERE inventory_product_id = $1`,
@@ -152,6 +158,7 @@ router.patch("/creative-routine/items/:productId", async (req, res) => {
     const current = currentRows[0] ?? null;
     const nextStatus = body.status ?? current?.status ?? "queued";
     const landingUrl = body.landing_url !== undefined ? body.landing_url : current?.landing_url ?? null;
+    const customProductUrl = body.custom_product_url !== undefined ? body.custom_product_url : current?.custom_product_url ?? null;
     const materialLinks = body.material_links !== undefined
       ? (Array.isArray(body.material_links) ? body.material_links.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 50) : [])
       : (current?.material_links ?? []);
@@ -169,11 +176,12 @@ router.patch("/creative-routine/items/:productId", async (req, res) => {
 
     const rows = await query(`
       INSERT INTO creative_routine_items (
-        inventory_product_id, landing_url, material_links, output_drive_url, status,
+        inventory_product_id, landing_url, custom_product_url, material_links, output_drive_url, status,
         started_at, submitted_at, approved_at, updated_by_user_id, updated_by_name
-      ) VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10)
+      ) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11)
       ON CONFLICT (inventory_product_id) DO UPDATE SET
         landing_url = EXCLUDED.landing_url,
+        custom_product_url = EXCLUDED.custom_product_url,
         material_links = EXCLUDED.material_links,
         output_drive_url = EXCLUDED.output_drive_url,
         status = EXCLUDED.status,
@@ -187,6 +195,7 @@ router.patch("/creative-routine/items/:productId", async (req, res) => {
     `, [
       productId,
       landingUrl || null,
+      customProductUrl || null,
       JSON.stringify(materialLinks),
       outputDriveUrl || null,
       nextStatus,
