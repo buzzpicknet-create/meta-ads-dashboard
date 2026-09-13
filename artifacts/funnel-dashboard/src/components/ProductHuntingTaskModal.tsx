@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Clock3, Loader2, Target, UserRound, X } from "lucide-react";
 
+interface HuntingMedia {
+  type: "image" | "video";
+  url: string;
+  thumbnail_url?: string | null;
+}
+
 export interface HuntingTaskProduct {
   id: number;
   title: string | null;
@@ -10,6 +16,7 @@ export interface HuntingTaskProduct {
   target_price_egp: string | number | null;
   cost_price: string | number | null;
   cost_currency: string | null;
+  media?: HuntingMedia[] | null;
 }
 
 interface Assignee {
@@ -27,6 +34,11 @@ interface Props {
 function cairoLocalPlusHours(hours: number) {
   const d = new Date(Date.now() + hours * 60 * 60 * 1000);
   return d.toLocaleString("sv-SE", { timeZone: "Africa/Cairo" }).slice(0, 16).replace(" ", "T");
+}
+
+function mediaObjectPath(url: string) {
+  const match = url.match(/\/api\/telegram-product-bot\/media\/([^/?#]+)/);
+  return match ? `/objects/telegram-product/${decodeURIComponent(match[1])}` : null;
 }
 
 export default function ProductHuntingTaskModal({ product, onClose, onDone }: Props) {
@@ -90,6 +102,27 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
     { h: 72, label: "٣ أيام" },
   ];
 
+  async function attachProductMedia(taskId: number) {
+    const media = Array.isArray(product.media) ? product.media : [];
+    for (let i = 0; i < media.length; i++) {
+      const item = media[i];
+      const objectPath = mediaObjectPath(item.url);
+      if (!objectPath) continue;
+      const mimeType = item.type === "video" ? "video/mp4" : "image/jpeg";
+      const originalName = `product-hunting-${product.id}-${i + 1}.${item.type === "video" ? "mp4" : "jpg"}`;
+      const r = await fetch(`/api/tasks/${taskId}/media`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ objectPath, originalName, mimeType }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error || "تم إنشاء المهمة لكن تعذر إرفاق بعض الميديا");
+      }
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -112,11 +145,11 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
             deadline: new Date(deadline).toISOString(),
             success_metric: metric.trim() || null,
             notes: finalNotes.trim() || null,
-            inventory_snapshot: { hunting_product_id: product.id },
           }),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || `تعذر إنشاء المهمة لـ ${buyer?.username || "الميديا باير"}`);
+        await attachProductMedia(Number(data.id));
       }
 
       onDone(`تم تحويل المنتج إلى ${selectedIds.length} ${selectedIds.length === 1 ? "مهمة" : "مهام"} للميديا بايرز: ${selectedNames.join("، ")}`);
@@ -133,7 +166,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
         <div className="sticky top-0 z-10 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة <span className="text-[10px] font-normal text-muted-foreground">v6</span></h2>
-            <p className="text-xs text-muted-foreground mt-1">الميديا باير سيشوف فقط البيانات الموجودة في الملاحظات النهائية والميديا المرفقة.</p>
+            <p className="text-xs text-muted-foreground mt-1">راجع الملاحظات النهائية قبل الإنشاء؛ رابط Telegram لا يرسل للميديا باير.</p>
           </div>
           <button onClick={onClose} disabled={saving} className="h-9 w-9 rounded-lg hover:bg-muted inline-flex items-center justify-center disabled:opacity-50"><X className="h-5 w-5" /></button>
         </div>
@@ -170,7 +203,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
 
           <label className="grid gap-1.5 rounded-xl border-2 border-primary/40 bg-primary/5 p-3">
             <span className="text-sm font-bold">الملاحظات النهائية للميديا باير</span>
-            <span className="text-xs text-muted-foreground">محتوى Telegram موجود هنا. عدّله واحذف أي أسعار أو تفاصيل مش عايزها قبل الإنشاء. رابط بوست Telegram لا يُضاف للمهمة.</span>
+            <span className="text-xs text-muted-foreground">محتوى Telegram موجود هنا. عدّله واحذف أي سعر أو تفاصيل مش عايزها قبل الإنشاء.</span>
             <textarea value={finalNotes} onChange={e => { setFinalNotes(e.target.value); setFinalNotesDirty(true); }} rows={12} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" />
             {finalNotesDirty && <button type="button" onClick={() => { setFinalNotes(generatedNotes); setFinalNotesDirty(false); }} className="justify-self-start text-xs text-primary hover:underline">إعادة توليد الملاحظات</button>}
           </label>
