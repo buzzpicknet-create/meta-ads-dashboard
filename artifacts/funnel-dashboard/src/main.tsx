@@ -3,6 +3,7 @@ import App from "./App";
 import CreativeRoutinePreview from "./pages/CreativeRoutinePreview";
 import "./index.css";
 import "./header-fix.css";
+import "./product-hunting-task-bridge";
 
 // Configure API base URL
 const w = window as unknown as { __API_URL__: string };
