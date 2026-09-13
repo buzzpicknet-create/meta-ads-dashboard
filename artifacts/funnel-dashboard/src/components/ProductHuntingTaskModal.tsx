@@ -41,8 +41,9 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loadingAssignees, setLoadingAssignees] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [taskTitle, setTaskTitle] = useState(`اختبار منتج — ${product.title || "منتج جديد"}`);
-  const [productName, setProductName] = useState(product.title || "");
+  const [taskTitle, setTaskTitle] = useState("اختبار منتج جديد");
+  const [productName, setProductName] = useState("");
+  const [productDetails, setProductDetails] = useState(product.description || product.title || "");
   const [wholesalePrice, setWholesalePrice] = useState(textNumber(fallbackWholesale));
   const [currency, setCurrency] = useState(fallbackCurrency);
   const [offers, setOffers] = useState("");
@@ -98,7 +99,6 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
       const normalizedWholesale = wholesalePrice.trim() ? Number(wholesalePrice.replace(/,/g, "")) : null;
       if (wholesalePrice.trim() && !Number.isFinite(normalizedWholesale)) throw new Error("سعر الجملة غير صحيح");
 
-      // Save the reviewed wholesale value back to Product Hunting before task creation.
       if (normalizedWholesale !== null) {
         const pr = await fetch(`/api/product-hunting/${product.id}`, {
           method: "PATCH",
@@ -115,7 +115,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
         offers.trim() ? `العروض المقترحة للميديا باير:\n${offers.trim()}` : null,
         product.source_url ? `رابط البوست/المصدر: ${product.source_url}` : null,
         product.supplier_url ? `رابط المورد: ${product.supplier_url}` : null,
-        product.description ? `تفاصيل المنتج:\n${product.description}` : null,
+        productDetails.trim() ? `تفاصيل المنتج:\n${productDetails.trim()}` : null,
         notes.trim() ? `تعليمات إضافية:\n${notes.trim()}` : null,
       ].filter(Boolean).join("\n\n");
 
@@ -127,7 +127,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             title: taskTitle.trim(),
-            product_name: productName.trim() || product.title || null,
+            product_name: productName.trim() || null,
             assigned_to_id: buyerId,
             assigned_to_name: buyer?.username || null,
             deadline: new Date(deadline).toISOString(),
@@ -153,7 +153,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
         <div className="sticky top-0 z-10 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة</h2>
-            <p className="text-xs text-muted-foreground mt-1">راجع السعر والعروض وحدد الميديا باير قبل إنشاء المهمة.</p>
+            <p className="text-xs text-muted-foreground mt-1">راجع اسم المنتج والتفاصيل والسعر والعروض قبل إنشاء المهمة.</p>
           </div>
           <button onClick={onClose} disabled={saving} className="h-9 w-9 rounded-lg hover:bg-muted inline-flex items-center justify-center disabled:opacity-50"><X className="h-5 w-5" /></button>
         </div>
@@ -164,13 +164,18 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
           <div className="grid sm:grid-cols-2 gap-4">
             <label className="grid gap-1.5 sm:col-span-2">
               <span className="text-sm font-medium">عنوان المهمة *</span>
-              <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
+              <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="مثال: اختبار منتج جديد" className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
             </label>
             <label className="grid gap-1.5 sm:col-span-2">
               <span className="text-sm font-medium">اسم المنتج</span>
-              <input value={productName} onChange={e => setProductName(e.target.value)} className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
+              <input value={productName} onChange={e => setProductName(e.target.value)} placeholder="اكتب اسم مختصر وواضح للمنتج" className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
             </label>
           </div>
+
+          <label className="grid gap-1.5">
+            <span className="text-sm font-medium">تفاصيل المنتج</span>
+            <textarea value={productDetails} onChange={e => setProductDetails(e.target.value)} rows={6} placeholder="تفاصيل المنتج المنقولة من Telegram — عدلها قبل إنشاء المهمة" className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" />
+          </label>
 
           <div className="grid sm:grid-cols-[1fr_130px] gap-3">
             <label className="grid gap-1.5">
@@ -228,7 +233,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
           </label>
 
           <div className="rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground leading-relaxed">
-            رابط البوست وتفاصيل المنتج هيتضافوا تلقائيًا داخل ملاحظات المهمة، وسعر الجملة المعدّل هيتحفظ كمان في Product Hunting.
+            رابط البوست والميديا هيتنقلوا تلقائيًا للمهمة، والتفاصيل اللي عدلتها هنا هي اللي هتظهر للميديا باير.
           </div>
 
           <div className="sticky bottom-0 bg-background border-t border-border pt-4 flex items-center justify-end gap-2">
