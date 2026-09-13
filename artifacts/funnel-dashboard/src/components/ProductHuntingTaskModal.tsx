@@ -35,11 +35,10 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [taskTitle, setTaskTitle] = useState("");
   const [productName, setProductName] = useState("");
-  const [productDetails, setProductDetails] = useState(product.description || product.title || "");
   const [offers, setOffers] = useState("");
   const [metric, setMetric] = useState("");
   const [extraNotes, setExtraNotes] = useState("");
-  const [finalNotes, setFinalNotes] = useState("");
+  const [finalNotes, setFinalNotes] = useState(product.description || product.title || "");
   const [finalNotesDirty, setFinalNotesDirty] = useState(false);
   const [deadline, setDeadline] = useState(cairoLocalPlusHours(24));
   const [presetHours, setPresetHours] = useState<number | null>(24);
@@ -64,12 +63,11 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   }, []);
 
   const generatedNotes = useMemo(() => [
-    productDetails.trim() ? `تفاصيل المنتج:\n${productDetails.trim()}` : null,
+    (product.description || product.title || "").trim() || null,
     offers.trim() ? `العروض للميديا باير:\n${offers.trim()}` : null,
-    product.source_url ? `رابط البوست/المصدر: ${product.source_url}` : null,
     product.supplier_url ? `رابط المورد: ${product.supplier_url}` : null,
     extraNotes.trim() ? `تعليمات إضافية:\n${extraNotes.trim()}` : null,
-  ].filter(Boolean).join("\n\n"), [productDetails, offers, product.source_url, product.supplier_url, extraNotes]);
+  ].filter(Boolean).join("\n\n"), [product.description, product.title, product.supplier_url, offers, extraNotes]);
 
   useEffect(() => {
     if (!finalNotesDirty) setFinalNotes(generatedNotes);
@@ -114,6 +112,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
             deadline: new Date(deadline).toISOString(),
             success_metric: metric.trim() || null,
             notes: finalNotes.trim() || null,
+            inventory_snapshot: { hunting_product_id: product.id },
           }),
         });
         const data = await r.json();
@@ -133,8 +132,8 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
       <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl border border-border bg-background shadow-2xl">
         <div className="sticky top-0 z-10 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
           <div>
-            <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة <span className="text-[10px] font-normal text-muted-foreground">v5</span></h2>
-            <p className="text-xs text-muted-foreground mt-1">راجع كل ما سيصل للميديا باير وعدّل الملاحظات النهائية قبل الإنشاء.</p>
+            <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة <span className="text-[10px] font-normal text-muted-foreground">v6</span></h2>
+            <p className="text-xs text-muted-foreground mt-1">الميديا باير سيشوف فقط البيانات الموجودة في الملاحظات النهائية والميديا المرفقة.</p>
           </div>
           <button onClick={onClose} disabled={saving} className="h-9 w-9 rounded-lg hover:bg-muted inline-flex items-center justify-center disabled:opacity-50"><X className="h-5 w-5" /></button>
         </div>
@@ -147,9 +146,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
             <label className="grid gap-1.5"><span className="text-sm font-medium">اسم المنتج</span><input value={productName} onChange={e => setProductName(e.target.value)} placeholder="اكتب اسم المنتج" className="h-10 rounded-xl border border-input bg-background px-3 text-sm" /></label>
           </div>
 
-          <label className="grid gap-1.5"><span className="text-sm font-medium">تفاصيل المنتج</span><textarea value={productDetails} onChange={e => { setProductDetails(e.target.value); if (finalNotesDirty) setFinalNotesDirty(false); }} rows={6} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" /></label>
-
-          <label className="grid gap-1.5"><span className="text-sm font-medium">العروض للميديا بايرز</span><textarea value={offers} onChange={e => { setOffers(e.target.value); if (finalNotesDirty) setFinalNotesDirty(false); }} rows={3} placeholder="مثال: 1 قطعة 399ج — 2 قطعة 649ج" className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y" /></label>
+          <label className="grid gap-1.5"><span className="text-sm font-medium">العروض للميديا بايرز</span><textarea value={offers} onChange={e => { setOffers(e.target.value); setFinalNotesDirty(false); }} rows={3} placeholder="مثال: 1 قطعة 399ج — 2 قطعة 649ج" className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y" /></label>
 
           <div>
             <div className="flex items-center justify-between mb-2"><span className="text-sm font-medium flex items-center gap-1.5"><UserRound className="h-4 w-4" /> الميديا بايرز *</span>{selectedIds.length > 0 && <span className="text-xs text-muted-foreground">تم اختيار {selectedIds.length}</span>}</div>
@@ -169,13 +166,13 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
             <input type="datetime-local" value={deadline} onChange={e => { setDeadline(e.target.value); setPresetHours(null); }} className="w-full h-10 rounded-xl border border-input bg-background px-3 text-sm" required />
           </div>
 
-          <label className="grid gap-1.5"><span className="text-sm font-medium">تعليمات إضافية</span><textarea value={extraNotes} onChange={e => { setExtraNotes(e.target.value); if (finalNotesDirty) setFinalNotesDirty(false); }} rows={3} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y" /></label>
+          <label className="grid gap-1.5"><span className="text-sm font-medium">تعليمات إضافية</span><textarea value={extraNotes} onChange={e => { setExtraNotes(e.target.value); setFinalNotesDirty(false); }} rows={3} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y" /></label>
 
           <label className="grid gap-1.5 rounded-xl border-2 border-primary/40 bg-primary/5 p-3">
-            <span className="text-sm font-bold">الملاحظات النهائية التي ستظهر للميديا باير</span>
-            <span className="text-xs text-muted-foreground">دي النسخة النهائية قبل إنشاء المهمة. عدّلها بحرية قبل الإرسال.</span>
-            <textarea value={finalNotes} onChange={e => { setFinalNotes(e.target.value); setFinalNotesDirty(true); }} rows={10} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" />
-            {finalNotesDirty && <button type="button" onClick={() => { setFinalNotes(generatedNotes); setFinalNotesDirty(false); }} className="justify-self-start text-xs text-primary hover:underline">إعادة توليد الملاحظات من الحقول</button>}
+            <span className="text-sm font-bold">الملاحظات النهائية للميديا باير</span>
+            <span className="text-xs text-muted-foreground">محتوى Telegram موجود هنا. عدّله واحذف أي أسعار أو تفاصيل مش عايزها قبل الإنشاء. رابط بوست Telegram لا يُضاف للمهمة.</span>
+            <textarea value={finalNotes} onChange={e => { setFinalNotes(e.target.value); setFinalNotesDirty(true); }} rows={12} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" />
+            {finalNotesDirty && <button type="button" onClick={() => { setFinalNotes(generatedNotes); setFinalNotesDirty(false); }} className="justify-self-start text-xs text-primary hover:underline">إعادة توليد الملاحظات</button>}
           </label>
 
           <div className="sticky bottom-0 bg-background border-t border-border pt-4 flex items-center justify-end gap-2">
