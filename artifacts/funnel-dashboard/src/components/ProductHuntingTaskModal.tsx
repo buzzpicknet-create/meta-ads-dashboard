@@ -29,22 +29,13 @@ function cairoLocalPlusHours(hours: number) {
   return d.toLocaleString("sv-SE", { timeZone: "Africa/Cairo" }).slice(0, 16).replace(" ", "T");
 }
 
-function textNumber(value: string | number | null | undefined) {
-  return value === null || value === undefined ? "" : String(value);
-}
-
 export default function ProductHuntingTaskModal({ product, onClose, onDone }: Props) {
-  const fallbackWholesale = product.cost_price ?? product.target_price_egp ?? "";
-  const fallbackCurrency = product.cost_price ? (product.cost_currency || "CNY") : "EGP";
-
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loadingAssignees, setLoadingAssignees] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [taskTitle, setTaskTitle] = useState("");
   const [productName, setProductName] = useState("");
   const [productDetails, setProductDetails] = useState(product.description || product.title || "");
-  const [wholesalePrice, setWholesalePrice] = useState(textNumber(fallbackWholesale));
-  const [currency, setCurrency] = useState(fallbackCurrency);
   const [offers, setOffers] = useState("");
   const [metric, setMetric] = useState("");
   const [extraNotes, setExtraNotes] = useState("");
@@ -109,20 +100,6 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
 
     setSaving(true);
     try {
-      const normalizedWholesale = wholesalePrice.trim() ? Number(wholesalePrice.replace(/,/g, "")) : null;
-      if (wholesalePrice.trim() && !Number.isFinite(normalizedWholesale)) throw new Error("سعر الجملة غير صحيح");
-
-      if (normalizedWholesale !== null) {
-        const pr = await fetch(`/api/product-hunting/${product.id}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ cost_price: normalizedWholesale, cost_currency: currency }),
-        });
-        const pdata = await pr.json();
-        if (!pr.ok) throw new Error(pdata.error || "تعذر حفظ سعر الجملة");
-      }
-
       for (const buyerId of selectedIds) {
         const buyer = assignees.find(a => a.id === buyerId);
         const r = await fetch("/api/tasks", {
@@ -156,7 +133,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
       <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl border border-border bg-background shadow-2xl">
         <div className="sticky top-0 z-10 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
           <div>
-            <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة <span className="text-[10px] font-normal text-muted-foreground">v4</span></h2>
+            <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة <span className="text-[10px] font-normal text-muted-foreground">v5</span></h2>
             <p className="text-xs text-muted-foreground mt-1">راجع كل ما سيصل للميديا باير وعدّل الملاحظات النهائية قبل الإنشاء.</p>
           </div>
           <button onClick={onClose} disabled={saving} className="h-9 w-9 rounded-lg hover:bg-muted inline-flex items-center justify-center disabled:opacity-50"><X className="h-5 w-5" /></button>
@@ -171,11 +148,6 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
           </div>
 
           <label className="grid gap-1.5"><span className="text-sm font-medium">تفاصيل المنتج</span><textarea value={productDetails} onChange={e => { setProductDetails(e.target.value); if (finalNotesDirty) setFinalNotesDirty(false); }} rows={6} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" /></label>
-
-          <div className="grid sm:grid-cols-[1fr_130px] gap-3">
-            <label className="grid gap-1.5"><span className="text-sm font-medium">سعر الجملة / التكلفة</span><input inputMode="decimal" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} className="h-10 rounded-xl border border-input bg-background px-3 text-sm" /></label>
-            <label className="grid gap-1.5"><span className="text-sm font-medium">العملة</span><select value={currency} onChange={e => setCurrency(e.target.value)} className="h-10 rounded-xl border border-input bg-background px-2 text-sm"><option value="EGP">ج.م</option><option value="CNY">CNY</option><option value="USD">USD</option></select></label>
-          </div>
 
           <label className="grid gap-1.5"><span className="text-sm font-medium">العروض للميديا بايرز</span><textarea value={offers} onChange={e => { setOffers(e.target.value); if (finalNotesDirty) setFinalNotesDirty(false); }} rows={3} placeholder="مثال: 1 قطعة 399ج — 2 قطعة 649ج" className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y" /></label>
 
@@ -201,7 +173,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
 
           <label className="grid gap-1.5 rounded-xl border-2 border-primary/40 bg-primary/5 p-3">
             <span className="text-sm font-bold">الملاحظات النهائية التي ستظهر للميديا باير</span>
-            <span className="text-xs text-muted-foreground">دي النسخة النهائية قبل إنشاء المهمة. عدّلها بحرية. سعر الجملة لن يُضاف هنا تلقائيًا.</span>
+            <span className="text-xs text-muted-foreground">دي النسخة النهائية قبل إنشاء المهمة. عدّلها بحرية قبل الإرسال.</span>
             <textarea value={finalNotes} onChange={e => { setFinalNotes(e.target.value); setFinalNotesDirty(true); }} rows={10} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" />
             {finalNotesDirty && <button type="button" onClick={() => { setFinalNotes(generatedNotes); setFinalNotesDirty(false); }} className="justify-self-start text-xs text-primary hover:underline">إعادة توليد الملاحظات من الحقول</button>}
           </label>
