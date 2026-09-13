@@ -31,6 +31,7 @@ type TaskState = "queued" | "in_progress" | "review" | "done";
 type RoutineRecord = {
   inventory_product_id: number;
   landing_url: string | null;
+  custom_product_url?: string | null;
   material_links: string[] | null;
   output_drive_url: string | null;
   status: TaskState;
@@ -81,6 +82,13 @@ type QueueItem = Product & {
   dailyRate7: number;
   sold30: number;
   priorityScore: number;
+};
+
+type Draft = {
+  landing: string;
+  productUrl: string;
+  materials: string;
+  output: string;
 };
 
 const LANDING_LIBRARY_URL = "https://google.ecom-egypt.com/api/integrations/meta/landing-pages?latestPerProduct=true&limit=200";
@@ -174,7 +182,7 @@ export default function CreativeRoutinePreview() {
   const [storeFilter, setStoreFilter] = useState<"all" | "dealme" | "buzzpick">("all");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [savingId, setSavingId] = useState<number | null>(null);
-  const [drafts, setDrafts] = useState<Record<number, { landing: string; materials: string; output: string }>>({});
+  const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [libraryImported, setLibraryImported] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -299,6 +307,7 @@ export default function CreativeRoutinePreview() {
           next[product.id] = {
             inventory_product_id: product.id,
             landing_url: landing,
+            custom_product_url: next[product.id]?.custom_product_url ?? null,
             material_links: next[product.id]?.material_links ?? [],
             output_drive_url: next[product.id]?.output_drive_url ?? null,
             status: next[product.id]?.status ?? "queued",
@@ -315,6 +324,7 @@ export default function CreativeRoutinePreview() {
           if (!item) continue;
           d[product.id] = {
             landing: item.landing_url ?? "",
+            productUrl: item.custom_product_url ?? "",
             materials: (item.material_links ?? []).join("\n"),
             output: item.output_drive_url ?? "",
           };
@@ -376,21 +386,23 @@ export default function CreativeRoutinePreview() {
   const todayKey = cairoDay(new Date());
   const doneToday = history.filter((item) => cairoDay(item.completed_at) === todayKey).length;
 
-  function getDraft(id: number) {
+  function getDraft(id: number): Draft {
     const record = records[id];
     return drafts[id] ?? {
       landing: record?.landing_url ?? "",
+      productUrl: record?.custom_product_url ?? "",
       materials: (record?.material_links ?? []).join("\n"),
       output: record?.output_drive_url ?? "",
     };
   }
 
-  function updateDraft(id: number, patch: Partial<{ landing: string; materials: string; output: string }>) {
+  function updateDraft(id: number, patch: Partial<Draft>) {
     setDrafts((prev) => ({ ...prev, [id]: { ...getDraft(id), ...patch } }));
   }
 
   async function saveRecord(id: number, patch: Partial<{
     landing_url: string | null;
+    custom_product_url: string | null;
     material_links: string[];
     output_drive_url: string | null;
     status: TaskState;
@@ -412,6 +424,7 @@ export default function CreativeRoutinePreview() {
         ...prev,
         [id]: {
           landing: data.item!.landing_url ?? "",
+          productUrl: data.item!.custom_product_url ?? "",
           materials: (data.item!.material_links ?? []).join("\n"),
           output: data.item!.output_drive_url ?? "",
         },
@@ -429,6 +442,7 @@ export default function CreativeRoutinePreview() {
     const d = getDraft(id);
     await saveRecord(id, {
       landing_url: d.landing.trim() || null,
+      ...(role === "admin" ? { custom_product_url: d.productUrl.trim() || null } : {}),
       material_links: splitLinks(d.materials),
       output_drive_url: d.output.trim() || null,
     });
@@ -447,6 +461,7 @@ export default function CreativeRoutinePreview() {
     const saved = await saveRecord(id, {
       status: next,
       landing_url: d.landing.trim() || null,
+      ...(role === "admin" ? { custom_product_url: d.productUrl.trim() || null } : {}),
       material_links: splitLinks(d.materials),
       output_drive_url: d.output.trim() || null,
       product_name: product?.name ?? null,
@@ -543,7 +558,9 @@ export default function CreativeRoutinePreview() {
               const isOpen = expanded === item.id;
               const d = getDraft(item.id);
               const materialLinks = splitLinks(d.materials);
-              const fallbackProductUrl = productUrls[item.id] || "";
+              const automaticProductUrl = productUrls[item.id] || "";
+              const customProductUrl = d.productUrl && looksLikeUrl(d.productUrl) ? d.productUrl : "";
+              const fallbackProductUrl = customProductUrl || automaticProductUrl;
               const primaryProductUrl = d.landing && looksLikeUrl(d.landing) ? d.landing : fallbackProductUrl;
               const hasLanding = !!(d.landing && looksLikeUrl(d.landing));
 
@@ -590,7 +607,8 @@ export default function CreativeRoutinePreview() {
                             <ExternalLink className="h-3.5 w-3.5" /> {hasLanding ? "فتح اللاندينج بيدج" : "فتح صفحة المنتج على Shopify"}
                           </a>
                         ) : <div className="text-sm text-amber-500">لم يتم العثور على صفحة للمنتج</div>}
-                        {!hasLanding && fallbackProductUrl && <div className="mt-1 text-[11px] text-muted-foreground">لا توجد Landing Page مرتبطة، تم استخدام صفحة المنتج الأصلية.</div>}
+                        {!hasLanding && customProductUrl && <div className="mt-1 text-[11px] text-emerald-600">يتم استخدام رابط مخصص من الأدمن.</div>}
+                        {!hasLanding && !customProductUrl && automaticProductUrl && <div className="mt-1 text-[11px] text-muted-foreground">لا توجد Landing Page مرتبطة، تم استخدام صفحة المنتج الأصلية.</div>}
                       </div>
                       <div className="rounded-xl border border-border p-3">
                         <div className="mb-1 text-[11px] font-black text-muted-foreground">ماتريال الشغل</div>
@@ -600,10 +618,17 @@ export default function CreativeRoutinePreview() {
 
                     {isOpen && (
                       <div className="mt-4 space-y-4 rounded-2xl bg-muted/35 p-4">
+                        {role === "admin" && (
+                          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                            <div className="mb-1.5 flex items-center gap-2 text-sm font-black"><Link2 className="h-4 w-4 text-primary" /> رابط صفحة المنتج المخصص — للأدمن</div>
+                            <input value={d.productUrl} onChange={(e) => updateDraft(item.id, { productUrl: e.target.value })} dir="ltr" placeholder={automaticProductUrl || "https://..."} className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
+                            <p className="mt-1.5 text-xs text-muted-foreground">لو كتبت رابط هنا هيستخدمه النظام بدل رابط Shopify التلقائي. امسحه واحفظ للرجوع للرابط التلقائي.</p>
+                          </div>
+                        )}
                         <div>
                           <div className="mb-1.5 flex items-center gap-2 text-sm font-black"><Link2 className="h-4 w-4 text-primary" /> لينك اللاندينج بيدج</div>
-                          <input value={d.landing} onChange={(e) => updateDraft(item.id, { landing: e.target.value })} dir="ltr" placeholder="اختياري — لو مفيش لاندينج هنستخدم صفحة Shopify تلقائيًا" className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
-                          {!d.landing && fallbackProductUrl && <a href={fallbackProductUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"><ExternalLink className="h-3 w-3" /> فتح صفحة Shopify الحالية</a>}
+                          <input value={d.landing} onChange={(e) => updateDraft(item.id, { landing: e.target.value })} dir="ltr" placeholder="اختياري — لو مفيش لاندينج هنستخدم صفحة المنتج" className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm" />
+                          {!d.landing && fallbackProductUrl && <a href={fallbackProductUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"><ExternalLink className="h-3 w-3" /> فتح صفحة المنتج الحالية</a>}
                         </div>
                         <div>
                           <div className="mb-1.5 flex items-center gap-2 text-sm font-black"><Film className="h-4 w-4 text-primary" /> الماتريال المصدر</div>
@@ -616,7 +641,7 @@ export default function CreativeRoutinePreview() {
                           <p className="mt-1.5 text-xs text-muted-foreground">بعد ما يبدأ المهمة، يحط هنا لينك فولدر أو ملف Drive النهائي. لن يقدر يرسل للمراجعة بدون اللينك.</p>
                         </div>
                         <button onClick={() => saveLinks(item.id)} disabled={savingId === item.id} className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm font-bold hover:bg-muted disabled:opacity-50">
-                          {savingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} حفظ اللينكات
+                          {savingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} حفظ التعديلات
                         </button>
                       </div>
                     )}
