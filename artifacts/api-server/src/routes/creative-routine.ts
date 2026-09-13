@@ -43,6 +43,24 @@ async function ensureTable() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_creative_routine_history_product ON creative_routine_history(inventory_product_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_creative_routine_history_completed ON creative_routine_history(completed_at DESC)`);
+
+  await query(`
+    INSERT INTO creative_routine_history (
+      inventory_product_id, landing_url, material_links, output_drive_url,
+      completed_at, completed_by_user_id, completed_by_name
+    )
+    SELECT
+      i.inventory_product_id, i.landing_url, i.material_links, i.output_drive_url,
+      i.approved_at, i.updated_by_user_id, i.updated_by_name
+    FROM creative_routine_items i
+    WHERE i.status = 'done'
+      AND i.approved_at IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM creative_routine_history h
+        WHERE h.inventory_product_id = i.inventory_product_id
+          AND h.completed_at = i.approved_at
+      )
+  `);
 }
 
 router.get("/creative-routine/items", async (_req, res) => {
