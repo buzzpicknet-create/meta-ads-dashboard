@@ -41,7 +41,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loadingAssignees, setLoadingAssignees] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [taskTitle, setTaskTitle] = useState("اختبار منتج جديد");
+  const [taskTitle, setTaskTitle] = useState("");
   const [productName, setProductName] = useState("");
   const [productDetails, setProductDetails] = useState(product.description || product.title || "");
   const [wholesalePrice, setWholesalePrice] = useState(textNumber(fallbackWholesale));
@@ -111,11 +111,11 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
       }
 
       const structuredNotes = [
+        productDetails.trim() ? `تفاصيل المنتج للميديا باير:\n${productDetails.trim()}` : null,
         normalizedWholesale !== null ? `سعر الجملة: ${normalizedWholesale} ${currency}` : null,
         offers.trim() ? `العروض المقترحة للميديا باير:\n${offers.trim()}` : null,
         product.source_url ? `رابط البوست/المصدر: ${product.source_url}` : null,
         product.supplier_url ? `رابط المورد: ${product.supplier_url}` : null,
-        productDetails.trim() ? `تفاصيل المنتج:\n${productDetails.trim()}` : null,
         notes.trim() ? `تعليمات إضافية:\n${notes.trim()}` : null,
       ].filter(Boolean).join("\n\n");
 
@@ -152,8 +152,8 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
       <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl border border-border bg-background shadow-2xl">
         <div className="sticky top-0 z-10 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
           <div>
-            <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة</h2>
-            <p className="text-xs text-muted-foreground mt-1">راجع اسم المنتج والتفاصيل والسعر والعروض قبل إنشاء المهمة.</p>
+            <h2 className="font-bold text-lg flex items-center gap-2"><Target className="h-5 w-5 text-primary" /> تحويل المنتج لمهمة <span className="text-[10px] font-normal text-muted-foreground">v3</span></h2>
+            <p className="text-xs text-muted-foreground mt-1">اكتب اسم المهمة واسم المنتج بنفسك، وعدّل التفاصيل التي ستظهر للميديا باير.</p>
           </div>
           <button onClick={onClose} disabled={saving} className="h-9 w-9 rounded-lg hover:bg-muted inline-flex items-center justify-center disabled:opacity-50"><X className="h-5 w-5" /></button>
         </div>
@@ -164,17 +164,18 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
           <div className="grid sm:grid-cols-2 gap-4">
             <label className="grid gap-1.5 sm:col-span-2">
               <span className="text-sm font-medium">عنوان المهمة *</span>
-              <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="مثال: اختبار منتج جديد" className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
+              <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="اكتب عنوان المهمة" className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
             </label>
             <label className="grid gap-1.5 sm:col-span-2">
               <span className="text-sm font-medium">اسم المنتج</span>
-              <input value={productName} onChange={e => setProductName(e.target.value)} placeholder="اكتب اسم مختصر وواضح للمنتج" className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
+              <input value={productName} onChange={e => setProductName(e.target.value)} placeholder="اكتب اسم المنتج" className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
             </label>
           </div>
 
-          <label className="grid gap-1.5">
-            <span className="text-sm font-medium">تفاصيل المنتج</span>
-            <textarea value={productDetails} onChange={e => setProductDetails(e.target.value)} rows={6} placeholder="تفاصيل المنتج المنقولة من Telegram — عدلها قبل إنشاء المهمة" className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" />
+          <label className="grid gap-1.5 rounded-xl border-2 border-primary/30 bg-primary/5 p-3">
+            <span className="text-sm font-bold">التفاصيل التي ستظهر للميديا باير</span>
+            <span className="text-xs text-muted-foreground">تم ملؤها من بوست Telegram. عدّل أو احذف أي جزء قبل إنشاء المهمة.</span>
+            <textarea value={productDetails} onChange={e => setProductDetails(e.target.value)} rows={8} placeholder="اكتب تفاصيل المنتج التي تريد أن يراها الميديا باير" className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y leading-relaxed" />
           </label>
 
           <div className="grid sm:grid-cols-[1fr_130px] gap-3">
