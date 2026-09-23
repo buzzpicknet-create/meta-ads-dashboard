@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { query } from "../lib/db";
 
 const router = Router();
-const STATUSES = new Set(["new", "reviewing", "interested", "sample", "imported", "rejected"]);
+const STATUSES = new Set(["new", "reviewing", "interested", "sample", "needs_price", "imported", "rejected"]);
 
 type ProductMedia = {
   type: "image" | "video";
