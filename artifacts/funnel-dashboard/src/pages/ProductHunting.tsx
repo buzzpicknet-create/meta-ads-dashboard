@@ -37,6 +37,7 @@ interface Stats {
   reviewing?: number;
   interested?: number;
   sample?: number;
+  needs_price?: number;
   imported?: number;
   rejected?: number;
 }
@@ -273,6 +274,7 @@ export default function ProductHuntingPage() {
     { label: "المفضلة", value: stats.favorites ?? 0, Icon: Heart },
     { label: "تحت المراجعة", value: stats.reviewing ?? 0, Icon: Clock3 },
     { label: "طلب عينة", value: stats.sample ?? 0, Icon: FlaskConical },
+    { label: "يحتاج سعر", value: stats.needs_price ?? 0, Icon: Banknote },
     { label: "تم الاستيراد", value: stats.imported ?? 0, Icon: CheckCircle2 },
   ], [stats]);
 
@@ -401,7 +403,7 @@ export default function ProductHuntingPage() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+      <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
         {statCards.map(({ label, value, Icon }) => (
           <div key={label} className="rounded-2xl border border-border bg-card px-4 py-4 shadow-sm">
             <div className="flex items-center justify-between gap-2"><span className="text-sm text-muted-foreground">{label}</span><Icon className="h-4 w-4 text-muted-foreground" /></div>
