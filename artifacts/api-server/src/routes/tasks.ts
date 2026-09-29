@@ -617,7 +617,7 @@ router.post("/tasks/:id/notes", async (req, res) => {
   const { note_text } = req.body as { note_text?: string };
   if (!note_text?.trim()) return res.status(400).json({ error: "نص الملاحظة مطلوب" });
 
-  const [task] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [id]);
+  const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [id]);
   if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
   if (role !== "admin" && task.assigned_to_id !== userId)
     return res.status(403).json({ error: "غير مصرح" });
