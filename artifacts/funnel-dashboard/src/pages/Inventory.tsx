@@ -653,10 +653,10 @@ function PlatformAssignmentSelect({
       value={assignment?.assigned_to_id ?? ""}
       disabled={saving}
       onChange={(e) => onSave(product, platform, e.target.value ? Number(e.target.value) : null)}
-      className="w-[108px] bg-background border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-primary disabled:opacity-50"
+      className="w-[112px] bg-background border border-border rounded-md px-2 py-1 text-[11px] focus:outline-none focus:border-primary disabled:opacity-50"
       aria-label={`تعيين ${platform} للمنتج ${product.name}`}
     >
-      <option value="">— غير شغال —</option>
+      <option value="">غير شغال</option>
       {allowed.map((a) => (
         <option key={a.id} value={a.id}>{a.username}</option>
       ))}
@@ -882,7 +882,7 @@ export default function InventoryPage() {
 
   return (
     <div dir="rtl" className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-[1500px] w-full mx-auto px-4 py-6 space-y-6">
 
         {/* Header */}
         <div className="flex items-center gap-3 flex-wrap">
@@ -1084,7 +1084,7 @@ export default function InventoryPage() {
         {/* Table */}
         <div className="rounded-xl border border-border overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[1120px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="text-right px-4 py-3 font-semibold text-muted-foreground w-12">#</th>
@@ -1094,26 +1094,24 @@ export default function InventoryPage() {
                   <th className="text-right px-3 py-3 font-semibold text-muted-foreground">الوحدة</th>
                   <th className="text-center px-4 py-3 font-semibold">الكمية</th>
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground">معدل البيع</th>
-                  <th className="text-center px-2 py-3 font-semibold text-blue-400">Meta</th>
-                  <th className="text-center px-2 py-3 font-semibold text-red-400">Google</th>
-                  <th className="text-center px-2 py-3 font-semibold text-cyan-400">TikTok</th>
-                  <th className="text-center px-3 py-3 font-semibold text-muted-foreground">المهام</th>
+                  <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[205px]">توزيع المنصات</th>
+                  <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[100px]">المهام</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && products.length === 0 ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} className="border-b border-border/50">
-                      {[1,2,3,4,5,6].map(j => (
+                      {Array.from({ length: 9 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
-                          <div className="h-4 rounded bg-muted/60 animate-pulse" style={{ width: j === 2 ? "80%" : j === 1 ? "40px" : "60%" }} />
+                          <div className="h-4 rounded bg-muted/60 animate-pulse" style={{ width: j === 1 ? "80%" : j === 0 ? "40px" : "60%" }} />
                         </td>
                       ))}
                     </tr>
                   ))
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-16 text-muted-foreground">
+                    <td colSpan={9} className="text-center py-16 text-muted-foreground">
                       {stockFilter === "no_movement" && loadingMovement
                         ? "جاري تحميل بيانات الحركة..."
                         : "لا توجد أصناف مطابقة للبحث"}
@@ -1164,22 +1162,31 @@ export default function InventoryPage() {
                       <td className="px-3 py-3 text-center">
                         <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={available(p)} />
                       </td>
-                      {(["meta", "google", "tiktok"] as MediaPlatform[]).map((platform) => {
-                        const key = `${p.id}:${platform}`;
-                        return (
-                          <td key={platform} className="px-2 py-3 text-center">
-                            <PlatformAssignmentSelect
-                              product={p}
-                              platform={platform}
-                              assignees={mediaAssignees}
-                              assignment={mediaAssignments[key]}
-                              isAdmin={isAdmin}
-                              saving={savingAssignment === key}
-                              onSave={saveMediaAssignment}
-                            />
-                          </td>
-                        );
-                      })}
+                      <td className="px-3 py-2">
+                        <div className="space-y-1 min-w-[195px]">
+                          {([
+                            ["meta", "Meta", "text-blue-400"],
+                            ["google", "Google", "text-red-400"],
+                            ["tiktok", "TikTok", "text-cyan-400"],
+                          ] as const).map(([platform, label, color]) => {
+                            const key = `${p.id}:${platform}`;
+                            return (
+                              <div key={platform} className="flex items-center justify-between gap-2">
+                                <span className={`w-12 shrink-0 text-[11px] font-semibold ${color}`}>{label}</span>
+                                <PlatformAssignmentSelect
+                                  product={p}
+                                  platform={platform}
+                                  assignees={mediaAssignees}
+                                  assignment={mediaAssignments[key]}
+                                  isAdmin={isAdmin}
+                                  saving={savingAssignment === key}
+                                  onSave={saveMediaAssignment}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-center">
                         <ProductTasksBadge
                           product={p}
@@ -1202,7 +1209,7 @@ export default function InventoryPage() {
         {lastUpdated && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground pb-4">
             <Clock className="h-3.5 w-3.5" />
-            <span>البيانات من مخزون Dealme ERP — الكمية المتاحة بعد خصم المحجوز · تتحدث تلقائياً كل 30 دقيقة</span>
+            <span>البيانات من مخزون Dealme وBuzzpick ERP — الكمية المتاحة بعد خصم المحجوز · تتحدث تلقائياً كل 30 دقيقة</span>
           </div>
         )}
       </div>
