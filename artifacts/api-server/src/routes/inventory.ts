@@ -267,7 +267,7 @@ async function fetchInventorySource(source: InventorySource): Promise<InventoryP
   return products;
 }
 
-async function fetchAllInventory(): Promise<{
+export async function fetchAllInventory(): Promise<{
   products: InventoryProduct[];
   availableSources: SourceStore[];
   failedSources: SourceStore[];
