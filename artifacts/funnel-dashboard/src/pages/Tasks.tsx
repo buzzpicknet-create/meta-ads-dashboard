@@ -42,6 +42,9 @@ interface Task {
   opus_score?: number;
   media: TaskMedia[];
   inventory_product_id?: number | null;
+  task_kind?: string;
+  platform?: "meta" | "google" | "tiktok" | null;
+  daily_followup_date?: string | null;
   inventory_snapshot?: {
     stock: number;
     unit: string;
@@ -443,10 +446,12 @@ function AssignModal({ assignees, onSave, onClose }: AssignModalProps) {
 
 function CheckinModal({ task, onSave, onClose }: { task: Task; onSave: (notes: string) => Promise<void>; onClose: () => void }) {
   const [notes, setNotes] = useState("");
+  const requiresComment = task.task_kind === "daily_product_followup";
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (requiresComment && !notes.trim()) return;
     setSaving(true);
     try { await onSave(notes); onClose(); } finally { setSaving(false); }
   }
@@ -463,14 +468,15 @@ function CheckinModal({ task, onSave, onClose }: { task: Task; onSave: (notes: s
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <p className="text-slate-300 text-sm">{task.title}</p>
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-            placeholder="ملاحظة المتابعة (اختياري)..."
+            required={requiresComment}
+            placeholder={requiresComment ? "اكتب حالة المنتج والقرار اليومي — التعليق مطلوب" : "ملاحظة المتابعة (اختياري)..."}
             className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" />
           <div className="flex gap-3">
             <button type="button" onClick={onClose}
               className="flex-1 px-4 py-2 rounded-xl border border-slate-600 text-slate-300 text-sm hover:bg-slate-800 transition-all">
               إلغاء
             </button>
-            <button type="submit" disabled={saving}
+            <button type="submit" disabled={saving || (requiresComment && !notes.trim())}
               className="flex-1 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-50">
               {saving && <Loader2 size={14} className="animate-spin" />} تسجيل
             </button>
@@ -841,6 +847,11 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
                   {task.product_name}
                 </span>
               )}
+              {task.platform && (
+                <span className="text-xs font-semibold text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-full">
+                  {task.platform === "meta" ? "Meta" : task.platform === "google" ? "Google" : "TikTok"}
+                </span>
+              )}
               {getTaskStoreName(task) && (
                 <span className="text-xs text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-full">
                   المتجر: {getTaskStoreName(task)}
@@ -1054,10 +1065,12 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
                 className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-2 rounded-xl transition-all">
                 <LogIn size={13} /> متابعة
               </button>
-              <button onClick={() => setShowCompleteConfirm(true)}
-                className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-2 rounded-xl transition-all">
-                <CheckCircle2 size={13} /> إتمام
-              </button>
+              {task.task_kind !== "daily_product_followup" && (
+                <button onClick={() => setShowCompleteConfirm(true)}
+                  className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-2 rounded-xl transition-all">
+                  <CheckCircle2 size={13} /> إتمام
+                </button>
+              )}
             </>
           )}
           {task.status === "completed" && isAdmin && (
@@ -1134,6 +1147,11 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
               {task.product_name && (
                 <span className="text-[11px] text-slate-400 bg-slate-700/60 px-2 py-0.5 rounded-full">
                   {task.product_name}
+                </span>
+              )}
+              {task.platform && (
+                <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                  {task.platform === "meta" ? "Meta" : task.platform === "google" ? "Google" : "TikTok"}
                 </span>
               )}
               {getTaskStoreName(task) && (
@@ -1218,10 +1236,12 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
               className="flex items-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1.5 rounded-lg transition-all">
               <LogIn size={11} /> متابعة
             </button>
-            <button onClick={e => { e.stopPropagation(); setShowCompleteConfirm(true); }}
-              className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-              <CheckCircle2 size={11} /> إتمام
-            </button>
+            {task.task_kind !== "daily_product_followup" && (
+              <button onClick={e => { e.stopPropagation(); setShowCompleteConfirm(true); }}
+                className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg transition-all">
+                <CheckCircle2 size={11} /> إتمام
+              </button>
+            )}
           </>
         )}
         {task.status === "completed" && isAdmin && (
