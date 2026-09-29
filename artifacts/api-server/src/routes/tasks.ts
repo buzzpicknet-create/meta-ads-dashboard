@@ -26,6 +26,9 @@ interface Task {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  task_kind?: string;
+  platform?: string | null;
+  daily_followup_date?: string | null;
 }
 
 interface TaskMedia {
@@ -70,6 +73,99 @@ export function calcScore(task: Task): number {
 
   const remaining = deadline - done;
   return Math.max(0, Math.min(100, Math.round((remaining / duration) * 100)));
+}
+
+// ── Daily product/platform follow-up generation ──────────────────────────────
+
+const PLATFORM_LABEL: Record<string, string> = {
+  meta: "Meta",
+  google: "Google",
+  tiktok: "TikTok",
+};
+
+export async function generateDailyProductFollowupTasks(): Promise<{ created: number; skipped: boolean }> {
+  const [clock] = await query<{ today: string; hour: number }>(`
+    SELECT
+      (NOW() AT TIME ZONE 'Africa/Cairo')::date::text AS today,
+      EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Africa/Cairo'))::int AS hour
+  `);
+
+  if (!clock || clock.hour < 9 || clock.hour >= 17) {
+    return { created: 0, skipped: true };
+  }
+
+  const assignments = await query<{
+    inventory_product_id: number;
+    product_name: string;
+    source_store: string;
+    platform: string;
+    assigned_to_id: number;
+    assigned_to_name: string;
+  }>(`
+    SELECT
+      a.inventory_product_id,
+      a.product_name,
+      a.source_store,
+      a.platform,
+      a.assigned_to_id,
+      a.assigned_to_name
+    FROM inventory_media_assignments a
+    INNER JOIN users u ON u.id = a.assigned_to_id
+    WHERE a.is_active = TRUE
+      AND u.deleted_at IS NULL
+      AND u.role = 'media_buyer'
+    ORDER BY a.assigned_to_id, a.inventory_product_id, a.platform
+  `);
+
+  let created = 0;
+
+  for (const a of assignments) {
+    const label = PLATFORM_LABEL[a.platform] ?? a.platform;
+    const title = `متابعة يومية — ${label} — ${a.product_name}`;
+    const rows = await query<{ id: number }>(`
+      INSERT INTO tasks (
+        title,
+        product_name,
+        assigned_to_id,
+        assigned_to_name,
+        deadline,
+        success_metric,
+        notes,
+        created_by_id,
+        created_by_name,
+        inventory_product_id,
+        inventory_snapshot,
+        task_kind,
+        platform,
+        daily_followup_date
+      )
+      VALUES (
+        $1,$2,$3,$4,
+        (($5::date + TIME '17:00') AT TIME ZONE 'Africa/Cairo'),
+        $6,$7,NULL,'النظام',$8,$9,
+        'daily_product_followup',$10,$5::date
+      )
+      ON CONFLICT (inventory_product_id, platform, daily_followup_date)
+      WHERE task_kind = 'daily_product_followup' AND daily_followup_date IS NOT NULL
+      DO NOTHING
+      RETURNING id
+    `, [
+      title,
+      a.product_name,
+      a.assigned_to_id,
+      a.assigned_to_name,
+      clock.today,
+      "اكتب تعليق المتابعة والقرار اليومي",
+      `متابعة يومية لمنصة ${label}. يجب كتابة تعليق قبل الساعة 5:00 مساءً.`,
+      a.inventory_product_id,
+      JSON.stringify({ sourceStore: a.source_store, storeName: a.source_store }),
+      a.platform,
+    ]);
+
+    created += rows.length;
+  }
+
+  return { created, skipped: false };
 }
 
 // ── Auto-expire ───────────────────────────────────────────────────────────────
@@ -363,24 +459,61 @@ router.patch("/tasks/:id", async (req, res) => {
   const { action, notes } = req.body as { action?: string; notes?: string };
 
   if (action === "checkin") {
+    const isDailyFollowup = task.task_kind === "daily_product_followup";
+    if (isDailyFollowup && !notes?.trim()) {
+      return res.status(400).json({ error: "تعليق المتابعة مطلوب للمهمة اليومية" });
+    }
+
     const [updated] = await query<Task>(`
-      UPDATE tasks SET checkin_count = checkin_count + 1, last_checkin_at = NOW(),
-        status = CASE WHEN status = 'pending' THEN 'in_progress' ELSE status END,
+      UPDATE tasks SET
+        checkin_count = checkin_count + 1,
+        last_checkin_at = NOW(),
+        status = CASE
+          WHEN task_kind = 'daily_product_followup' THEN 'completed'
+          WHEN status = 'pending' THEN 'in_progress'
+          ELSE status
+        END,
+        completed_at = CASE
+          WHEN task_kind = 'daily_product_followup' THEN NOW()
+          ELSE completed_at
+        END,
         updated_at = NOW()
       WHERE id = $1 RETURNING *
     `, [id]);
-    // Save check-in note if provided
+
     if (notes?.trim()) {
       await query(
         `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4)`,
         [id, userId, req.session!.username, notes.trim()]
       );
     }
+
+    if (isDailyFollowup) {
+      await createInboxAndPush({
+        eventType: "task_completed",
+        recipientRoles: ["admin", "media_manager"],
+        title: "تمت متابعة منتج",
+        body: `${updated.assigned_to_name ?? "الميديا باير"} تابع: ${updated.title}`,
+        url: "/tasks",
+        metadata: { taskId: updated.id, assignedToId: updated.assigned_to_id },
+      });
+    }
+
     const [withMedia] = await attachMedia([updated]);
-    return res.json(withMedia);
+    return res.json({ ...withMedia, opus_score: calcScore(updated) });
   }
 
   if (action === "complete") {
+    if (task.task_kind === "daily_product_followup") {
+      const [noteCount] = await query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM task_notes WHERE task_id = $1`,
+        [id]
+      );
+      if (Number(noteCount?.count ?? 0) === 0) {
+        return res.status(400).json({ error: "لا يمكن إتمام المتابعة اليومية بدون تعليق" });
+      }
+    }
+
     const [updated] = await query<Task>(`
       UPDATE tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW()
       WHERE id = $1 RETURNING *
@@ -462,7 +595,7 @@ router.get("/tasks/:id/notes", async (req, res) => {
   const userId = req.session!.userId;
   if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
 
-  const [task] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [id]);
+  const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [id]);
   if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
   if (role !== "admin" && task.assigned_to_id !== userId)
     return res.status(403).json({ error: "غير مصرح" });
@@ -493,6 +626,19 @@ router.post("/tasks/:id/notes", async (req, res) => {
     `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4) RETURNING *`,
     [id, userId, req.session!.username, note_text.trim()]
   );
+
+  if (task.task_kind === "daily_product_followup" && task.status !== "completed") {
+    await query(`
+      UPDATE tasks
+      SET status = 'completed',
+          completed_at = NOW(),
+          checkin_count = GREATEST(checkin_count, 1),
+          last_checkin_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1
+    `, [id]);
+  }
+
   res.status(201).json(row);
 });
 
