@@ -665,6 +665,9 @@ async function runMigrations() {
       checkin_count INT NOT NULL DEFAULT 0,
       last_checkin_at TIMESTAMPTZ,
       notes TEXT,
+      inventory_product_id INTEGER,
+      inventory_snapshot JSONB,
+      inventory_result JSONB,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
