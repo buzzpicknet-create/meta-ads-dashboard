@@ -209,7 +209,7 @@ async function fetchInventorySource(source: InventorySource): Promise<InventoryP
         storeName: source.label,
         name: item.name || "",
         sku: item.sku || "",
-        unit: "????",
+        unit: "قطعة",
 
         // The dashboard's displayed stock is always available stock
         // after subtracting reservations.
@@ -221,7 +221,7 @@ async function fetchInventorySource(source: InventorySource): Promise<InventoryP
         minStock: LOW_STOCK_THRESHOLD,
         sellingPrice: null,
         costPrice: null,
-        warehouseLocation: `????? ${source.label}`,
+        warehouseLocation: `مخزن ${source.label}`,
         isBundle: false,
         updatedAt: item.updatedAt || new Date().toISOString(),
       });
