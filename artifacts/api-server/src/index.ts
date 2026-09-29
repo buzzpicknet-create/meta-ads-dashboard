@@ -15,6 +15,8 @@ import { checkInventoryAlerts } from "./routes/inventory";
 import { initJobsTable } from "./lib/job-runner";
 import "./lib/job-handlers"; // registers all job handlers
 import bcrypt from "bcryptjs";
+import cron from "node-cron";
+import { generateDailyProductFollowupTasks } from "./routes/tasks";
 
 async function runMigrations() {
   // Session store table (for connect-pg-simple)
@@ -663,6 +665,9 @@ async function runMigrations() {
       checkin_count INT NOT NULL DEFAULT 0,
       last_checkin_at TIMESTAMPTZ,
       notes TEXT,
+      inventory_product_id INTEGER,
+      inventory_snapshot JSONB,
+      inventory_result JSONB,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
@@ -670,6 +675,34 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks (assigned_to_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks (deadline)`);
+
+  // Product/platform daily follow-up workflow
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_kind TEXT NOT NULL DEFAULT 'manual'`);
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS platform TEXT`);
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS daily_followup_date DATE`);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_daily_product_platform
+    ON tasks (inventory_product_id, platform, daily_followup_date)
+    WHERE task_kind = 'daily_product_followup' AND daily_followup_date IS NOT NULL
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS inventory_media_assignments (
+      id SERIAL PRIMARY KEY,
+      inventory_product_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      source_store TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK (platform IN ('meta','google','tiktok')),
+      assigned_to_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      assigned_to_name TEXT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (inventory_product_id, platform)
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_user ON inventory_media_assignments (assigned_to_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_active ON inventory_media_assignments (is_active)`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS task_media (
@@ -995,6 +1028,21 @@ function startScheduledReportsCron() {
 
 const INVENTORY_ALERT_CRON_MS = 30 * 60 * 1000; // 30 minutes
 
+function startDailyProductFollowupCron() {
+  const run = () => {
+    generateDailyProductFollowupTasks().catch((err) =>
+      logger.error({ err }, "Daily product follow-up generation failed")
+    );
+  };
+
+  // Recovery run on startup: if Render restarts between 09:00 and 17:00 Cairo,
+  // missing tasks for that day are created once (unique DB index prevents duplicates).
+  run();
+
+  cron.schedule("0 9 * * *", run, { timezone: "Africa/Cairo" });
+  logger.info({ time: "09:00", timezone: "Africa/Cairo", deadline: "17:00" }, "Daily product follow-up cron scheduled");
+}
+
 function startInventoryAlertCron() {
   // First check: 7 minutes after startup
   setTimeout(() => {
@@ -1107,6 +1155,7 @@ const server = app.listen(port, (err) => {
       startCreativeCacheWarmer();
       startWatchdogCron();
       startInventoryAlertCron();
+      startDailyProductFollowupCron();
       startTokenRefreshCron();
     });
     // 180s timeout — AI streaming with multi-tool flows (get_adsets × 15 + get_ads_in_adset × 17+)

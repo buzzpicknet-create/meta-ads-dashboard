@@ -263,6 +263,18 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
 
 interface Assignee { id: number; username: string; role: string; }
 
+type MediaPlatform = "meta" | "google" | "tiktok";
+
+interface MediaAssignment {
+  inventory_product_id: number;
+  product_name: string;
+  source_store: string;
+  platform: MediaPlatform;
+  assigned_to_id: number;
+  assigned_to_name: string;
+  is_active: boolean;
+}
+
 function nowPlusHours(h: number): string {
   const d = new Date(Date.now() + h * 3600000);
   return d.toLocaleString("sv-SE", { timeZone: "Africa/Cairo" }).slice(0, 16).replace(" ", "T");
@@ -604,6 +616,54 @@ function TaskDetailPopup({ task, onClose }: { task: ProductTask; onClose: () => 
   );
 }
 
+function PlatformAssignmentSelect({
+  product,
+  platform,
+  assignees,
+  assignment,
+  isAdmin,
+  saving,
+  onSave,
+}: {
+  product: Product;
+  platform: MediaPlatform;
+  assignees: Assignee[];
+  assignment: MediaAssignment | undefined;
+  isAdmin: boolean;
+  saving: boolean;
+  onSave: (product: Product, platform: MediaPlatform, assignedToId: number | null) => Promise<void>;
+}) {
+  const allowed = assignees.filter((a) => {
+    const name = a.username.trim();
+    if (platform === "meta") return name === "فردوس" || name === "ابراهيم" || name === "إبراهيم";
+    if (platform === "google") return name === "فردوس";
+    return name === "ابراهيم" || name === "إبراهيم";
+  });
+
+  if (!isAdmin) {
+    return (
+      <span className={assignment ? "text-xs font-medium text-foreground" : "text-xs text-muted-foreground"}>
+        {assignment?.assigned_to_name ?? "—"}
+      </span>
+    );
+  }
+
+  return (
+    <select
+      value={assignment?.assigned_to_id ?? ""}
+      disabled={saving}
+      onChange={(e) => onSave(product, platform, e.target.value ? Number(e.target.value) : null)}
+      className="w-[108px] bg-background border border-border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-primary disabled:opacity-50"
+      aria-label={`تعيين ${platform} للمنتج ${product.name}`}
+    >
+      <option value="">— غير شغال —</option>
+      {allowed.map((a) => (
+        <option key={a.id} value={a.id}>{a.username}</option>
+      ))}
+    </select>
+  );
+}
+
 export default function InventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -627,6 +687,9 @@ export default function InventoryPage() {
   const [taskHistoryProduct, setTaskHistoryProduct] = useState<Product | null>(null);
   const [openTask, setOpenTask] = useState<ProductTask | null>(null);
   const [salesRates, setSalesRates]           = useState<Record<number, SalesRate> | null>(null);
+  const [mediaAssignees, setMediaAssignees]   = useState<Assignee[]>([]);
+  const [mediaAssignments, setMediaAssignments] = useState<Record<string, MediaAssignment>>({});
+  const [savingAssignment, setSavingAssignment] = useState<string | null>(null);
   const [loadingRates, setLoadingRates]       = useState(false);
   const [loadingMovement, setLoadingMovement] = useState(false);
   const [movementError, setMovementError]     = useState<string | null>(null);
@@ -683,6 +746,61 @@ export default function InventoryPage() {
     } catch {}
   }, []);
 
+  const fetchMediaAssignments = useCallback(async () => {
+    try {
+      const [assignmentRes, assigneeRes] = await Promise.all([
+        fetch("/api/inventory/media-assignments", { credentials: "include" }),
+        fetch("/api/tasks/assignees", { credentials: "include" }),
+      ]);
+
+      if (assignmentRes.ok) {
+        const rows: MediaAssignment[] = await assignmentRes.json();
+        const next: Record<string, MediaAssignment> = {};
+        for (const row of rows) {
+          next[`${row.inventory_product_id}:${row.platform}`] = row;
+        }
+        setMediaAssignments(next);
+      }
+
+      if (assigneeRes.ok) {
+        const rows: Assignee[] = await assigneeRes.json();
+        setMediaAssignees(rows.filter((a) => a.role === "media_buyer"));
+      }
+    } catch {
+      // Inventory remains usable even if assignments fail to load.
+    }
+  }, []);
+
+  const saveMediaAssignment = useCallback(async (
+    product: Product,
+    platform: MediaPlatform,
+    assignedToId: number | null,
+  ) => {
+    const key = `${product.id}:${platform}`;
+    setSavingAssignment(key);
+    try {
+      const res = await fetch(`/api/inventory/media-assignments/${product.id}/${platform}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assigned_to_id: assignedToId,
+          product_name: product.name,
+          source_store: product.sourceStore,
+        }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error ?? "فشل حفظ التوزيع");
+      }
+      await fetchMediaAssignments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حفظ التوزيع");
+    } finally {
+      setSavingAssignment(null);
+    }
+  }, [fetchMediaAssignments]);
+
   const fetchSalesRates = useCallback(async () => {
     if (salesRates) return;
     setLoadingRates(true);
@@ -708,7 +826,7 @@ export default function InventoryPage() {
   }, [stockFilter, noMovementIds, fetchNoMovement]);
 
   // Initial load
-  useEffect(() => { fetchData(); fetchSalesRates(); }, [fetchData, fetchSalesRates]);
+  useEffect(() => { fetchData(); fetchSalesRates(); fetchMediaAssignments(); }, [fetchData, fetchSalesRates, fetchMediaAssignments]);
 
   // Auto-refresh every 30 minutes
   useEffect(() => {
@@ -976,6 +1094,9 @@ export default function InventoryPage() {
                   <th className="text-right px-3 py-3 font-semibold text-muted-foreground">الوحدة</th>
                   <th className="text-center px-4 py-3 font-semibold">الكمية</th>
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground">معدل البيع</th>
+                  <th className="text-center px-2 py-3 font-semibold text-blue-400">Meta</th>
+                  <th className="text-center px-2 py-3 font-semibold text-red-400">Google</th>
+                  <th className="text-center px-2 py-3 font-semibold text-cyan-400">TikTok</th>
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground">المهام</th>
                 </tr>
               </thead>
@@ -1043,6 +1164,22 @@ export default function InventoryPage() {
                       <td className="px-3 py-3 text-center">
                         <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={available(p)} />
                       </td>
+                      {(["meta", "google", "tiktok"] as MediaPlatform[]).map((platform) => {
+                        const key = `${p.id}:${platform}`;
+                        return (
+                          <td key={platform} className="px-2 py-3 text-center">
+                            <PlatformAssignmentSelect
+                              product={p}
+                              platform={platform}
+                              assignees={mediaAssignees}
+                              assignment={mediaAssignments[key]}
+                              isAdmin={isAdmin}
+                              saving={savingAssignment === key}
+                              onSave={saveMediaAssignment}
+                            />
+                          </td>
+                        );
+                      })}
                       <td className="px-3 py-3 text-center">
                         <ProductTasksBadge
                           product={p}

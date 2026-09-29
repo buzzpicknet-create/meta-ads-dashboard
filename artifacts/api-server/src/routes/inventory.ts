@@ -3,6 +3,7 @@ import { query } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { createInboxAndPush, findInventoryResponsibleUserIds } from "../lib/notifications.js";
 import { fallbackInventoryRoles } from "../lib/notification-rules.js";
+import { requireAdmin } from "../lib/auth-middleware.js";
 
 const router = Router();
 
@@ -635,6 +636,99 @@ router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
     logger.error({ err }, "inventory/sales-rate failed");
     res.status(502).json({ error: "فشل جلب معدلات المبيعات" });
   }
+});
+
+// ── Product/platform media-buyer assignments ─────────────────────────────────
+
+const MEDIA_PLATFORMS = new Set(["meta", "google", "tiktok"]);
+
+router.get("/inventory/media-assignments", async (_req: Request, res: Response) => {
+  const rows = await query<{
+    inventory_product_id: number;
+    product_name: string;
+    source_store: string;
+    platform: string;
+    assigned_to_id: number;
+    assigned_to_name: string;
+    is_active: boolean;
+  }>(`
+    SELECT
+      inventory_product_id,
+      product_name,
+      source_store,
+      platform,
+      assigned_to_id,
+      assigned_to_name,
+      is_active
+    FROM inventory_media_assignments
+    WHERE is_active = TRUE
+    ORDER BY inventory_product_id, platform
+  `);
+  res.json(rows);
+});
+
+router.put("/inventory/media-assignments/:productId/:platform", requireAdmin, async (req: Request, res: Response) => {
+  const productId = Number(String(req.params.productId));
+  const platform = String(req.params.platform || "").toLowerCase();
+  const assignedToId = req.body?.assigned_to_id == null ? null : Number(req.body.assigned_to_id);
+  const productName = String(req.body?.product_name || "").trim();
+  const sourceStore = String(req.body?.source_store || "").trim();
+
+  if (!Number.isSafeInteger(productId) || productId === 0) {
+    return res.status(400).json({ error: "productId غير صحيح" });
+  }
+  if (!MEDIA_PLATFORMS.has(platform)) {
+    return res.status(400).json({ error: "المنصة غير صحيحة" });
+  }
+
+  if (assignedToId === null) {
+    await query(
+      `DELETE FROM inventory_media_assignments WHERE inventory_product_id = $1 AND platform = $2`,
+      [productId, platform]
+    );
+    return res.json({ ok: true, deleted: true });
+  }
+
+  if (!Number.isSafeInteger(assignedToId)) {
+    return res.status(400).json({ error: "الميديا باير غير صحيح" });
+  }
+  if (!productName || !sourceStore) {
+    return res.status(400).json({ error: "بيانات المنتج ناقصة" });
+  }
+
+  const [buyer] = await query<{ id: number; username: string }>(`
+    SELECT id, username
+    FROM users
+    WHERE id = $1 AND role = 'media_buyer' AND deleted_at IS NULL
+  `, [assignedToId]);
+
+  if (!buyer) {
+    return res.status(400).json({ error: "المستخدم ليس ميديا باير نشط" });
+  }
+
+  const [row] = await query(`
+    INSERT INTO inventory_media_assignments (
+      inventory_product_id,
+      product_name,
+      source_store,
+      platform,
+      assigned_to_id,
+      assigned_to_name,
+      is_active,
+      updated_at
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,TRUE,NOW())
+    ON CONFLICT (inventory_product_id, platform) DO UPDATE SET
+      product_name = EXCLUDED.product_name,
+      source_store = EXCLUDED.source_store,
+      assigned_to_id = EXCLUDED.assigned_to_id,
+      assigned_to_name = EXCLUDED.assigned_to_name,
+      is_active = TRUE,
+      updated_at = NOW()
+    RETURNING *
+  `, [productId, productName, sourceStore, platform, buyer.id, buyer.username]);
+
+  res.json(row);
 });
 
 router.post("/inventory/check-alerts", async (_req: Request, res: Response) => {
