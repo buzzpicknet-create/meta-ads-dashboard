@@ -3,6 +3,7 @@ import { query } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth-middleware.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { createInboxAndPush } from "../lib/notifications.js";
+import { fetchAllInventory } from "./inventory.js";
 
 const router = Router();
 const objectStorage = new ObjectStorageService();
@@ -117,9 +118,20 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
     ORDER BY a.assigned_to_id, a.inventory_product_id, a.platform
   `);
 
+  const { products } = await fetchAllInventory();
+  const stockByProductId = new Map(
+    products.map((product) => [product.id, product.availableStock])
+  );
+
   let created = 0;
+  let skippedOutOfStock = 0;
 
   for (const a of assignments) {
+    const availableStock = stockByProductId.get(a.inventory_product_id) ?? 0;
+    if (availableStock <= 0) {
+      skippedOutOfStock++;
+      continue;
+    }
     const label = PLATFORM_LABEL[a.platform] ?? a.platform;
     const title = `متابعة يومية — ${label} — ${a.product_name}`;
     const rows = await query<{ id: number }>(`
@@ -158,11 +170,21 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       "اكتب تعليق المتابعة والقرار اليومي",
       `متابعة يومية لمنصة ${label}. يجب كتابة تعليق قبل الساعة 5:00 مساءً.`,
       a.inventory_product_id,
-      JSON.stringify({ sourceStore: a.source_store, storeName: a.source_store }),
+      JSON.stringify({
+        sourceStore: a.source_store,
+        storeName: a.source_store,
+        availableStock,
+      }),
       a.platform,
     ]);
 
     created += rows.length;
+  }
+
+  if (skippedOutOfStock > 0) {
+    console.info(
+      `Daily product follow-ups skipped ${skippedOutOfStock} out-of-stock assignment(s)`
+    );
   }
 
   return { created, skipped: false };
