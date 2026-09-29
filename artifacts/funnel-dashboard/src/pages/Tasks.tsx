@@ -4,7 +4,7 @@ import {
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
   ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
   Image as ImageIcon, Video, Filter, ShieldAlert, Download,
-  FileText, Eye, Pencil, MessageSquare, Send,
+  FileText, Eye, Pencil, MessageSquare, Send, Search,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -1116,153 +1116,135 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
   onReopen: (id: number) => void;
   onOpen: (task: Task) => void;
 }) {
-  const [expanded,        setExpanded]        = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
-  const score    = task.opus_score ?? 0;
+  const score = task.opus_score ?? 0;
   const isActive = task.status === "pending" || task.status === "in_progress";
+  const storeName = getTaskStoreName(task);
 
   return (
-    <div className={`bg-slate-800/60 backdrop-blur-sm border rounded-xl overflow-hidden transition-all duration-300 cursor-pointer group
-      ${task.status === "expired" ? "border-red-500/30 opacity-70 hover:opacity-90"
-      : task.status === "completed" ? "border-emerald-500/30 hover:border-emerald-400/50"
-      : task.status === "in_progress" ? "border-blue-500/40 hover:border-blue-400/60"
-      : "border-slate-700 hover:border-slate-500"}`}
-      onClick={() => onOpen(task)}>
-
-      {/* Primary media banner */}
-      {task.media?.length > 0 && (
-        <div className="w-full">
-          <MediaPreview media={task.media} />
-        </div>
-      )}
-
-      {/* Card body */}
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[task.status]}`}>
+    <div
+      className={`bg-slate-800/55 border rounded-xl overflow-hidden cursor-pointer group transition-all
+        ${task.status === "expired" ? "border-red-500/30 hover:border-red-400/50"
+        : task.status === "completed" ? "border-emerald-500/25 hover:border-emerald-400/45"
+        : task.status === "in_progress" ? "border-blue-500/35 hover:border-blue-400/60"
+        : "border-slate-700 hover:border-amber-400/40"}`}
+      onClick={() => onOpen(task)}
+    >
+      <div className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${STATUS_COLOR[task.status]}`}>
                 {STATUS_LABEL[task.status]}
               </span>
-              {task.product_name && (
-                <span className="text-[11px] text-slate-400 bg-slate-700/60 px-2 py-0.5 rounded-full">
-                  {task.product_name}
-                </span>
-              )}
+
               {task.platform && (
-                <span className="text-[11px] font-semibold text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] font-semibold text-blue-300 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded-full">
                   {task.platform === "meta" ? "Meta" : task.platform === "google" ? "Google" : "TikTok"}
                 </span>
               )}
-              {getTaskStoreName(task) && (
-                <span className="text-[11px] text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-full">
-                  المتجر: {getTaskStoreName(task)}
+
+              {storeName && (
+                <span className="text-[10px] text-cyan-300/90 bg-cyan-500/10 px-1.5 py-0.5 rounded-full">
+                  {storeName}
+                </span>
+              )}
+
+              {task.media?.length > 0 && (
+                <span className="text-[10px] text-slate-400 bg-slate-700/70 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                  <ImageIcon size={9} /> {task.media.length}
+                </span>
+              )}
+
+              {task.checkin_count > 0 && (
+                <span className="text-[10px] text-blue-300/80 bg-blue-500/10 px-1.5 py-0.5 rounded-full">
+                  {task.checkin_count} متابعة
                 </span>
               )}
             </div>
-            <h3 className="text-white font-semibold text-sm leading-snug mb-1.5" title={task.title}>
+
+            <h3 className="text-white font-semibold text-[13px] leading-5 line-clamp-2" title={task.title}>
               {task.title}
             </h3>
-            <div className="flex items-center gap-3 flex-wrap">
-              {task.assigned_to_name && (
-                <span className="flex items-center gap-1.5 text-[11px] font-medium text-blue-300 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
-                  <User size={10} className="text-blue-400" />{task.assigned_to_name}
-                </span>
-              )}
-              <Countdown deadline={task.deadline} status={task.status} />
-            </div>
-          </div>
 
-          {task.status === "completed" && score > 0 && <ScoreBadge score={score} />}
-          {task.status === "in_progress" && (
-            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center">
-              <Flame size={14} className="text-blue-400" />
-            </div>
-          )}
-        </div>
-
-        {task.success_metric && (
-          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
-            <Target size={10} className="text-purple-400 flex-shrink-0" />
-            هدف: <span className="text-purple-300">{task.success_metric}</span>
-          </div>
-        )}
-
-        {task.checkin_count > 0 && (
-          <div className="mt-2 flex items-center gap-1.5">
-            <div className="flex gap-1">
-              {Array.from({ length: Math.min(task.checkin_count, 8) }).map((_, i) => (
-                <div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-400/60" />
-              ))}
-              {task.checkin_count > 8 && <span className="text-[10px] text-slate-500">+{task.checkin_count - 8}</span>}
-            </div>
-            <span className="text-[10px] text-slate-500">{task.checkin_count} متابعة</span>
-          </div>
-        )}
-
-        {/* Created-by — always visible */}
-        {task.created_by_name && (
-          <div className="mt-2.5 pt-2.5 border-t border-slate-700/40 flex items-center gap-1.5 text-[11px] text-slate-500">
-            <User size={10} className="flex-shrink-0" />
-            أُضيفت بواسطة:&nbsp;<span className="text-slate-300 font-medium">{task.created_by_name}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Expand / details (notes + deadline only) */}
-      {task.notes && (
-        <div className="border-t border-slate-700/50">
-          <button onClick={() => setExpanded(v => !v)}
-            className="w-full px-4 py-2 flex items-center justify-between text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-            <span>{expanded ? "إخفاء الملاحظات" : "عرض الملاحظات"}</span>
-            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
-          {expanded && (
-            <div className="px-4 pb-3 space-y-1.5 text-[11px] text-slate-400">
-              <p className="leading-relaxed">{task.notes}</p>
-              <p>الموعد النهائي: <span className="text-slate-300">{formatDate(task.deadline)}</span></p>
-              {task.completed_at && <p>اكتملت: <span className="text-emerald-300">{formatDate(task.completed_at)}</span></p>}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="border-t border-slate-700/50 px-4 py-2.5 flex items-center gap-2"
-        onClick={e => e.stopPropagation()}>
-        {isActive && (
-          <>
-            <button onClick={e => { e.stopPropagation(); onCheckin(task); }}
-              className="flex items-center gap-1.5 text-[11px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-              <LogIn size={11} /> متابعة
-            </button>
-            {task.task_kind !== "daily_product_followup" && (
-              <button onClick={e => { e.stopPropagation(); setShowCompleteConfirm(true); }}
-                className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-                <CheckCircle2 size={11} /> إتمام
-              </button>
+            {task.product_name && (
+              <p className="text-[11px] text-slate-400 mt-1 truncate" title={task.product_name}>
+                {task.product_name}
+              </p>
             )}
-          </>
-        )}
-        {task.status === "completed" && isAdmin && (
-          <button onClick={e => { e.stopPropagation(); onReopen(task.id); }}
-            className="flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-            <RefreshCw size={11} /> إعادة فتح
-          </button>
-        )}
-        {isAdmin && (
-          <button onClick={e => { e.stopPropagation(); onDelete(task.id); }}
-            className="mr-auto flex items-center gap-1.5 text-[11px] text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1.5 rounded-lg transition-all">
-            <Trash2 size={11} /> حذف
-          </button>
-        )}
-        {/* Open detail hint */}
-        <span className="mr-auto flex items-center gap-1 text-[10px] text-slate-600 group-hover:text-slate-400 transition-colors pointer-events-none select-none">
-          <Eye size={10} /> تفاصيل
-        </span>
+          </div>
+
+          {task.status === "completed" && score > 0 && (
+            <span className={`shrink-0 text-[10px] font-bold px-1.5 py-1 rounded-md bg-slate-900/70 ${scoreColor(score)}`}>
+              {score}%
+            </span>
+          )}
+        </div>
+
+        <div className="mt-2.5 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            {task.assigned_to_name ? (
+              <span className="flex items-center gap-1 text-[11px] text-slate-300 truncate">
+                <User size={10} className="text-blue-400 shrink-0" />
+                {task.assigned_to_name}
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-600">بدون مسؤول</span>
+            )}
+          </div>
+          <Countdown deadline={task.deadline} status={task.status} />
+        </div>
       </div>
 
-      {/* Complete confirm modal — rendered inside card to keep state local */}
+      <div
+        className="border-t border-slate-700/50 px-3 py-2 flex items-center gap-1.5 min-h-[38px]"
+        onClick={e => e.stopPropagation()}
+      >
+        {isActive && (
+          <button
+            onClick={e => { e.stopPropagation(); onCheckin(task); }}
+            className="flex items-center gap-1 text-[10px] font-medium text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2 py-1 rounded-md transition-all"
+          >
+            <LogIn size={10} /> متابعة
+          </button>
+        )}
+
+        {isActive && task.task_kind !== "daily_product_followup" && (
+          <button
+            onClick={e => { e.stopPropagation(); setShowCompleteConfirm(true); }}
+            className="flex items-center gap-1 text-[10px] font-medium text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-1 rounded-md transition-all"
+          >
+            <CheckCircle2 size={10} /> إتمام
+          </button>
+        )}
+
+        {task.status === "completed" && isAdmin && (
+          <button
+            onClick={e => { e.stopPropagation(); onReopen(task.id); }}
+            className="flex items-center gap-1 text-[10px] text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-md transition-all"
+          >
+            <RefreshCw size={10} /> إعادة فتح
+          </button>
+        )}
+
+        <button
+          onClick={e => { e.stopPropagation(); onOpen(task); }}
+          className="mr-auto flex items-center gap-1 text-[10px] text-slate-400 hover:text-white px-1.5 py-1 rounded-md hover:bg-slate-700/60 transition-all"
+        >
+          <Eye size={10} /> تفاصيل
+        </button>
+
+        {isAdmin && (
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(task.id); }}
+            className="flex items-center justify-center text-red-400/80 hover:text-red-300 hover:bg-red-500/10 w-6 h-6 rounded-md transition-all"
+            title="حذف"
+          >
+            <Trash2 size={11} />
+          </button>
+        )}
+      </div>
+
       {showCompleteConfirm && (
         <CompleteConfirmModal
           task={task}
@@ -1340,6 +1322,7 @@ export default function TasksPage() {
   const [tab,       setTab]       = useState<"tasks" | "leaderboard">("tasks");
   const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
   const [buyerFilter,  setBuyerFilter]  = useState<string>("all");
+  const [searchQuery,  setSearchQuery]  = useState("");
   const [showModal,    setShowModal]    = useState(false);
   const [checkinTask,  setCheckinTask]  = useState<Task | null>(null);
   const [detailTask,   setDetailTask]   = useState<Task | null>(null);
@@ -1518,9 +1501,22 @@ export default function TasksPage() {
 
   // ── Filtered tasks ─────────────────────────────────────────────────────────
 
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+
   const filtered = tasks
     .filter(t => statusFilter === "all" || t.status === statusFilter)
-    .filter(t => buyerFilter  === "all" || t.assigned_to_name === buyerFilter);
+    .filter(t => buyerFilter === "all" || t.assigned_to_name === buyerFilter)
+    .filter(t => {
+      if (!normalizedSearch) return true;
+      return [
+        t.title,
+        t.product_name,
+        t.assigned_to_name,
+        t.platform,
+        getTaskStoreName(t),
+      ].some(value => value?.toLowerCase().includes(normalizedSearch));
+    })
+    .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
 
   const counts: Record<string, number> = { all: tasks.length };
   for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
@@ -1541,11 +1537,11 @@ export default function TasksPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6" dir="rtl">
+    <div className="min-h-screen bg-slate-950 text-white p-3 md:p-4" dir="rtl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-xl font-bold flex items-center gap-2">
             <Calendar className="text-blue-400" size={22} /> المهام اليومية
           </h1>
           <p className="text-slate-400 text-sm mt-1">مركز إدارة مهام مشتري الميديا</p>
@@ -1566,19 +1562,17 @@ export default function TasksPage() {
 
       {/* Stats strip */}
       {!loading && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
           {[
-            { label: "جارية",  value: counts.in_progress ?? 0, color: "text-blue-400",    icon: <Flame size={16} className="text-blue-400" /> },
-            { label: "معلّقة", value: counts.pending ?? 0,     color: "text-amber-400",   icon: <Clock size={16} className="text-amber-400" /> },
-            { label: "مكتملة", value: counts.completed ?? 0,   color: "text-emerald-400", icon: <CheckCircle2 size={16} className="text-emerald-400" /> },
-            { label: "منتهية", value: counts.expired ?? 0,     color: "text-red-400",     icon: <AlertTriangle size={16} className="text-red-400" /> },
+            { label: "جارية",  value: counts.in_progress ?? 0, color: "text-blue-400",    icon: <Flame size={13} className="text-blue-400" /> },
+            { label: "معلّقة", value: counts.pending ?? 0,     color: "text-amber-400",   icon: <Clock size={13} className="text-amber-400" /> },
+            { label: "منتهية", value: counts.expired ?? 0,     color: "text-red-400",     icon: <AlertTriangle size={13} className="text-red-400" /> },
+            { label: "مكتملة", value: counts.completed ?? 0,   color: "text-emerald-400", icon: <CheckCircle2 size={13} className="text-emerald-400" /> },
           ].map(s => (
-            <div key={s.label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 flex items-center gap-3">
+            <div key={s.label} className="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 flex items-center gap-2 min-w-[112px]">
               {s.icon}
-              <div>
-                <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-                <div className="text-xs text-slate-400">{s.label}</div>
-              </div>
+              <span className={`text-base font-bold ${s.color}`}>{s.value}</span>
+              <span className="text-[11px] text-slate-400">{s.label}</span>
             </div>
           ))}
         </div>
@@ -1617,34 +1611,44 @@ export default function TasksPage() {
       {!loading && tab === "tasks" && (
         <>
           {/* Filters row */}
-          <div className="flex flex-wrap gap-2 mb-4 items-center">
-            {/* Status filter */}
-            <div className="flex gap-1.5 flex-wrap">
-              {filterTabs.map(f => (
-                <button key={f.key}
-                  onClick={() => setStatusFilter(f.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border
-                    ${statusFilter === f.key
-                      ? "bg-blue-600 border-blue-500 text-white"
-                      : "bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500"}`}>
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Buyer filter */}
-            {buyerNames.length > 0 && (
-              <div className="flex items-center gap-2 mr-auto">
-                <Filter size={12} className="text-slate-500" />
-                <select value={buyerFilter} onChange={e => setBuyerFilter(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500">
-                  <option value="all">كل المشترين</option>
-                  {buyerNames.map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
+          <div className="sticky top-0 z-20 -mx-1 px-1 py-2 mb-3 bg-slate-950/95 backdrop-blur-sm border-b border-slate-800/70">
+            <div className="flex flex-wrap gap-2 items-center">
+              <div className="relative min-w-[220px] flex-1 max-w-md">
+                <Search size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                <input
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="ابحث باسم المنتج أو المهمة..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pr-8 pl-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                />
               </div>
-            )}
+
+              <div className="flex gap-1 flex-wrap">
+                {filterTabs.map(f => (
+                  <button key={f.key}
+                    onClick={() => setStatusFilter(f.key)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border
+                      ${statusFilter === f.key
+                        ? "bg-blue-600 border-blue-500 text-white"
+                        : "bg-slate-800/60 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500"}`}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {buyerNames.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Filter size={11} className="text-slate-500" />
+                  <select value={buyerFilter} onChange={e => setBuyerFilter(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 focus:outline-none focus:border-blue-500">
+                    <option value="all">كل المشترين</option>
+                    {buyerNames.map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Grid */}
@@ -1660,15 +1664,40 @@ export default function TasksPage() {
               )}
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filtered.map(t => (
-                <TaskCard key={t.id} task={t} isAdmin={isAdmin}
-                  onOpen={setDetailTask}
-                  onCheckin={setCheckinTask}
-                  onComplete={id => patchTask(id, { action: "complete" })}
-                  onDelete={deleteTask}
-                  onReopen={id => patchTask(id, { action: "reopen" })} />
-              ))}
+            <div className="space-y-5">
+              {([
+                { status: "in_progress" as TaskStatus, label: "جارية الآن", dot: "bg-blue-400", text: "text-blue-300" },
+                { status: "pending" as TaskStatus, label: "معلّقة", dot: "bg-amber-400", text: "text-amber-300" },
+                { status: "expired" as TaskStatus, label: "منتهية / تحتاج مراجعة", dot: "bg-red-400", text: "text-red-300" },
+                { status: "completed" as TaskStatus, label: "مكتملة", dot: "bg-emerald-400", text: "text-emerald-300" },
+              ]).map(section => {
+                const sectionTasks = filtered.filter(t => t.status === section.status);
+                if (sectionTasks.length === 0) return null;
+
+                return (
+                  <section key={section.status}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`w-2 h-2 rounded-full ${section.dot}`} />
+                      <h2 className={`text-xs font-semibold ${section.text}`}>{section.label}</h2>
+                      <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-full">
+                        {sectionTasks.length}
+                      </span>
+                      <div className="h-px bg-slate-800 flex-1" />
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                      {sectionTasks.map(t => (
+                        <TaskCard key={t.id} task={t} isAdmin={isAdmin}
+                          onOpen={setDetailTask}
+                          onCheckin={setCheckinTask}
+                          onComplete={id => patchTask(id, { action: "complete" })}
+                          onDelete={deleteTask}
+                          onReopen={id => patchTask(id, { action: "reopen" })} />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           )}
         </>
