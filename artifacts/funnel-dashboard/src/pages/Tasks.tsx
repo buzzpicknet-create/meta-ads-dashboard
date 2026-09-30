@@ -123,6 +123,40 @@ function formatDate(iso: string) {
   } catch { return iso; }
 }
 
+function cairoDateKeyFromIso(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Africa/Cairo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+function taskOperationalDateKey(task: Task): string {
+  if (task.task_kind === "daily_product_followup" && task.daily_followup_date) {
+    return task.daily_followup_date.slice(0, 10);
+  }
+  return cairoDateKeyFromIso(task.deadline);
+}
+
+function formatTaskDay(task: Task): string {
+  const key = taskOperationalDateKey(task);
+  try {
+    const d = new Date(`${key}T12:00:00+03:00`);
+    return new Intl.DateTimeFormat("ar-EG", {
+      timeZone: "Africa/Cairo",
+      day: "numeric",
+      month: "short",
+    }).format(d);
+  } catch {
+    return key;
+  }
+}
+
 // "now + N hours" as datetime-local string (Cairo local time, no UTC offset)
 function nowPlusHours(h: number): string {
   const d = new Date(Date.now() + h * 3600000);
@@ -1150,6 +1184,11 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
                 {task.task_kind === "daily_product_followup" ? "متابعة يومية" : "مهمة عادية"}
               </span>
 
+              <span className="text-[10px] font-semibold text-slate-300 bg-slate-900/80 border border-slate-700 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                <Calendar size={9} />
+                {task.task_kind === "daily_product_followup" ? "يوم" : "تسليم"} {formatTaskDay(task)}
+              </span>
+
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${STATUS_COLOR[task.status]}`}>
                 {STATUS_LABEL[task.status]}
               </span>
@@ -1436,6 +1475,8 @@ export default function TasksPage() {
   const [tab,       setTab]       = useState<"tasks" | "leaderboard">("tasks");
   const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
   const [taskTypeFilter, setTaskTypeFilter] = useState<"all" | "followup" | "manual">("all");
+  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "all" | "custom">("today");
+  const [customDate, setCustomDate] = useState("");
   const [buyerFilter,  setBuyerFilter]  = useState<string>("all");
   const [searchQuery,  setSearchQuery]  = useState("");
   const [showModal,    setShowModal]    = useState(false);
@@ -1616,9 +1657,38 @@ export default function TasksPage() {
 
   // ── Filtered tasks ─────────────────────────────────────────────────────────
 
+  const cairoToday = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  const cairoYesterday = (() => {
+    const d = new Date(`${cairoToday}T12:00:00+03:00`);
+    d.setDate(d.getDate() - 1);
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Africa/Cairo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  })();
+
+  const selectedDateKey =
+    dateFilter === "today" ? cairoToday
+    : dateFilter === "yesterday" ? cairoYesterday
+    : dateFilter === "custom" ? customDate
+    : null;
+
+  const dateScopedTasks = tasks.filter(task => {
+    if (!selectedDateKey) return true;
+    return taskOperationalDateKey(task) === selectedDateKey;
+  });
+
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
-  const filtered = tasks
+  const filtered = dateScopedTasks
     .filter(t => statusFilter === "all" || t.status === statusFilter)
     .filter(t => taskTypeFilter === "all"
       || (taskTypeFilter === "followup" && t.task_kind === "daily_product_followup")
@@ -1636,18 +1706,18 @@ export default function TasksPage() {
     })
     .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
 
-  const counts: Record<string, number> = { all: tasks.length };
-  for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
+  const counts: Record<string, number> = { all: dateScopedTasks.length };
+  for (const t of dateScopedTasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
 
   const taskTypeCounts = {
-    all: tasks.length,
-    followup: tasks.filter(t => t.task_kind === "daily_product_followup").length,
-    manual: tasks.filter(t => t.task_kind !== "daily_product_followup").length,
+    all: dateScopedTasks.length,
+    followup: dateScopedTasks.filter(t => t.task_kind === "daily_product_followup").length,
+    manual: dateScopedTasks.filter(t => t.task_kind !== "daily_product_followup").length,
   };
 
   // Unique buyer names from tasks (for filter dropdown)
   const buyerNames = Array.from(
-    new Set(tasks.map(t => t.assigned_to_name).filter((n): n is string => Boolean(n)))
+    new Set(dateScopedTasks.map(t => t.assigned_to_name).filter((n): n is string => Boolean(n)))
   ).sort();
 
   const filterTabs: { key: "all" | TaskStatus; label: string }[] = [
@@ -1657,13 +1727,6 @@ export default function TasksPage() {
     { key: "expired",     label: `منتهية (${counts.expired ?? 0})` },
     { key: "completed",   label: `مكتملة (${counts.completed ?? 0})` },
   ];
-
-  const cairoToday = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Africa/Cairo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 
   const missedToday = tasks.filter(task => {
     if (task.task_kind !== "daily_product_followup") return false;
@@ -1762,6 +1825,39 @@ export default function TasksPage() {
                   onChange={e => setSearchQuery(e.target.value)}
                   placeholder="ابحث باسم المنتج أو المهمة..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg pr-8 pl-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-1 rounded-lg bg-slate-900 border border-slate-700 p-1">
+                {([
+                  { key: "today", label: "اليوم" },
+                  { key: "yesterday", label: "أمس" },
+                  { key: "all", label: "كل التواريخ" },
+                ] as const).map(day => (
+                  <button
+                    key={day.key}
+                    type="button"
+                    onClick={() => setDateFilter(day.key)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                      dateFilter === day.key
+                        ? "bg-cyan-600 text-white"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    {day.label}
+                  </button>
+                ))}
+                <input
+                  type="date"
+                  value={customDate}
+                  onChange={e => {
+                    setCustomDate(e.target.value);
+                    if (e.target.value) setDateFilter("custom");
+                  }}
+                  className={`bg-transparent border-r border-slate-700 pr-2 text-[11px] outline-none ${
+                    dateFilter === "custom" ? "text-cyan-300" : "text-slate-500"
+                  }`}
+                  aria-label="اختيار تاريخ المهام"
                 />
               </div>
 
