@@ -1309,6 +1309,104 @@ function Leaderboard({ stats }: { stats: BuyerStat[] }) {
   );
 }
 
+
+function MissedFollowupsPanel({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task) => void }) {
+  const [expandedBuyer, setExpandedBuyer] = useState<string | null>(null);
+
+  const grouped = tasks.reduce<Record<string, Task[]>>((acc, task) => {
+    const name = task.assigned_to_name || "غير معيّن";
+    (acc[name] ||= []).push(task);
+    return acc;
+  }, {});
+
+  const buyers = Object.entries(grouped).sort((a, b) => b[1].length - a[1].length);
+
+  return (
+    <div className={`mb-4 rounded-xl border ${tasks.length > 0 ? "border-red-500/35 bg-red-950/20" : "border-emerald-500/20 bg-emerald-950/10"}`}>
+      <div className="px-3 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tasks.length > 0 ? "bg-red-500/15" : "bg-emerald-500/10"}`}>
+            {tasks.length > 0
+              ? <ShieldAlert size={15} className="text-red-400" />
+              : <CheckCircle2 size={15} className="text-emerald-400" />
+            }
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-white">لم تتم المتابعة اليوم</h2>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tasks.length > 0 ? "bg-red-500/15 text-red-300" : "bg-emerald-500/10 text-emerald-300"}`}>
+                {tasks.length}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              تُحتسب فقط المتابعات اليومية التي انتهى موعدها الساعة 5:00 مساءً بدون تعليق.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {tasks.length > 0 && (
+        <div className="border-t border-red-500/15 p-2 grid gap-2 md:grid-cols-2">
+          {buyers.map(([buyer, buyerTasks]) => {
+            const open = expandedBuyer === buyer;
+            return (
+              <div key={buyer} className="rounded-lg border border-slate-700/70 bg-slate-900/50 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpandedBuyer(open ? null : buyer)}
+                  className="w-full px-3 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-800/60 transition-colors text-right"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <User size={12} className="text-red-300 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-200 truncate">{buyer}</span>
+                    <span className="text-[10px] font-bold text-red-300 bg-red-500/10 px-1.5 py-0.5 rounded-full">
+                      {buyerTasks.length} ناقصة
+                    </span>
+                  </div>
+                  {open ? <ChevronUp size={13} className="text-slate-500" /> : <ChevronDown size={13} className="text-slate-500" />}
+                </button>
+
+                {open && (
+                  <div className="border-t border-slate-700/60 divide-y divide-slate-800">
+                    {buyerTasks.map(task => (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={() => onOpen(task)}
+                        className="w-full px-3 py-2 flex items-center justify-between gap-3 text-right hover:bg-red-500/5 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-medium text-slate-200 truncate">
+                            {task.product_name || task.title}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {task.platform && (
+                              <span className="text-[10px] text-blue-300">
+                                {task.platform === "meta" ? "Meta" : task.platform === "google" ? "Google" : "TikTok"}
+                              </span>
+                            )}
+                            {getTaskStoreName(task) && (
+                              <>
+                                <span className="text-slate-700">•</span>
+                                <span className="text-[10px] text-slate-500">{getTaskStoreName(task)}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <Eye size={11} className="text-slate-500 shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function TasksPage() {
@@ -1534,6 +1632,20 @@ export default function TasksPage() {
     { key: "completed",   label: `مكتملة (${counts.completed ?? 0})` },
   ];
 
+  const cairoToday = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  const missedToday = tasks.filter(task => {
+    if (task.task_kind !== "daily_product_followup") return false;
+    if (task.status !== "expired") return false;
+    if (!task.daily_followup_date) return false;
+    return task.daily_followup_date.slice(0, 10) === cairoToday;
+  });
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -1576,6 +1688,10 @@ export default function TasksPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {!loading && isAdmin && (
+        <MissedFollowupsPanel tasks={missedToday} onOpen={setDetailTask} />
       )}
 
       {/* Main tabs */}
