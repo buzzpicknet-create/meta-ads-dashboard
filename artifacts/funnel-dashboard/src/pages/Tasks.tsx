@@ -839,6 +839,13 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
           : "bg-slate-800/60"}`}>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                task.task_kind === "daily_product_followup"
+                  ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+                  : "bg-slate-700/80 text-slate-200 border-slate-600"
+              }`}>
+                {task.task_kind === "daily_product_followup" ? "متابعة يومية" : "مهمة عادية"}
+              </span>
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${STATUS_COLOR[task.status]}`}>
                 {STATUS_LABEL[task.status]}
               </span>
@@ -1123,7 +1130,8 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
 
   return (
     <div
-      className={`bg-slate-800/55 border rounded-xl overflow-hidden cursor-pointer group transition-all
+      className={`border rounded-xl overflow-hidden cursor-pointer group transition-all
+        ${task.task_kind === "daily_product_followup" ? "bg-violet-950/15 ring-1 ring-inset ring-violet-500/10" : "bg-slate-800/55"}
         ${task.status === "expired" ? "border-red-500/30 hover:border-red-400/50"
         : task.status === "completed" ? "border-emerald-500/25 hover:border-emerald-400/45"
         : task.status === "in_progress" ? "border-blue-500/35 hover:border-blue-400/60"
@@ -1134,6 +1142,14 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                task.task_kind === "daily_product_followup"
+                  ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+                  : "bg-slate-700/80 text-slate-200 border-slate-600"
+              }`}>
+                {task.task_kind === "daily_product_followup" ? "متابعة يومية" : "مهمة عادية"}
+              </span>
+
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${STATUS_COLOR[task.status]}`}>
                 {STATUS_LABEL[task.status]}
               </span>
@@ -1419,6 +1435,7 @@ export default function TasksPage() {
   const [loading,   setLoading]   = useState(true);
   const [tab,       setTab]       = useState<"tasks" | "leaderboard">("tasks");
   const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
+  const [taskTypeFilter, setTaskTypeFilter] = useState<"all" | "followup" | "manual">("all");
   const [buyerFilter,  setBuyerFilter]  = useState<string>("all");
   const [searchQuery,  setSearchQuery]  = useState("");
   const [showModal,    setShowModal]    = useState(false);
@@ -1603,6 +1620,9 @@ export default function TasksPage() {
 
   const filtered = tasks
     .filter(t => statusFilter === "all" || t.status === statusFilter)
+    .filter(t => taskTypeFilter === "all"
+      || (taskTypeFilter === "followup" && t.task_kind === "daily_product_followup")
+      || (taskTypeFilter === "manual" && t.task_kind !== "daily_product_followup"))
     .filter(t => buyerFilter === "all" || t.assigned_to_name === buyerFilter)
     .filter(t => {
       if (!normalizedSearch) return true;
@@ -1618,6 +1638,12 @@ export default function TasksPage() {
 
   const counts: Record<string, number> = { all: tasks.length };
   for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
+
+  const taskTypeCounts = {
+    all: tasks.length,
+    followup: tasks.filter(t => t.task_kind === "daily_product_followup").length,
+    manual: tasks.filter(t => t.task_kind !== "daily_product_followup").length,
+  };
 
   // Unique buyer names from tasks (for filter dropdown)
   const buyerNames = Array.from(
@@ -1737,6 +1763,31 @@ export default function TasksPage() {
                   placeholder="ابحث باسم المنتج أو المهمة..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg pr-8 pl-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
                 />
+              </div>
+
+              <div className="flex items-center gap-1 rounded-lg bg-slate-900 border border-slate-700 p-1">
+                {([
+                  { key: "all", label: `النوع: الكل (${taskTypeCounts.all})` },
+                  { key: "followup", label: `متابعة يومية (${taskTypeCounts.followup})` },
+                  { key: "manual", label: `مهام عادية (${taskTypeCounts.manual})` },
+                ] as const).map(type => (
+                  <button
+                    key={type.key}
+                    type="button"
+                    onClick={() => setTaskTypeFilter(type.key)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                      taskTypeFilter === type.key
+                        ? type.key === "followup"
+                          ? "bg-violet-600 text-white"
+                          : type.key === "manual"
+                            ? "bg-slate-600 text-white"
+                            : "bg-blue-600 text-white"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    {type.label}
+                  </button>
+                ))}
               </div>
 
               <div className="flex gap-1 flex-wrap">
