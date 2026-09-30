@@ -1355,7 +1355,7 @@ function MissedFollowupsPanel({ tasks, onOpen }: { tasks: Task[]; onOpen: (task:
               </span>
             </div>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              تُحتسب فقط المتابعات اليومية التي انتهى موعدها الساعة 5:00 مساءً بدون تعليق.
+              تُحتسب فقط المتابعات اليومية التي انتهى موعدها الساعة 9:00 مساءً بدون تعليق.
             </p>
           </div>
         </div>

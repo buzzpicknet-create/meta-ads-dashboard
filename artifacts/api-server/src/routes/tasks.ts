@@ -91,7 +91,7 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Africa/Cairo'))::int AS hour
   `);
 
-  if (!clock || clock.hour < 9 || clock.hour >= 17) {
+  if (!clock || clock.hour < 6 || clock.hour >= 21) {
     return { created: 0, skipped: true };
   }
 
@@ -153,7 +153,7 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       )
       VALUES (
         $1,$2,$3,$4,
-        (($5::date + TIME '17:00') AT TIME ZONE 'Africa/Cairo'),
+        (($5::date + TIME '21:00') AT TIME ZONE 'Africa/Cairo'),
         $6,$7,NULL,'النظام',$8,$9,
         'daily_product_followup',$10,$5::date
       )
@@ -168,7 +168,7 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       a.assigned_to_name,
       clock.today,
       "اكتب تعليق المتابعة والقرار اليومي",
-      `متابعة يومية لمنصة ${label}. يجب كتابة تعليق قبل الساعة 5:00 مساءً.`,
+      `متابعة يومية لمنصة ${label}. يجب كتابة تعليق قبل الساعة 9:00 مساءً.`,
       a.inventory_product_id,
       JSON.stringify({
         sourceStore: a.source_store,

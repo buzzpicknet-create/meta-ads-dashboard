@@ -686,6 +686,23 @@ async function runMigrations() {
     WHERE task_kind = 'daily_product_followup' AND daily_followup_date IS NOT NULL
   `);
 
+  // Extend today's unfinished follow-up tasks to the new 21:00 Cairo deadline.
+  // If an older process already expired one today, reopen it so the team still gets the full window.
+  await query(`
+    UPDATE tasks
+    SET deadline = ((daily_followup_date + TIME '21:00') AT TIME ZONE 'Africa/Cairo'),
+        status = CASE WHEN status = 'expired' THEN 'pending' ELSE status END,
+        notes = CASE
+          WHEN notes IS NOT NULL THEN REPLACE(notes, '5:00 مساءً', '9:00 مساءً')
+          ELSE notes
+        END,
+        updated_at = NOW()
+    WHERE task_kind = 'daily_product_followup'
+      AND daily_followup_date = (NOW() AT TIME ZONE 'Africa/Cairo')::date
+      AND completed_at IS NULL
+      AND status IN ('pending', 'in_progress', 'expired')
+  `);
+
   await query(`
     CREATE TABLE IF NOT EXISTS inventory_media_assignments (
       id SERIAL PRIMARY KEY,
@@ -1035,12 +1052,12 @@ function startDailyProductFollowupCron() {
     );
   };
 
-  // Recovery run on startup: if Render restarts between 09:00 and 17:00 Cairo,
+  // Recovery run on startup: if Render restarts between 06:00 and 21:00 Cairo,
   // missing tasks for that day are created once (unique DB index prevents duplicates).
   run();
 
-  cron.schedule("0 9 * * *", run, { timezone: "Africa/Cairo" });
-  logger.info({ time: "09:00", timezone: "Africa/Cairo", deadline: "17:00" }, "Daily product follow-up cron scheduled");
+  cron.schedule("0 6 * * *", run, { timezone: "Africa/Cairo" });
+  logger.info({ time: "06:00", timezone: "Africa/Cairo", deadline: "21:00" }, "Daily product follow-up cron scheduled");
 }
 
 function startInventoryAlertCron() {
