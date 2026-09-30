@@ -59,9 +59,9 @@ interface TaskView {
 }
 
 // ── Scoring algorithm ─────────────────────────────────────────────────────────
-// Score = (deadline - completed_at) / (deadline - created_at) * 100
-// e.g. 10h task, done in 1h → remaining 9h → score = 9/10 * 100 = 90%
-// Late completions score 0.
+// On-time score rewards finishing early.
+// Late completions are still rewarded, but with a much lower score:
+// just-late starts around 40%, then decays gradually to a 10% floor.
 
 export function calcScore(task: Task): number {
   if (task.status !== "completed" || !task.completed_at) return 0;
@@ -70,7 +70,11 @@ export function calcScore(task: Task): number {
   const done     = new Date(task.completed_at).getTime();
   const duration = Math.max(1, deadline - created);
 
-  if (done > deadline) return 0;
+  if (done > deadline) {
+    const lateBy = done - deadline;
+    const lateRatio = Math.min(1, lateBy / duration);
+    return Math.max(10, Math.round(40 - lateRatio * 30));
+  }
 
   const remaining = deadline - done;
   return Math.max(0, Math.min(100, Math.round((remaining / duration) * 100)));
@@ -510,6 +514,14 @@ router.patch("/tasks/:id", async (req, res) => {
       );
     }
 
+    const completedLate = new Date(updated.completed_at ?? "").getTime() > new Date(updated.deadline).getTime();
+    if (isDailyFollowup && completedLate) {
+      await query(
+        `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4)`,
+        [id, userId, "تنبيه النظام", "تم إكمال المتابعة بعد الموعد المحدد. تم احتساب Score أقل — حاول إنهاء المتابعة في موعدها القادم."]
+      );
+    }
+
     if (isDailyFollowup) {
       await createInboxAndPush({
         eventType: "task_completed",
@@ -540,6 +552,15 @@ router.patch("/tasks/:id", async (req, res) => {
       UPDATE tasks SET status = 'completed', completed_at = NOW(), updated_at = NOW()
       WHERE id = $1 RETURNING *
     `, [id]);
+
+    const completedLate = new Date(updated.completed_at ?? "").getTime() > new Date(updated.deadline).getTime();
+    if (completedLate) {
+      await query(
+        `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4)`,
+        [id, userId, "تنبيه النظام", "تم إكمال المهمة بعد الموعد المحدد. تم احتساب Score أقل — حاول إنهاء المهمة في موعدها القادم."]
+      );
+    }
+
     const [withMedia] = await attachMedia([updated]);
 
     await createInboxAndPush({
