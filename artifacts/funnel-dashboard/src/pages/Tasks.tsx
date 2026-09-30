@@ -184,6 +184,11 @@ function scoreColor(s: number) {
   return s >= 75 ? "text-emerald-400" : s >= 50 ? "text-amber-400" : "text-red-400";
 }
 
+function isLateCompleted(task: Task): boolean {
+  if (task.status !== "completed" || !task.completed_at) return false;
+  return new Date(task.completed_at).getTime() > new Date(task.deadline).getTime();
+}
+
 function scoreRing(score: number) {
   const r = 20, c = 2 * Math.PI * r, filled = (score / 100) * c;
   const color = score >= 75 ? "#34d399" : score >= 50 ? "#fbbf24" : "#f87171";
@@ -819,7 +824,9 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
   const [addingNote, setAddingNote] = useState(false);
   const [showViews,  setShowViews]  = useState(false);
   const isActive = task.status === "pending" || task.status === "in_progress";
+  const canFinish = isActive || task.status === "expired";
   const score = task.opus_score ?? 0;
+  const completedLate = isLateCompleted(task);
 
   const isImage = (m: TaskMedia) => m.mime_type.startsWith("image/");
   const isVideo = (m: TaskMedia) => m.mime_type.startsWith("video/");
@@ -883,6 +890,11 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${STATUS_COLOR[task.status]}`}>
                 {STATUS_LABEL[task.status]}
               </span>
+              {completedLate && (
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full border bg-orange-500/15 text-orange-300 border-orange-500/30">
+                  مكتملة متأخر
+                </span>
+              )}
               {task.product_name && (
                 <span className="text-xs text-slate-400 bg-slate-700/60 px-2.5 py-1 rounded-full">
                   {task.product_name}
@@ -1098,18 +1110,27 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
           </div>
         </div>
 
+        {task.status === "expired" && (
+          <div className="mx-4 mb-3 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-200 flex items-start gap-2">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span>الموعد انتهى، لكن تقدر تكمل المهمة. هيتحسب لك Score أقل، وحاول ما تتأخرش في المهمة الجاية.</span>
+          </div>
+        )}
+
         {/* Footer actions */}
         <div className="flex items-center gap-2 p-4 border-t border-slate-700/60 bg-slate-900/80 flex-wrap">
-          {isActive && (
+          {canFinish && (
             <>
-              <button onClick={() => { onCheckin(task); onClose(); }}
-                className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-2 rounded-xl transition-all">
-                <LogIn size={13} /> متابعة
-              </button>
+              {task.task_kind === "daily_product_followup" && (
+                <button onClick={() => { onCheckin(task); onClose(); }}
+                  className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-2 rounded-xl transition-all">
+                  <LogIn size={13} /> {task.status === "expired" ? "إكمال متأخر" : "متابعة"}
+                </button>
+              )}
               {task.task_kind !== "daily_product_followup" && (
                 <button onClick={() => setShowCompleteConfirm(true)}
                   className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-2 rounded-xl transition-all">
-                  <CheckCircle2 size={13} /> إتمام
+                  <CheckCircle2 size={13} /> {task.status === "expired" ? "إكمال متأخر" : "إتمام"}
                 </button>
               )}
             </>
@@ -1160,6 +1181,8 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const score = task.opus_score ?? 0;
   const isActive = task.status === "pending" || task.status === "in_progress";
+  const canFinish = isActive || task.status === "expired";
+  const completedLate = isLateCompleted(task);
   const storeName = getTaskStoreName(task);
 
   return (
@@ -1192,6 +1215,11 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${STATUS_COLOR[task.status]}`}>
                 {STATUS_LABEL[task.status]}
               </span>
+              {completedLate && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-orange-500/15 text-orange-300 border-orange-500/30">
+                  متأخرة
+                </span>
+              )}
 
               {task.platform && (
                 <span className="text-[10px] font-semibold text-blue-300 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded-full">
@@ -1255,21 +1283,29 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
         className="border-t border-slate-700/50 px-3 py-2 flex items-center gap-1.5 min-h-[38px]"
         onClick={e => e.stopPropagation()}
       >
-        {isActive && (
+        {canFinish && task.task_kind === "daily_product_followup" && (
           <button
             onClick={e => { e.stopPropagation(); onCheckin(task); }}
-            className="flex items-center gap-1 text-[10px] font-medium text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2 py-1 rounded-md transition-all"
+            className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md transition-all ${
+              task.status === "expired"
+                ? "text-orange-300 bg-orange-500/10 hover:bg-orange-500/20"
+                : "text-blue-300 bg-blue-500/10 hover:bg-blue-500/20"
+            }`}
           >
-            <LogIn size={10} /> متابعة
+            <LogIn size={10} /> {task.status === "expired" ? "إكمال متأخر" : "متابعة"}
           </button>
         )}
 
-        {isActive && task.task_kind !== "daily_product_followup" && (
+        {canFinish && task.task_kind !== "daily_product_followup" && (
           <button
             onClick={e => { e.stopPropagation(); setShowCompleteConfirm(true); }}
-            className="flex items-center gap-1 text-[10px] font-medium text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-1 rounded-md transition-all"
+            className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md transition-all ${
+              task.status === "expired"
+                ? "text-orange-300 bg-orange-500/10 hover:bg-orange-500/20"
+                : "text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20"
+            }`}
           >
-            <CheckCircle2 size={10} /> إتمام
+            <CheckCircle2 size={10} /> {task.status === "expired" ? "إكمال متأخر" : "إتمام"}
           </button>
         )}
 
