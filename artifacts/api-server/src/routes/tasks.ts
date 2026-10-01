@@ -297,6 +297,7 @@ router.get("/tasks/stats", async (_req, res) => {
     completed_on_time: number; completed_late: number;
     in_progress: number; expired: number; total_checkins: number;
     score: number; avg_score: number;
+    deduction_points: number;
   };
 
   const map = new Map<number, BuyerStat>();
@@ -306,7 +307,7 @@ router.get("/tasks/stats", async (_req, res) => {
       map.set(t.assigned_to_id, {
         userId: t.assigned_to_id, name: t.assigned_to_name ?? `User ${t.assigned_to_id}`,
         total_tasks: 0, completed_on_time: 0, completed_late: 0,
-        in_progress: 0, expired: 0, total_checkins: 0, score: 0, avg_score: 0,
+        in_progress: 0, expired: 0, total_checkins: 0, score: 0, avg_score: 0, deduction_points: 0,
       });
     }
     const s = map.get(t.assigned_to_id)!;
@@ -321,8 +322,19 @@ router.get("/tasks/stats", async (_req, res) => {
     else if (t.status === "expired") s.expired++;
   }
 
+  const deductionRows = await query<{ media_buyer_id: number; total: string }>(`
+    SELECT media_buyer_id, COALESCE(SUM(points), 0)::text AS total
+    FROM media_buyer_score_deductions
+    WHERE reversed_at IS NULL
+    GROUP BY media_buyer_id
+  `);
+  const deductionMap = new Map(
+    deductionRows.map((row) => [row.media_buyer_id, Number(row.total || 0)])
+  );
+
   const rawStats = Array.from(map.values()).map(s => ({
     ...s,
+    deduction_points: deductionMap.get(s.userId) ?? 0,
     avg_score: s.completed_on_time + s.completed_late > 0
       ? Math.round(s.score / (s.completed_on_time + s.completed_late)) : 0,
   }));
@@ -334,8 +346,15 @@ router.get("/tasks/stats", async (_req, res) => {
     const speedScore    = s.avg_score; // 0-100
     const totalCompleted = s.completed_on_time + s.completed_late;
     const volumeScore   = Math.round((totalCompleted / maxCompleted) * 100); // 0-100
-    const finalScore    = Math.round(speedScore * 0.7 + volumeScore * 0.3);
-    return { ...s, avg_score: finalScore, speed_score: speedScore, volume_score: volumeScore };
+    const scoreBeforeDeductions = Math.round(speedScore * 0.7 + volumeScore * 0.3);
+    const finalScore = Math.max(0, scoreBeforeDeductions - s.deduction_points);
+    return {
+      ...s,
+      avg_score: finalScore,
+      score_before_deductions: scoreBeforeDeductions,
+      speed_score: speedScore,
+      volume_score: volumeScore,
+    };
   });
 
   stats.sort((a, b) => b.avg_score - a.avg_score);
@@ -349,6 +368,128 @@ router.get("/tasks/assignees", async (_req, res) => {
     `SELECT id, username, role FROM users WHERE deleted_at IS NULL AND role IN ('admin','media_buyer') ORDER BY username`
   );
   res.json(rows);
+});
+
+
+router.get("/tasks/score-deductions", async (req, res) => {
+  const role = req.session!.role;
+  const userId = req.session!.userId;
+  const requestedBuyerId = Number(req.query.buyerId || 0);
+
+  if (role === "admin") {
+    const rows = requestedBuyerId
+      ? await query(`
+          SELECT * FROM media_buyer_score_deductions
+          WHERE media_buyer_id = $1
+          ORDER BY created_at DESC
+          LIMIT 100
+        `, [requestedBuyerId])
+      : await query(`
+          SELECT * FROM media_buyer_score_deductions
+          ORDER BY created_at DESC
+          LIMIT 200
+        `);
+    return res.json(rows);
+  }
+
+  const rows = await query(`
+    SELECT * FROM media_buyer_score_deductions
+    WHERE media_buyer_id = $1
+    ORDER BY created_at DESC
+    LIMIT 100
+  `, [userId]);
+  res.json(rows);
+});
+
+router.post("/tasks/score-deductions", requireAdmin, async (req, res) => {
+  const buyerId = Number(req.body?.media_buyer_id);
+  const points = Number(req.body?.points);
+  const reason = String(req.body?.reason || "").trim();
+  const taskId = req.body?.task_id == null ? null : Number(req.body.task_id);
+
+  if (!Number.isSafeInteger(buyerId)) {
+    return res.status(400).json({ error: "الميديا باير غير صحيح" });
+  }
+  if (!Number.isInteger(points) || points < 1 || points > 20) {
+    return res.status(400).json({ error: "الخصم لازم يكون من 1 إلى 20 نقطة" });
+  }
+  if (!reason) {
+    return res.status(400).json({ error: "سبب الخصم مطلوب" });
+  }
+  if (taskId !== null && !Number.isSafeInteger(taskId)) {
+    return res.status(400).json({ error: "رقم التاسك غير صحيح" });
+  }
+
+  const [buyer] = await query<{ id: number; username: string }>(`
+    SELECT id, username
+    FROM users
+    WHERE id = $1 AND role = 'media_buyer' AND deleted_at IS NULL
+  `, [buyerId]);
+  if (!buyer) {
+    return res.status(404).json({ error: "الميديا باير غير موجود أو غير نشط" });
+  }
+
+  if (taskId !== null) {
+    const [task] = await query<{ id: number; assigned_to_id: number | null }>(`
+      SELECT id, assigned_to_id FROM tasks WHERE id = $1
+    `, [taskId]);
+    if (!task) return res.status(404).json({ error: "التاسك غير موجود" });
+    if (task.assigned_to_id !== buyerId) {
+      return res.status(400).json({ error: "التاسك مش تابع للميديا باير المختار" });
+    }
+  }
+
+  const [row] = await query(`
+    INSERT INTO media_buyer_score_deductions (
+      media_buyer_id,
+      media_buyer_name,
+      points,
+      reason,
+      task_id,
+      created_by_id,
+      created_by_name
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7)
+    RETURNING *
+  `, [
+    buyer.id,
+    buyer.username,
+    points,
+    reason,
+    taskId,
+    req.session!.userId,
+    req.session!.username,
+  ]);
+
+  await createInboxAndPush({
+    eventType: "media_buyer_score_deduction",
+    recipientUserIds: [buyer.id],
+    title: `خصم ${points} نقطة من الاسكور`,
+    body: reason,
+    url: taskId ? `/tasks?taskId=${taskId}` : "/tasks",
+    metadata: { deductionId: row.id, points, taskId },
+  });
+
+  res.status(201).json(row);
+});
+
+router.delete("/tasks/score-deductions/:id", requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id)) {
+    return res.status(400).json({ error: "رقم الخصم غير صحيح" });
+  }
+
+  const [row] = await query(`
+    UPDATE media_buyer_score_deductions
+    SET reversed_at = NOW(),
+        reversed_by_id = $2,
+        reversed_by_name = $3
+    WHERE id = $1 AND reversed_at IS NULL
+    RETURNING *
+  `, [id, req.session!.userId, req.session!.username]);
+
+  if (!row) return res.status(404).json({ error: "الخصم غير موجود أو ملغي بالفعل" });
+  res.json(row);
 });
 
 // ── POST /api/tasks ───────────────────────────────────────────────────────────
