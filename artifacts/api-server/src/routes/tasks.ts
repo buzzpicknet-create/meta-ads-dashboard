@@ -30,6 +30,10 @@ interface Task {
   task_kind?: string;
   platform?: string | null;
   daily_followup_date?: string | null;
+  admin_highlighted?: boolean;
+  admin_highlight_note_id?: number | null;
+  admin_highlighted_at?: string | null;
+  admin_highlighted_by?: string | null;
 }
 
 interface TaskMedia {
@@ -47,6 +51,7 @@ interface TaskNote {
   user_id: number;
   username: string;
   note_text: string;
+  is_important?: boolean;
   created_at: string;
 }
 
@@ -575,6 +580,21 @@ router.patch("/tasks/:id", async (req, res) => {
     return res.json({ ...withMedia, opus_score: calcScore(updated) });
   }
 
+  if (action === "clear_highlight" && role === "admin") {
+    const [updated] = await query<Task>(`
+      UPDATE tasks
+      SET admin_highlighted = FALSE,
+          admin_highlight_note_id = NULL,
+          admin_highlighted_at = NULL,
+          admin_highlighted_by = NULL,
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `, [id]);
+    const [withMedia] = await attachMedia([updated]);
+    return res.json(withMedia);
+  }
+
   if (action === "reopen" && role === "admin") {
     const [updated] = await query<Task>(`
       UPDATE tasks SET status = 'pending', completed_at = NULL, updated_at = NOW()
@@ -657,7 +677,7 @@ router.post("/tasks/:id/notes", async (req, res) => {
   const userId = req.session!.userId;
   if (isNaN(id)) return res.status(400).json({ error: "id غير صحيح" });
 
-  const { note_text } = req.body as { note_text?: string };
+  const { note_text, important } = req.body as { note_text?: string; important?: boolean };
   if (!note_text?.trim()) return res.status(400).json({ error: "نص الملاحظة مطلوب" });
 
   const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [id]);
@@ -665,12 +685,38 @@ router.post("/tasks/:id/notes", async (req, res) => {
   if (role !== "admin" && task.assigned_to_id !== userId)
     return res.status(403).json({ error: "غير مصرح" });
 
+  const markImportant = role === "admin" && important === true;
   const [row] = await query<TaskNote>(
-    `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4) RETURNING *`,
-    [id, userId, req.session!.username, note_text.trim()]
+    `INSERT INTO task_notes (task_id, user_id, username, note_text, is_important)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [id, userId, req.session!.username, note_text.trim(), markImportant]
   );
 
-  if (task.task_kind === "daily_product_followup" && task.status !== "completed") {
+  if (markImportant) {
+    await query(`
+      UPDATE tasks
+      SET admin_highlighted = TRUE,
+          admin_highlight_note_id = $2,
+          admin_highlighted_at = NOW(),
+          admin_highlighted_by = $3,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [id, row.id, req.session!.username]);
+
+    if (task.assigned_to_id) {
+      await createInboxAndPush({
+        eventType: "task_admin_important_note",
+        recipientUserIds: [task.assigned_to_id],
+        title: "تعليق مهم من الإدارة",
+        body: `${task.title} — ${note_text.trim().slice(0, 140)}`,
+        url: `/tasks?taskId=${id}`,
+        metadata: { taskId: id, noteId: row.id, important: true },
+      });
+    }
+  }
+
+  // Admin comments are guidance, not the media buyer's daily check-in.
+  if (role !== "admin" && task.task_kind === "daily_product_followup" && task.status !== "completed") {
     await query(`
       UPDATE tasks
       SET status = 'completed',

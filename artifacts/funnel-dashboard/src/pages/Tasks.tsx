@@ -45,6 +45,10 @@ interface Task {
   task_kind?: string;
   platform?: "meta" | "google" | "tiktok" | null;
   daily_followup_date?: string | null;
+  admin_highlighted?: boolean;
+  admin_highlight_note_id?: number | null;
+  admin_highlighted_at?: string | null;
+  admin_highlighted_by?: string | null;
   inventory_snapshot?: {
     stock: number;
     unit: string;
@@ -87,6 +91,7 @@ interface TaskNote {
   user_id: number;
   username: string;
   note_text: string;
+  is_important?: boolean;
   created_at: string;
 }
 
@@ -808,7 +813,7 @@ function InventoryResultSection({ taskId, existingResult }: {
 
 // ── Task Detail Modal ──────────────────────────────────────────────────────────
 
-function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit }: {
+function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit, onClearHighlight, onChanged }: {
   task: Task; isAdmin: boolean;
   onClose: () => void;
   onCheckin: (task: Task) => void;
@@ -816,11 +821,14 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
   onDelete: (id: number) => void;
   onReopen: (id: number) => void;
   onEdit: (task: Task) => void;
+  onClearHighlight: (id: number) => void;
+  onChanged: () => Promise<void>;
 }) {
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [notes,      setNotes]      = useState<TaskNote[]>([]);
   const [views,      setViews]      = useState<TaskView[]>([]);
   const [noteText,   setNoteText]   = useState("");
+  const [importantNote, setImportantNote] = useState(false);
   const [addingNote, setAddingNote] = useState(false);
   const [showViews,  setShowViews]  = useState(false);
   const isActive = task.status === "pending" || task.status === "in_progress";
@@ -852,12 +860,14 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
       const res = await fetch(`${BASE}/tasks/${task.id}/notes`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note_text: noteText.trim() }),
+        body: JSON.stringify({ note_text: noteText.trim(), important: isAdmin && importantNote }),
       });
       if (res.ok) {
         const row: TaskNote = await res.json();
         setNotes(prev => [...prev, row]);
         setNoteText("");
+        setImportantNote(false);
+        await onChanged();
       }
     } finally {
       setAddingNote(false);
@@ -1059,27 +1069,48 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
               ) : (
                 <div className="divide-y divide-slate-700/30 max-h-48 overflow-y-auto">
                   {notes.map(n => (
-                    <div key={n.id} className="px-3 py-2.5">
+                    <div key={n.id} className={`px-3 py-2.5 ${n.is_important ? "bg-amber-500/10 border-r-2 border-amber-400" : ""}`}>
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="text-[11px] font-semibold text-blue-300">{n.username}</span>
+                        <span className="text-[11px] font-semibold text-blue-300 flex items-center gap-1.5">
+                          {n.username}
+                          {n.is_important && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                              <ShieldAlert size={9} /> مهم من الإدارة
+                            </span>
+                          )}
+                        </span>
                         <span className="text-[10px] text-slate-600">{formatDate(n.created_at)}</span>
                       </div>
-                      <p className="text-xs text-slate-300 leading-relaxed">{n.note_text}</p>
+                      <p className={`text-xs leading-relaxed ${n.is_important ? "text-amber-100" : "text-slate-300"}`}>{n.note_text}</p>
                     </div>
                   ))}
                 </div>
               )}
-              <form onSubmit={handleAddNote} className="flex gap-2 p-2.5 border-t border-slate-700/40">
-                <input
-                  value={noteText}
-                  onChange={e => setNoteText(e.target.value)}
-                  placeholder="أضف ملاحظة..."
-                  className="flex-1 bg-slate-900/60 border border-slate-600/50 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500/60"
-                />
-                <button type="submit" disabled={addingNote || !noteText.trim()}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-white text-xs disabled:opacity-40 transition-all">
-                  {addingNote ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
-                </button>
+              <form onSubmit={handleAddNote} className="p-2.5 border-t border-slate-700/40 space-y-2">
+                {isAdmin && (
+                  <label className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 cursor-pointer transition-colors ${importantNote ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-slate-700/60 text-slate-400 hover:border-amber-500/30"}`}>
+                    <input
+                      type="checkbox"
+                      checked={importantNote}
+                      onChange={e => setImportantNote(e.target.checked)}
+                      className="accent-amber-500"
+                    />
+                    <ShieldAlert size={13} />
+                    <span className="text-[11px] font-semibold">تعليق مهم — اعمل Highlight للتاسك وابعت تنبيه للميديا باير</span>
+                  </label>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    value={noteText}
+                    onChange={e => setNoteText(e.target.value)}
+                    placeholder={importantNote ? "اكتب التعليق المهم..." : "أضف ملاحظة..."}
+                    className={`flex-1 bg-slate-900/60 border rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none ${importantNote ? "border-amber-500/40 focus:border-amber-400" : "border-slate-600/50 focus:border-blue-500/60"}`}
+                  />
+                  <button type="submit" disabled={addingNote || !noteText.trim()}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-white text-xs disabled:opacity-40 transition-all ${importantNote ? "bg-amber-600 hover:bg-amber-500" : "bg-blue-600/80 hover:bg-blue-600"}`}>
+                    {addingNote ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                  </button>
+                </div>
               </form>
             </div>
 
@@ -1142,6 +1173,12 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
             </button>
           )}
           {/* Edit button — admin only */}
+          {isAdmin && task.admin_highlighted && (
+            <button onClick={() => { onClearHighlight(task.id); onClose(); }}
+              className="flex items-center gap-1.5 text-sm text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 px-3 py-2 rounded-xl transition-all border border-amber-500/30">
+              <ShieldAlert size={13} /> إزالة الـ Highlight
+            </button>
+          )}
           {isAdmin && (
             <button onClick={() => onEdit(task)}
               className="flex items-center gap-1.5 text-sm text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-2 rounded-xl transition-all border border-amber-500/20">
@@ -1189,16 +1226,23 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
     <div
       className={`border rounded-xl overflow-hidden cursor-pointer group transition-all
         ${task.task_kind === "daily_product_followup" ? "bg-violet-950/15 ring-1 ring-inset ring-violet-500/10" : "bg-slate-800/55"}
-        ${task.status === "expired" ? "border-red-500/30 hover:border-red-400/50"
-        : task.status === "completed" ? "border-emerald-500/25 hover:border-emerald-400/45"
-        : task.status === "in_progress" ? "border-blue-500/35 hover:border-blue-400/60"
-        : "border-slate-700 hover:border-amber-400/40"}`}
+        ${isAdmin && task.admin_highlighted
+          ? "border-amber-400/80 ring-2 ring-amber-400/25 shadow-[0_0_24px_rgba(251,191,36,0.10)]"
+          : task.status === "expired" ? "border-red-500/30 hover:border-red-400/50"
+          : task.status === "completed" ? "border-emerald-500/25 hover:border-emerald-400/45"
+          : task.status === "in_progress" ? "border-blue-500/35 hover:border-blue-400/60"
+          : "border-slate-700 hover:border-amber-400/40"}`}
       onClick={() => onOpen(task)}
     >
       <div className="p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+              {isAdmin && task.admin_highlighted && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-amber-500/15 text-amber-200 border-amber-500/40 flex items-center gap-1">
+                  <ShieldAlert size={9} /> تعليق إداري مهم
+                </span>
+              )}
               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
                 task.task_kind === "daily_product_followup"
                   ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
@@ -2028,6 +2072,8 @@ export default function TasksPage() {
           onDelete={id => { deleteTask(id); setDetailTask(null); }}
           onReopen={id => { patchTask(id, { action: "reopen" }); setDetailTask(null); }}
           onEdit={t => { setDetailTask(null); setEditTask(t); }}
+          onClearHighlight={id => patchTask(id, { action: "clear_highlight" })}
+          onChanged={() => fetchAll(true)}
         />
       )}
       {deleteConfirmId !== null && (
