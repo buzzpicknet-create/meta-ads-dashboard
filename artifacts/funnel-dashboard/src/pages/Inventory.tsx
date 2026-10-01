@@ -275,6 +275,292 @@ interface MediaAssignment {
   is_active: boolean;
 }
 
+interface BestHourMetric {
+  hour: number;
+  spend: number;
+  purchases: number;
+  revenue: number;
+  cpa: number;
+  roas: number;
+}
+
+interface BestHourWindow {
+  start_hour: number;
+  end_hour: number;
+  spend: number;
+  purchases: number;
+  revenue: number;
+  cpa: number;
+  roas: number;
+}
+
+type BestHoursPlatformState =
+  | { status: "not_assigned" }
+  | { status: "not_connected" }
+  | {
+      status: "no_data";
+      matched_campaigns?: number;
+      hourly: BestHourMetric[];
+      top_hours: BestHourMetric[];
+      best_window: null;
+    }
+  | {
+      status: "ready";
+      matched_campaigns: number;
+      campaign_names?: string[];
+      hourly: BestHourMetric[];
+      top_hours: BestHourMetric[];
+      best_window: BestHourWindow | null;
+    };
+
+interface BestHoursProduct {
+  inventory_product_id: number;
+  product_name: string;
+  source_store: string;
+  assignments: Partial<Record<MediaPlatform, string>>;
+  meta: BestHoursPlatformState;
+  google: BestHoursPlatformState;
+  tiktok: BestHoursPlatformState;
+}
+
+interface BestHoursResponse {
+  period: { since: string; until: string; days: number };
+  generated_at: string;
+  platforms: {
+    meta: { connected: boolean; partial?: boolean; failed_accounts?: string[] };
+    google: { connected: boolean };
+    tiktok: { connected: boolean };
+  };
+  products: BestHoursProduct[];
+}
+
+function formatHourLabel(hour: number): string {
+  const normalized = ((hour % 24) + 24) % 24;
+  if (normalized === 0) return "12 ص";
+  if (normalized === 12) return "12 م";
+  return normalized < 12 ? `${normalized} ص` : `${normalized - 12} م`;
+}
+
+function formatHourWindow(window: BestHourWindow | null): string {
+  if (!window) return "—";
+  return `${formatHourLabel(window.start_hour)} – ${formatHourLabel(window.end_hour)}`;
+}
+
+function PlatformBestHoursCell({ state }: { state: BestHoursPlatformState }) {
+  if (state.status === "not_assigned") {
+    return <span className="text-xs text-muted-foreground">غير موزع</span>;
+  }
+  if (state.status === "not_connected") {
+    return (
+      <span className="inline-flex text-[11px] font-medium px-2 py-1 rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-500">
+        غير متصل
+      </span>
+    );
+  }
+  if (state.status === "no_data") {
+    return (
+      <div className="text-xs">
+        <div className="text-muted-foreground">لا توجد مبيعات ساعية مطابقة</div>
+        {state.matched_campaigns ? (
+          <div className="text-[10px] text-muted-foreground/70 mt-1">{state.matched_campaigns} حملة مطابقة</div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-[180px]">
+      <div className="font-semibold text-sm text-emerald-500">
+        {formatHourWindow(state.best_window)}
+      </div>
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {state.top_hours.map((hour) => (
+          <span
+            key={hour.hour}
+            className="text-[10px] rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-muted-foreground"
+            title={`Spend ${hour.spend.toFixed(0)} · CPA ${hour.cpa.toFixed(1)} · ROAS ${hour.roas.toFixed(2)}`}
+          >
+            {formatHourLabel(hour.hour)} · {hour.purchases.toFixed(hour.purchases % 1 ? 1 : 0)} طلب
+          </span>
+        ))}
+      </div>
+      <div className="text-[10px] text-muted-foreground mt-1">
+        {state.matched_campaigns} حملة مطابقة
+      </div>
+    </div>
+  );
+}
+
+function BestHoursPanel({
+  data,
+  loading,
+  error,
+  days,
+  onDaysChange,
+  search,
+  onSearchChange,
+}: {
+  data: BestHoursResponse | null;
+  loading: boolean;
+  error: string | null;
+  days: number;
+  onDaysChange: (days: number) => void;
+  search: string;
+  onSearchChange: (value: string) => void;
+}) {
+  const [expandedProduct, setExpandedProduct] = useState<number | null>(null);
+
+  const rows = useMemo(() => {
+    const source = data?.products ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return source;
+    return source.filter((row) => row.product_name.toLowerCase().includes(q));
+  }, [data, search]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-56">
+          <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="ابحث عن منتج..."
+            className="pr-8 h-9 text-sm"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {[7, 14, 30].map((value) => (
+            <button
+              key={value}
+              onClick={() => onDaysChange(value)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                days === value
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border bg-background hover:border-primary/50"
+              }`}
+            >
+              {value} يوم
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <span>Meta: تحليل آخر أيام مكتملة حسب توقيت حساب الإعلانات</span>
+        <span className="text-amber-500">Google وTikTok: يظهران غير متصل حتى ربط بيانات الأداء الساعي</span>
+        {data?.period && (
+          <span className="mr-auto">
+            {data.period.since} ← {data.period.until}
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border">
+                <th className="text-right px-4 py-3 font-semibold">المنتج</th>
+                <th className="text-right px-4 py-3 font-semibold text-blue-500">Meta</th>
+                <th className="text-right px-4 py-3 font-semibold text-red-500">Google</th>
+                <th className="text-right px-4 py-3 font-semibold text-cyan-500">TikTok</th>
+                <th className="text-center px-3 py-3 font-semibold text-muted-foreground w-24">التفاصيل</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && !data ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    {Array.from({ length: 5 }).map((__, j) => (
+                      <td key={j} className="px-4 py-4">
+                        <div className="h-4 bg-muted/60 rounded animate-pulse" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-center py-14 text-muted-foreground">
+                    لا توجد منتجات موزعة مطابقة
+                  </td>
+                </tr>
+              ) : rows.map((row) => {
+                const isExpanded = expandedProduct === row.inventory_product_id;
+                const canExpand = row.meta.status === "ready" || row.meta.status === "no_data";
+                return (
+                  <>
+                    <tr key={row.inventory_product_id} className="border-b border-border/50 hover:bg-muted/20 align-top">
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{row.product_name}</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">
+                          {row.source_store === "dealme" ? "Dealme" : "Buzzpick"}
+                          {row.assignments.meta && <> · Meta: {row.assignments.meta}</>}
+                          {row.assignments.google && <> · Google: {row.assignments.google}</>}
+                          {row.assignments.tiktok && <> · TikTok: {row.assignments.tiktok}</>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><PlatformBestHoursCell state={row.meta} /></td>
+                      <td className="px-4 py-3"><PlatformBestHoursCell state={row.google} /></td>
+                      <td className="px-4 py-3"><PlatformBestHoursCell state={row.tiktok} /></td>
+                      <td className="px-3 py-3 text-center">
+                        {canExpand ? (
+                          <button
+                            onClick={() => setExpandedProduct(isExpanded ? null : row.inventory_product_id)}
+                            className="text-[11px] px-2 py-1 rounded-lg border border-border hover:bg-muted transition-colors"
+                          >
+                            {isExpanded ? "إخفاء" : "24 ساعة"}
+                          </button>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr key={`${row.inventory_product_id}-hours`} className="border-b border-border bg-muted/10">
+                        <td colSpan={5} className="px-4 py-4">
+                          <div className="text-xs font-semibold mb-3">تفصيل Meta بالساعة</div>
+                          {row.meta.status === "ready" || row.meta.status === "no_data" ? (
+                            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                              {row.meta.hourly.map((hour) => (
+                                <div
+                                  key={hour.hour}
+                                  className={`rounded-lg border p-2 ${
+                                    hour.purchases > 0 ? "border-emerald-500/30 bg-emerald-500/5" : "border-border"
+                                  }`}
+                                >
+                                  <div className="text-xs font-bold">{formatHourLabel(hour.hour)}</div>
+                                  <div className="text-[10px] text-muted-foreground mt-1">
+                                    طلبات: <span className="text-foreground font-medium">{hour.purchases.toFixed(hour.purchases % 1 ? 1 : 0)}</span>
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    CPA: <span className="text-foreground">{hour.cpa ? hour.cpa.toFixed(1) : "—"}</span>
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    ROAS: <span className="text-foreground">{hour.roas ? hour.roas.toFixed(2) : "—"}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function nowPlusHours(h: number): string {
   const d = new Date(Date.now() + h * 3600000);
   return d.toLocaleString("sv-SE", { timeZone: "Africa/Cairo" }).slice(0, 16).replace(" ", "T");
@@ -668,6 +954,12 @@ export default function InventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [taskProduct, setTaskProduct] = useState<Product | null>(null);
+  const [platformTab, setPlatformTab] = useState<"distribution" | "best_hours">("distribution");
+  const [bestHoursDays, setBestHoursDays] = useState(30);
+  const [bestHoursSearch, setBestHoursSearch] = useState("");
+  const [bestHours, setBestHours] = useState<BestHoursResponse | null>(null);
+  const [bestHoursLoading, setBestHoursLoading] = useState(false);
+  const [bestHoursError, setBestHoursError] = useState<string | null>(null);
 
   const [products, setProducts]       = useState<Product[]>([]);
   const [stats, setStats]             = useState<Stats | null>(null);
@@ -770,6 +1062,30 @@ export default function InventoryPage() {
       // Inventory remains usable even if assignments fail to load.
     }
   }, []);
+
+
+  const fetchBestHours = useCallback(async (days = bestHoursDays) => {
+    setBestHoursLoading(true);
+    setBestHoursError(null);
+    try {
+      const res = await fetch(`/api/inventory/best-hours?days=${days}`, {
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error ?? `Best Hours API: ${res.status}`);
+      setBestHours(payload as BestHoursResponse);
+    } catch (e) {
+      setBestHoursError(e instanceof Error ? e.message : "فشل تحميل أفضل الساعات");
+    } finally {
+      setBestHoursLoading(false);
+    }
+  }, [bestHoursDays]);
+
+  useEffect(() => {
+    if (platformTab === "best_hours" && !bestHours && !bestHoursLoading) {
+      fetchBestHours(bestHoursDays);
+    }
+  }, [platformTab, bestHours, bestHoursLoading, bestHoursDays, fetchBestHours]);
 
   const saveMediaAssignment = useCallback(async (
     product: Product,
@@ -981,6 +1297,32 @@ export default function InventoryPage() {
           </div>
         )}
 
+        {/* Platform section tabs */}
+        <div className="flex items-center gap-1 border-b border-border">
+          <button
+            onClick={() => setPlatformTab("distribution")}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+              platformTab === "distribution"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            توزيع المنصات
+          </button>
+          <button
+            onClick={() => setPlatformTab("best_hours")}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+              platformTab === "best_hours"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            أفضل الساعات
+          </button>
+        </div>
+
+        {platformTab === "distribution" ? (
+          <>
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Search */}
@@ -1211,6 +1553,23 @@ export default function InventoryPage() {
             <Clock className="h-3.5 w-3.5" />
             <span>البيانات من مخزون Dealme وBuzzpick ERP — الكمية المتاحة بعد خصم المحجوز · تتحدث تلقائياً كل 30 دقيقة</span>
           </div>
+        )}
+
+          </>
+        ) : (
+          <BestHoursPanel
+            data={bestHours}
+            loading={bestHoursLoading}
+            error={bestHoursError}
+            days={bestHoursDays}
+            search={bestHoursSearch}
+            onSearchChange={setBestHoursSearch}
+            onDaysChange={(days) => {
+              setBestHoursDays(days);
+              setBestHours(null);
+              fetchBestHours(days);
+            }}
+          />
         )}
       </div>
 
