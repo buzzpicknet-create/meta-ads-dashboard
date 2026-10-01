@@ -1056,8 +1056,13 @@ function startDailyProductFollowupCron() {
   // missing tasks for that day are created once (unique DB index prevents duplicates).
   run();
 
-  cron.schedule("0 6 * * *", run, { timezone: "Africa/Cairo" });
-  logger.info({ time: "06:00", timezone: "Africa/Cairo", deadline: "21:00" }, "Daily product follow-up cron scheduled");
+  cron.schedule("0 6-20 * * *", run, { timezone: "Africa/Cairo" });
+  logger.info({
+    cadence: "hourly",
+    window: "06:00-20:00",
+    timezone: "Africa/Cairo",
+    deadline: "21:00",
+  }, "Daily product follow-up cron scheduled");
 }
 
 function startInventoryAlertCron() {
