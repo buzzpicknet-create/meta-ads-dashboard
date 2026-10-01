@@ -680,6 +680,11 @@ async function runMigrations() {
   await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_kind TEXT NOT NULL DEFAULT 'manual'`);
   await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS platform TEXT`);
   await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS daily_followup_date DATE`);
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS admin_highlighted BOOLEAN NOT NULL DEFAULT FALSE`);
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS admin_highlight_note_id INT`);
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS admin_highlighted_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS admin_highlighted_by VARCHAR(200)`);
+  await query(`ALTER TABLE task_notes ADD COLUMN IF NOT EXISTS is_important BOOLEAN NOT NULL DEFAULT FALSE`);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_daily_product_platform
     ON tasks (inventory_product_id, platform, daily_followup_date)
