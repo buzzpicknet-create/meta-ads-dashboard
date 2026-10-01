@@ -4,7 +4,7 @@ import {
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
   ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
   Image as ImageIcon, Video, Filter, ShieldAlert, Download,
-  FileText, Eye, Pencil, MessageSquare, Send, Search,
+  FileText, Eye, Pencil, MessageSquare, Send, Search, MinusCircle, History, RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -81,6 +81,21 @@ interface BuyerStat {
   userId: number; name: string; total_tasks: number;
   completed_on_time: number; completed_late: number;
   in_progress: number; expired: number; total_checkins: number; avg_score: number;
+  deduction_points?: number;
+  score_before_deductions?: number;
+}
+
+interface ScoreDeduction {
+  id: number;
+  media_buyer_id: number;
+  media_buyer_name: string;
+  points: number;
+  reason: string;
+  task_id: number | null;
+  created_by_name: string;
+  created_at: string;
+  reversed_at: string | null;
+  reversed_by_name: string | null;
 }
 
 interface Assignee { id: number; username: string; role: string; }
@@ -1394,7 +1409,219 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
 
 // ── Leaderboard ───────────────────────────────────────────────────────────────
 
-function Leaderboard({ stats }: { stats: BuyerStat[] }) {
+function ScoreDeductionModal({
+  buyer,
+  onClose,
+  onChanged,
+}: {
+  buyer: BuyerStat;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [points, setPoints] = useState(5);
+  const [reason, setReason] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const [history, setHistory] = useState<ScoreDeduction[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const res = await fetch(`${BASE}/tasks/score-deductions?buyerId=${buyer.userId}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("فشل تحميل سجل الخصومات");
+      setHistory(await res.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل تحميل سجل الخصومات");
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [buyer.userId]);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!reason.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BASE}/tasks/score-deductions`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          media_buyer_id: buyer.userId,
+          points,
+          reason: reason.trim(),
+          task_id: taskId.trim() ? Number(taskId) : null,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error ?? "فشل تسجيل الخصم");
+      setReason("");
+      setTaskId("");
+      await Promise.all([loadHistory(), onChanged()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل تسجيل الخصم");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function reverseDeduction(id: number) {
+    setError(null);
+    try {
+      const res = await fetch(`${BASE}/tasks/score-deductions/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error ?? "فشل إلغاء الخصم");
+      await Promise.all([loadHistory(), onChanged()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل إلغاء الخصم");
+    }
+  }
+
+  const activeTotal = history
+    .filter((row) => !row.reversed_at)
+    .reduce((sum, row) => sum + row.points, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" dir="rtl" onClick={onClose}>
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-red-500/30 bg-slate-900 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-700 bg-slate-900 p-4">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <MinusCircle size={17} className="text-red-400" /> خصم من اسكور {buyer.name}
+            </h2>
+            <p className="text-[11px] text-slate-500 mt-1">
+              الاسكور الحالي {buyer.avg_score}% · إجمالي الخصومات النشطة {activeTotal} نقطة
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white"><X size={17} /></button>
+        </div>
+
+        <form onSubmit={submit} className="p-4 space-y-3 border-b border-slate-700/60">
+          <div>
+            <label className="text-xs text-slate-400 block mb-1.5">قيمة الخصم</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {[5, 10, 15, 20].map(value => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setPoints(value)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors ${
+                    points === value
+                      ? "bg-red-600 border-red-500 text-white"
+                      : "border-slate-700 text-slate-400 hover:border-red-500/40"
+                  }`}
+                >
+                  -{value}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-400 block mb-1.5">سبب الخصم *</label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              rows={3}
+              placeholder="مثال: تجاهل تعليق الإدارة وعدم متابعة المنتج في الموعد"
+              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-400 block mb-1.5">رقم التاسك المرتبط — اختياري</label>
+            <input
+              value={taskId}
+              onChange={e => setTaskId(e.target.value.replace(/\D/g, ""))}
+              placeholder="مثال: 527"
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-500/50"
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={saving || !reason.trim()}
+            className="w-full rounded-lg bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <MinusCircle size={14} />}
+            خصم {points} نقطة وإرسال تنبيه
+          </button>
+        </form>
+
+        <div className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <History size={14} className="text-slate-400" />
+            <h3 className="text-sm font-semibold text-slate-300">سجل الخصومات</h3>
+          </div>
+
+          {loadingHistory ? (
+            <div className="text-xs text-slate-500 py-4 text-center">جاري التحميل...</div>
+          ) : history.length === 0 ? (
+            <div className="text-xs text-slate-600 py-4 text-center">لا توجد خصومات سابقة</div>
+          ) : (
+            <div className="space-y-2">
+              {history.map(row => (
+                <div key={row.id} className={`rounded-lg border p-3 ${row.reversed_at ? "border-slate-800 bg-slate-800/30 opacity-60" : "border-red-500/20 bg-red-500/5"}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-red-300">-{row.points} نقطة</span>
+                        {row.reversed_at && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-400">ملغي</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-300 mt-1 leading-relaxed">{row.reason}</p>
+                      <div className="text-[10px] text-slate-600 mt-1.5">
+                        بواسطة {row.created_by_name} · {formatDate(row.created_at)}
+                        {row.task_id ? ` · تاسك #${row.task_id}` : ""}
+                      </div>
+                    </div>
+                    {!row.reversed_at && (
+                      <button
+                        onClick={() => reverseDeduction(row.id)}
+                        className="shrink-0 flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-[10px] text-slate-400 hover:text-white hover:border-slate-500"
+                      >
+                        <RotateCcw size={10} /> إلغاء الخصم
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Leaderboard({
+  stats,
+  isAdmin,
+  onChanged,
+}: {
+  stats: BuyerStat[];
+  isAdmin: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const [penaltyBuyer, setPenaltyBuyer] = useState<BuyerStat | null>(null);
+
   if (!stats.length) return (
     <div className="text-center py-12 text-slate-500">
       <Trophy size={32} className="mx-auto mb-3 opacity-30" />
@@ -1403,44 +1630,72 @@ function Leaderboard({ stats }: { stats: BuyerStat[] }) {
   );
   const medals = ["🥇", "🥈", "🥉"];
   return (
-    <div className="space-y-3">
-      {stats.map((s, i) => (
-        <div key={s.userId}
-          className={`bg-slate-800/60 border rounded-xl p-4 flex items-center gap-4
-            ${i === 0 ? "border-yellow-500/40" : i === 1 ? "border-slate-500/40" : "border-slate-700/40"}`}>
-          <div className="w-8 text-center flex-shrink-0">
-            {i < 3 ? <span className="text-xl">{medals[i]}</span>
-                    : <span className="text-slate-500 font-bold text-sm">#{i + 1}</span>}
-          </div>
-          <div className="relative w-[52px] h-[52px] flex items-center justify-center flex-shrink-0">
-            {scoreRing(s.avg_score)}
-            <span className={`absolute text-[10px] font-bold ${scoreColor(s.avg_score)}`}>{s.avg_score}%</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-white font-semibold text-sm truncate">{s.name}</span>
-              {s.in_progress > 0 && (
-                <span className="text-[10px] text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded-full animate-pulse">
-                  {s.in_progress} جارية
-                </span>
+    <>
+      <div className="space-y-3">
+        {stats.map((s, i) => (
+          <div key={s.userId}
+            className={`bg-slate-800/60 border rounded-xl p-4 flex items-center gap-4
+              ${i === 0 ? "border-yellow-500/40" : i === 1 ? "border-slate-500/40" : "border-slate-700/40"}`}>
+            <div className="w-8 text-center flex-shrink-0">
+              {i < 3 ? <span className="text-xl">{medals[i]}</span>
+                      : <span className="text-slate-500 font-bold text-sm">#{i + 1}</span>}
+            </div>
+            <div className="relative w-[52px] h-[52px] flex items-center justify-center flex-shrink-0">
+              {scoreRing(s.avg_score)}
+              <span className={`absolute text-[10px] font-bold ${scoreColor(s.avg_score)}`}>{s.avg_score}%</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="text-white font-semibold text-sm truncate">{s.name}</span>
+                {s.in_progress > 0 && (
+                  <span className="text-[10px] text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded-full animate-pulse">
+                    {s.in_progress} جارية
+                  </span>
+                )}
+                {(s.deduction_points ?? 0) > 0 && (
+                  <span className="text-[10px] font-bold text-red-300 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-full">
+                    -{s.deduction_points} خصومات
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 flex-wrap text-[11px] text-slate-400">
+                <span className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-400" />{s.completed_on_time} في الوقت</span>
+                <span className="flex items-center gap-1"><Clock size={10} className="text-amber-400" />{s.completed_late} متأخرة</span>
+                <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-red-400" />{s.expired} منتهية</span>
+                <span className="flex items-center gap-1"><Flame size={10} className="text-blue-400" />{s.total_checkins} متابعة</span>
+                {(s.deduction_points ?? 0) > 0 && s.score_before_deductions !== undefined && (
+                  <span className="text-red-300">قبل الخصم: {s.score_before_deductions}%</span>
+                )}
+              </div>
+            </div>
+            <div className="flex-shrink-0 flex items-center gap-2">
+              <div className="flex gap-0.5">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <Star key={n} size={12}
+                    className={n <= Math.ceil(s.avg_score / 20) ? "text-yellow-400 fill-yellow-400" : "text-slate-600"} />
+                ))}
+              </div>
+              {isAdmin && (
+                <button
+                  onClick={() => setPenaltyBuyer(s)}
+                  className="flex items-center gap-1 rounded-lg border border-red-500/25 bg-red-500/10 px-2 py-1.5 text-[10px] font-semibold text-red-300 hover:bg-red-500/20"
+                >
+                  <MinusCircle size={11} /> خصم
+                </button>
               )}
             </div>
-            <div className="flex items-center gap-3 flex-wrap text-[11px] text-slate-400">
-              <span className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-400" />{s.completed_on_time} في الوقت</span>
-              <span className="flex items-center gap-1"><Clock size={10} className="text-amber-400" />{s.completed_late} متأخرة</span>
-              <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-red-400" />{s.expired} منتهية</span>
-              <span className="flex items-center gap-1"><Flame size={10} className="text-blue-400" />{s.total_checkins} متابعة</span>
-            </div>
           </div>
-          <div className="flex-shrink-0 flex gap-0.5">
-            {[1, 2, 3, 4, 5].map(n => (
-              <Star key={n} size={12}
-                className={n <= Math.ceil(s.avg_score / 20) ? "text-yellow-400 fill-yellow-400" : "text-slate-600"} />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+
+      {penaltyBuyer && (
+        <ScoreDeductionModal
+          buyer={penaltyBuyer}
+          onClose={() => setPenaltyBuyer(null)}
+          onChanged={onChanged}
+        />
+      )}
+    </>
   );
 }
 
@@ -2049,7 +2304,7 @@ export default function TasksPage() {
       {/* Leaderboard tab */}
       {!loading && tab === "leaderboard" && (
         <div className="max-w-2xl mx-auto">
-          <Leaderboard stats={stats} />
+          <Leaderboard stats={stats} isAdmin={isAdmin} onChanged={() => fetchAll(true)} />
         </div>
       )}
 
