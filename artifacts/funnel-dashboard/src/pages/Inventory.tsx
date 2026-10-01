@@ -1081,12 +1081,6 @@ export default function InventoryPage() {
     }
   }, [bestHoursDays]);
 
-  useEffect(() => {
-    if (platformTab === "best_hours" && !bestHours && !bestHoursLoading) {
-      fetchBestHours(bestHoursDays);
-    }
-  }, [platformTab, bestHours, bestHoursLoading, bestHoursDays, fetchBestHours]);
-
   const saveMediaAssignment = useCallback(async (
     product: Product,
     platform: MediaPlatform,
@@ -1310,7 +1304,10 @@ export default function InventoryPage() {
             توزيع المنصات
           </button>
           <button
-            onClick={() => setPlatformTab("best_hours")}
+            onClick={() => {
+              setPlatformTab("best_hours");
+              if (!bestHours && !bestHoursLoading) fetchBestHours(bestHoursDays);
+            }}
             className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
               platformTab === "best_hours"
                 ? "border-primary text-primary"
