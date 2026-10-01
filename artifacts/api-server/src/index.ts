@@ -766,6 +766,25 @@ async function runMigrations() {
   await query(`ALTER TABLE task_notes ADD COLUMN IF NOT EXISTS is_important BOOLEAN NOT NULL DEFAULT FALSE`);
 
   await query(`
+    CREATE TABLE IF NOT EXISTS media_buyer_score_deductions (
+      id SERIAL PRIMARY KEY,
+      media_buyer_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      media_buyer_name TEXT NOT NULL,
+      points INT NOT NULL CHECK (points BETWEEN 1 AND 20),
+      reason TEXT NOT NULL,
+      task_id INT REFERENCES tasks(id) ON DELETE SET NULL,
+      created_by_id INT REFERENCES users(id) ON DELETE SET NULL,
+      created_by_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reversed_at TIMESTAMPTZ,
+      reversed_by_id INT REFERENCES users(id) ON DELETE SET NULL,
+      reversed_by_name TEXT
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_score_deductions_buyer ON media_buyer_score_deductions (media_buyer_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_score_deductions_active ON media_buyer_score_deductions (media_buyer_id) WHERE reversed_at IS NULL`);
+
+  await query(`
     CREATE TABLE IF NOT EXISTS task_views (
       id SERIAL PRIMARY KEY,
       task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
