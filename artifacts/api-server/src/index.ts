@@ -185,17 +185,6 @@ async function runMigrations() {
       fetched_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-
-  await query(`
-    CREATE TABLE IF NOT EXISTS meta_hourly_account_cache (
-      account_id VARCHAR(50) NOT NULL,
-      period_since VARCHAR(10) NOT NULL,
-      period_until VARCHAR(10) NOT NULL,
-      data JSONB NOT NULL DEFAULT '[]',
-      fetched_at TIMESTAMPTZ DEFAULT NOW(),
-      PRIMARY KEY (account_id, period_since, period_until)
-    )
-  `);
   // DB-backed adset details cache (status + budget — used by write-tool confirmation cards)
   await query(`
     CREATE TABLE IF NOT EXISTS meta_adset_details_cache (
