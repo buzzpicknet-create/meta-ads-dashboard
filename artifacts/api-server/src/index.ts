@@ -721,6 +721,20 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_user ON inventory_media_assignments (assigned_to_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_active ON inventory_media_assignments (is_active)`);
 
+  // One-time cleanup: remove the accidental Oct 1 follow-ups created by the
+  // temporary hourly generator at 18:02 Cairo, but only if nobody touched them.
+  await query(`
+    DELETE FROM tasks
+    WHERE task_kind = 'daily_product_followup'
+      AND daily_followup_date = DATE '2026-10-01'
+      AND created_at >= TIMESTAMPTZ '2026-10-01 18:02:00+03'
+      AND created_at <  TIMESTAMPTZ '2026-10-01 18:03:00+03'
+      AND status = 'pending'
+      AND completed_at IS NULL
+      AND checkin_count = 0
+      AND last_checkin_at IS NULL
+  `);
+
   await query(`
     CREATE TABLE IF NOT EXISTS task_media (
       id SERIAL PRIMARY KEY,
