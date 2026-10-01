@@ -36,7 +36,6 @@ interface FbInsightRow {
   video_p75_watched_actions?: FbActionEntry[];
   video_p95_watched_actions?: FbActionEntry[];
   video_p100_watched_actions?: FbActionEntry[];
-  hourly_stats_aggregated_by_advertiser_time_zone?: string;
 }
 
 interface FbApiError {
@@ -1660,72 +1659,6 @@ export interface CampaignBreakdowns {
   by_age: BreakdownSegment[];
   by_gender: BreakdownSegment[];
   by_placement: BreakdownSegment[];
-}
-
-export interface MetaHourlyCampaignPerformance {
-  account_id: string;
-  campaign_id: string;
-  campaign_name: string;
-  hour: number;
-  spend: number;
-  purchases: number;
-  revenue: number;
-  cpa: number;
-  roas: number;
-}
-
-export async function getMetaHourlyCampaignPerformance(opts: {
-  adAccountId: string;
-  since: string;
-  until: string;
-}): Promise<MetaHourlyCampaignPerformance[]> {
-  const rawAccount = opts.adAccountId.startsWith("act_")
-    ? opts.adAccountId.slice(4)
-    : opts.adAccountId;
-  const time_range = JSON.stringify({ since: opts.since, until: opts.until });
-
-  const rows = await fbGet<FbInsightRow>(`/act_${rawAccount}/insights`, {
-    level: "campaign",
-    time_range,
-    fields: [
-      "campaign_id",
-      "campaign_name",
-      "spend",
-      "actions",
-      "action_values",
-    ].join(","),
-    breakdowns: "hourly_stats_aggregated_by_advertiser_time_zone",
-    action_attribution_windows: ATTRIBUTION_WINDOW,
-    limit: "500",
-  });
-
-  return rows
-    .map((row) => {
-      const label = row.hourly_stats_aggregated_by_advertiser_time_zone ?? "";
-      const hour = Number.parseInt(label.slice(0, 2), 10);
-      if (!Number.isFinite(hour) || hour < 0 || hour > 23 || !row.campaign_id) return null;
-
-      const purchases = purchaseCount(row);
-      const revenue =
-        actionVal7dClick(row.action_values, "offsite_conversion.fb_pixel_purchase") ||
-        actionVal7dClick(row.action_values, "purchase") ||
-        actionVal7dClick(row.action_values, "omni_purchase") ||
-        0;
-      const spend = Number(row.spend || 0);
-
-      return {
-        account_id: rawAccount,
-        campaign_id: row.campaign_id,
-        campaign_name: row.campaign_name ?? row.campaign_id,
-        hour,
-        spend,
-        purchases,
-        revenue,
-        cpa: purchases > 0 ? spend / purchases : 0,
-        roas: spend > 0 ? revenue / spend : 0,
-      } satisfies MetaHourlyCampaignPerformance;
-    })
-    .filter((row): row is MetaHourlyCampaignPerformance => row !== null);
 }
 
 const BREAK_FIELDS = [
