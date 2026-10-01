@@ -1052,14 +1052,12 @@ function startDailyProductFollowupCron() {
     );
   };
 
-  // Recovery run on startup: if Render restarts between 06:00 and 21:00 Cairo,
-  // missing tasks for that day are created once (unique DB index prevents duplicates).
-  run();
-
-  cron.schedule("0 6-20 * * *", run, { timezone: "Africa/Cairo" });
+  // Daily follow-ups are generated once at 06:00 Cairo.
+  // Assignments created after 06:00 are picked up the next day.
+  cron.schedule("0 6 * * *", run, { timezone: "Africa/Cairo" });
   logger.info({
-    cadence: "hourly",
-    window: "06:00-20:00",
+    cadence: "daily",
+    time: "06:00",
     timezone: "Africa/Cairo",
     deadline: "21:00",
   }, "Daily product follow-up cron scheduled");
