@@ -994,7 +994,7 @@ async function runMigrations() {
           CASE WHEN $3 = 'completed' THEN 'completed' ELSE 'pending' END,
           $4,
           CASE WHEN $3 = 'completed' THEN $5::timestamptz ELSE NULL END,
-          CASE WHEN $3 = 'completed' THEN $6 ELSE NULL END,
+          CASE WHEN $3 = 'completed' THEN $6::int ELSE NULL END,
           CASE WHEN $3 = 'completed' THEN $7 ELSE NULL END,
           (SELECT created_at FROM tasks WHERE id = $8),
           NOW()
