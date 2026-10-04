@@ -13,7 +13,7 @@ const BASE  = `${_BASE}/api`;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type TaskStatus = "pending" | "in_progress" | "completed" | "expired";
+type TaskStatus = "pending" | "in_progress" | "partial_completed" | "completed" | "expired";
 
 interface TaskPlatformFollowup {
   id: number;
@@ -94,7 +94,7 @@ function getTaskStoreName(task: Task): string | null {
 interface BuyerStat {
   userId: number; name: string; total_tasks: number;
   completed_on_time: number; completed_late: number;
-  in_progress: number; expired: number; total_checkins: number; avg_score: number;
+  in_progress: number; partial_completed?: number; expired: number; total_checkins: number; avg_score: number;
   deduction_points?: number;
   score_before_deductions?: number;
 }
@@ -211,13 +211,18 @@ function platformLabel(platform: "meta" | "google" | "tiktok"): string {
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
-  pending: "معلّقة", in_progress: "جارية", completed: "مكتملة", expired: "منتهية",
+  pending: "معلّقة",
+  in_progress: "جارية",
+  partial_completed: "مكتملة جزئيًا",
+  completed: "مكتملة",
+  expired: "منتهية",
 };
 const STATUS_COLOR: Record<TaskStatus, string> = {
-  pending:     "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  completed:   "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  expired:     "bg-red-500/20 text-red-400 border-red-500/30",
+  pending:           "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  in_progress:       "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  partial_completed: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+  completed:         "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  expired:           "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
 function scoreColor(s: number) {
@@ -246,11 +251,12 @@ function scoreRing(score: number) {
 function Countdown({ deadline, status }: { deadline: string; status: TaskStatus }) {
   const [, tick] = useState(0);
   useEffect(() => {
-    if (status === "completed" || status === "expired") return;
+    if (status === "completed" || status === "expired" || status === "partial_completed") return;
     const id = setInterval(() => tick(n => n + 1), 1000);
     return () => clearInterval(id);
   }, [status]);
   if (status === "completed") return <span className="text-emerald-400 text-xs">مكتملة ✓</span>;
+  if (status === "partial_completed") return <span className="text-orange-300 text-xs">مكتملة جزئيًا</span>;
   const { text, urgent, overdue } = calcCountdown(deadline);
   return (
     <span className={`text-xs font-mono font-semibold flex items-center gap-1
@@ -871,7 +877,7 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
   const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
   const [platformError, setPlatformError] = useState<string | null>(null);
   const isActive = task.status === "pending" || task.status === "in_progress";
-  const canFinish = isActive || task.status === "expired";
+  const canFinish = isActive || task.status === "expired" || task.status === "partial_completed";
   const score = task.opus_score ?? 0;
   const completedLate = isLateCompleted(task);
 
@@ -951,6 +957,7 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
         <div className={`flex items-start justify-between gap-3 p-5 border-b border-slate-700/60
           ${task.status === "completed" ? "bg-emerald-950/40"
           : task.status === "in_progress" ? "bg-blue-950/40"
+          : task.status === "partial_completed" ? "bg-orange-950/30"
           : task.status === "expired" ? "bg-red-950/30"
           : "bg-slate-800/60"}`}>
           <div className="flex-1 min-w-0">
@@ -1279,10 +1286,16 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
           </div>
         </div>
 
-        {task.status === "expired" && (
+        {task.status === "partial_completed" && (
           <div className="mx-4 mb-3 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-xs text-orange-200 flex items-start gap-2">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            <span>الموعد انتهى، لكن تقدر تكمل المهمة. هيتحسب لك Score أقل، وحاول ما تتأخرش في المهمة الجاية.</span>
+            <span>تمت متابعة بعض المنصات فقط قبل انتهاء الموعد. تقدر تكمل المنصات الناقصة، والتاسك يفضل مكتمل جزئيًا لحد ما تكمّلهم كلهم.</span>
+          </div>
+        )}
+        {task.status === "expired" && (
+          <div className="mx-4 mb-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 flex items-start gap-2">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span>الموعد انتهى من غير ما تتم متابعة أي منصة. تقدر تكمل المهمة متأخرًا، وهيتحسب لك Score أقل.</span>
           </div>
         )}
 
@@ -1366,6 +1379,7 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
         ${task.task_kind === "daily_product_followup" ? "bg-violet-950/15 ring-1 ring-inset ring-violet-500/10" : "bg-slate-800/55"}
         ${isAdmin && task.admin_highlighted
           ? "border-amber-400/80 ring-2 ring-amber-400/25 shadow-[0_0_24px_rgba(251,191,36,0.10)]"
+          : task.status === "partial_completed" ? "border-orange-500/40 hover:border-orange-400/60"
           : task.status === "expired" ? "border-red-500/30 hover:border-red-400/50"
           : task.status === "completed" ? "border-emerald-500/25 hover:border-emerald-400/45"
           : task.status === "in_progress" ? "border-blue-500/35 hover:border-blue-400/60"
@@ -1806,6 +1820,7 @@ function Leaderboard({
               <div className="flex items-center gap-3 flex-wrap text-[11px] text-slate-400">
                 <span className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-400" />{s.completed_on_time} في الوقت</span>
                 <span className="flex items-center gap-1"><Clock size={10} className="text-amber-400" />{s.completed_late} متأخرة</span>
+                {(s.partial_completed ?? 0) > 0 && <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-orange-300" />{s.partial_completed} جزئية</span>}
                 <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-red-400" />{s.expired} منتهية</span>
                 <span className="flex items-center gap-1"><Flame size={10} className="text-blue-400" />{s.total_checkins} متابعة</span>
                 {(s.deduction_points ?? 0) > 0 && s.score_before_deductions !== undefined && (
@@ -2205,6 +2220,7 @@ export default function TasksPage() {
     { key: "all",         label: `الكل (${counts.all ?? 0})` },
     { key: "in_progress", label: `جارية (${counts.in_progress ?? 0})` },
     { key: "pending",     label: `معلّقة (${counts.pending ?? 0})` },
+    { key: "partial_completed", label: `مكتملة جزئيًا (${counts.partial_completed ?? 0})` },
     { key: "expired",     label: `منتهية (${counts.expired ?? 0})` },
     { key: "completed",   label: `مكتملة (${counts.completed ?? 0})` },
   ];
@@ -2248,6 +2264,7 @@ export default function TasksPage() {
           {[
             { label: "جارية",  value: counts.in_progress ?? 0, color: "text-blue-400",    icon: <Flame size={13} className="text-blue-400" /> },
             { label: "معلّقة", value: counts.pending ?? 0,     color: "text-amber-400",   icon: <Clock size={13} className="text-amber-400" /> },
+            { label: "مكتملة جزئيًا", value: counts.partial_completed ?? 0, color: "text-orange-300", icon: <AlertTriangle size={13} className="text-orange-300" /> },
             { label: "منتهية", value: counts.expired ?? 0,     color: "text-red-400",     icon: <AlertTriangle size={13} className="text-red-400" /> },
             { label: "مكتملة", value: counts.completed ?? 0,   color: "text-emerald-400", icon: <CheckCircle2 size={13} className="text-emerald-400" /> },
           ].map(s => (
