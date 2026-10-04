@@ -789,6 +789,31 @@ async function runMigrations() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_task_platform_followups_task ON task_platform_followups (task_id)`);
 
+  // Grouped follow-up status semantics:
+  // - all platforms completed => completed
+  // - some completed after deadline => partial_completed
+  // - none completed after deadline => expired
+  await query(`
+    UPDATE tasks t
+    SET status = 'partial_completed',
+        updated_at = NOW()
+    WHERE t.task_kind = 'daily_product_followup'
+      AND t.platform IS NULL
+      AND t.status = 'expired'
+      AND EXISTS (
+        SELECT 1
+        FROM task_platform_followups pf
+        WHERE pf.task_id = t.id
+          AND pf.status = 'completed'
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM task_platform_followups pf
+        WHERE pf.task_id = t.id
+          AND pf.status = 'pending'
+      )
+  `);
+
   await query(`
     CREATE TABLE IF NOT EXISTS media_buyer_score_deductions (
       id SERIAL PRIMARY KEY,
