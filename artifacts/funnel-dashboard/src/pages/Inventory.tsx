@@ -42,7 +42,7 @@ interface ProductTask {
   title: string;
   assigned_to_name: string | null;
   assigned_to_id: number | null;
-  status: "pending" | "in_progress" | "completed" | "expired";
+  status: "pending" | "in_progress" | "partial_completed" | "completed" | "expired";
   deadline: string;
   created_at: string;
   completed_at: string | null;
@@ -103,11 +103,12 @@ function KpiCard({ label, value, sub, color }: { label: string; value: number | 
 // ── Product Tasks Badge ───────────────────────────────────────────────────────
 
 const TASK_STATUS_LABEL: Record<string, string> = {
-  pending: "معلّقة", in_progress: "جارية", completed: "مكتملة", expired: "منتهية"
+  pending: "معلّقة", in_progress: "جارية", partial_completed: "مكتملة جزئيًا", completed: "مكتملة", expired: "منتهية"
 };
 const TASK_STATUS_COLOR: Record<string, string> = {
   pending: "bg-amber-500/20 text-amber-400 border-amber-500/30",
   in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  partial_completed: "bg-orange-500/20 text-orange-400 border-orange-500/30",
   completed: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   expired: "bg-red-500/20 text-red-400 border-red-500/30",
 };
@@ -680,6 +681,7 @@ export default function InventoryPage() {
   const [warehouse, setWarehouse]         = useState<string>("all");
   const [stockFilter, setStockFilter]     = useState<StockFilter>("all");
   const [sort, setSort]                   = useState<SortKey>("stock_desc");
+  const [assignmentOwnerFilter, setAssignmentOwnerFilter] = useState<"all" | "unassigned" | string>("all");
 
   // "دون حركة مبيعات" filter data
   const [noMovementIds, setNoMovementIds]     = useState<Set<number> | null>(null);
@@ -840,6 +842,55 @@ export default function InventoryPage() {
     return locs.sort();
   }, [products]);
 
+  const assignmentSummary = useMemo(() => {
+    const productIds = new Set(products.map((p) => p.id));
+    const byBuyer = new Map<number, {
+      id: number;
+      name: string;
+      productIds: Set<number>;
+      platformCounts: Record<MediaPlatform, number>;
+    }>();
+
+    for (const assignee of mediaAssignees) {
+      byBuyer.set(assignee.id, {
+        id: assignee.id,
+        name: assignee.username,
+        productIds: new Set<number>(),
+        platformCounts: { meta: 0, google: 0, tiktok: 0 },
+      });
+    }
+
+    const assignedProductIds = new Set<number>();
+
+    for (const assignment of Object.values(mediaAssignments)) {
+      if (!assignment.is_active || !productIds.has(assignment.inventory_product_id)) continue;
+      assignedProductIds.add(assignment.inventory_product_id);
+
+      const entry = byBuyer.get(assignment.assigned_to_id) ?? {
+        id: assignment.assigned_to_id,
+        name: assignment.assigned_to_name,
+        productIds: new Set<number>(),
+        platformCounts: { meta: 0, google: 0, tiktok: 0 },
+      };
+
+      entry.productIds.add(assignment.inventory_product_id);
+      entry.platformCounts[assignment.platform] += 1;
+      byBuyer.set(assignment.assigned_to_id, entry);
+    }
+
+    return {
+      buyers: Array.from(byBuyer.values())
+        .map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          productCount: entry.productIds.size,
+          platformCounts: entry.platformCounts,
+        }))
+        .sort((a, b) => b.productCount - a.productCount || a.name.localeCompare(b.name, "ar")),
+      unassignedCount: products.filter((p) => !assignedProductIds.has(p.id)).length,
+    };
+  }, [products, mediaAssignments, mediaAssignees]);
+
   // Filtered + sorted products
   const filtered = useMemo(() => {
     let list = products;
@@ -850,6 +901,21 @@ export default function InventoryPage() {
     else if (stockFilter === "zero")    list = list.filter(p => available(p) <= 0);
     else if (stockFilter === "no_movement" && noMovementIds !== null) {
       list = list.filter(p => !noMovementIds.has(p.id));
+    }
+
+    if (assignmentOwnerFilter !== "all") {
+      if (assignmentOwnerFilter === "unassigned") {
+        list = list.filter((p) =>
+          !(["meta", "google", "tiktok"] as MediaPlatform[])
+            .some((platform) => Boolean(mediaAssignments[`${p.id}:${platform}`]))
+        );
+      } else {
+        const buyerId = Number(assignmentOwnerFilter);
+        list = list.filter((p) =>
+          (["meta", "google", "tiktok"] as MediaPlatform[])
+            .some((platform) => mediaAssignments[`${p.id}:${platform}`]?.assigned_to_id === buyerId)
+        );
+      }
     }
 
     if (search.trim()) {
@@ -869,7 +935,7 @@ export default function InventoryPage() {
     });
 
     return list;
-  }, [products, warehouse, stockFilter, search, sort, noMovementIds]);
+  }, [products, warehouse, stockFilter, search, sort, noMovementIds, assignmentOwnerFilter, mediaAssignments]);
 
   // KPIs
   const availableCount = products.filter(p => available(p) > 0).length;
@@ -972,6 +1038,94 @@ export default function InventoryPage() {
           </div>
         )}
 
+        {!loading && products.length > 0 && (
+          <div className="rounded-xl border border-border bg-card/60 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-sm font-bold flex items-center gap-2">
+                  <User className="h-4 w-4 text-primary" />
+                  توزيع المنتجات على الميديا باير
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  العدد محسوب كمنتجات مختلفة، حتى لو نفس المنتج متسند لنفس الشخص على أكتر من منصة.
+                </p>
+              </div>
+              {assignmentOwnerFilter !== "all" && (
+                <button
+                  type="button"
+                  onClick={() => setAssignmentOwnerFilter("all")}
+                  className="text-xs px-2.5 py-1 rounded-lg border border-border hover:border-primary/50 hover:bg-muted transition-colors"
+                >
+                  عرض كل المنتجات
+                </button>
+              )}
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {assignmentSummary.buyers.map((buyer) => {
+                const active = assignmentOwnerFilter === String(buyer.id);
+                return (
+                  <button
+                    key={buyer.id}
+                    type="button"
+                    onClick={() => setAssignmentOwnerFilter(active ? "all" : String(buyer.id))}
+                    className={`text-right rounded-xl border p-3 transition-all ${
+                      active
+                        ? "border-primary bg-primary/10 ring-1 ring-primary/20"
+                        : "border-border bg-background/70 hover:border-primary/40 hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm truncate">{buyer.name}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">اضغط لعرض المنتجات المسندة له</div>
+                      </div>
+                      <div className="text-2xl font-bold tabular-nums text-primary">{buyer.productCount}</div>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-2 text-[10px]">
+                      {buyer.platformCounts.meta > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          Meta {buyer.platformCounts.meta}
+                        </span>
+                      )}
+                      {buyer.platformCounts.google > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                          Google {buyer.platformCounts.google}
+                        </span>
+                      )}
+                      {buyer.platformCounts.tiktok > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                          TikTok {buyer.platformCounts.tiktok}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => setAssignmentOwnerFilter(
+                  assignmentOwnerFilter === "unassigned" ? "all" : "unassigned"
+                )}
+                className={`text-right rounded-xl border p-3 transition-all ${
+                  assignmentOwnerFilter === "unassigned"
+                    ? "border-amber-500 bg-amber-500/10 ring-1 ring-amber-500/20"
+                    : "border-amber-500/30 bg-amber-500/5 hover:border-amber-500/60"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-sm text-amber-500">بدون ميديا باير</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">منتجات مش متسندة لأي منصة عند أي ميديا باير</div>
+                  </div>
+                  <div className="text-2xl font-bold tabular-nums text-amber-500">{assignmentSummary.unassignedCount}</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Skeleton KPIs while loading */}
         {loading && products.length === 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1060,6 +1214,13 @@ export default function InventoryPage() {
           {/* Result count */}
           <span className="text-xs text-muted-foreground mr-auto">
             {filtered.length.toLocaleString("ar-EG")} صنف
+            {assignmentOwnerFilter !== "all" && (
+              <span className="mr-1 text-primary">
+                · {assignmentOwnerFilter === "unassigned"
+                  ? "بدون ميديا باير"
+                  : assignmentSummary.buyers.find((b) => String(b.id) === assignmentOwnerFilter)?.name ?? ""}
+              </span>
+            )}
             {stockFilter === "no_movement" && movementSince && (
               <span className="mr-1 text-orange-500">· لا حركة منذ {movementSince}</span>
             )}
