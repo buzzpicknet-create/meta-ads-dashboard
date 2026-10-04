@@ -925,10 +925,33 @@ router.patch("/tasks/:id", async (req, res) => {
   }
 
   if (action === "reopen" && role === "admin") {
+    const platformRows = await query<TaskPlatformFollowup>(
+      `SELECT * FROM task_platform_followups WHERE task_id = $1`,
+      [id]
+    );
+
+    if (platformRows.length > 0) {
+      await query(`
+        UPDATE task_platform_followups
+        SET status = 'pending',
+            comment_text = NULL,
+            completed_at = NULL,
+            completed_by_id = NULL,
+            completed_by_name = NULL,
+            updated_at = NOW()
+        WHERE task_id = $1
+      `, [id]);
+    }
+
     const [updated] = await query<Task>(`
-      UPDATE tasks SET status = 'pending', completed_at = NULL, updated_at = NOW()
+      UPDATE tasks
+      SET status = 'pending',
+          completed_at = NULL,
+          checkin_count = CASE WHEN $2 THEN 0 ELSE checkin_count END,
+          last_checkin_at = CASE WHEN $2 THEN NULL ELSE last_checkin_at END,
+          updated_at = NOW()
       WHERE id = $1 RETURNING *
-    `, [id]);
+    `, [id, platformRows.length > 0]);
     const [withMedia] = await attachMedia([updated]);
     return res.json(withMedia);
   }
