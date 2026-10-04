@@ -689,6 +689,13 @@ async function runMigrations() {
     ON tasks (inventory_product_id, platform, daily_followup_date)
     WHERE task_kind = 'daily_product_followup' AND daily_followup_date IS NOT NULL
   `);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_daily_product_buyer_grouped
+    ON tasks (inventory_product_id, assigned_to_id, daily_followup_date)
+    WHERE task_kind = 'daily_product_followup'
+      AND daily_followup_date IS NOT NULL
+      AND platform IS NULL
+  `);
 
   // Extend today's unfinished follow-up tasks to the new 21:00 Cairo deadline.
   // If an older process already expired one today, reopen it so the team still gets the full window.
@@ -764,6 +771,23 @@ async function runMigrations() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_task_notes_task_id ON task_notes (task_id)`);
   await query(`ALTER TABLE task_notes ADD COLUMN IF NOT EXISTS is_important BOOLEAN NOT NULL DEFAULT FALSE`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_platform_followups (
+      id SERIAL PRIMARY KEY,
+      task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL CHECK (platform IN ('meta','google','tiktok')),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','completed')),
+      comment_text TEXT,
+      completed_at TIMESTAMPTZ,
+      completed_by_id INT REFERENCES users(id) ON DELETE SET NULL,
+      completed_by_name TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (task_id, platform)
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_platform_followups_task ON task_platform_followups (task_id)`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS media_buyer_score_deductions (

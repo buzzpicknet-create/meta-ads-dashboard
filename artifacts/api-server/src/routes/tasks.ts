@@ -36,6 +36,19 @@ interface Task {
   admin_highlighted_by?: string | null;
 }
 
+interface TaskPlatformFollowup {
+  id: number;
+  task_id: number;
+  platform: "meta" | "google" | "tiktok";
+  status: "pending" | "completed";
+  comment_text: string | null;
+  completed_at: string | null;
+  completed_by_id: number | null;
+  completed_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 interface TaskMedia {
   id: number;
   task_id: number;
@@ -108,7 +121,7 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
     inventory_product_id: number;
     product_name: string;
     source_store: string;
-    platform: string;
+    platform: "meta" | "google" | "tiktok";
     assigned_to_id: number;
     assigned_to_name: string;
   }>(`
@@ -132,7 +145,16 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
     products.map((product) => [product.id, product.availableStock])
   );
 
-  let created = 0;
+  type AssignmentGroup = {
+    inventory_product_id: number;
+    product_name: string;
+    source_store: string;
+    assigned_to_id: number;
+    assigned_to_name: string;
+    platforms: Array<"meta" | "google" | "tiktok">;
+  };
+
+  const grouped = new Map<string, AssignmentGroup>();
   let skippedOutOfStock = 0;
 
   for (const a of assignments) {
@@ -141,8 +163,27 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       skippedOutOfStock++;
       continue;
     }
-    const label = PLATFORM_LABEL[a.platform] ?? a.platform;
-    const title = `متابعة يومية — ${label} — ${a.product_name}`;
+
+    const key = `${a.inventory_product_id}:${a.assigned_to_id}`;
+    const group = grouped.get(key) ?? {
+      inventory_product_id: a.inventory_product_id,
+      product_name: a.product_name,
+      source_store: a.source_store,
+      assigned_to_id: a.assigned_to_id,
+      assigned_to_name: a.assigned_to_name,
+      platforms: [],
+    };
+    if (!group.platforms.includes(a.platform)) group.platforms.push(a.platform);
+    grouped.set(key, group);
+  }
+
+  let created = 0;
+
+  for (const group of grouped.values()) {
+    const availableStock = stockByProductId.get(group.inventory_product_id) ?? 0;
+    const platformLabels = group.platforms.map((p) => PLATFORM_LABEL[p] ?? p).join(" + ");
+    const title = `متابعة يومية — ${group.product_name}`;
+
     const rows = await query<{ id: number }>(`
       INSERT INTO tasks (
         title,
@@ -164,30 +205,48 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
         $1,$2,$3,$4,
         (($5::date + TIME '21:00') AT TIME ZONE 'Africa/Cairo'),
         $6,$7,NULL,'النظام',$8,$9,
-        'daily_product_followup',$10,$5::date
+        'daily_product_followup',NULL,$5::date
       )
-      ON CONFLICT (inventory_product_id, platform, daily_followup_date)
-      WHERE task_kind = 'daily_product_followup' AND daily_followup_date IS NOT NULL
-      DO NOTHING
+      ON CONFLICT (inventory_product_id, assigned_to_id, daily_followup_date)
+      WHERE task_kind = 'daily_product_followup'
+        AND daily_followup_date IS NOT NULL
+        AND platform IS NULL
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        product_name = EXCLUDED.product_name,
+        assigned_to_name = EXCLUDED.assigned_to_name,
+        inventory_snapshot = EXCLUDED.inventory_snapshot,
+        notes = EXCLUDED.notes,
+        updated_at = NOW()
       RETURNING id
     `, [
       title,
-      a.product_name,
-      a.assigned_to_id,
-      a.assigned_to_name,
+      group.product_name,
+      group.assigned_to_id,
+      group.assigned_to_name,
       clock.today,
-      "اكتب تعليق المتابعة والقرار اليومي",
-      `متابعة يومية لمنصة ${label}. يجب كتابة تعليق قبل الساعة 9:00 مساءً.`,
-      a.inventory_product_id,
+      "اكتب تعليق منفصل لكل منصة مسؤولة عنها",
+      `متابعة يومية للمنصات: ${platformLabels}. يكتمل التاسك بعد كتابة تعليق لكل منصة قبل الساعة 9:00 مساءً.`,
+      group.inventory_product_id,
       JSON.stringify({
-        sourceStore: a.source_store,
-        storeName: a.source_store,
+        sourceStore: group.source_store,
+        storeName: group.source_store,
         availableStock,
       }),
-      a.platform,
     ]);
 
-    created += rows.length;
+    const taskId = rows[0]?.id;
+    if (!taskId) continue;
+
+    for (const platform of group.platforms) {
+      await query(`
+        INSERT INTO task_platform_followups (task_id, platform)
+        VALUES ($1,$2)
+        ON CONFLICT (task_id, platform) DO NOTHING
+      `, [taskId, platform]);
+    }
+
+    created++;
   }
 
   if (skippedOutOfStock > 0) {
@@ -210,19 +269,38 @@ async function autoExpire() {
 
 // ── Attach media to tasks ─────────────────────────────────────────────────────
 
-async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: number })[]) {
+async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: number; platform_followups?: TaskPlatformFollowup[] })[]) {
   if (!tasks.length) return tasks;
   const ids = tasks.map(t => t.id);
-  const mediaRows = await query<TaskMedia>(
-    `SELECT * FROM task_media WHERE task_id = ANY($1::int[]) ORDER BY is_primary DESC, created_at ASC`,
-    [ids]
-  );
-  const map = new Map<number, TaskMedia[]>();
+
+  const [mediaRows, platformRows] = await Promise.all([
+    query<TaskMedia>(
+      `SELECT * FROM task_media WHERE task_id = ANY($1::int[]) ORDER BY is_primary DESC, created_at ASC`,
+      [ids]
+    ),
+    query<TaskPlatformFollowup>(
+      `SELECT * FROM task_platform_followups WHERE task_id = ANY($1::int[]) ORDER BY id ASC`,
+      [ids]
+    ),
+  ]);
+
+  const mediaMap = new Map<number, TaskMedia[]>();
   for (const m of mediaRows) {
-    if (!map.has(m.task_id)) map.set(m.task_id, []);
-    map.get(m.task_id)!.push(m);
+    if (!mediaMap.has(m.task_id)) mediaMap.set(m.task_id, []);
+    mediaMap.get(m.task_id)!.push(m);
   }
-  return tasks.map(t => ({ ...t, media: map.get(t.id) ?? [] }));
+
+  const platformMap = new Map<number, TaskPlatformFollowup[]>();
+  for (const p of platformRows) {
+    if (!platformMap.has(p.task_id)) platformMap.set(p.task_id, []);
+    platformMap.get(p.task_id)!.push(p);
+  }
+
+  return tasks.map(t => ({
+    ...t,
+    media: mediaMap.get(t.id) ?? [],
+    platform_followups: platformMap.get(t.id) ?? [],
+  }));
 }
 
 // ── GET /api/tasks ────────────────────────────────────────────────────────────
@@ -628,12 +706,108 @@ router.patch("/tasks/:id", async (req, res) => {
   if (role !== "admin" && task.assigned_to_id !== userId)
     return res.status(403).json({ error: "غير مصرح" });
 
-  const { action, notes } = req.body as { action?: string; notes?: string };
+  const { action, notes, platform } = req.body as { action?: string; notes?: string; platform?: string };
 
   if (action === "checkin") {
     const isDailyFollowup = task.task_kind === "daily_product_followup";
-    if (isDailyFollowup && !notes?.trim()) {
-      return res.status(400).json({ error: "تعليق المتابعة مطلوب للمهمة اليومية" });
+
+    if (isDailyFollowup) {
+      const platformRows = await query<TaskPlatformFollowup>(
+        `SELECT * FROM task_platform_followups WHERE task_id = $1 ORDER BY id ASC`,
+        [id]
+      );
+
+      // New grouped daily task: each platform has its own required comment.
+      if (platformRows.length > 0) {
+        const normalizedPlatform = String(platform || "").toLowerCase();
+        if (!["meta", "google", "tiktok"].includes(normalizedPlatform)) {
+          return res.status(400).json({ error: "اختار المنصة التي تكتب لها المتابعة" });
+        }
+        if (!notes?.trim()) {
+          return res.status(400).json({ error: "تعليق المنصة مطلوب" });
+        }
+
+        const target = platformRows.find((row) => row.platform === normalizedPlatform);
+        if (!target) {
+          return res.status(400).json({ error: "المنصة دي مش ضمن مسؤولياتك في التاسك" });
+        }
+        if (target.status === "completed") {
+          return res.status(400).json({ error: "متابعة المنصة دي مكتملة بالفعل" });
+        }
+
+        await query(`
+          UPDATE task_platform_followups
+          SET status = 'completed',
+              comment_text = $3,
+              completed_at = NOW(),
+              completed_by_id = $4,
+              completed_by_name = $5,
+              updated_at = NOW()
+          WHERE task_id = $1 AND platform = $2
+        `, [id, normalizedPlatform, notes.trim(), userId, req.session!.username]);
+
+        await query(
+          `INSERT INTO task_notes (task_id, user_id, username, note_text)
+           VALUES ($1,$2,$3,$4)`,
+          [
+            id,
+            userId,
+            req.session!.username,
+            `[${PLATFORM_LABEL[normalizedPlatform] ?? normalizedPlatform}] ${notes.trim()}`,
+          ]
+        );
+
+        const [progress] = await query<{ total: string; completed: string }>(`
+          SELECT
+            COUNT(*)::text AS total,
+            COUNT(*) FILTER (WHERE status = 'completed')::text AS completed
+          FROM task_platform_followups
+          WHERE task_id = $1
+        `, [id]);
+
+        const allDone =
+          Number(progress?.total ?? 0) > 0 &&
+          Number(progress?.total ?? 0) === Number(progress?.completed ?? 0);
+
+        const [updated] = await query<Task>(`
+          UPDATE tasks
+          SET checkin_count = checkin_count + 1,
+              last_checkin_at = NOW(),
+              status = CASE WHEN $2 THEN 'completed' ELSE 'in_progress' END,
+              completed_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [id, allDone]);
+
+        if (allDone) {
+          const completedLate =
+            new Date(updated.completed_at ?? "").getTime() > new Date(updated.deadline).getTime();
+          if (completedLate) {
+            await query(
+              `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4)`,
+              [id, userId, "تنبيه النظام", "تم إكمال المتابعة بعد الموعد المحدد. تم احتساب Score أقل — حاول إنهاء المتابعة في موعدها القادم."]
+            );
+          }
+
+          await createInboxAndPush({
+            eventType: "task_completed",
+            recipientRoles: ["admin", "media_manager"],
+            title: "اكتملت متابعة المنتج",
+            body: `${updated.assigned_to_name ?? "الميديا باير"} أكمل كل منصات: ${updated.product_name ?? updated.title}`,
+            url: `/tasks?taskId=${updated.id}`,
+            metadata: { taskId: updated.id, assignedToId: updated.assigned_to_id },
+          });
+        }
+
+        const [withMedia] = await attachMedia([updated]);
+        return res.json({ ...withMedia, opus_score: calcScore(updated) });
+      }
+
+      // Legacy daily task: one platform per task.
+      if (!notes?.trim()) {
+        return res.status(400).json({ error: "تعليق المتابعة مطلوب للمهمة اليومية" });
+      }
     }
 
     const [updated] = await query<Task>(`
@@ -685,12 +859,26 @@ router.patch("/tasks/:id", async (req, res) => {
 
   if (action === "complete") {
     if (task.task_kind === "daily_product_followup") {
-      const [noteCount] = await query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM task_notes WHERE task_id = $1`,
-        [id]
-      );
-      if (Number(noteCount?.count ?? 0) === 0) {
-        return res.status(400).json({ error: "لا يمكن إتمام المتابعة اليومية بدون تعليق" });
+      const [platformProgress] = await query<{ total: string; completed: string }>(`
+        SELECT
+          COUNT(*)::text AS total,
+          COUNT(*) FILTER (WHERE status = 'completed')::text AS completed
+        FROM task_platform_followups
+        WHERE task_id = $1
+      `, [id]);
+
+      if (Number(platformProgress?.total ?? 0) > 0) {
+        if (Number(platformProgress.total) !== Number(platformProgress.completed)) {
+          return res.status(400).json({ error: "لا يمكن إتمام التاسك قبل كتابة تعليق لكل منصة" });
+        }
+      } else {
+        const [noteCount] = await query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM task_notes WHERE task_id = $1`,
+          [id]
+        );
+        if (Number(noteCount?.count ?? 0) === 0) {
+          return res.status(400).json({ error: "لا يمكن إتمام المتابعة اليومية بدون تعليق" });
+        }
       }
     }
 
@@ -737,10 +925,33 @@ router.patch("/tasks/:id", async (req, res) => {
   }
 
   if (action === "reopen" && role === "admin") {
+    const platformRows = await query<TaskPlatformFollowup>(
+      `SELECT * FROM task_platform_followups WHERE task_id = $1`,
+      [id]
+    );
+
+    if (platformRows.length > 0) {
+      await query(`
+        UPDATE task_platform_followups
+        SET status = 'pending',
+            comment_text = NULL,
+            completed_at = NULL,
+            completed_by_id = NULL,
+            completed_by_name = NULL,
+            updated_at = NOW()
+        WHERE task_id = $1
+      `, [id]);
+    }
+
     const [updated] = await query<Task>(`
-      UPDATE tasks SET status = 'pending', completed_at = NULL, updated_at = NOW()
+      UPDATE tasks
+      SET status = 'pending',
+          completed_at = NULL,
+          checkin_count = CASE WHEN $2 THEN 0 ELSE checkin_count END,
+          last_checkin_at = CASE WHEN $2 THEN NULL ELSE last_checkin_at END,
+          updated_at = NOW()
       WHERE id = $1 RETURNING *
-    `, [id]);
+    `, [id, platformRows.length > 0]);
     const [withMedia] = await attachMedia([updated]);
     return res.json(withMedia);
   }
@@ -857,16 +1068,23 @@ router.post("/tasks/:id/notes", async (req, res) => {
   }
 
   // Admin comments are guidance, not the media buyer's daily check-in.
+  // Grouped daily tasks only complete through their per-platform comments.
   if (role !== "admin" && task.task_kind === "daily_product_followup" && task.status !== "completed") {
-    await query(`
-      UPDATE tasks
-      SET status = 'completed',
-          completed_at = NOW(),
-          checkin_count = GREATEST(checkin_count, 1),
-          last_checkin_at = NOW(),
-          updated_at = NOW()
-      WHERE id = $1
-    `, [id]);
+    const [platformCount] = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM task_platform_followups WHERE task_id = $1`,
+      [id]
+    );
+    if (Number(platformCount?.count ?? 0) === 0) {
+      await query(`
+        UPDATE tasks
+        SET status = 'completed',
+            completed_at = NOW(),
+            checkin_count = GREATEST(checkin_count, 1),
+            last_checkin_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+      `, [id]);
+    }
   }
 
   res.status(201).json(row);

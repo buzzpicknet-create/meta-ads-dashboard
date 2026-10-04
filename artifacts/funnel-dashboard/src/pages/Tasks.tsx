@@ -15,6 +15,19 @@ const BASE  = `${_BASE}/api`;
 
 type TaskStatus = "pending" | "in_progress" | "completed" | "expired";
 
+interface TaskPlatformFollowup {
+  id: number;
+  task_id: number;
+  platform: "meta" | "google" | "tiktok";
+  status: "pending" | "completed";
+  comment_text: string | null;
+  completed_at: string | null;
+  completed_by_id: number | null;
+  completed_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 interface TaskMedia {
   id: number;
   task_id: number;
@@ -41,6 +54,7 @@ interface Task {
   created_at: string;
   opus_score?: number;
   media: TaskMedia[];
+  platform_followups?: TaskPlatformFollowup[];
   inventory_product_id?: number | null;
   task_kind?: string;
   platform?: "meta" | "google" | "tiktok" | null;
@@ -188,6 +202,10 @@ function mediaUrl(m: TaskMedia): string {
   // serving route: GET /api/storage/objects/*path → prepends /objects/
   const stripped = m.file_path.replace(/^\/objects\//, "");
   return `${BASE}/storage/objects/${stripped}`;
+}
+
+function platformLabel(platform: "meta" | "google" | "tiktok"): string {
+  return platform === "meta" ? "Meta" : platform === "google" ? "Google" : "TikTok";
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -846,6 +864,10 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
   const [importantNote, setImportantNote] = useState(false);
   const [addingNote, setAddingNote] = useState(false);
   const [showViews,  setShowViews]  = useState(false);
+  const [platformFollowups, setPlatformFollowups] = useState<TaskPlatformFollowup[]>(task.platform_followups ?? []);
+  const [platformDrafts, setPlatformDrafts] = useState<Record<string, string>>({});
+  const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
+  const [platformError, setPlatformError] = useState<string | null>(null);
   const isActive = task.status === "pending" || task.status === "in_progress";
   const canFinish = isActive || task.status === "expired";
   const score = task.opus_score ?? 0;
@@ -886,6 +908,32 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
       }
     } finally {
       setAddingNote(false);
+    }
+  }
+
+  async function handlePlatformCheckin(platform: "meta" | "google" | "tiktok") {
+    const comment = (platformDrafts[platform] ?? "").trim();
+    if (!comment) return;
+    setSavingPlatform(platform);
+    setPlatformError(null);
+    try {
+      const res = await fetch(`${BASE}/tasks/${task.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "checkin", platform, notes: comment }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error ?? "فشل تسجيل متابعة المنصة");
+
+      const updated = payload as Task;
+      setPlatformFollowups(updated.platform_followups ?? []);
+      setPlatformDrafts(prev => ({ ...prev, [platform]: "" }));
+      await onChanged();
+    } catch (e) {
+      setPlatformError(e instanceof Error ? e.message : "فشل تسجيل متابعة المنصة");
+    } finally {
+      setSavingPlatform(null);
     }
   }
 
@@ -1065,6 +1113,79 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
               )}
             </div>
 
+            {platformFollowups.length > 0 && (
+              <div className="bg-slate-800/45 border border-violet-500/20 rounded-xl overflow-hidden">
+                <div className="px-3 py-2.5 border-b border-slate-700/50 flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-bold text-violet-200">متابعة المنصات</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      اكتب تعليق منفصل لكل منصة. التاسك يكتمل بعد اكتمالهم كلهم.
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-300 bg-slate-900/70 px-2 py-1 rounded-full">
+                    {platformFollowups.filter(p => p.status === "completed").length}/{platformFollowups.length}
+                  </span>
+                </div>
+
+                {platformError && (
+                  <div className="mx-3 mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                    {platformError}
+                  </div>
+                )}
+
+                <div className="divide-y divide-slate-700/40">
+                  {platformFollowups.map(p => {
+                    const done = p.status === "completed";
+                    const draft = platformDrafts[p.platform] ?? "";
+                    return (
+                      <div key={p.id} className={`p-3 ${done ? "bg-emerald-500/5" : ""}`}>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-sm font-bold text-white">{platformLabel(p.platform)}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            done
+                              ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/25"
+                              : "text-amber-300 bg-amber-500/10 border-amber-500/25"
+                          }`}>
+                            {done ? "مكتملة ✓" : "مطلوب تعليق"}
+                          </span>
+                        </div>
+
+                        {done ? (
+                          <div className="rounded-lg border border-emerald-500/15 bg-slate-900/55 px-3 py-2">
+                            <p className="text-xs text-slate-200 leading-relaxed">{p.comment_text}</p>
+                            {p.completed_at && (
+                              <div className="text-[10px] text-slate-600 mt-1">
+                                {formatDate(p.completed_at)}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <textarea
+                              value={draft}
+                              onChange={e => setPlatformDrafts(prev => ({ ...prev, [p.platform]: e.target.value }))}
+                              rows={2}
+                              placeholder={`اكتب متابعة ${platformLabel(p.platform)}...`}
+                              className="flex-1 resize-none bg-slate-900/70 border border-slate-600/60 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-violet-500/60"
+                            />
+                            <button
+                              type="button"
+                              disabled={!draft.trim() || savingPlatform === p.platform}
+                              onClick={() => handlePlatformCheckin(p.platform)}
+                              className="self-stretch min-w-[84px] rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold px-3 disabled:opacity-40 flex items-center justify-center gap-1"
+                            >
+                              {savingPlatform === p.platform ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                              تسجيل
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* ── Inventory Result ─────────────────────────────────────── */}
             {task.inventory_product_id && task.status === "completed" && (
               <InventoryResultSection taskId={task.id} existingResult={task.inventory_result ?? null} />
@@ -1167,7 +1288,7 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
         <div className="flex items-center gap-2 p-4 border-t border-slate-700/60 bg-slate-900/80 flex-wrap">
           {canFinish && (
             <>
-              {task.task_kind === "daily_product_followup" && (
+              {task.task_kind === "daily_product_followup" && !(task.platform_followups?.length) && (
                 <button onClick={() => { onCheckin(task); onClose(); }}
                   className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-3 py-2 rounded-xl transition-all">
                   <LogIn size={13} /> {task.status === "expired" ? "إكمال متأخر" : "متابعة"}
@@ -1286,6 +1407,19 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
                 </span>
               )}
 
+              {task.platform_followups?.map(p => (
+                <span
+                  key={p.id}
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
+                    p.status === "completed"
+                      ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+                      : "text-blue-300 bg-blue-500/10 border-blue-500/20"
+                  }`}
+                >
+                  {platformLabel(p.platform)}{p.status === "completed" ? " ✓" : ""}
+                </span>
+              ))}
+
               {storeName && (
                 <span className="text-[10px] text-cyan-300/90 bg-cyan-500/10 px-1.5 py-0.5 rounded-full">
                   {storeName}
@@ -1343,16 +1477,25 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
         onClick={e => e.stopPropagation()}
       >
         {canFinish && task.task_kind === "daily_product_followup" && (
-          <button
-            onClick={e => { e.stopPropagation(); onCheckin(task); }}
-            className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md transition-all ${
-              task.status === "expired"
-                ? "text-orange-300 bg-orange-500/10 hover:bg-orange-500/20"
-                : "text-blue-300 bg-blue-500/10 hover:bg-blue-500/20"
-            }`}
-          >
-            <LogIn size={10} /> {task.status === "expired" ? "إكمال متأخر" : "متابعة"}
-          </button>
+          task.platform_followups?.length ? (
+            <button
+              onClick={e => { e.stopPropagation(); onOpen(task); }}
+              className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 transition-all"
+            >
+              <MessageSquare size={10} /> متابعة المنصات
+            </button>
+          ) : (
+            <button
+              onClick={e => { e.stopPropagation(); onCheckin(task); }}
+              className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md transition-all ${
+                task.status === "expired"
+                  ? "text-orange-300 bg-orange-500/10 hover:bg-orange-500/20"
+                  : "text-blue-300 bg-blue-500/10 hover:bg-blue-500/20"
+              }`}
+            >
+              <LogIn size={10} /> {task.status === "expired" ? "إكمال متأخر" : "متابعة"}
+            </button>
+          )
         )}
 
         {canFinish && task.task_kind !== "daily_product_followup" && (
@@ -2036,6 +2179,7 @@ export default function TasksPage() {
         t.product_name,
         t.assigned_to_name,
         t.platform,
+        ...(t.platform_followups ?? []).map(p => platformLabel(p.platform)),
         getTaskStoreName(t),
       ].some(value => value?.toLowerCase().includes(normalizedSearch));
     })
