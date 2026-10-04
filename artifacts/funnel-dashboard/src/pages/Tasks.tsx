@@ -2429,6 +2429,7 @@ export default function TasksPage() {
               {([
                 { status: "in_progress" as TaskStatus, label: "جارية الآن", dot: "bg-blue-400", text: "text-blue-300" },
                 { status: "pending" as TaskStatus, label: "معلّقة", dot: "bg-amber-400", text: "text-amber-300" },
+                { status: "partial_completed" as TaskStatus, label: "مكتملة جزئيًا", dot: "bg-orange-400", text: "text-orange-300" },
                 { status: "expired" as TaskStatus, label: "منتهية / تحتاج مراجعة", dot: "bg-red-400", text: "text-red-300" },
                 { status: "completed" as TaskStatus, label: "مكتملة", dot: "bg-emerald-400", text: "text-emerald-300" },
               ]).map(section => {
