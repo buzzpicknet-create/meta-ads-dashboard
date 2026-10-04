@@ -174,7 +174,9 @@ function taskOperationalDateKey(task: Task): string {
   if (task.task_kind === "daily_product_followup" && task.daily_followup_date) {
     return task.daily_followup_date.slice(0, 10);
   }
-  return cairoDateKeyFromIso(task.deadline);
+  // Manual tasks belong to the day they are created, not the deadline day.
+  // This keeps a newly-created task visible immediately even when its deadline is tomorrow/later.
+  return cairoDateKeyFromIso(task.created_at);
 }
 
 function formatTaskDay(task: Task): string {
