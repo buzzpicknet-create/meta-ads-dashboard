@@ -18,7 +18,7 @@ interface Task {
   assigned_to_name: string | null;
   deadline: string;
   success_metric: string | null;
-  status: "pending" | "in_progress" | "completed" | "expired";
+  status: "pending" | "in_progress" | "partial_completed" | "completed" | "expired";
   created_by_id: number | null;
   created_by_name: string | null;
   completed_at: string | null;
@@ -262,8 +262,21 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
 
 async function autoExpire() {
   await query(`
-    UPDATE tasks SET status = 'expired', updated_at = NOW()
-    WHERE status IN ('pending','in_progress') AND deadline < NOW()
+    UPDATE tasks t
+    SET status = CASE
+          WHEN t.task_kind = 'daily_product_followup'
+            AND EXISTS (
+              SELECT 1
+              FROM task_platform_followups pf
+              WHERE pf.task_id = t.id
+                AND pf.status = 'completed'
+            )
+          THEN 'partial_completed'
+          ELSE 'expired'
+        END,
+        updated_at = NOW()
+    WHERE t.status IN ('pending','in_progress')
+      AND t.deadline < NOW()
   `);
 }
 
@@ -313,13 +326,13 @@ router.get("/tasks", async (req, res) => {
   const rows: Task[] = role === "admin"
     ? await query<Task>(`
         SELECT * FROM tasks ORDER BY
-          CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'expired' THEN 3 ELSE 4 END,
+          CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
           deadline ASC
       `)
     : await query<Task>(`
         SELECT * FROM tasks WHERE assigned_to_id = $1
         ORDER BY
-          CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'expired' THEN 3 ELSE 4 END,
+          CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
           deadline ASC
       `, [userId]);
 
@@ -373,7 +386,7 @@ router.get("/tasks/stats", async (_req, res) => {
   type BuyerStat = {
     userId: number; name: string; total_tasks: number;
     completed_on_time: number; completed_late: number;
-    in_progress: number; expired: number; total_checkins: number;
+    in_progress: number; partial_completed: number; expired: number; total_checkins: number;
     score: number; avg_score: number;
     deduction_points: number;
   };
@@ -385,7 +398,7 @@ router.get("/tasks/stats", async (_req, res) => {
       map.set(t.assigned_to_id, {
         userId: t.assigned_to_id, name: t.assigned_to_name ?? `User ${t.assigned_to_id}`,
         total_tasks: 0, completed_on_time: 0, completed_late: 0,
-        in_progress: 0, expired: 0, total_checkins: 0, score: 0, avg_score: 0, deduction_points: 0,
+        in_progress: 0, partial_completed: 0, expired: 0, total_checkins: 0, score: 0, avg_score: 0, deduction_points: 0,
       });
     }
     const s = map.get(t.assigned_to_id)!;
@@ -397,6 +410,7 @@ router.get("/tasks/stats", async (_req, res) => {
       else s.completed_late++;
       s.score += calcScore(t);
     } else if (t.status === "in_progress") s.in_progress++;
+    else if (t.status === "partial_completed") s.partial_completed++;
     else if (t.status === "expired") s.expired++;
   }
 
@@ -773,7 +787,11 @@ router.patch("/tasks/:id", async (req, res) => {
           UPDATE tasks
           SET checkin_count = checkin_count + 1,
               last_checkin_at = NOW(),
-              status = CASE WHEN $2 THEN 'completed' ELSE 'in_progress' END,
+              status = CASE
+                WHEN $2 THEN 'completed'
+                WHEN deadline < NOW() THEN 'partial_completed'
+                ELSE 'in_progress'
+              END,
               completed_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
               updated_at = NOW()
           WHERE id = $1
@@ -971,8 +989,11 @@ router.patch("/tasks/:id", async (req, res) => {
         deadline = COALESCE($6, deadline),
         success_metric = COALESCE($7, success_metric),
         status = CASE
-          WHEN $6::timestamptz IS NOT NULL AND $6::timestamptz > NOW() AND status = 'expired'
-          THEN 'pending'
+          WHEN $6::timestamptz IS NOT NULL AND $6::timestamptz > NOW() AND status IN ('expired','partial_completed')
+          THEN CASE
+            WHEN status = 'partial_completed' THEN 'in_progress'
+            ELSE 'pending'
+          END
           ELSE COALESCE($8, status)
         END,
         notes = COALESCE($9, notes),
