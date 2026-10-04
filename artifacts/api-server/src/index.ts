@@ -819,6 +819,281 @@ async function runMigrations() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_task_views_task_id ON task_views (task_id)`);
 
+
+  // One-time migration: convert Oct 4 daily follow-ups from one-task-per-platform
+  // into one task per Product + Media Buyer, preserving completed platform work.
+  const oct4Groups = await query<{
+    inventory_product_id: number;
+    assigned_to_id: number;
+    assigned_to_name: string;
+    product_name: string;
+    source_store: string | null;
+    deadline: string;
+    created_at: string;
+    admin_highlighted: boolean;
+    admin_highlight_note_id: number | null;
+    admin_highlighted_at: string | null;
+    admin_highlighted_by: string | null;
+  }>(`
+    SELECT
+      t.inventory_product_id,
+      t.assigned_to_id,
+      MAX(t.assigned_to_name) AS assigned_to_name,
+      MAX(t.product_name) AS product_name,
+      MAX(t.inventory_snapshot->>'sourceStore') AS source_store,
+      MAX(t.deadline)::text AS deadline,
+      MIN(t.created_at)::text AS created_at,
+      BOOL_OR(COALESCE(t.admin_highlighted, FALSE)) AS admin_highlighted,
+      MAX(t.admin_highlight_note_id) AS admin_highlight_note_id,
+      MAX(t.admin_highlighted_at)::text AS admin_highlighted_at,
+      MAX(t.admin_highlighted_by) AS admin_highlighted_by
+    FROM tasks t
+    WHERE t.task_kind = 'daily_product_followup'
+      AND t.daily_followup_date = DATE '2026-10-04'
+      AND t.platform IS NOT NULL
+      AND t.inventory_product_id IS NOT NULL
+      AND t.assigned_to_id IS NOT NULL
+    GROUP BY t.inventory_product_id, t.assigned_to_id
+    ORDER BY t.assigned_to_id, t.inventory_product_id
+  `);
+
+  for (const group of oct4Groups) {
+    const sourceTasks = await query<{
+      id: number;
+      platform: string;
+      status: string;
+      completed_at: string | null;
+      checkin_count: number;
+      last_checkin_at: string | null;
+    }>(`
+      SELECT id, platform, status, completed_at::text, checkin_count, last_checkin_at::text
+      FROM tasks
+      WHERE task_kind = 'daily_product_followup'
+        AND daily_followup_date = DATE '2026-10-04'
+        AND platform IS NOT NULL
+        AND inventory_product_id = $1
+        AND assigned_to_id = $2
+      ORDER BY id
+    `, [group.inventory_product_id, group.assigned_to_id]);
+
+    if (sourceTasks.length === 0) continue;
+
+    const sourceIds = sourceTasks.map((task) => task.id);
+    const platformLabels = sourceTasks
+      .map((task) => task.platform === 'meta' ? 'Meta' : task.platform === 'google' ? 'Google' : 'TikTok')
+      .join(' + ');
+
+    const [groupedTask] = await query<{ id: number }>(`
+      INSERT INTO tasks (
+        title,
+        product_name,
+        assigned_to_id,
+        assigned_to_name,
+        deadline,
+        success_metric,
+        notes,
+        created_by_id,
+        created_by_name,
+        inventory_product_id,
+        inventory_snapshot,
+        task_kind,
+        platform,
+        daily_followup_date,
+        created_at,
+        admin_highlighted,
+        admin_highlight_note_id,
+        admin_highlighted_at,
+        admin_highlighted_by
+      )
+      SELECT
+        'متابعة يومية — ' || $3,
+        $3,
+        $2,
+        $4,
+        $5::timestamptz,
+        'اكتب تعليق منفصل لكل منصة مسؤولة عنها',
+        'متابعة يومية للمنصات: ' || $6 || '. يكتمل التاسك بعد كتابة تعليق لكل منصة.',
+        NULL,
+        'النظام',
+        $1,
+        (
+          SELECT inventory_snapshot
+          FROM tasks
+          WHERE id = ANY($7::int[])
+          ORDER BY id
+          LIMIT 1
+        ),
+        'daily_product_followup',
+        NULL,
+        DATE '2026-10-04',
+        $8::timestamptz,
+        $9,
+        $10,
+        $11::timestamptz,
+        $12
+      ON CONFLICT (inventory_product_id, assigned_to_id, daily_followup_date)
+      WHERE task_kind = 'daily_product_followup'
+        AND daily_followup_date IS NOT NULL
+        AND platform IS NULL
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        product_name = EXCLUDED.product_name,
+        assigned_to_name = EXCLUDED.assigned_to_name,
+        deadline = EXCLUDED.deadline,
+        success_metric = EXCLUDED.success_metric,
+        notes = EXCLUDED.notes,
+        inventory_snapshot = COALESCE(tasks.inventory_snapshot, EXCLUDED.inventory_snapshot),
+        admin_highlighted = tasks.admin_highlighted OR EXCLUDED.admin_highlighted,
+        admin_highlight_note_id = COALESCE(tasks.admin_highlight_note_id, EXCLUDED.admin_highlight_note_id),
+        admin_highlighted_at = COALESCE(tasks.admin_highlighted_at, EXCLUDED.admin_highlighted_at),
+        admin_highlighted_by = COALESCE(tasks.admin_highlighted_by, EXCLUDED.admin_highlighted_by),
+        updated_at = NOW()
+      RETURNING id
+    `, [
+      group.inventory_product_id,
+      group.assigned_to_id,
+      group.product_name,
+      group.assigned_to_name,
+      group.deadline,
+      platformLabels,
+      sourceIds,
+      group.created_at,
+      group.admin_highlighted,
+      group.admin_highlight_note_id,
+      group.admin_highlighted_at,
+      group.admin_highlighted_by,
+    ]);
+
+    if (!groupedTask) continue;
+
+    for (const sourceTask of sourceTasks) {
+      const [commentRow] = await query<{ comment_text: string | null }>(`
+        SELECT NULLIF(
+          STRING_AGG(n.note_text, E'\n---\n' ORDER BY n.created_at),
+          ''
+        ) AS comment_text
+        FROM task_notes n
+        WHERE n.task_id = $1
+          AND n.user_id = $2
+      `, [sourceTask.id, group.assigned_to_id]);
+
+      await query(`
+        INSERT INTO task_platform_followups (
+          task_id,
+          platform,
+          status,
+          comment_text,
+          completed_at,
+          completed_by_id,
+          completed_by_name,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          $1,$2,
+          CASE WHEN $3 = 'completed' THEN 'completed' ELSE 'pending' END,
+          $4,
+          CASE WHEN $3 = 'completed' THEN $5::timestamptz ELSE NULL END,
+          CASE WHEN $3 = 'completed' THEN $6 ELSE NULL END,
+          CASE WHEN $3 = 'completed' THEN $7 ELSE NULL END,
+          (SELECT created_at FROM tasks WHERE id = $8),
+          NOW()
+        )
+        ON CONFLICT (task_id, platform)
+        DO UPDATE SET
+          status = CASE
+            WHEN task_platform_followups.status = 'completed' OR EXCLUDED.status = 'completed'
+            THEN 'completed'
+            ELSE 'pending'
+          END,
+          comment_text = COALESCE(task_platform_followups.comment_text, EXCLUDED.comment_text),
+          completed_at = COALESCE(task_platform_followups.completed_at, EXCLUDED.completed_at),
+          completed_by_id = COALESCE(task_platform_followups.completed_by_id, EXCLUDED.completed_by_id),
+          completed_by_name = COALESCE(task_platform_followups.completed_by_name, EXCLUDED.completed_by_name),
+          updated_at = NOW()
+      `, [
+        groupedTask.id,
+        sourceTask.platform,
+        sourceTask.status,
+        commentRow?.comment_text ?? null,
+        sourceTask.completed_at,
+        group.assigned_to_id,
+        group.assigned_to_name,
+        sourceTask.id,
+      ]);
+
+      const label = sourceTask.platform === 'meta' ? 'Meta' : sourceTask.platform === 'google' ? 'Google' : 'TikTok';
+      await query(`
+        UPDATE task_notes
+        SET note_text = CASE
+          WHEN note_text LIKE $3 THEN note_text
+          ELSE $4 || note_text
+        END,
+        task_id = $1
+        WHERE task_id = $2
+      `, [groupedTask.id, sourceTask.id, `[${label}]%`, `[${label}] `]);
+
+      await query(`UPDATE task_media SET task_id = $1 WHERE task_id = $2`, [groupedTask.id, sourceTask.id]);
+      await query(`UPDATE task_views SET task_id = $1 WHERE task_id = $2`, [groupedTask.id, sourceTask.id]);
+      await query(`
+        UPDATE media_buyer_score_deductions
+        SET task_id = $1
+        WHERE task_id = $2
+      `, [groupedTask.id, sourceTask.id]);
+    }
+
+    const [progress] = await query<{
+      total: string;
+      completed: string;
+      latest_completed_at: string | null;
+    }>(`
+      SELECT
+        COUNT(*)::text AS total,
+        COUNT(*) FILTER (WHERE status = 'completed')::text AS completed,
+        MAX(completed_at)::text AS latest_completed_at
+      FROM task_platform_followups
+      WHERE task_id = $1
+    `, [groupedTask.id]);
+
+    const totalPlatforms = Number(progress?.total ?? 0);
+    const completedPlatforms = Number(progress?.completed ?? 0);
+    const allCompleted = totalPlatforms > 0 && totalPlatforms === completedPlatforms;
+    const anyCompleted = completedPlatforms > 0;
+
+    await query(`
+      UPDATE tasks
+      SET
+        status = CASE
+          WHEN $2 THEN 'completed'
+          WHEN deadline < NOW() THEN 'expired'
+          WHEN $3 THEN 'in_progress'
+          ELSE 'pending'
+        END,
+        completed_at = CASE WHEN $2 THEN $4::timestamptz ELSE NULL END,
+        checkin_count = $5,
+        last_checkin_at = CASE WHEN $5 > 0 THEN $4::timestamptz ELSE NULL END,
+        updated_at = NOW()
+      WHERE id = $1
+    `, [
+      groupedTask.id,
+      allCompleted,
+      anyCompleted,
+      progress?.latest_completed_at ?? null,
+      completedPlatforms,
+    ]);
+
+    await query(`DELETE FROM tasks WHERE id = ANY($1::int[])`, [sourceIds]);
+
+    logger.info({
+      groupedTaskId: groupedTask.id,
+      productId: group.inventory_product_id,
+      assignedToId: group.assigned_to_id,
+      sourceTaskCount: sourceIds.length,
+      completedPlatforms,
+      totalPlatforms,
+    }, 'Migrated Oct 4 daily tasks into grouped task');
+  }
+
   // Landing Page Generator tables
   await query(`
     CREATE TABLE IF NOT EXISTS shopify_config (
