@@ -706,12 +706,108 @@ router.patch("/tasks/:id", async (req, res) => {
   if (role !== "admin" && task.assigned_to_id !== userId)
     return res.status(403).json({ error: "غير مصرح" });
 
-  const { action, notes } = req.body as { action?: string; notes?: string };
+  const { action, notes, platform } = req.body as { action?: string; notes?: string; platform?: string };
 
   if (action === "checkin") {
     const isDailyFollowup = task.task_kind === "daily_product_followup";
-    if (isDailyFollowup && !notes?.trim()) {
-      return res.status(400).json({ error: "تعليق المتابعة مطلوب للمهمة اليومية" });
+
+    if (isDailyFollowup) {
+      const platformRows = await query<TaskPlatformFollowup>(
+        `SELECT * FROM task_platform_followups WHERE task_id = $1 ORDER BY id ASC`,
+        [id]
+      );
+
+      // New grouped daily task: each platform has its own required comment.
+      if (platformRows.length > 0) {
+        const normalizedPlatform = String(platform || "").toLowerCase();
+        if (!["meta", "google", "tiktok"].includes(normalizedPlatform)) {
+          return res.status(400).json({ error: "اختار المنصة التي تكتب لها المتابعة" });
+        }
+        if (!notes?.trim()) {
+          return res.status(400).json({ error: "تعليق المنصة مطلوب" });
+        }
+
+        const target = platformRows.find((row) => row.platform === normalizedPlatform);
+        if (!target) {
+          return res.status(400).json({ error: "المنصة دي مش ضمن مسؤولياتك في التاسك" });
+        }
+        if (target.status === "completed") {
+          return res.status(400).json({ error: "متابعة المنصة دي مكتملة بالفعل" });
+        }
+
+        await query(`
+          UPDATE task_platform_followups
+          SET status = 'completed',
+              comment_text = $3,
+              completed_at = NOW(),
+              completed_by_id = $4,
+              completed_by_name = $5,
+              updated_at = NOW()
+          WHERE task_id = $1 AND platform = $2
+        `, [id, normalizedPlatform, notes.trim(), userId, req.session!.username]);
+
+        await query(
+          `INSERT INTO task_notes (task_id, user_id, username, note_text)
+           VALUES ($1,$2,$3,$4)`,
+          [
+            id,
+            userId,
+            req.session!.username,
+            `[${PLATFORM_LABEL[normalizedPlatform] ?? normalizedPlatform}] ${notes.trim()}`,
+          ]
+        );
+
+        const [progress] = await query<{ total: string; completed: string }>(`
+          SELECT
+            COUNT(*)::text AS total,
+            COUNT(*) FILTER (WHERE status = 'completed')::text AS completed
+          FROM task_platform_followups
+          WHERE task_id = $1
+        `, [id]);
+
+        const allDone =
+          Number(progress?.total ?? 0) > 0 &&
+          Number(progress?.total ?? 0) === Number(progress?.completed ?? 0);
+
+        const [updated] = await query<Task>(`
+          UPDATE tasks
+          SET checkin_count = checkin_count + 1,
+              last_checkin_at = NOW(),
+              status = CASE WHEN $2 THEN 'completed' ELSE 'in_progress' END,
+              completed_at = CASE WHEN $2 THEN NOW() ELSE NULL END,
+              updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [id, allDone]);
+
+        if (allDone) {
+          const completedLate =
+            new Date(updated.completed_at ?? "").getTime() > new Date(updated.deadline).getTime();
+          if (completedLate) {
+            await query(
+              `INSERT INTO task_notes (task_id, user_id, username, note_text) VALUES ($1,$2,$3,$4)`,
+              [id, userId, "تنبيه النظام", "تم إكمال المتابعة بعد الموعد المحدد. تم احتساب Score أقل — حاول إنهاء المتابعة في موعدها القادم."]
+            );
+          }
+
+          await createInboxAndPush({
+            eventType: "task_completed",
+            recipientRoles: ["admin", "media_manager"],
+            title: "اكتملت متابعة المنتج",
+            body: `${updated.assigned_to_name ?? "الميديا باير"} أكمل كل منصات: ${updated.product_name ?? updated.title}`,
+            url: `/tasks?taskId=${updated.id}`,
+            metadata: { taskId: updated.id, assignedToId: updated.assigned_to_id },
+          });
+        }
+
+        const [withMedia] = await attachMedia([updated]);
+        return res.json({ ...withMedia, opus_score: calcScore(updated) });
+      }
+
+      // Legacy daily task: one platform per task.
+      if (!notes?.trim()) {
+        return res.status(400).json({ error: "تعليق المتابعة مطلوب للمهمة اليومية" });
+      }
     }
 
     const [updated] = await query<Task>(`
@@ -763,12 +859,26 @@ router.patch("/tasks/:id", async (req, res) => {
 
   if (action === "complete") {
     if (task.task_kind === "daily_product_followup") {
-      const [noteCount] = await query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM task_notes WHERE task_id = $1`,
-        [id]
-      );
-      if (Number(noteCount?.count ?? 0) === 0) {
-        return res.status(400).json({ error: "لا يمكن إتمام المتابعة اليومية بدون تعليق" });
+      const [platformProgress] = await query<{ total: string; completed: string }>(`
+        SELECT
+          COUNT(*)::text AS total,
+          COUNT(*) FILTER (WHERE status = 'completed')::text AS completed
+        FROM task_platform_followups
+        WHERE task_id = $1
+      `, [id]);
+
+      if (Number(platformProgress?.total ?? 0) > 0) {
+        if (Number(platformProgress.total) !== Number(platformProgress.completed)) {
+          return res.status(400).json({ error: "لا يمكن إتمام التاسك قبل كتابة تعليق لكل منصة" });
+        }
+      } else {
+        const [noteCount] = await query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM task_notes WHERE task_id = $1`,
+          [id]
+        );
+        if (Number(noteCount?.count ?? 0) === 0) {
+          return res.status(400).json({ error: "لا يمكن إتمام المتابعة اليومية بدون تعليق" });
+        }
       }
     }
 
@@ -935,16 +1045,23 @@ router.post("/tasks/:id/notes", async (req, res) => {
   }
 
   // Admin comments are guidance, not the media buyer's daily check-in.
+  // Grouped daily tasks only complete through their per-platform comments.
   if (role !== "admin" && task.task_kind === "daily_product_followup" && task.status !== "completed") {
-    await query(`
-      UPDATE tasks
-      SET status = 'completed',
-          completed_at = NOW(),
-          checkin_count = GREATEST(checkin_count, 1),
-          last_checkin_at = NOW(),
-          updated_at = NOW()
-      WHERE id = $1
-    `, [id]);
+    const [platformCount] = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM task_platform_followups WHERE task_id = $1`,
+      [id]
+    );
+    if (Number(platformCount?.count ?? 0) === 0) {
+      await query(`
+        UPDATE tasks
+        SET status = 'completed',
+            completed_at = NOW(),
+            checkin_count = GREATEST(checkin_count, 1),
+            last_checkin_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+      `, [id]);
+    }
   }
 
   res.status(201).json(row);
