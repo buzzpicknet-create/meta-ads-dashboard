@@ -634,12 +634,9 @@ function PlatformAssignmentSelect({
   saving: boolean;
   onSave: (product: Product, platform: MediaPlatform, assignedToId: number | null) => Promise<void>;
 }) {
-  const allowed = assignees.filter((a) => {
-    const name = a.username.trim();
-    if (platform === "meta") return name === "فردوس" || name === "ابراهيم" || name === "إبراهيم";
-    if (platform === "google") return name === "فردوس";
-    return name === "ابراهيم" || name === "إبراهيم";
-  });
+  // Any active media buyer should be assignable to any platform.
+  // The assignees list is already restricted to role === "media_buyer".
+  const allowed = assignees;
 
   if (!isAdmin) {
     return (
