@@ -41,6 +41,15 @@ function mediaObjectPath(url: string) {
   return match ? `/objects/telegram-product/${decodeURIComponent(match[1])}` : null;
 }
 
+function stripTelegramSourceLinks(value: string) {
+  return value
+    .replace(/https?:\/\/(?:www\.)?(?:t\.me|telegram\.me)\/\S+/gi, "")
+    .replace(/^\s*(?:رابط\s+(?:البوست|المصدر|البوست\/المصدر)|source\s*link)\s*:\s*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+
 export default function ProductHuntingTaskModal({ product, onClose, onDone }: Props) {
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loadingAssignees, setLoadingAssignees] = useState(true);
@@ -50,7 +59,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   const [offers, setOffers] = useState("");
   const [metric, setMetric] = useState("");
   const [extraNotes, setExtraNotes] = useState("");
-  const [finalNotes, setFinalNotes] = useState(product.description || product.title || "");
+  const [finalNotes, setFinalNotes] = useState(stripTelegramSourceLinks(product.description || product.title || ""));
   const [finalNotesDirty, setFinalNotesDirty] = useState(false);
   const [deadline, setDeadline] = useState(cairoLocalPlusHours(24));
   const [presetHours, setPresetHours] = useState<number | null>(24);
@@ -75,9 +84,11 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   }, []);
 
   const generatedNotes = useMemo(() => [
-    (product.description || product.title || "").trim() || null,
+    stripTelegramSourceLinks(product.description || product.title || "") || null,
     offers.trim() ? `العروض للميديا باير:\n${offers.trim()}` : null,
-    product.supplier_url ? `رابط المورد: ${product.supplier_url}` : null,
+    product.supplier_url && !/^https?:\/\/(?:www\.)?(?:t\.me|telegram\.me)\//i.test(product.supplier_url)
+      ? `رابط المورد: ${product.supplier_url}`
+      : null,
     extraNotes.trim() ? `تعليمات إضافية:\n${extraNotes.trim()}` : null,
   ].filter(Boolean).join("\n\n"), [product.description, product.title, product.supplier_url, offers, extraNotes]);
 
