@@ -1971,6 +1971,8 @@ export default function TasksPage() {
   const [leaderTeamId,setLeaderTeamId] = useState<number|null>(null);
   const [teamMembers,setTeamMembers] = useState<{user_id:number;username:string}[]>([]);
   const [manualChoice,setManualChoice] = useState<Record<number,string>>({});
+  const [branchChoices,setBranchChoices] = useState<Record<number,Record<string,string>>>({});
+  const [branchSaving,setBranchSaving] = useState<number|null>(null);
   useEffect(() => { fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then((teams: {leader_user_id:number}[])=>{const t=teams.find(t=>t.leader_user_id===user?.id);setIsLeader(!!t);setLeaderTeamId((t as {id:number}|undefined)?.id??null);setTeamMembers((t as {members:{user_id:number;username:string}[]}|undefined)?.members??[])}).catch(()=>setIsLeader(false)); },[user?.id]);
   const [tasks,     setTasks]     = useState<Task[]>([]);
   const [stats,     setStats]     = useState<BuyerStat[]>([]);
@@ -2269,12 +2271,19 @@ export default function TasksPage() {
 
       {isLeader && leaderTeamId && tasks.some(t=>t.team_id===leaderTeamId && !t.assigned_to_id) && <div className="mb-4 p-4 rounded-xl border border-blue-800 bg-slate-900 space-y-3" dir="rtl">
         <h2 className="text-sm font-bold text-blue-300">مهام الفريق بانتظار التوزيع</h2>
-        {tasks.filter(t=>t.team_id===leaderTeamId && !t.assigned_to_id).map(task=><div key={task.id} className="flex flex-wrap items-center gap-3 border-b border-slate-700 pb-2">
-          <span className="text-sm flex-1">{task.title}</span>
-          <select className="rounded bg-slate-800 p-2 text-sm" value={manualChoice[task.id]??""} onChange={e=>setManualChoice(prev=>({...prev,[task.id]:e.target.value}))}>
-            <option value="">اختر عضو الفريق</option>{teamMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.username}</option>)}
-          </select>
-          <button disabled={!manualChoice[task.id]} className="rounded bg-blue-600 px-3 py-2 text-sm disabled:opacity-40" onClick={async()=>{try{const res=await fetch(`/api/teams/${leaderTeamId}/manual-tasks/${task.id}/assign`,{method:"PATCH",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigned_to_id:Number(manualChoice[task.id])})});if(!res.ok)throw new Error((await res.json()).error||"تعذر التوزيع");await fetchAll(true);}catch(e){setError((e as Error).message)}}}>إسناد</button>
+        {tasks.filter(t=>t.team_id===leaderTeamId && !t.assigned_to_id).map(task=><div key={task.id} className="border-b border-slate-700 pb-3 space-y-2">
+          <div className="text-sm font-semibold">{task.title}</div>
+          <div className="grid sm:grid-cols-3 gap-2">
+            {([["creative","كريتف"],["ad_copy","أد كوبي"],["campaign","كامبين"]] as const).map(([key,label])=><label className="text-xs text-slate-300 space-y-1" key={key}>{label}
+              <select className="rounded bg-slate-800 p-2 text-sm w-full" value={branchChoices[task.id]?.[key]??""} onChange={e=>setBranchChoices(prev=>({...prev,[task.id]:{...prev[task.id],[key]:e.target.value}}))}>
+                <option value="">اختر عضوًا</option>{teamMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.username}</option>)}
+              </select>
+            </label>)}
+          </div>
+          <button disabled={branchSaving===task.id||!["creative","ad_copy","campaign"].every(key=>branchChoices[task.id]?.[key])} className="rounded bg-blue-600 px-3 py-2 text-sm disabled:opacity-40"
+            onClick={async()=>{setBranchSaving(task.id);try{const branches=["creative","ad_copy","campaign"].map(key=>({key,assigned_to_id:Number(branchChoices[task.id][key])}));const res=await fetch(`/api/teams/${leaderTeamId}/manual-tasks/${task.id}/branches`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({branches})});if(!res.ok)throw new Error((await res.json()).error||"تعذر التوزيع");await fetchAll(true);}catch(e){setError((e as Error).message)}finally{setBranchSaving(null)}}}>
+            توزيع الفروع الثلاثة
+          </button>
         </div>)}
       </div>}
 
