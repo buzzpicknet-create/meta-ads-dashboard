@@ -4,6 +4,7 @@ import { logger } from "../lib/logger.js";
 import { createInboxAndPush, findInventoryResponsibleUserIds } from "../lib/notifications.js";
 import { fallbackInventoryRoles } from "../lib/notification-rules.js";
 import { requireAdmin } from "../lib/auth-middleware.js";
+import { teamForUser } from "./teams.js";
 
 const router = Router();
 
@@ -638,39 +639,61 @@ router.get("/inventory/sales-rate", async (_req: Request, res: Response) => {
   }
 });
 
-// ── Product/platform media-buyer assignments ─────────────────────────────────
+// ── Product/platform team assignments ─────────────────────────────────────────
 
 const MEDIA_PLATFORMS = new Set(["meta", "google", "tiktok"]);
 
-router.get("/inventory/media-assignments", async (_req: Request, res: Response) => {
-  const rows = await query<{
-    inventory_product_id: number;
-    product_name: string;
-    source_store: string;
-    platform: string;
-    assigned_to_id: number;
-    assigned_to_name: string;
-    is_active: boolean;
-  }>(`
+router.get("/inventory/media-assignments", async (req: Request, res: Response) => {
+  const role = req.session!.role;
+  const userId = req.session!.userId;
+
+  const baseSql = `
     SELECT
-      inventory_product_id,
-      product_name,
-      source_store,
-      platform,
-      assigned_to_id,
-      assigned_to_name,
-      is_active
-    FROM inventory_media_assignments
-    WHERE is_active = TRUE
-    ORDER BY inventory_product_id, platform
-  `);
+      a.inventory_product_id,
+      a.product_name,
+      a.source_store,
+      a.platform,
+      a.assigned_to_id,
+      a.assigned_to_name,
+      a.team_id,
+      t.name AS team_name,
+      a.executor_user_id,
+      COALESCE(a.executor_user_name, eu.username) AS executor_user_name,
+      a.is_active
+    FROM inventory_media_assignments a
+    LEFT JOIN media_buyer_teams t ON t.id = a.team_id
+    LEFT JOIN users eu ON eu.id = a.executor_user_id
+    WHERE a.is_active = TRUE
+  `;
+
+  if (role === "admin") {
+    const rows = await query(`${baseSql} ORDER BY a.inventory_product_id, a.platform`);
+    return res.json(rows);
+  }
+
+  const mine = await teamForUser(userId);
+  if (!mine) return res.json([]);
+
+  if (mine.member_role === "senior") {
+    const rows = await query(
+      `${baseSql} AND a.team_id = $1 ORDER BY a.inventory_product_id, a.platform`,
+      [mine.team_id],
+    );
+    return res.json(rows);
+  }
+
+  const rows = await query(
+    `${baseSql} AND a.executor_user_id = $1 ORDER BY a.inventory_product_id, a.platform`,
+    [userId],
+  );
   res.json(rows);
 });
 
+// Admin owns the outer distribution: Product + Platform -> Team.
 router.put("/inventory/media-assignments/:productId/:platform", requireAdmin, async (req: Request, res: Response) => {
   const productId = Number(String(req.params.productId));
   const platform = String(req.params.platform || "").toLowerCase();
-  const assignedToId = req.body?.assigned_to_id == null ? null : Number(req.body.assigned_to_id);
+  const teamId = req.body?.team_id == null ? null : Number(req.body.team_id);
   const productName = String(req.body?.product_name || "").trim();
   const sourceStore = String(req.body?.source_store || "").trim();
 
@@ -681,30 +704,33 @@ router.put("/inventory/media-assignments/:productId/:platform", requireAdmin, as
     return res.status(400).json({ error: "المنصة غير صحيحة" });
   }
 
-  if (assignedToId === null) {
+  if (teamId === null) {
     await query(
       `DELETE FROM inventory_media_assignments WHERE inventory_product_id = $1 AND platform = $2`,
-      [productId, platform]
+      [productId, platform],
     );
     return res.json({ ok: true, deleted: true });
   }
 
-  if (!Number.isSafeInteger(assignedToId)) {
-    return res.status(400).json({ error: "الميديا باير غير صحيح" });
-  }
-  if (!productName || !sourceStore) {
-    return res.status(400).json({ error: "بيانات المنتج ناقصة" });
+  if (!Number.isSafeInteger(teamId) || !productName || !sourceStore) {
+    return res.status(400).json({ error: "بيانات التوزيع ناقصة" });
   }
 
-  const [buyer] = await query<{ id: number; username: string }>(`
-    SELECT id, username
-    FROM users
-    WHERE id = $1 AND role = 'media_buyer' AND deleted_at IS NULL
-  `, [assignedToId]);
+  const [team] = await query<{
+    id: number;
+    name: string;
+    senior_user_id: number;
+    senior_name: string;
+  }>(`
+    SELECT t.id, t.name, t.senior_user_id, u.username AS senior_name
+    FROM media_buyer_teams t
+    INNER JOIN users u ON u.id = t.senior_user_id
+    WHERE t.id = $1
+      AND t.is_active = TRUE
+      AND u.deleted_at IS NULL
+  `, [teamId]);
 
-  if (!buyer) {
-    return res.status(400).json({ error: "المستخدم ليس ميديا باير نشط" });
-  }
+  if (!team) return res.status(400).json({ error: "الفريق غير موجود أو غير نشط" });
 
   const [row] = await query(`
     INSERT INTO inventory_media_assignments (
@@ -714,19 +740,103 @@ router.put("/inventory/media-assignments/:productId/:platform", requireAdmin, as
       platform,
       assigned_to_id,
       assigned_to_name,
+      team_id,
+      executor_user_id,
+      executor_user_name,
       is_active,
       updated_at
     )
-    VALUES ($1,$2,$3,$4,$5,$6,TRUE,NOW())
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$5,$6,TRUE,NOW())
     ON CONFLICT (inventory_product_id, platform) DO UPDATE SET
       product_name = EXCLUDED.product_name,
       source_store = EXCLUDED.source_store,
       assigned_to_id = EXCLUDED.assigned_to_id,
       assigned_to_name = EXCLUDED.assigned_to_name,
+      team_id = EXCLUDED.team_id,
+      executor_user_id = CASE
+        WHEN inventory_media_assignments.team_id = EXCLUDED.team_id
+        THEN inventory_media_assignments.executor_user_id
+        ELSE EXCLUDED.executor_user_id
+      END,
+      executor_user_name = CASE
+        WHEN inventory_media_assignments.team_id = EXCLUDED.team_id
+        THEN inventory_media_assignments.executor_user_name
+        ELSE EXCLUDED.executor_user_name
+      END,
       is_active = TRUE,
       updated_at = NOW()
     RETURNING *
-  `, [productId, productName, sourceStore, platform, buyer.id, buyer.username]);
+  `, [
+    productId,
+    productName,
+    sourceStore,
+    platform,
+    team.senior_user_id,
+    team.senior_name,
+    team.id,
+  ]);
+
+  res.json({ ...row, team_name: team.name });
+});
+
+// Senior owns the internal distribution: Team assignment -> Senior/Junior executor.
+router.put("/inventory/media-assignments/:productId/:platform/executor", async (req: Request, res: Response) => {
+  const productId = Number(String(req.params.productId));
+  const platform = String(req.params.platform || "").toLowerCase();
+  const executorId = Number(req.body?.executor_user_id);
+  const role = req.session!.role;
+  const userId = req.session!.userId;
+
+  if (!Number.isSafeInteger(productId) || !MEDIA_PLATFORMS.has(platform)) {
+    return res.status(400).json({ error: "بيانات المنتج أو المنصة غير صحيحة" });
+  }
+  if (!Number.isSafeInteger(executorId)) {
+    return res.status(400).json({ error: "اختار عضو من الفريق" });
+  }
+
+  const [assignment] = await query<{ team_id: number | null }>(`
+    SELECT team_id
+    FROM inventory_media_assignments
+    WHERE inventory_product_id = $1
+      AND platform = $2
+      AND is_active = TRUE
+  `, [productId, platform]);
+
+  if (!assignment?.team_id) {
+    return res.status(404).json({ error: "المنتج غير مسند لفريق" });
+  }
+
+  if (role !== "admin") {
+    const mine = await teamForUser(userId);
+    if (!mine || mine.member_role !== "senior" || mine.team_id !== assignment.team_id) {
+      return res.status(403).json({ error: "توزيع أعضاء الفريق متاح للسنيور المسؤول فقط" });
+    }
+  }
+
+  const [member] = await query<{ id: number; username: string }>(`
+    SELECT u.id, u.username
+    FROM media_buyer_team_members m
+    INNER JOIN users u ON u.id = m.user_id
+    WHERE m.team_id = $1
+      AND m.user_id = $2
+      AND m.is_active = TRUE
+      AND u.deleted_at IS NULL
+      AND u.role = 'media_buyer'
+  `, [assignment.team_id, executorId]);
+
+  if (!member) {
+    return res.status(400).json({ error: "العضو المختار مش داخل الفريق" });
+  }
+
+  const [row] = await query(`
+    UPDATE inventory_media_assignments
+    SET executor_user_id = $3,
+        executor_user_name = $4,
+        updated_at = NOW()
+    WHERE inventory_product_id = $1
+      AND platform = $2
+    RETURNING *
+  `, [productId, platform, member.id, member.username]);
 
   res.json(row);
 });
