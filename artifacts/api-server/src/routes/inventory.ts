@@ -667,7 +667,7 @@ router.get("/inventory/media-assignments", async (_req: Request, res: Response) 
   res.json(rows);
 });
 
-router.put("/inventory/media-assignments/:productId/:platform", requireAdmin, async (req: Request, res: Response) => {
+router.put("/inventory/media-assignments/:productId/:platform", async (req: Request, res: Response) => {
   const productId = Number(String(req.params.productId));
   const platform = String(req.params.platform || "").toLowerCase();
   const assignedToId = req.body?.assigned_to_id == null ? null : Number(req.body.assigned_to_id);
@@ -679,6 +679,15 @@ router.put("/inventory/media-assignments/:productId/:platform", requireAdmin, as
   }
   if (!MEDIA_PLATFORMS.has(platform)) {
     return res.status(400).json({ error: "المنصة غير صحيحة" });
+  }
+
+  if (req.session!.role !== "admin") {
+    const leaderRows = await query<{id:number}>(`SELECT t.id FROM buyer_teams t JOIN buyer_team_products p ON p.team_id=t.id WHERE t.leader_user_id=$1 AND p.inventory_product_id=$2`,[req.session!.userId,productId]);
+    if (!leaderRows.length) return res.status(403).json({error:"المنتج غير تابع لفريقك"});
+    if (assignedToId !== null) {
+      const allowed = await query(`SELECT 1 FROM buyer_team_members WHERE team_id=$1 AND user_id=$2`,[leaderRows[0].id,assignedToId]);
+      if (!allowed.length) return res.status(403).json({error:"لا يمكن توزيع المنصة خارج أعضاء الفريق"});
+    }
   }
 
   if (assignedToId === null) {
