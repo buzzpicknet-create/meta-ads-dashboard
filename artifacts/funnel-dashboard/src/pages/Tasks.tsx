@@ -43,6 +43,7 @@ interface Task {
   title: string;
   product_name: string | null;
   assigned_to_id: number | null;
+  team_id?: number | null;
   assigned_to_name: string | null;
   deadline: string;
   success_metric: string | null;
@@ -1968,7 +1969,9 @@ export default function TasksPage() {
 
   const [isLeader, setIsLeader] = useState(false);
   const [leaderTeamId,setLeaderTeamId] = useState<number|null>(null);
-  useEffect(() => { fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then((teams: {leader_user_id:number}[])=>{const t=teams.find(t=>t.leader_user_id===user?.id);setIsLeader(!!t);setLeaderTeamId((t as {id:number}|undefined)?.id??null)}).catch(()=>setIsLeader(false)); },[user?.id]);
+  const [teamMembers,setTeamMembers] = useState<{user_id:number;username:string}[]>([]);
+  const [manualChoice,setManualChoice] = useState<Record<number,string>>({});
+  useEffect(() => { fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then((teams: {leader_user_id:number}[])=>{const t=teams.find(t=>t.leader_user_id===user?.id);setIsLeader(!!t);setLeaderTeamId((t as {id:number}|undefined)?.id??null);setTeamMembers((t as {members:{user_id:number;username:string}[]}|undefined)?.members??[])}).catch(()=>setIsLeader(false)); },[user?.id]);
   const [tasks,     setTasks]     = useState<Task[]>([]);
   const [stats,     setStats]     = useState<BuyerStat[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
@@ -2263,6 +2266,17 @@ export default function TasksPage() {
           )}
         </div>
       </div>
+
+      {isLeader && leaderTeamId && tasks.some(t=>t.team_id===leaderTeamId && !t.assigned_to_id) && <div className="mb-4 p-4 rounded-xl border border-blue-800 bg-slate-900 space-y-3" dir="rtl">
+        <h2 className="text-sm font-bold text-blue-300">مهام الفريق بانتظار التوزيع</h2>
+        {tasks.filter(t=>t.team_id===leaderTeamId && !t.assigned_to_id).map(task=><div key={task.id} className="flex flex-wrap items-center gap-3 border-b border-slate-700 pb-2">
+          <span className="text-sm flex-1">{task.title}</span>
+          <select className="rounded bg-slate-800 p-2 text-sm" value={manualChoice[task.id]??""} onChange={e=>setManualChoice(prev=>({...prev,[task.id]:e.target.value}))}>
+            <option value="">اختر عضو الفريق</option>{teamMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.username}</option>)}
+          </select>
+          <button disabled={!manualChoice[task.id]} className="rounded bg-blue-600 px-3 py-2 text-sm disabled:opacity-40" onClick={async()=>{try{const res=await fetch(`/api/teams/${leaderTeamId}/manual-tasks/${task.id}/assign`,{method:"PATCH",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigned_to_id:Number(manualChoice[task.id])})});if(!res.ok)throw new Error((await res.json()).error||"تعذر التوزيع");await fetchAll(true);}catch(e){setError((e as Error).message)}}}>إسناد</button>
+        </div>)}
+      </div>}
 
       {/* Stats strip */}
       {!loading && (
