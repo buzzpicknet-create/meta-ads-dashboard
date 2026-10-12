@@ -1964,7 +1964,10 @@ export default function TasksPage() {
   const isAdmin  = user?.role === "admin";
 
   const [isLeader, setIsLeader] = useState(false);
-  useEffect(() => { fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then((teams: {leader_user_id:number}[])=>setIsLeader(teams.some(t=>t.leader_user_id===user?.id))).catch(()=>setIsLeader(false)); },[user?.id]);
+  const [leaderTeamId,setLeaderTeamId] = useState<number|null>(null);
+  const [delegateTask,setDelegateTask] = useState("");
+  const [delegateBuyer,setDelegateBuyer] = useState("");
+  useEffect(() => { fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then((teams: {leader_user_id:number}[])=>{const t=teams.find(t=>t.leader_user_id===user?.id);setIsLeader(!!t);setLeaderTeamId((t as {id:number}|undefined)?.id??null)}).catch(()=>setIsLeader(false)); },[user?.id]);
   const [tasks,     setTasks]     = useState<Task[]>([]);
   const [stats,     setStats]     = useState<BuyerStat[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
@@ -2259,6 +2262,24 @@ export default function TasksPage() {
           )}
         </div>
       </div>
+
+      {isLeader && leaderTeamId && !loading && (
+        <div className="mb-4 rounded-xl border border-blue-800/50 bg-slate-900/70 p-3 flex flex-wrap gap-2 items-center" dir="rtl">
+          <span className="text-sm font-semibold text-blue-300">توزيع التاسكات على أعضاء فريقي</span>
+          <select className="bg-slate-800 text-sm rounded p-2" value={delegateTask} onChange={e=>setDelegateTask(e.target.value)}>
+            <option value="">اختر التاسك</option>
+            {tasks.filter(t=>t.status!=="completed").map(t=><option key={t.id} value={t.id}>{t.title} — {t.assigned_to_name || "غير مسند"}</option>)}
+          </select>
+          <select className="bg-slate-800 text-sm rounded p-2" value={delegateBuyer} onChange={e=>setDelegateBuyer(e.target.value)}>
+            <option value="">اختر العضو</option>
+            {assignees.map(a=><option key={a.id} value={a.id}>{a.username}</option>)}
+          </select>
+          <button className="rounded bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-40" disabled={!delegateTask||!delegateBuyer}
+            onClick={async()=>{try{const r=await fetch(`/api/teams/${leaderTeamId}/tasks/${delegateTask}/assign`,{method:"PATCH",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigned_to_id:Number(delegateBuyer)})});if(!r.ok)throw new Error((await r.json()).error);setDelegateTask("");setDelegateBuyer("");await fetchAll(true);}catch(e){setError((e as Error).message)}}}>
+            إسناد التاسك
+          </button>
+        </div>
+      )}
 
       {/* Stats strip */}
       {!loading && (
