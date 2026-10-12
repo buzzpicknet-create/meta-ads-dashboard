@@ -1159,6 +1159,216 @@ function PageVisibilitySection() {
   );
 }
 
+
+interface TeamMemberSetting {
+  team_id: number;
+  user_id: number;
+  username: string;
+  member_role: "senior" | "junior";
+}
+
+interface TeamSetting {
+  id: number;
+  name: string;
+  senior_user_id: number;
+  senior_name: string;
+  members: TeamMemberSetting[];
+}
+
+interface TeamAssignee {
+  id: number;
+  username: string;
+  role: string;
+}
+
+function TeamsSettingsSection() {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<Record<number, { name: string; seniorId: number; juniorIds: number[] }>>({});
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const teamsQuery = useQuery({
+    queryKey: ["admin-media-buyer-teams"],
+    queryFn: async () => {
+      const r = await fetch(`${API}/admin/teams`, { credentials: "include" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "تعذر تحميل الفرق");
+      return (d.teams ?? []) as TeamSetting[];
+    },
+  });
+
+  const buyersQuery = useQuery({
+    queryKey: ["admin-team-assignees"],
+    queryFn: async () => {
+      const r = await fetch(`${API}/tasks/assignees`, { credentials: "include" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "تعذر تحميل الميديا بايرز");
+      return (Array.isArray(d) ? d : []).filter((u: TeamAssignee) => u.role === "media_buyer") as TeamAssignee[];
+    },
+  });
+
+  useEffect(() => {
+    if (!teamsQuery.data) return;
+    const next: Record<number, { name: string; seniorId: number; juniorIds: number[] }> = {};
+    for (const team of teamsQuery.data) {
+      next[team.id] = {
+        name: team.name,
+        seniorId: team.senior_user_id,
+        juniorIds: team.members.filter((m) => m.member_role === "junior").map((m) => m.user_id),
+      };
+    }
+    setEditing(next);
+  }, [teamsQuery.data]);
+
+  const toggleJunior = (teamId: number, userId: number) => {
+    setEditing((prev) => {
+      const current = prev[teamId];
+      if (!current) return prev;
+      const exists = current.juniorIds.includes(userId);
+      return {
+        ...prev,
+        [teamId]: {
+          ...current,
+          juniorIds: exists
+            ? current.juniorIds.filter((id) => id !== userId)
+            : [...current.juniorIds, userId],
+        },
+      };
+    });
+  };
+
+  const saveTeam = async (teamId: number) => {
+    const form = editing[teamId];
+    if (!form) return;
+    setSavingId(teamId);
+    setMessage(null);
+    try {
+      const r = await fetch(`${API}/admin/teams/${teamId}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          senior_user_id: form.seniorId,
+          junior_user_ids: form.juniorIds.filter((id) => id !== form.seniorId),
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? "فشل حفظ الفريق");
+      setMessage("تم حفظ تكوين الفريق");
+      await qc.invalidateQueries({ queryKey: ["admin-media-buyer-teams"] });
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "فشل حفظ الفريق");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  if (teamsQuery.isLoading || buyersQuery.isLoading) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> جاري تحميل الفرق...
+      </div>
+    );
+  }
+
+  const teams = teamsQuery.data ?? [];
+  const buyers = buyersQuery.data ?? [];
+
+  return (
+    <div className="space-y-3">
+      {message && (
+        <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">{message}</div>
+      )}
+      {teams.map((team) => {
+        const form = editing[team.id];
+        if (!form) return null;
+        return (
+          <div key={team.id} className="rounded-xl border border-border bg-card p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-sm">{team.name}</p>
+                <p className="text-xs text-muted-foreground">السنيور يوزع تنفيذ المنتجات والتاسكات داخل فريقه.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => saveTeam(team.id)}
+                disabled={savingId === team.id}
+                className="h-8 px-3 rounded-lg bg-emerald-500 text-white text-xs font-medium hover:bg-emerald-600 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                {savingId === team.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                حفظ
+              </button>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className="grid gap-1.5">
+                <span className="text-xs font-medium">اسم الفريق</span>
+                <input
+                  value={form.name}
+                  onChange={(e) => setEditing((prev) => ({ ...prev, [team.id]: { ...form, name: e.target.value } }))}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+                />
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-xs font-medium">Senior / Team Leader</span>
+                <select
+                  value={form.seniorId}
+                  onChange={(e) => {
+                    const seniorId = Number(e.target.value);
+                    setEditing((prev) => ({
+                      ...prev,
+                      [team.id]: {
+                        ...form,
+                        seniorId,
+                        juniorIds: form.juniorIds.filter((id) => id !== seniorId),
+                      },
+                    }));
+                  }}
+                  className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+                >
+                  {buyers.map((buyer) => <option key={buyer.id} value={buyer.id}>{buyer.username}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <div>
+              <p className="text-xs font-medium mb-2">Junior Media Buyers</p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {buyers.filter((buyer) => buyer.id !== form.seniorId).map((buyer) => {
+                  const selected = form.juniorIds.includes(buyer.id);
+                  const otherTeam = teams.find((other) =>
+                    other.id !== team.id && other.members.some((m) => m.user_id === buyer.id)
+                  );
+                  const disabled = Boolean(otherTeam);
+                  return (
+                    <label
+                      key={buyer.id}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+                        selected ? "border-emerald-500/40 bg-emerald-500/5" : "border-border"
+                      } ${disabled ? "opacity-50" : "cursor-pointer hover:bg-muted/40"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        disabled={disabled}
+                        onChange={() => toggleJunior(team.id, buyer.id)}
+                        className="accent-emerald-500"
+                      />
+                      <span>{buyer.username}</span>
+                      {otherTeam && <span className="mr-auto text-[10px] text-muted-foreground">{otherTeam.name}</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { user: me } = useAuth();
   const qc = useQueryClient();
@@ -1413,6 +1623,15 @@ export default function AdminPage() {
           ))}
         </div>
       )}
+
+      {/* Media Buyer Teams section */}
+      <div className="mt-8 space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+          <Activity className="h-4 w-4" />
+          فرق الميديا باير
+        </h2>
+        <TeamsSettingsSection />
+      </div>
 
       {/* Page visibility section */}
       <div className="mt-8 space-y-3">
