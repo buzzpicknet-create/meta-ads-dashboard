@@ -668,6 +668,8 @@ export default function InventoryPage() {
   const [leaderTeam, setLeaderTeam] = useState<{id:number; members:{user_id:number; username:string}[]} | null>(null);
   const [ownedProducts, setOwnedProducts] = useState<Set<number>>(new Set());
   const [productDelegations,setProductDelegations] = useState<Record<number,number|null>>({});
+  const [teamPlatforms,setTeamPlatforms] = useState<Record<number,string[]>>({});
+  const [platformDelegations,setPlatformDelegations] = useState<Record<string,number|null>>({});
   const [savingDelegation,setSavingDelegation] = useState<number|null>(null);
   useEffect(() => {
     if (!user || isAdmin) return;
@@ -676,19 +678,24 @@ export default function InventoryPage() {
       setLeaderTeam(mine??null);
       if(!mine)return;
       const response=await fetch(`/api/teams/${mine.id}/products`,{credentials:"include"});
-      if(response.ok){const products:{inventory_product_id:number;assigned_to_id:number|null}[]=await response.json();setOwnedProducts(new Set(products.map(p=>p.inventory_product_id)));setProductDelegations(Object.fromEntries(products.map(p=>[p.inventory_product_id,p.assigned_to_id])));}
+      if(response.ok){
+        const rows:{inventory_product_id:number;assigned_to_id:number|null;platforms:string[];platform_delegations:Record<string,number|null>}[]=await response.json();
+        setOwnedProducts(new Set(rows.map(p=>p.inventory_product_id)));
+        setTeamPlatforms(Object.fromEntries(rows.map(p=>[p.inventory_product_id,p.platforms])));
+        setPlatformDelegations(Object.fromEntries(rows.flatMap(p=>p.platforms.map(platform=>[`${p.inventory_product_id}:${platform}`,p.platform_delegations?.[platform]??null]))));
+      }
     }).catch(()=>{});
   },[user?.id,isAdmin]);
   const canAssignPlatforms = isAdmin;
-  const saveDelegation = async (productId:number, memberId:number|null) => {
+  const savePlatformDelegation = async(productId:number,platform:string,memberId:number|null) => {
     if(!leaderTeam)return;
     setSavingDelegation(productId);
     try{
-      const response=await fetch(`/api/teams/${leaderTeam.id}/products/${productId}/delegate`,{method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigned_to_id:memberId})});
+      const response=await fetch(`/api/teams/${leaderTeam.id}/products/${productId}/platform/${platform}/delegate`,{method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigned_to_id:memberId})});
       const result=await response.json();
-      if(!response.ok)throw new Error(result.error||"فشل توزيع المنتج");
-      setProductDelegations(prev=>({...prev,[productId]:memberId}));
-    }catch(e){setError(e instanceof Error?e.message:"فشل توزيع المنتج");}
+      if(!response.ok)throw new Error(result.error||"فشل توزيع المنصة");
+      setPlatformDelegations(prev=>({...prev,[`${productId}:${platform}`]:memberId}));
+    }catch(e){setError(e instanceof Error?e.message:"فشل توزيع المنصة");}
     finally{setSavingDelegation(null);}
   };
   const [taskProduct, setTaskProduct] = useState<Product | null>(null);
@@ -931,8 +938,8 @@ export default function InventoryPage() {
     if (!isAdmin && leaderTeam && (teamOnlyFilter || teamMemberFilter !== "all")) list = list.filter(p => ownedProducts.has(p.id));
     if (!isAdmin && leaderTeam && teamMemberFilter !== "all") {
       list = list.filter(p => teamMemberFilter === "unassigned"
-        ? productDelegations[p.id] == null
-        : productDelegations[p.id] === Number(teamMemberFilter));
+        ? !(teamPlatforms[p.id]??[]).some(platform=>platformDelegations[`${p.id}:${platform}`]!=null)
+        : (teamPlatforms[p.id]??[]).some(platform=>platformDelegations[`${p.id}:${platform}`]===Number(teamMemberFilter)));
     }
 
     if (isAdmin && assignmentOwnerFilter !== "all") {
@@ -967,7 +974,7 @@ export default function InventoryPage() {
     });
 
     return list;
-  }, [products, warehouse, stockFilter, search, sort, noMovementIds, assignmentOwnerFilter, mediaAssignments, isAdmin, leaderTeam, teamOnlyFilter, teamMemberFilter, productDelegations, ownedProducts]);
+  }, [products, warehouse, stockFilter, search, sort, noMovementIds, assignmentOwnerFilter, mediaAssignments, isAdmin, leaderTeam, teamOnlyFilter, teamMemberFilter, platformDelegations, teamPlatforms, ownedProducts]);
 
   // KPIs
   const availableCount = products.filter(p => available(p) > 0).length;
@@ -1081,7 +1088,7 @@ export default function InventoryPage() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {leaderTeam.members.map(member=>{
-                const count=Array.from(ownedProducts).filter(id=>productDelegations[id]===member.user_id).length;
+                const count=Array.from(ownedProducts).filter(id=>(teamPlatforms[id]??[]).some(platform=>platformDelegations[`${id}:${platform}`]===member.user_id)).length;
                 const active=teamMemberFilter===String(member.user_id);
                 return <button type="button" key={member.user_id} onClick={()=>{setTeamMemberFilter(active?"all":String(member.user_id));setTeamOnlyFilter(true);}}
                   className={`rounded-xl border p-3 text-right transition-colors ${active?"border-primary bg-primary/10":"border-border bg-background/70 hover:border-primary/40"}`}>
@@ -1095,7 +1102,7 @@ export default function InventoryPage() {
                 className={`rounded-xl border p-3 text-right ${teamMemberFilter==="unassigned"?"border-amber-500 bg-amber-500/10":"border-amber-500/30 bg-amber-500/5"}`}>
                 <div className="flex items-center justify-between gap-3">
                   <div><div className="font-semibold text-sm text-amber-500">لم يتم التوزيع</div><div className="text-[11px] text-muted-foreground">منتجات الفريق التي لم تُسند لعضو</div></div>
-                  <div className="font-bold text-2xl text-amber-500 tabular-nums">{Array.from(ownedProducts).filter(id=>productDelegations[id]==null).length}</div>
+                  <div className="font-bold text-2xl text-amber-500 tabular-nums">{Array.from(ownedProducts).filter(id=>!(teamPlatforms[id]??[]).some(platform=>platformDelegations[`${id}:${platform}`]!=null)).length}</div>
                 </div>
               </button>
             </div>
@@ -1427,10 +1434,15 @@ export default function InventoryPage() {
                         </td>
                       )}
                       {!!leaderTeam && !isAdmin && <td className="px-3 py-2 text-center">
-                        {ownedProducts.has(p.id) ? <select className="w-[150px] rounded-md border border-border bg-background p-2 text-xs" value={productDelegations[p.id]??""} disabled={savingDelegation===p.id} onChange={e=>saveDelegation(p.id,e.target.value?Number(e.target.value):null)} aria-label={`وزع المنتج ${p.name} على عضو الفريق`}>
-                          <option value="">لم يتم التوزيع</option>
-                          {leaderTeam.members.map(member=><option key={member.user_id} value={member.user_id}>{member.username}</option>)}
-                        </select> : <span className="text-xs text-muted-foreground">خارج فريقك</span>}
+                        {ownedProducts.has(p.id) ? <div className="space-y-1">
+                          {(teamPlatforms[p.id]??[]).map(platform=><div key={platform} className="flex items-center gap-2 justify-end">
+                            <span className="text-[10px] text-muted-foreground uppercase">{platform}</span>
+                            <select className="w-[126px] rounded-md border border-border bg-background p-1 text-xs" value={platformDelegations[`${p.id}:${platform}`]??""} disabled={savingDelegation===p.id} onChange={e=>savePlatformDelegation(p.id,platform,e.target.value?Number(e.target.value):null)}>
+                              <option value="">لم يتم التوزيع</option>
+                              {leaderTeam.members.map(member=><option key={member.user_id} value={member.user_id}>{member.username}</option>)}
+                            </select>
+                          </div>)}
+                        </div> : <span className="text-xs text-muted-foreground">خارج فريقك</span>}
                       </td>}
                       <td className="px-3 py-3 text-center">
                         <ProductTasksBadge
