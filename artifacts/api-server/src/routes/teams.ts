@@ -201,6 +201,7 @@ router.post("/teams/:id/manual-tasks/:taskId/branches",async(req,res)=>{
    [`${parent.title} — ${labels[b.key]}`,parent.product_name,id,names.get(id),parent.deadline,parent.success_metric,parent.notes,parent.created_by_id,parent.created_by_name,teamId,parentId,b.key]);
    created.push(row);
  }
+ await query("UPDATE tasks SET task_kind=$2,updated_at=NOW() WHERE id=$1", [parentId,"team_parent_distributed"]);
  res.json({tasks:created});
 });
 export default router;
