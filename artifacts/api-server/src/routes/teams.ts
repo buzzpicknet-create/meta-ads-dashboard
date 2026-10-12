@@ -11,6 +11,15 @@ async function init() {
   await query("CREATE TABLE IF NOT EXISTS buyer_team_products (inventory_product_id INTEGER PRIMARY KEY, team_id INTEGER NOT NULL REFERENCES buyer_teams(id), assigned_at TIMESTAMPTZ DEFAULT NOW())");
   await query("ALTER TABLE buyer_team_reviews ADD COLUMN IF NOT EXISTS task_id INTEGER REFERENCES tasks(id)");
   await query("CREATE UNIQUE INDEX IF NOT EXISTS buyer_team_reviews_task_unique ON buyer_team_reviews(task_id) WHERE task_id IS NOT NULL");
+  // Backfill teams created before team-owned products were introduced.
+  // Existing ownership always wins; never move a product between teams silently.
+  await query(`INSERT INTO buyer_team_products(inventory_product_id,team_id)
+    SELECT DISTINCT ON (a.inventory_product_id) a.inventory_product_id,t.id
+    FROM inventory_media_assignments a
+    JOIN buyer_teams t ON t.leader_user_id=a.assigned_to_id
+    WHERE a.is_active=TRUE AND a.inventory_product_id IS NOT NULL
+    ORDER BY a.inventory_product_id,t.id
+    ON CONFLICT(inventory_product_id) DO NOTHING`);
   initialized = true;
 }
 router.use("/teams", async (_req,res,next)=>{try{await init();next();}catch(e){next(e);}});
