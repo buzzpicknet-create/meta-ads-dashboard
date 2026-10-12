@@ -42,6 +42,7 @@ interface Task {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  team_name?: string | null;
   task_kind?: string;
   parent_task_id?: number | null;
   platform?: string | null;
@@ -376,7 +377,9 @@ router.get("/tasks", async (req, res) => {
           deadline ASC
       `, [userId]);
 
-  const withMedia = await attachMedia(rows.map(t => ({ ...t, opus_score: calcScore(t) })));
+  const teamNames=await query<{id:number;name:string}>(`SELECT id,name FROM buyer_teams`);
+  const nameByTeam=new Map(teamNames.map(t=>[t.id,t.name]));
+  const withMedia = await attachMedia(rows.map(t => ({ ...t, team_name: (t as Task & {team_id?:number|null}).team_id ? nameByTeam.get((t as Task & {team_id:number}).team_id) ?? null : null, opus_score: calcScore(t) })));
   res.json(withMedia);
 });
 
