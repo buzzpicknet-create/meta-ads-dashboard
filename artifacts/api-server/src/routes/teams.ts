@@ -19,18 +19,27 @@ router.get("/teams",async(req,res)=>{
 router.post("/teams",requireAdmin,async(req,res)=>{
  const name=String(req.body.name||"").trim(),leader=Number(req.body.leader_user_id);
  if(!name||!Number.isSafeInteger(leader))return res.status(400).json({error:"Invalid team"});
+ const validLeader=await query("SELECT 1 FROM users WHERE id=$1 AND role='media_buyer' AND deleted_at IS NULL",[leader]);
+ if(!validLeader.length)return res.status(400).json({error:"Leader must be an active media buyer"});
  const [row]=await query<any>("INSERT INTO buyer_teams(name,leader_user_id) VALUES($1,$2) RETURNING *",[name,leader]);
  await query("INSERT INTO buyer_team_members(user_id,team_id) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET team_id=EXCLUDED.team_id",[leader,row.id]);
  res.status(201).json(row);
 });
 router.put("/teams/:id/members",requireAdmin,async(req,res)=>{
- await query("INSERT INTO buyer_team_members(user_id,team_id) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET team_id=EXCLUDED.team_id",[req.body.user_id,req.params.id]);
+ const team=Number(req.params.id),user=Number(req.body.user_id);
+ if(!Number.isSafeInteger(team)||!Number.isSafeInteger(user))return res.status(400).json({error:"Invalid team or user"});
+ const existing=await query("SELECT 1 FROM users WHERE id=$1 AND role='media_buyer' AND deleted_at IS NULL",[user]);
+ const target=await query("SELECT 1 FROM buyer_teams WHERE id=$1",[team]);
+ if(!existing.length||!target.length)return res.status(404).json({error:"Team or buyer not found"});
+ await query("INSERT INTO buyer_team_members(user_id,team_id) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET team_id=EXCLUDED.team_id",[user,team]);
  res.json({success:true});
 });
 router.post("/teams/:id/reviews",async(req,res)=>{
  const team=Number(req.params.id),member=Number(req.body.member_user_id),uid=req.session!.userId;
  const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND leader_user_id=$2",[team,uid]);
  if(req.session!.role!=="admin"&&!leader.length)return res.status(403).json({error:"Not authorized"});
+ const membership=await query("SELECT 1 FROM buyer_team_members WHERE user_id=$1 AND team_id=$2",[member,team]);
+ if(!membership.length)return res.status(400).json({error:"Member does not belong to team"});
  const scores=[req.body.speed,req.body.accuracy,req.body.followup].map(Number);
  if(scores.some(s=>!Number.isInteger(s)||s<1||s>10))return res.status(400).json({error:"Scores must be 1 to 10"});
  const [row]=await query("INSERT INTO buyer_team_reviews(team_id,member_user_id,reviewer_user_id,speed,accuracy,followup,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",[team,member,uid,...scores,req.body.notes||""]);
