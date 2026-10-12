@@ -1963,6 +1963,8 @@ export default function TasksPage() {
   const { user } = useAuth();
   const isAdmin  = user?.role === "admin";
 
+  const [isLeader, setIsLeader] = useState(false);
+  useEffect(() => { fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then((teams: {leader_user_id:number}[])=>setIsLeader(teams.some(t=>t.leader_user_id===user?.id))).catch(()=>setIsLeader(false)); },[user?.id]);
   const [tasks,     setTasks]     = useState<Task[]>([]);
   const [stats,     setStats]     = useState<BuyerStat[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
@@ -2249,7 +2251,7 @@ export default function TasksPage() {
             className="p-2 rounded-lg border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 transition-all">
             <RefreshCw size={16} />
           </button>
-          {isAdmin && (
+          {(isAdmin || isLeader) && (
             <button onClick={() => setShowModal(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all">
               <Plus size={16} /> مهمة جديدة
