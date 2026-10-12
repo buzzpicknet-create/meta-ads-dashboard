@@ -138,6 +138,8 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
     product_name: string;
     source_store: string;
     platform: "meta" | "google" | "tiktok";
+    team_id: number;
+    team_name: string;
     assigned_to_id: number;
     assigned_to_name: string;
   }>(`
@@ -146,14 +148,22 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       a.product_name,
       a.source_store,
       a.platform,
-      a.assigned_to_id,
-      a.assigned_to_name
+      a.team_id,
+      t.name AS team_name,
+      COALESCE(a.executor_user_id, t.senior_user_id) AS assigned_to_id,
+      COALESCE(a.executor_user_name, u.username) AS assigned_to_name
     FROM inventory_media_assignments a
-    INNER JOIN users u ON u.id = a.assigned_to_id
+    INNER JOIN media_buyer_teams t ON t.id = a.team_id AND t.is_active = TRUE
+    INNER JOIN users u ON u.id = COALESCE(a.executor_user_id, t.senior_user_id)
+    INNER JOIN media_buyer_team_members m
+      ON m.team_id = a.team_id
+      AND m.user_id = u.id
+      AND m.is_active = TRUE
     WHERE a.is_active = TRUE
+      AND a.team_id IS NOT NULL
       AND u.deleted_at IS NULL
       AND u.role = 'media_buyer'
-    ORDER BY a.assigned_to_id, a.inventory_product_id, a.platform
+    ORDER BY a.team_id, assigned_to_id, a.inventory_product_id, a.platform
   `);
 
   const { products } = await fetchAllInventory();
@@ -165,6 +175,8 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
     inventory_product_id: number;
     product_name: string;
     source_store: string;
+    team_id: number;
+    team_name: string;
     assigned_to_id: number;
     assigned_to_name: string;
     platforms: Array<"meta" | "google" | "tiktok">;
@@ -180,11 +192,13 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       continue;
     }
 
-    const key = `${a.inventory_product_id}:${a.assigned_to_id}`;
+    const key = `${a.inventory_product_id}:${a.team_id}:${a.assigned_to_id}`;
     const group = grouped.get(key) ?? {
       inventory_product_id: a.inventory_product_id,
       product_name: a.product_name,
       source_store: a.source_store,
+      team_id: a.team_id,
+      team_name: a.team_name,
       assigned_to_id: a.assigned_to_id,
       assigned_to_name: a.assigned_to_name,
       platforms: [],
@@ -215,13 +229,15 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
         inventory_snapshot,
         task_kind,
         platform,
-        daily_followup_date
+        daily_followup_date,
+        team_id,
+        score_penalty_enabled
       )
       VALUES (
         $1,$2,$3,$4,
         (($5::date + TIME '21:00') AT TIME ZONE 'Africa/Cairo'),
         $6,$7,NULL,'النظام',$8,$9,
-        'daily_product_followup',NULL,$5::date
+        'daily_product_followup',NULL,$5::date,$10,TRUE
       )
       ON CONFLICT (inventory_product_id, assigned_to_id, daily_followup_date)
       WHERE task_kind = 'daily_product_followup'
@@ -233,6 +249,8 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
         assigned_to_name = EXCLUDED.assigned_to_name,
         inventory_snapshot = EXCLUDED.inventory_snapshot,
         notes = EXCLUDED.notes,
+        team_id = EXCLUDED.team_id,
+        score_penalty_enabled = TRUE,
         updated_at = NOW()
       RETURNING id
     `, [
@@ -242,13 +260,14 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       group.assigned_to_name,
       clock.today,
       "اكتب تعليق منفصل لكل منصة مسؤولة عنها",
-      `متابعة يومية للمنصات: ${platformLabels}. يكتمل التاسك بعد كتابة تعليق لكل منصة قبل الساعة 9:00 مساءً.`,
+      `متابعة يومية للمنصات: ${platformLabels}. الفريق: ${group.team_name}. يكتمل التاسك بعد كتابة تعليق لكل منصة قبل الساعة 9:00 مساءً.`,
       group.inventory_product_id,
       JSON.stringify({
         sourceStore: group.source_store,
         storeName: group.source_store,
         availableStock,
       }),
+      group.team_id,
     ]);
 
     const taskId = rows[0]?.id;
@@ -274,25 +293,139 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
   return { created, skipped: false };
 }
 
-// ── Auto-expire ───────────────────────────────────────────────────────────────
+// ── Auto-expire + automatic point deductions ─────────────────────────────────
 
 async function autoExpire() {
+  // Expire unfinished split branches independently and deduct one point from
+  // the person responsible for each expired branch.
+  await query(`
+    WITH expired_subtasks AS (
+      UPDATE task_subtasks s
+      SET status = 'expired',
+          updated_at = NOW()
+      FROM tasks t
+      WHERE s.task_id = t.id
+        AND s.status IN ('pending','in_progress')
+        AND t.deadline < NOW()
+        AND t.score_penalty_enabled = TRUE
+      RETURNING s.task_id, s.assigned_to_id, s.assigned_to_name, s.branch_type
+    )
+    INSERT INTO media_buyer_score_deductions (
+      media_buyer_id,
+      media_buyer_name,
+      points,
+      reason,
+      task_id,
+      created_by_id,
+      created_by_name
+    )
+    SELECT
+      e.assigned_to_id,
+      COALESCE(e.assigned_to_name, u.username),
+      1,
+      CASE e.branch_type
+        WHEN 'creative' THEN 'انتهاء فرع كريتف'
+        WHEN 'landing_copy' THEN 'انتهاء فرع لاند واد كوبي'
+        ELSE 'انتهاء فرع الكامبين'
+      END,
+      e.task_id,
+      NULL,
+      'النظام'
+    FROM expired_subtasks e
+    INNER JOIN users u ON u.id = e.assigned_to_id
+    WHERE e.assigned_to_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM media_buyer_score_deductions d
+        WHERE d.task_id = e.task_id
+          AND d.media_buyer_id = e.assigned_to_id
+          AND d.reason = CASE e.branch_type
+            WHEN 'creative' THEN 'انتهاء فرع كريتف'
+            WHEN 'landing_copy' THEN 'انتهاء فرع لاند واد كوبي'
+            ELSE 'انتهاء فرع الكامبين'
+          END
+          AND d.reversed_at IS NULL
+      )
+  `);
+
+  // Split manual parent status is derived from its three branches.
   await query(`
     UPDATE tasks t
     SET status = CASE
-          WHEN t.task_kind = 'daily_product_followup'
-            AND EXISTS (
-              SELECT 1
-              FROM task_platform_followups pf
-              WHERE pf.task_id = t.id
-                AND pf.status = 'completed'
-            )
-          THEN 'partial_completed'
+          WHEN NOT EXISTS (
+            SELECT 1 FROM task_subtasks s
+            WHERE s.task_id = t.id AND s.status <> 'completed'
+          ) THEN 'completed'
+          WHEN EXISTS (
+            SELECT 1 FROM task_subtasks s
+            WHERE s.task_id = t.id AND s.status = 'completed'
+          ) THEN 'partial_completed'
           ELSE 'expired'
         END,
+        completed_at = CASE
+          WHEN NOT EXISTS (
+            SELECT 1 FROM task_subtasks s
+            WHERE s.task_id = t.id AND s.status <> 'completed'
+          ) THEN COALESCE(t.completed_at, NOW())
+          ELSE t.completed_at
+        END,
         updated_at = NOW()
-    WHERE t.status IN ('pending','in_progress')
+    WHERE t.task_kind = 'manual_split'
       AND t.deadline < NOW()
+      AND t.status IN ('pending','in_progress','partial_completed')
+  `);
+
+  // Expire normal/daily tasks. New-team tasks opt into a one-point automatic penalty.
+  await query(`
+    WITH newly_expired AS (
+      UPDATE tasks t
+      SET status = CASE
+            WHEN t.task_kind = 'daily_product_followup'
+              AND EXISTS (
+                SELECT 1
+                FROM task_platform_followups pf
+                WHERE pf.task_id = t.id
+                  AND pf.status = 'completed'
+              )
+            THEN 'partial_completed'
+            ELSE 'expired'
+          END,
+          updated_at = NOW()
+      WHERE t.status IN ('pending','in_progress')
+        AND t.task_kind <> 'manual_split'
+        AND t.deadline < NOW()
+      RETURNING t.id, t.assigned_to_id, t.assigned_to_name, t.status, t.score_penalty_enabled
+    )
+    INSERT INTO media_buyer_score_deductions (
+      media_buyer_id,
+      media_buyer_name,
+      points,
+      reason,
+      task_id,
+      created_by_id,
+      created_by_name
+    )
+    SELECT
+      e.assigned_to_id,
+      COALESCE(e.assigned_to_name, u.username),
+      1,
+      'انتهاء تاسك',
+      e.id,
+      NULL,
+      'النظام'
+    FROM newly_expired e
+    INNER JOIN users u ON u.id = e.assigned_to_id
+    WHERE e.status = 'expired'
+      AND e.score_penalty_enabled = TRUE
+      AND e.assigned_to_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM media_buyer_score_deductions d
+        WHERE d.task_id = e.id
+          AND d.media_buyer_id = e.assigned_to_id
+          AND d.reason = 'انتهاء تاسك'
+          AND d.reversed_at IS NULL
+      )
   `);
 }
 
