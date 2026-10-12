@@ -264,6 +264,22 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
 
 interface Assignee { id: number; username: string; role: string; }
 
+interface TeamMember {
+  team_id: number;
+  user_id: number;
+  username: string;
+  member_role: "senior" | "junior";
+}
+
+interface MediaTeam {
+  id: number;
+  name: string;
+  senior_user_id: number;
+  senior_name: string;
+  is_active: boolean;
+  members: TeamMember[];
+}
+
 type MediaPlatform = "meta" | "google" | "tiktok";
 
 interface MediaAssignment {
@@ -273,6 +289,10 @@ interface MediaAssignment {
   platform: MediaPlatform;
   assigned_to_id: number;
   assigned_to_name: string;
+  team_id: number | null;
+  team_name: string | null;
+  executor_user_id: number | null;
+  executor_user_name: string | null;
   is_active: boolean;
 }
 
@@ -620,51 +640,83 @@ function TaskDetailPopup({ task, onClose }: { task: ProductTask; onClose: () => 
 function PlatformAssignmentSelect({
   product,
   platform,
-  assignees,
+  teams,
+  myTeam,
   assignment,
   isAdmin,
+  isSenior,
   saving,
-  onSave,
+  onSaveTeam,
+  onSaveExecutor,
 }: {
   product: Product;
   platform: MediaPlatform;
-  assignees: Assignee[];
+  teams: MediaTeam[];
+  myTeam: MediaTeam | null;
   assignment: MediaAssignment | undefined;
   isAdmin: boolean;
+  isSenior: boolean;
   saving: boolean;
-  onSave: (product: Product, platform: MediaPlatform, assignedToId: number | null) => Promise<void>;
+  onSaveTeam: (product: Product, platform: MediaPlatform, teamId: number | null) => Promise<void>;
+  onSaveExecutor: (product: Product, platform: MediaPlatform, executorId: number) => Promise<void>;
 }) {
-  // Any active media buyer should be assignable to any platform.
-  // The assignees list is already restricted to role === "media_buyer".
-  const allowed = assignees;
-
-  if (!isAdmin) {
+  if (isAdmin) {
     return (
-      <span className={assignment ? "text-xs font-medium text-foreground" : "text-xs text-muted-foreground"}>
-        {assignment?.assigned_to_name ?? "—"}
-      </span>
+      <div className="flex flex-col gap-1">
+        <select
+          value={assignment?.team_id ?? ""}
+          disabled={saving}
+          onChange={(e) => onSaveTeam(product, platform, e.target.value ? Number(e.target.value) : null)}
+          className="w-[150px] bg-background border border-border rounded-md px-2 py-1 text-[11px] focus:outline-none focus:border-primary disabled:opacity-50"
+          aria-label={`تعيين فريق ${platform} للمنتج ${product.name}`}
+        >
+          <option value="">غير شغال</option>
+          {teams.map((team) => (
+            <option key={team.id} value={team.id}>{team.name}</option>
+          ))}
+        </select>
+        {assignment?.executor_user_name && (
+          <span className="text-[10px] text-muted-foreground">
+            المنفذ: {assignment.executor_user_name}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (isSenior && myTeam && assignment?.team_id === myTeam.id) {
+    return (
+      <select
+        value={assignment.executor_user_id ?? myTeam.senior_user_id}
+        disabled={saving}
+        onChange={(e) => onSaveExecutor(product, platform, Number(e.target.value))}
+        className="w-[150px] bg-background border border-border rounded-md px-2 py-1 text-[11px] focus:outline-none focus:border-primary disabled:opacity-50"
+        aria-label={`تعيين منفذ ${platform} للمنتج ${product.name}`}
+      >
+        {myTeam.members.map((member) => (
+          <option key={member.user_id} value={member.user_id}>
+            {member.username}{member.member_role === "senior" ? " (Senior)" : ""}
+          </option>
+        ))}
+      </select>
     );
   }
 
   return (
-    <select
-      value={assignment?.assigned_to_id ?? ""}
-      disabled={saving}
-      onChange={(e) => onSave(product, platform, e.target.value ? Number(e.target.value) : null)}
-      className="w-[112px] bg-background border border-border rounded-md px-2 py-1 text-[11px] focus:outline-none focus:border-primary disabled:opacity-50"
-      aria-label={`تعيين ${platform} للمنتج ${product.name}`}
-    >
-      <option value="">غير شغال</option>
-      {allowed.map((a) => (
-        <option key={a.id} value={a.id}>{a.username}</option>
-      ))}
-    </select>
+    <span className={assignment ? "text-xs font-medium text-foreground" : "text-xs text-muted-foreground"}>
+      {assignment?.executor_user_name ?? "—"}
+    </span>
   );
 }
 
 export default function InventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [teams, setTeams] = useState<MediaTeam[]>([]);
+  const [myTeam, setMyTeam] = useState<MediaTeam | null>(null);
+  const [teamMemberRole, setTeamMemberRole] = useState<"senior" | "junior" | "admin" | null>(null);
+  const isSenior = teamMemberRole === "senior";
+  const canManageDistribution = isAdmin || isSenior;
   const [taskProduct, setTaskProduct] = useState<Product | null>(null);
 
   const [products, setProducts]       = useState<Product[]>([]);
@@ -686,7 +738,6 @@ export default function InventoryPage() {
   const [taskHistoryProduct, setTaskHistoryProduct] = useState<Product | null>(null);
   const [openTask, setOpenTask] = useState<ProductTask | null>(null);
   const [salesRates, setSalesRates]           = useState<Record<number, SalesRate> | null>(null);
-  const [mediaAssignees, setMediaAssignees]   = useState<Assignee[]>([]);
   const [mediaAssignments, setMediaAssignments] = useState<Record<string, MediaAssignment>>({});
   const [savingAssignment, setSavingAssignment] = useState<string | null>(null);
   const [loadingRates, setLoadingRates]       = useState(false);
@@ -747,9 +798,9 @@ export default function InventoryPage() {
 
   const fetchMediaAssignments = useCallback(async () => {
     try {
-      const [assignmentRes, assigneeRes] = await Promise.all([
+      const [assignmentRes, teamRes] = await Promise.all([
         fetch("/api/inventory/media-assignments", { credentials: "include" }),
-        fetch("/api/tasks/assignees", { credentials: "include" }),
+        fetch("/api/teams", { credentials: "include" }),
       ]);
 
       if (assignmentRes.ok) {
@@ -761,19 +812,21 @@ export default function InventoryPage() {
         setMediaAssignments(next);
       }
 
-      if (assigneeRes.ok) {
-        const rows: Assignee[] = await assigneeRes.json();
-        setMediaAssignees(rows.filter((a) => a.role === "media_buyer"));
+      if (teamRes.ok) {
+        const payload = await teamRes.json();
+        setTeams(Array.isArray(payload?.teams) ? payload.teams : []);
+        setMyTeam(payload?.my_team ?? null);
+        setTeamMemberRole(payload?.member_role ?? null);
       }
     } catch {
-      // Inventory remains usable even if assignments fail to load.
+      // Inventory remains usable even if team assignments fail to load.
     }
   }, []);
 
   const saveMediaAssignment = useCallback(async (
     product: Product,
     platform: MediaPlatform,
-    assignedToId: number | null,
+    teamId: number | null,
   ) => {
     const key = `${product.id}:${platform}`;
     setSavingAssignment(key);
@@ -783,18 +836,44 @@ export default function InventoryPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          assigned_to_id: assignedToId,
+          team_id: teamId,
           product_name: product.name,
           source_store: product.sourceStore,
         }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error ?? "فشل حفظ التوزيع");
+        throw new Error(payload.error ?? "فشل حفظ توزيع الفريق");
       }
       await fetchMediaAssignments();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حفظ التوزيع");
+      setError(e instanceof Error ? e.message : "فشل حفظ توزيع الفريق");
+    } finally {
+      setSavingAssignment(null);
+    }
+  }, [fetchMediaAssignments]);
+
+  const saveExecutorAssignment = useCallback(async (
+    product: Product,
+    platform: MediaPlatform,
+    executorId: number,
+  ) => {
+    const key = `${product.id}:${platform}`;
+    setSavingAssignment(key);
+    try {
+      const res = await fetch(`/api/inventory/media-assignments/${product.id}/${platform}/executor`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ executor_user_id: executorId }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error ?? "فشل حفظ توزيع عضو الفريق");
+      }
+      await fetchMediaAssignments();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حفظ توزيع عضو الفريق");
     } finally {
       setSavingAssignment(null);
     }
@@ -841,17 +920,17 @@ export default function InventoryPage() {
 
   const assignmentSummary = useMemo(() => {
     const productIds = new Set(products.map((p) => p.id));
-    const byBuyer = new Map<number, {
+    const byTeam = new Map<number, {
       id: number;
       name: string;
       productIds: Set<number>;
       platformCounts: Record<MediaPlatform, number>;
     }>();
 
-    for (const assignee of mediaAssignees) {
-      byBuyer.set(assignee.id, {
-        id: assignee.id,
-        name: assignee.username,
+    for (const team of teams) {
+      byTeam.set(team.id, {
+        id: team.id,
+        name: team.name,
         productIds: new Set<number>(),
         platformCounts: { meta: 0, google: 0, tiktok: 0 },
       });
@@ -860,23 +939,23 @@ export default function InventoryPage() {
     const assignedProductIds = new Set<number>();
 
     for (const assignment of Object.values(mediaAssignments)) {
-      if (!assignment.is_active || !productIds.has(assignment.inventory_product_id)) continue;
+      if (!assignment.is_active || !productIds.has(assignment.inventory_product_id) || !assignment.team_id) continue;
       assignedProductIds.add(assignment.inventory_product_id);
 
-      const entry = byBuyer.get(assignment.assigned_to_id) ?? {
-        id: assignment.assigned_to_id,
-        name: assignment.assigned_to_name,
+      const entry = byTeam.get(assignment.team_id) ?? {
+        id: assignment.team_id,
+        name: assignment.team_name ?? `Team #${assignment.team_id}`,
         productIds: new Set<number>(),
         platformCounts: { meta: 0, google: 0, tiktok: 0 },
       };
 
       entry.productIds.add(assignment.inventory_product_id);
       entry.platformCounts[assignment.platform] += 1;
-      byBuyer.set(assignment.assigned_to_id, entry);
+      byTeam.set(assignment.team_id, entry);
     }
 
     return {
-      buyers: Array.from(byBuyer.values())
+      teams: Array.from(byTeam.values())
         .map((entry) => ({
           id: entry.id,
           name: entry.name,
@@ -886,7 +965,7 @@ export default function InventoryPage() {
         .sort((a, b) => b.productCount - a.productCount || a.name.localeCompare(b.name, "ar")),
       unassignedCount: products.filter((p) => !assignedProductIds.has(p.id)).length,
     };
-  }, [products, mediaAssignments, mediaAssignees]);
+  }, [products, mediaAssignments, teams]);
 
   // Filtered + sorted products
   const filtered = useMemo(() => {
@@ -907,10 +986,10 @@ export default function InventoryPage() {
             .some((platform) => Boolean(mediaAssignments[`${p.id}:${platform}`]))
         );
       } else {
-        const buyerId = Number(assignmentOwnerFilter);
+        const teamId = Number(assignmentOwnerFilter);
         list = list.filter((p) =>
           (["meta", "google", "tiktok"] as MediaPlatform[])
-            .some((platform) => mediaAssignments[`${p.id}:${platform}`]?.assigned_to_id === buyerId)
+            .some((platform) => mediaAssignments[`${p.id}:${platform}`]?.team_id === teamId)
         );
       }
     }
@@ -1041,10 +1120,10 @@ export default function InventoryPage() {
               <div>
                 <h2 className="text-sm font-bold flex items-center gap-2">
                   <User className="h-4 w-4 text-primary" />
-                  توزيع المنتجات على الميديا باير
+                  توزيع المنتجات على الفرق
                 </h2>
                 <p className="text-xs text-muted-foreground mt-1">
-                  العدد محسوب كمنتجات مختلفة، حتى لو نفس المنتج متسند لنفس الشخص على أكتر من منصة.
+                  العدد محسوب كمنتجات مختلفة، حتى لو نفس المنتج متسند لنفس الفريق على أكتر من منصة.
                 </p>
               </div>
               {isAdmin && assignmentOwnerFilter !== "all" && (
@@ -1059,13 +1138,13 @@ export default function InventoryPage() {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {assignmentSummary.buyers.map((buyer) => {
-                const active = assignmentOwnerFilter === String(buyer.id);
+              {assignmentSummary.teams.map((team) => {
+                const active = assignmentOwnerFilter === String(team.id);
                 return (
                   <button
-                    key={buyer.id}
+                    key={team.id}
                     type="button"
-                    onClick={() => setAssignmentOwnerFilter(active ? "all" : String(buyer.id))}
+                    onClick={() => setAssignmentOwnerFilter(active ? "all" : String(team.id))}
                     className={`text-right rounded-xl border p-3 transition-all ${
                       active
                         ? "border-primary bg-primary/10 ring-1 ring-primary/20"
@@ -1074,25 +1153,25 @@ export default function InventoryPage() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="font-semibold text-sm truncate">{buyer.name}</div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5">اضغط لعرض المنتجات المسندة له</div>
+                        <div className="font-semibold text-sm truncate">{team.name}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">اضغط لعرض المنتجات المسندة للفريق</div>
                       </div>
-                      <div className="text-2xl font-bold tabular-nums text-primary">{buyer.productCount}</div>
+                      <div className="text-2xl font-bold tabular-nums text-primary">{team.productCount}</div>
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap mt-2 text-[10px]">
-                      {buyer.platformCounts.meta > 0 && (
+                      {team.platformCounts.meta > 0 && (
                         <span className="px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                          Meta {buyer.platformCounts.meta}
+                          Meta {team.platformCounts.meta}
                         </span>
                       )}
-                      {buyer.platformCounts.google > 0 && (
+                      {team.platformCounts.google > 0 && (
                         <span className="px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                          Google {buyer.platformCounts.google}
+                          Google {team.platformCounts.google}
                         </span>
                       )}
-                      {buyer.platformCounts.tiktok > 0 && (
+                      {team.platformCounts.tiktok > 0 && (
                         <span className="px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                          TikTok {buyer.platformCounts.tiktok}
+                          TikTok {team.platformCounts.tiktok}
                         </span>
                       )}
                     </div>
@@ -1113,8 +1192,8 @@ export default function InventoryPage() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-sm text-amber-500">بدون ميديا باير</div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">منتجات مش متسندة لأي منصة عند أي ميديا باير</div>
+                    <div className="font-semibold text-sm text-amber-500">بدون تيم</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">منتجات مش متسندة لأي فريق على أي منصة</div>
                   </div>
                   <div className="text-2xl font-bold tabular-nums text-amber-500">{assignmentSummary.unassignedCount}</div>
                 </div>
@@ -1215,7 +1294,7 @@ export default function InventoryPage() {
               <span className="mr-1 text-primary">
                 · {assignmentOwnerFilter === "unassigned"
                   ? "بدون ميديا باير"
-                  : assignmentSummary.buyers.find((b) => String(b.id) === assignmentOwnerFilter)?.name ?? ""}
+                  : assignmentSummary.teams.find((t) => String(t.id) === assignmentOwnerFilter)?.name ?? ""}
               </span>
             )}
             {stockFilter === "no_movement" && movementSince && (
@@ -1252,8 +1331,10 @@ export default function InventoryPage() {
                   <th className="text-right px-3 py-3 font-semibold text-muted-foreground">الوحدة</th>
                   <th className="text-center px-4 py-3 font-semibold">الكمية</th>
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground">معدل البيع</th>
-                  {isAdmin && (
-                    <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[205px]">توزيع المنصات</th>
+                  {canManageDistribution && (
+                    <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[235px]">
+                      {isAdmin ? "توزيع المنصات على الفرق" : "توزيع المنصات داخل التيم"}
+                    </th>
                   )}
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[100px]">المهام</th>
                 </tr>
@@ -1262,7 +1343,7 @@ export default function InventoryPage() {
                 {loading && products.length === 0 ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} className="border-b border-border/50">
-                      {Array.from({ length: isAdmin ? 9 : 8 }).map((_, j) => (
+                      {Array.from({ length: canManageDistribution ? 9 : 8 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 rounded bg-muted/60 animate-pulse" style={{ width: j === 1 ? "80%" : j === 0 ? "40px" : "60%" }} />
                         </td>
@@ -1271,7 +1352,7 @@ export default function InventoryPage() {
                   ))
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={isAdmin ? 9 : 8} className="text-center py-16 text-muted-foreground">
+                    <td colSpan={canManageDistribution ? 9 : 8} className="text-center py-16 text-muted-foreground">
                       {stockFilter === "no_movement" && loadingMovement
                         ? "جاري تحميل بيانات الحركة..."
                         : "لا توجد أصناف مطابقة للبحث"}
@@ -1322,26 +1403,31 @@ export default function InventoryPage() {
                       <td className="px-3 py-3 text-center">
                         <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={available(p)} />
                       </td>
-                      {isAdmin && (
+                      {canManageDistribution && (
                         <td className="px-3 py-2">
-                          <div className="space-y-1 min-w-[195px]">
+                          <div className="space-y-1 min-w-[225px]">
                             {([
                               ["meta", "Meta", "text-blue-400"],
                               ["google", "Google", "text-red-400"],
                               ["tiktok", "TikTok", "text-cyan-400"],
                             ] as const).map(([platform, label, color]) => {
                               const key = `${p.id}:${platform}`;
+                              const assignment = mediaAssignments[key];
+                              if (isSenior && assignment?.team_id !== myTeam?.id) return null;
                               return (
                                 <div key={platform} className="flex items-center justify-between gap-2">
                                   <span className={`w-12 shrink-0 text-[11px] font-semibold ${color}`}>{label}</span>
                                   <PlatformAssignmentSelect
                                     product={p}
                                     platform={platform}
-                                    assignees={mediaAssignees}
-                                    assignment={mediaAssignments[key]}
+                                    teams={teams}
+                                    myTeam={myTeam}
+                                    assignment={assignment}
                                     isAdmin={isAdmin}
+                                    isSenior={isSenior}
                                     saving={savingAssignment === key}
-                                    onSave={saveMediaAssignment}
+                                    onSaveTeam={saveMediaAssignment}
+                                    onSaveExecutor={saveExecutorAssignment}
                                   />
                                 </div>
                               );
@@ -1353,7 +1439,7 @@ export default function InventoryPage() {
                         <ProductTasksBadge
                           product={p}
                           tasks={productTasks[p.id]}
-                          isAdmin={isAdmin}
+                          isAdmin={isAdmin || isSenior}
                           onFetch={() => fetchProductTasks(p.id)}
                           onCreateTask={() => setTaskProduct(p)}
                           onShowHistory={() => setTaskHistoryProduct(p)}
