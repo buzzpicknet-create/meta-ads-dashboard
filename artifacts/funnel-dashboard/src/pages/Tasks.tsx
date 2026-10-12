@@ -2269,9 +2269,9 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {isLeader && leaderTeamId && tasks.some(t=>t.team_id===leaderTeamId && !t.assigned_to_id) && <div className="mb-4 p-4 rounded-xl border border-blue-800 bg-slate-900 space-y-3" dir="rtl">
+      {isLeader && leaderTeamId && tasks.some(t=>t.team_id===leaderTeamId && !t.assigned_to_id && t.task_kind!=="team_parent_distributed") && <div className="mb-4 p-4 rounded-xl border border-blue-800 bg-slate-900 space-y-3" dir="rtl">
         <h2 className="text-sm font-bold text-blue-300">مهام الفريق بانتظار التوزيع</h2>
-        {tasks.filter(t=>t.team_id===leaderTeamId && !t.assigned_to_id).map(task=><div key={task.id} className="border-b border-slate-700 pb-3 space-y-2">
+        {tasks.filter(t=>t.team_id===leaderTeamId && !t.assigned_to_id && t.task_kind!=="team_parent_distributed").map(task=><div key={task.id} className="border-b border-slate-700 pb-3 space-y-2">
           <div className="text-sm font-semibold">{task.title}</div>
           <div className="grid sm:grid-cols-3 gap-2">
             {([["creative","كريتف"],["ad_copy","أد كوبي"],["campaign","كامبين"]] as const).map(([key,label])=><label className="text-xs text-slate-300 space-y-1" key={key}>{label}
