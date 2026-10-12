@@ -1,3 +1,5 @@
+import ProductHuntingTaskModal from "@/components/ProductHuntingTaskModal";
+import { useAuth } from "@/contexts/AuthContext";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search, Plus, Star, ExternalLink, RefreshCw, PackageSearch, Heart, Clock3, CheckCircle2, FlaskConical, Trash2, Pencil, X, Save, Tag, Banknote, Link2, Images, Video, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -82,6 +84,8 @@ function priceText(value: string | number | null | undefined, suffix: string) {
 }
 
 export default function ProductHuntingPage() {
+  const { user } = useAuth();
+  const [taskProduct,setTaskProduct] = useState<ProductItem|null>(null);
   const [items, setItems] = useState<ProductItem[]>([]);
   const [stats, setStats] = useState<Stats>({});
   const [loading, setLoading] = useState(true);
@@ -287,6 +291,8 @@ export default function ProductHuntingPage() {
           {message}
         </div>
       )}
+
+      {taskProduct && <ProductHuntingTaskModal product={taskProduct} onClose={()=>setTaskProduct(null)} onDone={msg=>{setTaskProduct(null);setMessage(msg);}} />}
 
       {viewer && viewerItem && (
         <div className="fixed inset-0 z-[150] bg-black/90 flex items-center justify-center p-3 sm:p-6" onMouseDown={e => { if (e.currentTarget === e.target) setViewer(null); }}>
@@ -511,6 +517,7 @@ export default function ProductHuntingPage() {
                     </select>
 
                     <div className="flex items-center gap-2">
+                      {user?.role === "admin" && <button onClick={()=>setTaskProduct(item)} className="h-9 px-3 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-300 inline-flex items-center gap-1.5 text-xs font-semibold hover:bg-blue-500/20"><CheckCircle2 className="h-4 w-4" /> تحويل لمهمة</button>}
                       <button onClick={() => openEdit(item)} className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground inline-flex items-center justify-center gap-2 text-sm font-medium"><Pencil className="h-4 w-4" /> تعديل التفاصيل</button>
                       {item.source_type === "telegram" && <button onClick={() => refreshMedia(item.id)} disabled={refreshingId === item.id} className="h-9 px-3 rounded-lg border border-input inline-flex items-center justify-center hover:bg-muted disabled:opacity-50" title="إعادة جلب الصور والفيديوهات من Telegram"><RefreshCw className={`h-4 w-4 ${refreshingId === item.id ? "animate-spin" : ""}`} /></button>}
                       <a href={item.source_url} target="_blank" rel="noreferrer" className="h-9 px-3 rounded-lg border border-input inline-flex items-center justify-center gap-1.5 text-sm font-medium hover:bg-muted transition-colors" title="فتح المصدر"><ExternalLink className="h-4 w-4" /></a>
