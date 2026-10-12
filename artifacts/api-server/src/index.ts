@@ -732,6 +732,138 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_user ON inventory_media_assignments (assigned_to_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_active ON inventory_media_assignments (is_active)`);
 
+  // Media buyer teams: admin assigns products to a team, senior distributes execution inside the team.
+  await query(`
+    CREATE TABLE IF NOT EXISTS media_buyer_teams (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      senior_user_id INT NOT NULL UNIQUE REFERENCES users(id) ON DELETE RESTRICT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS media_buyer_team_members (
+      id SERIAL PRIMARY KEY,
+      team_id INT NOT NULL REFERENCES media_buyer_teams(id) ON DELETE CASCADE,
+      user_id INT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      member_role TEXT NOT NULL CHECK (member_role IN ('senior','junior')),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_team_members_team ON media_buyer_team_members (team_id, is_active)`);
+
+  // Seed the agreed initial teams. Usernames are stable application identities.
+  await query(`
+    INSERT INTO media_buyer_teams (name, senior_user_id)
+    SELECT 'Team فردوس', id FROM users
+    WHERE username = 'فردوس' AND role = 'media_buyer' AND deleted_at IS NULL
+    ON CONFLICT (senior_user_id) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE, updated_at = NOW()
+  `);
+  await query(`
+    INSERT INTO media_buyer_teams (name, senior_user_id)
+    SELECT 'Team إبراهيم', id FROM users
+    WHERE username IN ('ابراهيم','إبراهيم') AND role = 'media_buyer' AND deleted_at IS NULL
+    ON CONFLICT (senior_user_id) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE, updated_at = NOW()
+  `);
+
+  await query(`
+    INSERT INTO media_buyer_team_members (team_id, user_id, member_role, is_active)
+    SELECT t.id, u.id, 'senior', TRUE
+    FROM media_buyer_teams t
+    INNER JOIN users u ON u.id = t.senior_user_id
+    ON CONFLICT (user_id) DO UPDATE SET
+      team_id = EXCLUDED.team_id,
+      member_role = 'senior',
+      is_active = TRUE,
+      updated_at = NOW()
+  `);
+  await query(`
+    INSERT INTO media_buyer_team_members (team_id, user_id, member_role, is_active)
+    SELECT t.id, u.id, 'junior', TRUE
+    FROM media_buyer_teams t
+    INNER JOIN users u ON
+      (t.name = 'Team فردوس' AND LOWER(u.username) IN ('kholud','aya'))
+      OR
+      (t.name = 'Team إبراهيم' AND LOWER(u.username) = 'salwa')
+    WHERE u.role = 'media_buyer' AND u.deleted_at IS NULL
+    ON CONFLICT (user_id) DO UPDATE SET
+      team_id = EXCLUDED.team_id,
+      member_role = 'junior',
+      is_active = TRUE,
+      updated_at = NOW()
+  `);
+
+  await query(`ALTER TABLE inventory_media_assignments ADD COLUMN IF NOT EXISTS team_id INT REFERENCES media_buyer_teams(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE inventory_media_assignments ADD COLUMN IF NOT EXISTS executor_user_id INT REFERENCES users(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE inventory_media_assignments ADD COLUMN IF NOT EXISTS executor_user_name TEXT`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_team ON inventory_media_assignments (team_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_media_assignments_executor ON inventory_media_assignments (executor_user_id)`);
+
+  // Preserve today's distribution: anything assigned to an existing buyer moves to that buyer's team,
+  // and the same buyer remains the initial internal executor until the senior redistributes it.
+  await query(`
+    UPDATE inventory_media_assignments a
+    SET team_id = m.team_id,
+        executor_user_id = a.assigned_to_id,
+        executor_user_name = a.assigned_to_name,
+        updated_at = NOW()
+    FROM media_buyer_team_members m
+    WHERE m.user_id = a.assigned_to_id
+      AND m.is_active = TRUE
+      AND a.team_id IS NULL
+  `);
+
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS team_id INT REFERENCES media_buyer_teams(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS score_penalty_enabled BOOLEAN NOT NULL DEFAULT FALSE`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks (team_id)`);
+  await query(`
+    UPDATE tasks t
+    SET team_id = m.team_id
+    FROM media_buyer_team_members m
+    WHERE t.assigned_to_id = m.user_id
+      AND m.is_active = TRUE
+      AND t.team_id IS NULL
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS task_subtasks (
+      id SERIAL PRIMARY KEY,
+      task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      branch_type TEXT NOT NULL CHECK (branch_type IN ('creative','landing_copy','campaign')),
+      assigned_to_id INT REFERENCES users(id) ON DELETE SET NULL,
+      assigned_to_name TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_progress','completed','expired')),
+      notes TEXT,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (task_id, branch_type)
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_subtasks_task ON task_subtasks (task_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_task_subtasks_assignee ON task_subtasks (assigned_to_id, status)`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS team_member_ratings (
+      id SERIAL PRIMARY KEY,
+      team_id INT NOT NULL REFERENCES media_buyer_teams(id) ON DELETE CASCADE,
+      member_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      member_name TEXT NOT NULL,
+      rated_by_id INT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      rated_by_name TEXT NOT NULL,
+      speed_points INT NOT NULL CHECK (speed_points BETWEEN 1 AND 10),
+      accuracy_points INT NOT NULL CHECK (accuracy_points BETWEEN 1 AND 10),
+      followup_points INT NOT NULL CHECK (followup_points BETWEEN 1 AND 10),
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_team_ratings_member ON team_member_ratings (member_user_id, created_at DESC)`);
+
   // One-time cleanup: remove the accidental Oct 1 follow-ups created by the
   // temporary hourly generator at 18:02 Cairo, but only if nobody touched them.
   await query(`
