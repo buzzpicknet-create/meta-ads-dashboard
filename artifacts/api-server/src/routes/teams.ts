@@ -64,4 +64,21 @@ router.put("/teams/:id/products/:productId",requireAdmin,async(req,res)=>{
  await query("INSERT INTO buyer_team_products(inventory_product_id,team_id) VALUES($1,$2) ON CONFLICT(inventory_product_id) DO UPDATE SET team_id=EXCLUDED.team_id",[product,team]);
  res.json({success:true});
 });
+router.patch("/teams/:id/tasks/:taskId/assign",async(req,res)=>{
+ const team=Number(req.params.id),task=Number(req.params.taskId),buyer=Number(req.body?.assigned_to_id),uid=req.session!.userId;
+ if(![team,task,buyer].every(Number.isSafeInteger))return res.status(400).json({error:"Invalid identifiers"});
+ const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND leader_user_id=$2",[team,uid]);
+ if(req.session!.role!=="admin"&&!leader.length)return res.status(403).json({error:"Only a team leader may assign work"});
+ const member=await query("SELECT u.username FROM buyer_team_members m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 AND m.user_id=$2 AND u.deleted_at IS NULL",[team,buyer]);
+ if(!member.length)return res.status(400).json({error:"Assignee is not in this team"});
+ const target=await query<any>("SELECT id,assigned_to_id,inventory_product_id FROM tasks WHERE id=$1",[task]);
+ if(!target.length)return res.status(404).json({error:"Task not found"});
+ if(req.session!.role!=="admin"){
+   const owner=await query("SELECT 1 FROM buyer_team_members WHERE team_id=$1 AND user_id=$2",[team,target[0].assigned_to_id]);
+   const product=target[0].inventory_product_id == null ? [] : await query("SELECT 1 FROM buyer_team_products WHERE team_id=$1 AND inventory_product_id=$2",[team,target[0].inventory_product_id]);
+   if(!owner.length&&!product.length)return res.status(403).json({error:"Task belongs to another team"});
+ }
+ const [updated]=await query("UPDATE tasks SET assigned_to_id=$2,assigned_to_name=$3,updated_at=NOW() WHERE id=$1 RETURNING *",[task,buyer,(member[0] as {username:string}).username]);
+ res.json(updated);
+});
 export default router;
