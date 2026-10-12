@@ -303,11 +303,13 @@ async function autoExpire() {
 async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: number; platform_followups?: TaskPlatformFollowup[] })[]) {
   if (!tasks.length) return tasks;
   const ids = tasks.map(t => t.id);
+  const parentIds = tasks.map(t => t.parent_task_id).filter((id): id is number => typeof id === "number" && id > 0);
+  const mediaIds = [...new Set([...ids, ...parentIds])];
 
   const [mediaRows, platformRows] = await Promise.all([
     query<TaskMedia>(
       `SELECT * FROM task_media WHERE task_id = ANY($1::int[]) ORDER BY is_primary DESC, created_at ASC`,
-      [ids]
+      [mediaIds]
     ),
     query<TaskPlatformFollowup>(
       `SELECT * FROM task_platform_followups WHERE task_id = ANY($1::int[]) ORDER BY id ASC`,
@@ -329,7 +331,7 @@ async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: nu
 
   return tasks.map(t => ({
     ...t,
-    media: mediaMap.get(t.id) ?? [],
+    media: [...(mediaMap.get(t.parent_task_id ?? -1) ?? []), ...(mediaMap.get(t.id) ?? [])],
     platform_followups: platformMap.get(t.id) ?? [],
   }));
 }
