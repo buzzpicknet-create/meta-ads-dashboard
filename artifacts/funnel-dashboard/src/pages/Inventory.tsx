@@ -667,6 +667,8 @@ export default function InventoryPage() {
   const isAdmin = user?.role === "admin";
   const [leaderTeam, setLeaderTeam] = useState<{id:number; members:{user_id:number; username:string}[]} | null>(null);
   const [ownedProducts, setOwnedProducts] = useState<Set<number>>(new Set());
+  const [productDelegations,setProductDelegations] = useState<Record<number,number|null>>({});
+  const [savingDelegation,setSavingDelegation] = useState<number|null>(null);
   useEffect(() => {
     if (!user || isAdmin) return;
     fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then(async (teams:{id:number;leader_user_id:number;members:{user_id:number;username:string}[]}[])=>{
@@ -674,10 +676,21 @@ export default function InventoryPage() {
       setLeaderTeam(mine??null);
       if(!mine)return;
       const response=await fetch(`/api/teams/${mine.id}/products`,{credentials:"include"});
-      if(response.ok){const products:{inventory_product_id:number}[]=await response.json();setOwnedProducts(new Set(products.map(p=>p.inventory_product_id)));}
+      if(response.ok){const products:{inventory_product_id:number;assigned_to_id:number|null}[]=await response.json();setOwnedProducts(new Set(products.map(p=>p.inventory_product_id)));setProductDelegations(Object.fromEntries(products.map(p=>[p.inventory_product_id,p.assigned_to_id])));}
     }).catch(()=>{});
   },[user?.id,isAdmin]);
-  const canAssignPlatforms = isAdmin || !!leaderTeam;
+  const canAssignPlatforms = isAdmin;
+  const saveDelegation = async (productId:number, memberId:number|null) => {
+    if(!leaderTeam)return;
+    setSavingDelegation(productId);
+    try{
+      const response=await fetch(`/api/teams/${leaderTeam.id}/products/${productId}/delegate`,{method:"PUT",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigned_to_id:memberId})});
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||"فشل توزيع المنتج");
+      setProductDelegations(prev=>({...prev,[productId]:memberId}));
+    }catch(e){setError(e instanceof Error?e.message:"فشل توزيع المنتج");}
+    finally{setSavingDelegation(null);}
+  };
   const [taskProduct, setTaskProduct] = useState<Product | null>(null);
 
   const [products, setProducts]       = useState<Product[]>([]);
@@ -1268,6 +1281,7 @@ export default function InventoryPage() {
                   {canAssignPlatforms && (
                     <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[205px]">توزيع المنصات</th>
                   )}
+                  {!!leaderTeam && !isAdmin && <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[170px]">توزيع المنتج على الفريق</th>}
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[100px]">المهام</th>
                 </tr>
               </thead>
@@ -1275,7 +1289,7 @@ export default function InventoryPage() {
                 {loading && products.length === 0 ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} className="border-b border-border/50">
-                      {Array.from({ length: canAssignPlatforms ? 9 : 8 }).map((_, j) => (
+                      {Array.from({ length: canAssignPlatforms || !!leaderTeam ? 9 : 8 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 rounded bg-muted/60 animate-pulse" style={{ width: j === 1 ? "80%" : j === 0 ? "40px" : "60%" }} />
                         </td>
@@ -1362,6 +1376,12 @@ export default function InventoryPage() {
                           </div>
                         </td>
                       )}
+                      {!!leaderTeam && !isAdmin && <td className="px-3 py-2 text-center">
+                        {ownedProducts.has(p.id) ? <select className="w-[150px] rounded-md border border-border bg-background p-2 text-xs" value={productDelegations[p.id]??""} disabled={savingDelegation===p.id} onChange={e=>saveDelegation(p.id,e.target.value?Number(e.target.value):null)} aria-label={`وزع المنتج ${p.name} على عضو الفريق`}>
+                          <option value="">لم يتم التوزيع</option>
+                          {leaderTeam.members.map(member=><option key={member.user_id} value={member.user_id}>{member.username}</option>)}
+                        </select> : <span className="text-xs text-muted-foreground">خارج فريقك</span>}
+                      </td>}
                       <td className="px-3 py-3 text-center">
                         <ProductTasksBadge
                           product={p}
