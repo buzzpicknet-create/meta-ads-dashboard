@@ -705,6 +705,7 @@ export default function InventoryPage() {
   const [stockFilter, setStockFilter]     = useState<StockFilter>("all");
   const [sort, setSort]                   = useState<SortKey>("stock_desc");
   const [assignmentOwnerFilter, setAssignmentOwnerFilter] = useState<"all" | "unassigned" | string>("all");
+  const [teamOnlyFilter, setTeamOnlyFilter] = useState(false);
 
   // "دون حركة مبيعات" filter data
   const [noMovementIds, setNoMovementIds]     = useState<Set<number> | null>(null);
@@ -926,6 +927,8 @@ export default function InventoryPage() {
       list = list.filter(p => !noMovementIds.has(p.id));
     }
 
+    if (!isAdmin && leaderTeam && teamOnlyFilter) list = list.filter(p => ownedProducts.has(p.id));
+
     if (isAdmin && assignmentOwnerFilter !== "all") {
       if (assignmentOwnerFilter === "unassigned") {
         list = list.filter((p) =>
@@ -958,7 +961,7 @@ export default function InventoryPage() {
     });
 
     return list;
-  }, [products, warehouse, stockFilter, search, sort, noMovementIds, assignmentOwnerFilter, mediaAssignments, isAdmin]);
+  }, [products, warehouse, stockFilter, search, sort, noMovementIds, assignmentOwnerFilter, mediaAssignments, isAdmin, leaderTeam, teamOnlyFilter, ownedProducts]);
 
   // KPIs
   const availableCount = products.filter(p => available(p) > 0).length;
@@ -1221,6 +1224,14 @@ export default function InventoryPage() {
               </button>
             ))}
           </div>
+
+          {!isAdmin && leaderTeam && (
+            <button type="button" onClick={() => setTeamOnlyFilter(value => !value)}
+              aria-pressed={teamOnlyFilter}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${teamOnlyFilter ? "bg-blue-600 text-white border-blue-600" : "bg-background border-border hover:border-blue-500/50"}`}>
+              {teamOnlyFilter ? "منتجات فريقي فقط ✓" : "منتجات فريقي"}
+            </button>
+          )}
 
           {/* Sort */}
           <select
