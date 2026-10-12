@@ -38,17 +38,7 @@ router.put("/teams/:id/members",requireAdmin,async(req,res)=>{
  await query("INSERT INTO buyer_team_members(user_id,team_id) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET team_id=EXCLUDED.team_id",[user,team]);
  res.json({success:true});
 });
-router.post("/teams/:id/reviews",async(req,res)=>{
- const team=Number(req.params.id),member=Number(req.body.member_user_id),uid=req.session!.userId;
- const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND leader_user_id=$2",[team,uid]);
- if(req.session!.role!=="admin"&&!leader.length)return res.status(403).json({error:"Not authorized"});
- const membership=await query("SELECT 1 FROM buyer_team_members WHERE user_id=$1 AND team_id=$2",[member,team]);
- if(!membership.length)return res.status(400).json({error:"Member does not belong to team"});
- const scores=[req.body.speed,req.body.accuracy,req.body.followup].map(Number);
- if(scores.some(s=>!Number.isInteger(s)||s<1||s>10))return res.status(400).json({error:"Scores must be 1 to 10"});
- const [row]=await query("INSERT INTO buyer_team_reviews(team_id,member_user_id,reviewer_user_id,speed,accuracy,followup,notes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",[team,member,uid,...scores,req.body.notes||""]);
- res.status(201).json(row);
-});
+router.post("/teams/:id/reviews",(_req,res)=>res.status(410).json({error:"التقييم يتم من داخل التاسك المكتمل فقط"}));
 router.get("/teams/:id/products",async(req,res)=>{
  const team=Number(req.params.id),uid=req.session!.userId;
  const access=await query("SELECT 1 FROM buyer_teams t WHERE t.id=$1 AND ($2::boolean OR t.leader_user_id=$3 OR EXISTS(SELECT 1 FROM buyer_team_members m WHERE m.team_id=t.id AND m.user_id=$3))",[team,req.session!.role==="admin",uid]);
