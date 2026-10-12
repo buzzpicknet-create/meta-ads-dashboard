@@ -4,6 +4,7 @@ import { requireAdmin } from "../lib/auth-middleware.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { createInboxAndPush } from "../lib/notifications.js";
 import { fetchAllInventory } from "./inventory.js";
+import { teamForUser } from "./teams.js";
 
 const router = Router();
 const objectStorage = new ObjectStorageService();
@@ -30,6 +31,8 @@ interface Task {
   task_kind?: string;
   platform?: string | null;
   daily_followup_date?: string | null;
+  team_id?: number | null;
+  score_penalty_enabled?: boolean;
   admin_highlighted?: boolean;
   admin_highlight_note_id?: number | null;
   admin_highlighted_at?: string | null;
@@ -45,6 +48,19 @@ interface TaskPlatformFollowup {
   completed_at: string | null;
   completed_by_id: number | null;
   completed_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TaskSubtask {
+  id: number;
+  task_id: number;
+  branch_type: "creative" | "landing_copy" | "campaign";
+  assigned_to_id: number | null;
+  assigned_to_name: string | null;
+  status: "pending" | "in_progress" | "completed" | "expired";
+  notes: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -282,17 +298,26 @@ async function autoExpire() {
 
 // ── Attach media to tasks ─────────────────────────────────────────────────────
 
-async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: number; platform_followups?: TaskPlatformFollowup[] })[]) {
+async function attachMedia(tasks: (Task & {
+  media?: TaskMedia[];
+  opus_score?: number;
+  platform_followups?: TaskPlatformFollowup[];
+  subtasks?: TaskSubtask[];
+})[]) {
   if (!tasks.length) return tasks;
   const ids = tasks.map(t => t.id);
 
-  const [mediaRows, platformRows] = await Promise.all([
+  const [mediaRows, platformRows, subtaskRows] = await Promise.all([
     query<TaskMedia>(
       `SELECT * FROM task_media WHERE task_id = ANY($1::int[]) ORDER BY is_primary DESC, created_at ASC`,
       [ids]
     ),
     query<TaskPlatformFollowup>(
       `SELECT * FROM task_platform_followups WHERE task_id = ANY($1::int[]) ORDER BY id ASC`,
+      [ids]
+    ),
+    query<TaskSubtask>(
+      `SELECT * FROM task_subtasks WHERE task_id = ANY($1::int[]) ORDER BY id ASC`,
       [ids]
     ),
   ]);
@@ -309,10 +334,17 @@ async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: nu
     platformMap.get(p.task_id)!.push(p);
   }
 
+  const subtaskMap = new Map<number, TaskSubtask[]>();
+  for (const s of subtaskRows) {
+    if (!subtaskMap.has(s.task_id)) subtaskMap.set(s.task_id, []);
+    subtaskMap.get(s.task_id)!.push(s);
+  }
+
   return tasks.map(t => ({
     ...t,
     media: mediaMap.get(t.id) ?? [],
     platform_followups: platformMap.get(t.id) ?? [],
+    subtasks: subtaskMap.get(t.id) ?? [],
   }));
 }
 
