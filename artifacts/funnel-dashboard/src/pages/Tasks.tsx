@@ -897,6 +897,9 @@ function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, o
   onClearHighlight: (id: number) => void;
   onChanged: () => Promise<void>;
 }) {
+  const [dailyAssignee,setDailyAssignee] = useState(String(task.assigned_to_id??""));
+  const [savingDailyAssignee,setSavingDailyAssignee] = useState(false);
+  const [dailyAssignError,setDailyAssignError] = useState("");
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [notes,      setNotes]      = useState<TaskNote[]>([]);
   const [views,      setViews]      = useState<TaskView[]>([]);
@@ -1331,6 +1334,26 @@ function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, o
           </div>
         )}
 
+        {isLeader && leaderTeamId && task.task_kind==="daily_product_followup" && ["pending","in_progress"].includes(task.status) && <div className="px-4 pb-3" dir="rtl">
+          <section className="rounded-xl border border-blue-700/50 bg-blue-950/30 p-3 space-y-2">
+            <h3 className="font-semibold text-sm text-blue-300">تعديل إسناد التاسك اليومي الحالي</h3>
+            <p className="text-xs text-slate-400">تعديل المسؤول عن مهمة اليوم فقط. توزيع المنتج للأيام القادمة يتم من المخزون.</p>
+            <div className="flex flex-wrap gap-2">
+              <select className="rounded bg-slate-800 border border-slate-600 p-2 text-sm flex-1" value={dailyAssignee} onChange={e=>setDailyAssignee(e.target.value)}>
+                <option value="">اختر عضو الفريق</option>{teamMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.username}</option>)}
+              </select>
+              <button className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-40" disabled={savingDailyAssignee||!dailyAssignee||dailyAssignee===String(task.assigned_to_id)} onClick={async()=>{
+                setSavingDailyAssignee(true);setDailyAssignError("");
+                try{
+                  const res=await fetch(`/api/teams/${leaderTeamId}/tasks/${task.id}/assign`,{method:"PATCH",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({assigned_to_id:Number(dailyAssignee)})});
+                  const json=await res.json();if(!res.ok)throw new Error(json.error||"فشل تعديل الإسناد");
+                  await onChanged();onClose();
+                }catch(e){setDailyAssignError((e as Error).message)}finally{setSavingDailyAssignee(false)}
+              }}>حفظ الإسناد</button>
+            </div>
+            {dailyAssignError&&<p className="text-xs text-red-400">{dailyAssignError}</p>}
+          </section>
+        </div>}
         {isLeader && leaderTeamId && task.team_id===leaderTeamId && !task.assigned_to_id && task.task_kind!=="team_parent_distributed" && <div className="px-4 pb-3"><TeamTaskDistribution task={task} teamId={leaderTeamId} members={teamMembers} onDistributed={async()=>{await onChanged();onClose();}} /></div>}
         <div className="px-4"><TaskEvaluation taskId={task.id} completed={task.status==="completed"} canReview={isAdmin||isLeader} /></div>
 
