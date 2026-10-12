@@ -2492,17 +2492,25 @@ export default function TasksPage() {
           ) : (
             <div className="space-y-5">
               {([
+                { kind: "manual", title: "المهام العادية" },
+                { kind: "daily", title: "المهام اليومية" },
+              ] as const).map(group => {
+                const groupTasks = filtered.filter(t => group.kind === "manual" ? t.task_kind !== "daily_product_followup" : t.task_kind === "daily_product_followup");
+                if (!groupTasks.length) return null;
+                return <div key={group.kind} className="space-y-3">
+                  <h2 className="text-sm font-bold text-white border-b border-slate-700 pb-2" dir="rtl">{group.title} ({groupTasks.length})</h2>
+              {([
                 { status: "in_progress" as TaskStatus, label: "جارية الآن", dot: "bg-blue-400", text: "text-blue-300" },
                 { status: "pending" as TaskStatus, label: "معلّقة", dot: "bg-amber-400", text: "text-amber-300" },
                 { status: "partial_completed" as TaskStatus, label: "مكتملة جزئيًا", dot: "bg-orange-400", text: "text-orange-300" },
                 { status: "expired" as TaskStatus, label: "منتهية / تحتاج مراجعة", dot: "bg-red-400", text: "text-red-300" },
                 { status: "completed" as TaskStatus, label: "مكتملة", dot: "bg-emerald-400", text: "text-emerald-300" },
               ]).map(section => {
-                const sectionTasks = filtered.filter(t => t.status === section.status);
+                const sectionTasks = groupTasks.filter(t => t.status === section.status);
                 if (sectionTasks.length === 0) return null;
 
                 return (
-                  <section key={section.status}>
+                  <section key={`${group.kind}-${section.status}`}>
                     <div className="flex items-center gap-2 mb-2">
                       <span className={`w-2 h-2 rounded-full ${section.dot}`} />
                       <h2 className={`text-xs font-semibold ${section.text}`}>{section.label}</h2>
@@ -2525,12 +2533,14 @@ export default function TasksPage() {
                   </section>
                 );
               })}
+                </div>;
+              })}
             </div>
           )}
         </>
       )}
 
-      {/* Leaderboard tab */}
+      {/* Leaderboard tab */
       {!loading && tab === "leaderboard" && (
         <div className="max-w-2xl mx-auto">
           <Leaderboard stats={stats} isAdmin={isAdmin} onChanged={() => fetchAll(true)} />
