@@ -349,7 +349,7 @@ router.get("/tasks", async (req, res) => {
           deadline ASC
       `)
     : teamId ? await query<Task>(`
-        SELECT * FROM tasks WHERE assigned_to_id = $1 OR assigned_to_id IN
+        SELECT * FROM tasks WHERE team_id=$2 OR assigned_to_id = $1 OR assigned_to_id IN
           (SELECT user_id FROM buyer_team_members WHERE team_id=$2)
         ORDER BY deadline ASC
       `, [userId,teamId]) : await query<Task>(`
@@ -618,6 +618,14 @@ router.post("/tasks", async (req, res) => {
   }
   const { title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes } =
     req.body as Partial<Task>;
+  const team_id = req.body.team_id == null ? null : Number(req.body.team_id);
+  if(team_id!==null){
+    if(req.session!.role!=="admin")return res.status(403).json({error:"إسناد المهمة للفريق متاح للأدمن فقط"});
+    if(!Number.isSafeInteger(team_id))return res.status(400).json({error:"رقم الفريق غير صحيح"});
+    const exists=await query("SELECT 1 FROM buyer_teams WHERE id=$1",[team_id]);
+    if(!exists.length)return res.status(404).json({error:"الفريق غير موجود"});
+    if(req.body.assigned_to_id!=null)return res.status(400).json({error:"اختر الفريق أو الشخص، مش الاتنين"});
+  }
   const inventory_product_id = (req.body.inventory_product_id as number) ?? null;
   const inventory_snapshot = req.body.inventory_snapshot ?? null;
 
@@ -637,7 +645,7 @@ router.post("/tasks", async (req, res) => {
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *
   `, [title, product_name ?? null, assigned_to_id ?? null, assigned_to_name ?? null,
       deadline, success_metric ?? null, notes ?? null, req.session!.userId, req.session!.username,
-      inventory_product_id, inventory_snapshot ? JSON.stringify(inventory_snapshot) : null]);
+      inventory_product_id, inventory_snapshot ? JSON.stringify(inventory_snapshot) : null,team_id]);
 
   const [withMedia] = await attachMedia([row]);
   if (row.assigned_to_id) {
