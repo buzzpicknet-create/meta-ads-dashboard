@@ -54,6 +54,9 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loadingAssignees, setLoadingAssignees] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [teams,setTeams] = useState<{id:number;name:string;leader_name:string}[]>([]);
+  const [selectedTeam,setSelectedTeam] = useState("");
+  const [directMode,setDirectMode] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [productName, setProductName] = useState("");
   const [offers, setOffers] = useState("");
@@ -66,6 +69,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(()=>{fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then((data: {id:number;name:string;leader_name:string}[])=>setTeams(Array.isArray(data)?data:[])).catch(()=>{});},[]);
   useEffect(() => {
     let active = true;
     (async () => {
@@ -138,11 +142,12 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
     e.preventDefault();
     setError(null);
     if (!taskTitle.trim() || !deadline) return setError("عنوان المهمة والموعد النهائي مطلوبان");
-    if (!selectedIds.length) return setError("اختار ميديا باير واحد على الأقل");
+    if (!directMode && !selectedTeam) return setError("اختار الفريق المستلم للمهمة");
+    if (directMode && !selectedIds.length) return setError("اختار ميديا باير واحد على الأقل");
 
     setSaving(true);
     try {
-      for (const buyerId of selectedIds) {
+      for (const buyerId of directMode ? selectedIds : [null]) {
         const buyer = assignees.find(a => a.id === buyerId);
         const r = await fetch("/api/tasks", {
           method: "POST",
@@ -152,6 +157,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
             title: taskTitle.trim(),
             product_name: productName.trim() || null,
             assigned_to_id: buyerId,
+            team_id: directMode ? null : Number(selectedTeam),
             assigned_to_name: buyer?.username || null,
             deadline: new Date(deadline).toISOString(),
             success_metric: metric.trim() || null,
@@ -163,7 +169,7 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
         await attachProductMedia(Number(data.id));
       }
 
-      onDone(`تم تحويل المنتج إلى ${selectedIds.length} ${selectedIds.length === 1 ? "مهمة" : "مهام"} للميديا بايرز: ${selectedNames.join("، ")}`);
+      onDone(directMode ? `تم إنشاء المهمة للميديا بايرز: ${selectedNames.join("، ")}` : "تم إرسال المهمة للفريق وبانتظار توزيع قائد الفريق");
     } catch (e) {
       setError(e instanceof Error ? e.message : "تعذر إنشاء المهمة");
     } finally {
@@ -192,14 +198,15 @@ export default function ProductHuntingTaskModal({ product, onClose, onDone }: Pr
 
           <label className="grid gap-1.5"><span className="text-sm font-medium">العروض للميديا بايرز</span><textarea value={offers} onChange={e => { setOffers(e.target.value); setFinalNotesDirty(false); }} rows={3} placeholder="مثال: 1 قطعة 399ج — 2 قطعة 649ج" className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm resize-y" /></label>
 
-          <div>
-            <div className="flex items-center justify-between mb-2"><span className="text-sm font-medium flex items-center gap-1.5"><UserRound className="h-4 w-4" /> الميديا بايرز *</span>{selectedIds.length > 0 && <span className="text-xs text-muted-foreground">تم اختيار {selectedIds.length}</span>}</div>
-            <div className="rounded-xl border border-input p-2 grid sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto">
-              {loadingAssignees ? <div className="sm:col-span-2 py-5 text-center text-muted-foreground text-sm"><Loader2 className="h-4 w-4 animate-spin inline ml-2" /> جاري التحميل...</div> : assignees.map(a => {
-                const selected = selectedIds.includes(a.id);
-                return <button key={a.id} type="button" onClick={() => toggleBuyer(a.id)} className={`h-10 rounded-lg border px-3 text-sm flex items-center justify-between gap-2 ${selected ? "bg-primary/10 border-primary text-primary" : "border-input hover:bg-muted"}`}><span>{a.username}</span>{selected && <Check className="h-4 w-4" />}</button>;
-              })}
-            </div>
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={directMode} onChange={e=>setDirectMode(e.target.checked)}/> إسناد مباشر لشخص (استثناء)</label>
+            {!directMode ? <label className="grid gap-2"><span className="text-sm font-medium">الفريق المستلم *</span>
+              <select className="h-10 rounded-lg border border-input bg-background px-3" value={selectedTeam} onChange={e=>setSelectedTeam(e.target.value)}>
+                <option value="">اختر الفريق</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name} — {t.leader_name}</option>)}
+              </select>
+              <span className="text-xs text-muted-foreground">التاسك هيوصل لقائد الفريق بانتظار التوزيع على الأعضاء.</span>
+            </label> :
+              <div className="rounded-xl border p-2 grid sm:grid-cols-2 gap-2">{assignees.map(a=><button key={a.id} type="button" onClick={()=>toggleBuyer(a.id)} className={`rounded-lg border p-2 text-sm ${selectedIds.includes(a.id)?"border-primary bg-primary/10":"border-input"}`}>{a.username}</button>)}</div>}
           </div>
 
           <label className="grid gap-1.5"><span className="text-sm font-medium">مقياس النجاح</span><input value={metric} onChange={e => setMetric(e.target.value)} className="h-10 rounded-xl border border-input bg-background px-3 text-sm" /></label>
