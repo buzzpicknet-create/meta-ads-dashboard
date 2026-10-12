@@ -854,10 +854,40 @@ function InventoryResultSection({ taskId, existingResult }: {
   );
 }
 
+function TeamTaskDistribution({task,teamId,members,onDistributed}:{task:Task;teamId:number;members:{user_id:number;username:string}[];onDistributed:()=>Promise<void>}) {
+ const [choices,setChoices]=useState<Record<string,string>>({});
+ const [saving,setSaving]=useState(false);
+ const [error,setError]=useState("");
+ const branches=[["creative","كريتف"],["ad_copy","أد كوبي"],["campaign","كامبين"]] as const;
+ const submit=async()=>{
+  setSaving(true);setError("");
+  try{
+   const response=await fetch(`/api/teams/${teamId}/manual-tasks/${task.id}/branches`,{
+    method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({branches:branches.map(([key])=>({key,assigned_to_id:Number(choices[key])}))})
+   });
+   const result=await response.json();
+   if(!response.ok)throw new Error(result.error||"تعذر توزيع المهمة");
+   await onDistributed();
+  }catch(e){setError((e as Error).message)}finally{setSaving(false)}
+ };
+ return <section dir="rtl" className="rounded-xl border border-blue-700/50 bg-blue-950/30 p-4 space-y-3">
+  <h3 className="text-blue-300 font-bold text-sm">المهمة بانتظار توزيع قائد الفريق</h3>
+  <p className="text-slate-400 text-xs">وزّع الفروع الثلاثة على نفسك أو على أي عضو من فريقك. يمكن اختيار نفس الشخص لأكثر من فرع.</p>
+  <div className="grid sm:grid-cols-3 gap-3">{branches.map(([key,label])=><label key={key} className="space-y-1 text-xs text-slate-200 block">{label}
+   <select value={choices[key]??""} onChange={e=>setChoices(prev=>({...prev,[key]:e.target.value}))} className="w-full rounded-lg bg-slate-800 border border-slate-600 p-2 text-sm">
+    <option value="">اختر المسؤول</option>{members.map(m=><option key={m.user_id} value={m.user_id}>{m.username}</option>)}
+   </select>
+  </label>)}</div>
+  {error&&<p className="text-red-400 text-xs">{error}</p>}
+  <button onClick={submit} disabled={saving||!branches.every(([key])=>!!choices[key])} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-40">{saving?"جارٍ التوزيع...":"توزيع فروع المهمة"}</button>
+ </section>;
+}
+
 // ── Task Detail Modal ──────────────────────────────────────────────────────────
 
-function TaskDetailModal({ task, isAdmin, isLeader, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit, onClearHighlight, onChanged }: {
-  task: Task; isAdmin: boolean; isLeader: boolean;
+function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit, onClearHighlight, onChanged }: {
+  task: Task; isAdmin: boolean; isLeader: boolean; leaderTeamId:number|null; teamMembers:{user_id:number;username:string}[];
   onClose: () => void;
   onCheckin: (task: Task) => void;
   onComplete: (id: number) => void;
@@ -1301,6 +1331,7 @@ function TaskDetailModal({ task, isAdmin, isLeader, onClose, onCheckin, onComple
           </div>
         )}
 
+        {isLeader && leaderTeamId && task.team_id===leaderTeamId && !task.assigned_to_id && task.task_kind!=="team_parent_distributed" && <div className="px-4 pb-3"><TeamTaskDistribution task={task} teamId={leaderTeamId} members={teamMembers} onDistributed={async()=>{await onChanged();onClose();}} /></div>}
         <div className="px-4"><TaskEvaluation taskId={task.id} completed={task.status==="completed"} canReview={isAdmin||isLeader} /></div>
 
         {/* Footer actions */}
@@ -2269,24 +2300,6 @@ export default function TasksPage() {
         </div>
       </div>
 
-      {isLeader && leaderTeamId && tasks.some(t=>t.team_id===leaderTeamId && !t.assigned_to_id && t.task_kind!=="team_parent_distributed") && <div className="mb-4 p-4 rounded-xl border border-blue-800 bg-slate-900 space-y-3" dir="rtl">
-        <h2 className="text-sm font-bold text-blue-300">مهام الفريق بانتظار التوزيع</h2>
-        {tasks.filter(t=>t.team_id===leaderTeamId && !t.assigned_to_id && t.task_kind!=="team_parent_distributed").map(task=><div key={task.id} className="border-b border-slate-700 pb-3 space-y-2">
-          <div className="text-sm font-semibold">{task.title}</div>
-          <div className="grid sm:grid-cols-3 gap-2">
-            {([["creative","كريتف"],["ad_copy","أد كوبي"],["campaign","كامبين"]] as const).map(([key,label])=><label className="text-xs text-slate-300 space-y-1" key={key}>{label}
-              <select className="rounded bg-slate-800 p-2 text-sm w-full" value={branchChoices[task.id]?.[key]??""} onChange={e=>setBranchChoices(prev=>({...prev,[task.id]:{...prev[task.id],[key]:e.target.value}}))}>
-                <option value="">اختر عضوًا</option>{teamMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.username}</option>)}
-              </select>
-            </label>)}
-          </div>
-          <button disabled={branchSaving===task.id||!["creative","ad_copy","campaign"].every(key=>branchChoices[task.id]?.[key])} className="rounded bg-blue-600 px-3 py-2 text-sm disabled:opacity-40"
-            onClick={async()=>{setBranchSaving(task.id);try{const branches=["creative","ad_copy","campaign"].map(key=>({key,assigned_to_id:Number(branchChoices[task.id][key])}));const res=await fetch(`/api/teams/${leaderTeamId}/manual-tasks/${task.id}/branches`,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({branches})});if(!res.ok)throw new Error((await res.json()).error||"تعذر التوزيع");await fetchAll(true);}catch(e){setError((e as Error).message)}finally{setBranchSaving(null)}}}>
-            توزيع الفروع الثلاثة
-          </button>
-        </div>)}
-      </div>}
-
       {/* Stats strip */}
       {!loading && (
         <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -2515,6 +2528,8 @@ export default function TasksPage() {
           task={detailTask}
           isAdmin={isAdmin}
           isLeader={isLeader}
+          leaderTeamId={leaderTeamId}
+          teamMembers={teamMembers}
           onClose={() => setDetailTask(null)}
           onCheckin={t => { setDetailTask(null); setCheckinTask(t); }}
           onComplete={id => { patchTask(id, { action: "complete" }); setDetailTask(null); }}
