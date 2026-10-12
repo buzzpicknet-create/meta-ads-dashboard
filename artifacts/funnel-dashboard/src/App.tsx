@@ -46,7 +46,7 @@ const ALL_NAV_ITEMS = [
   { href: "/creative",   label: "مركز الكريتف",     Icon: Sparkles,        useRoute: "/creative",   roles: ["admin", "media_buyer"] },
   { href: "/library",    label: "مركز العمليات",    Icon: Library,         useRoute: "/library",    roles: ["admin", "media_buyer"] },
   { href: "/inventory",  label: "المخزون",           Icon: Package,         useRoute: "/inventory",  roles: ["admin", "media_buyer"] },
-  { href: "/product-hunting", label: "صيد المنتجات", Icon: PackageSearch,  useRoute: "/product-hunting", roles: ["admin", "media_buyer"] },
+  { href: "/product-hunting", label: "صيد المنتجات", Icon: PackageSearch,  useRoute: "/product-hunting", roles: ["admin"] },
   { href: "/tasks",      label: "المهام اليومية",   Icon: CalendarDays,    useRoute: "/tasks",      roles: ["admin", "media_buyer"] },
   { href: "/landing-page", label: "صفحات البيع",    Icon: Globe,           useRoute: "/landing-page", roles: ["admin", "media_buyer"] },
   { href: "/admin",      label: "المستخدمون",       Icon: Settings,        useRoute: "/admin",       roles: ["admin"] },
