@@ -79,4 +79,11 @@ router.use(productHuntingRouter);
 router.use(creativeRoutineRouter);
 router.use(landingLibraryIntegrationRouter);
 
+router.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  console.error("API route failure", req.method, req.originalUrl, err);
+  if (res.headersSent) return;
+  const error = err as {code?:string};
+  if (error?.code === "42P01") return res.status(503).json({error:"جدول بيانات غير موجود. يرجى مراجعة تهيئة قاعدة البيانات."});
+  res.status(500).json({error:"فشل الطلب على السيرفر. راجع سجلات Render."});
+});
 export default router;
