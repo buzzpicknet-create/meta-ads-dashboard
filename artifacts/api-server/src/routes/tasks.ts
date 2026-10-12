@@ -43,6 +43,7 @@ interface Task {
   created_at: string;
   updated_at: string;
   task_kind?: string;
+  parent_task_id?: number | null;
   platform?: string | null;
   daily_followup_date?: string | null;
   admin_highlighted?: boolean;
@@ -306,7 +307,7 @@ async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: nu
   const parentIds = tasks.map(t => t.parent_task_id).filter((id): id is number => typeof id === "number" && id > 0);
   const mediaIds = [...new Set([...ids, ...parentIds])];
 
-  const [mediaRows, platformRows] = await Promise.all([
+  const [mediaRows, platformRows, parents] = await Promise.all([
     query<TaskMedia>(
       `SELECT * FROM task_media WHERE task_id = ANY($1::int[]) ORDER BY is_primary DESC, created_at ASC`,
       [mediaIds]
@@ -315,6 +316,7 @@ async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: nu
       `SELECT * FROM task_platform_followups WHERE task_id = ANY($1::int[]) ORDER BY id ASC`,
       [ids]
     ),
+    parentIds.length ? query<{id:number;notes:string|null}>(`SELECT id,notes FROM tasks WHERE id=ANY($1::int[])`,[parentIds]) : Promise.resolve([]),
   ]);
 
   const mediaMap = new Map<number, TaskMedia[]>();
@@ -329,8 +331,10 @@ async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: nu
     platformMap.get(p.task_id)!.push(p);
   }
 
+  const parentNotes = new Map(parents.map(p => [p.id,p.notes]));
   return tasks.map(t => ({
     ...t,
+    notes: t.notes?.trim() ? t.notes : (parentNotes.get(t.parent_task_id ?? -1) ?? t.notes),
     media: [...(mediaMap.get(t.parent_task_id ?? -1) ?? []), ...(mediaMap.get(t.id) ?? [])],
     platform_followups: platformMap.get(t.id) ?? [],
   }));
