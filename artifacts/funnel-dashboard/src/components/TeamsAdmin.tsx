@@ -8,6 +8,8 @@ async function api(url:string, init?:RequestInit) {
 }
 export default function TeamsAdmin(){
  const [teams,setTeams]=useState<Team[]>([]),[users,setUsers]=useState<User[]>([]);
+ const [productCounts,setProductCounts]=useState<Record<number,number>>({});
+ useEffect(()=>{teams.forEach(t=>{api("/teams/"+t.id+"/products").then((rows:unknown[])=>setProductCounts(p=>({...p,[t.id]:rows.length}))).catch(()=>{});});},[teams]);
  const [name,setName]=useState(""),[leader,setLeader]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
  const [ratings,setRatings]=useState<Record<number,{member:string;speed:number;accuracy:number;followup:number;notes:string}>>({});
  const refresh=()=>api("/teams").then(setTeams).catch(e=>setError(e.message));
@@ -25,7 +27,7 @@ export default function TeamsAdmin(){
   </div>
   {teams.map(t=>{const rating=ratings[t.id]||{member:"",speed:5,accuracy:5,followup:5,notes:""};const set=(update:Partial<typeof rating>)=>setRatings(p=>({...p,[t.id]:{...rating,...update}}));return <div key={t.id} className="rounded-lg border p-3 space-y-3">
    <h3 className="font-semibold">{t.name} <span className="text-xs text-muted-foreground">— القائد: {t.leader_name}</span></h3>
-   <div className="text-sm">الأعضاء: {t.members.map(m=>m.username).join("، ")||"لا يوجد"}</div>
+   <div className="text-sm">الأعضاء: {t.members.map(m=>m.username).join("، ")||"لا يوجد"} — المنتجات التابعة للفريق: {productCounts[t.id] ?? "…"}</div>
    <div className="flex gap-2"><select className="rounded border bg-background p-2 text-sm" defaultValue="" id={"member-"+t.id}><option value="">إضافة عضو</option>{buyers.filter(u=>!t.members.some(m=>m.user_id===u.id)).map(u=><option key={u.id} value={u.id}>{u.username}</option>)}</select><button className="rounded border px-3 py-1" disabled={busy} onClick={()=>{const el=document.getElementById("member-"+t.id) as HTMLSelectElement;if(el?.value)write("/teams/"+t.id+"/members","PUT",{user_id:Number(el.value)})}}>إضافة</button></div>
    <div className="border-t pt-3 space-y-2"><p className="text-sm font-semibold">تقييم عضو الفريق</p>
     <select className="rounded border bg-background p-2 text-sm" value={rating.member} onChange={e=>set({member:e.target.value})}><option value="">اختر العضو</option>{t.members.map(m=><option key={m.user_id} value={m.user_id}>{m.username}</option>)}</select>
