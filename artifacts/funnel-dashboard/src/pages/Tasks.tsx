@@ -2540,7 +2540,7 @@ export default function TasksPage() {
         </>
       )}
 
-      {/* Leaderboard tab */
+      {/* Leaderboard tab */}
       {!loading && tab === "leaderboard" && (
         <div className="max-w-2xl mx-auto">
           <Leaderboard stats={stats} isAdmin={isAdmin} onChanged={() => fetchAll(true)} />
