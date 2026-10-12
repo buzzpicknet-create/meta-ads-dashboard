@@ -23,6 +23,9 @@ async function init() {
   await query("CREATE TABLE IF NOT EXISTS buyer_team_product_delegations (inventory_product_id INTEGER PRIMARY KEY REFERENCES buyer_team_products(inventory_product_id) ON DELETE CASCADE, assigned_to_id INTEGER NOT NULL REFERENCES users(id), assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   await query("CREATE TABLE IF NOT EXISTS buyer_team_platform_delegations (inventory_product_id INTEGER NOT NULL, team_id INTEGER NOT NULL REFERENCES buyer_teams(id), platform TEXT NOT NULL CHECK (platform IN ('meta','google','tiktok')), assigned_to_id INTEGER NOT NULL REFERENCES users(id), PRIMARY KEY (inventory_product_id,team_id,platform))");
   await query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES buyer_teams(id)");
+  await query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id INTEGER REFERENCES tasks(id)");
+  await query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_branch TEXT");
+  await query("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_parent_branch ON tasks(parent_task_id,task_branch) WHERE parent_task_id IS NOT NULL AND task_branch IS NOT NULL");
   initialized = true;
 }
 router.use("/teams", async (_req,res,next)=>{try{await init();next();}catch(e){next(e);}});
@@ -173,5 +176,31 @@ router.patch("/teams/:id/manual-tasks/:taskId/assign",async(req,res)=>{
  const [result]=await query("UPDATE tasks SET assigned_to_id=$3,assigned_to_name=$4,updated_at=NOW() WHERE id=$1 AND team_id=$2 AND task_kind IS DISTINCT FROM 'daily_product_followup' AND status IN ('pending','in_progress') RETURNING *",[task,team,member,buyer.username]);
  if(!result)return res.status(404).json({error:"المهمة غير موجودة في الفريق أو لم تعد قابلة للتوزيع"});
  res.json(result);
+});
+router.post("/teams/:id/manual-tasks/:taskId/branches",async(req,res)=>{
+ const teamId=Number(req.params.id),parentId=Number(req.params.taskId),userId=req.session!.userId;
+ if(!Number.isSafeInteger(teamId)||!Number.isSafeInteger(parentId))return res.status(400).json({error:"بيانات غير صحيحة"});
+ const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND ($2::boolean OR leader_user_id=$3)",[teamId,req.session!.role==="admin",userId]);
+ if(!leader.length)return res.status(403).json({error:"التوزيع لقائد الفريق فقط"});
+ const [parent]=await query<any>("SELECT * FROM tasks WHERE id=$1 AND team_id=$2 AND assigned_to_id IS NULL AND task_kind IS DISTINCT FROM 'daily_product_followup'",[parentId,teamId]);
+ if(!parent)return res.status(404).json({error:"المهمة مش موجودة أو اتوزعت بالفعل"});
+ const allowed=["creative","ad_copy","campaign"];
+ const branches=req.body?.branches;
+ if(!Array.isArray(branches)||branches.length!==3||branches.some((b:any)=>!allowed.includes(b?.key)||!Number.isSafeInteger(Number(b?.assigned_to_id)))||new Set(branches.map((b:any)=>b.key)).size!==3)return res.status(400).json({error:"يجب توزيع الفروع الثلاثة على أعضاء الفريق"});
+ const members=await query<{id:number;username:string}>("SELECT u.id,u.username FROM users u JOIN buyer_team_members m ON m.user_id=u.id WHERE m.team_id=$1 AND u.deleted_at IS NULL",[teamId]);
+ const names=new Map(members.map(m=>[m.id,m.username]));
+ if(branches.some((b:any)=>!names.has(Number(b.assigned_to_id))))return res.status(400).json({error:"أحد الأعضاء خارج الفريق"});
+ const labels:Record<string,string>={creative:"كريتف",ad_copy:"أد كوبي",campaign:"كامبين"};
+ const created=[];
+ for(const b of branches){
+   const id=Number(b.assigned_to_id);
+   const [row]=await query<any>(`INSERT INTO tasks(title,product_name,assigned_to_id,assigned_to_name,deadline,success_metric,notes,created_by_id,created_by_name,team_id,parent_task_id,task_branch)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+   ON CONFLICT(parent_task_id,task_branch) WHERE parent_task_id IS NOT NULL AND task_branch IS NOT NULL
+   DO UPDATE SET assigned_to_id=EXCLUDED.assigned_to_id,assigned_to_name=EXCLUDED.assigned_to_name RETURNING *`,
+   [`${parent.title} — ${labels[b.key]}`,parent.product_name,id,names.get(id),parent.deadline,parent.success_metric,parent.notes,parent.created_by_id,parent.created_by_name,teamId,parentId,b.key]);
+   created.push(row);
+ }
+ res.json({tasks:created});
 });
 export default router;
