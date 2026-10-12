@@ -4,7 +4,15 @@ type Team = { id:number; name:string; leader_user_id:number; leader_name:string;
 type User = { id:number; username:string; role:string };
 async function api(url:string, init?:RequestInit) {
  const res=await fetch("/api"+url,{credentials:"include",...init,headers:{"Content-Type":"application/json",...(init?.headers||{})}});
- const data=await res.json();if(!res.ok)throw new Error(data.error||"حدث خطأ");return data;
+ const type=res.headers.get("content-type")||"";
+ const raw=await res.text();
+ if(!type.includes("application/json")){
+   throw new Error(res.ok?"السيرفر رجّع صفحة بدل البيانات. جرّب تحديث الصفحة.":`تعذّر تحميل الفرق من السيرفر (HTTP ${res.status}).`);
+ }
+ let data:any;
+ try{data=JSON.parse(raw)}catch{throw new Error("رد السيرفر غير صالح. جرّب مرة تانية.");}
+ if(!res.ok)throw new Error(data.error||`خطأ من السيرفر (${res.status})`);
+ return data;
 }
 export default function TeamsAdmin(){
  const [teams,setTeams]=useState<Team[]>([]),[users,setUsers]=useState<User[]>([]);
