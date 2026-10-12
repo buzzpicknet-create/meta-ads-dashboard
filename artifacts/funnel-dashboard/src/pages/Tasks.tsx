@@ -44,6 +44,7 @@ interface Task {
   product_name: string | null;
   assigned_to_id: number | null;
   team_id?: number | null;
+  team_name?: string | null;
   assigned_to_name: string | null;
   deadline: string;
   success_metric: string | null;
@@ -1004,6 +1005,7 @@ function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, o
               }`}>
                 {task.task_kind === "daily_product_followup" ? "متابعة يومية" : "مهمة عادية"}
               </span>
+              {task.team_id && !task.assigned_to_id && <span className="rounded-full border border-blue-500/40 bg-blue-500/15 text-blue-200 text-[10px] px-2 py-0.5">تيم {task.team_name || task.team_id} — بانتظار توزيع السينيور</span>}
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${STATUS_COLOR[task.status]}`}>
                 {STATUS_LABEL[task.status]}
               </span>
