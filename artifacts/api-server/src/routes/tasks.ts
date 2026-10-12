@@ -486,20 +486,44 @@ async function attachMedia(tasks: (Task & {
 router.get("/tasks", async (req, res) => {
   await autoExpire();
   const userId = req.session!.userId;
-  const role   = req.session!.role;
+  const role = req.session!.role;
 
-  const rows: Task[] = role === "admin"
-    ? await query<Task>(`
-        SELECT * FROM tasks ORDER BY
-          CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
-          deadline ASC
-      `)
-    : await query<Task>(`
-        SELECT * FROM tasks WHERE assigned_to_id = $1
+  let rows: Task[] = [];
+
+  if (role === "admin") {
+    rows = await query<Task>(`
+      SELECT * FROM tasks
+      ORDER BY
+        CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
+        deadline ASC
+    `);
+  } else {
+    const mine = await teamForUser(userId);
+    if (mine?.member_role === "senior") {
+      rows = await query<Task>(`
+        SELECT DISTINCT t.*
+        FROM tasks t
+        LEFT JOIN task_subtasks s ON s.task_id = t.id
+        WHERE t.team_id = $1
+           OR t.assigned_to_id = $2
+           OR s.assigned_to_id = $2
         ORDER BY
-          CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
-          deadline ASC
+          CASE t.status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
+          t.deadline ASC
+      `, [mine.team_id, userId]);
+    } else {
+      rows = await query<Task>(`
+        SELECT DISTINCT t.*
+        FROM tasks t
+        LEFT JOIN task_subtasks s ON s.task_id = t.id
+        WHERE t.assigned_to_id = $1
+           OR s.assigned_to_id = $1
+        ORDER BY
+          CASE t.status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
+          t.deadline ASC
       `, [userId]);
+    }
+  }
 
   const withMedia = await attachMedia(rows.map(t => ({ ...t, opus_score: calcScore(t) })));
   res.json(withMedia);
@@ -510,10 +534,9 @@ router.get("/tasks", async (req, res) => {
 
 router.get("/tasks/by-product/:productId", async (req, res) => {
   const productId = Number(String(req.params.productId));
+  const userId = req.session!.userId;
+  const role = req.session!.role;
 
-  // META_INVENTORY_TASKS_STABILITY_V1
-  // inventory_product_id is PostgreSQL INTEGER, so never send an unsigned
-  // 32-bit hash to the database.
   if (
     !Number.isSafeInteger(productId)
     || productId === 0
@@ -526,12 +549,39 @@ router.get("/tasks/by-product/:productId", async (req, res) => {
     });
   }
 
-  const rows = await query<Task>(`
-    SELECT * FROM tasks
-    WHERE inventory_product_id = $1
-    ORDER BY created_at DESC
-    LIMIT 20
-  `, [productId]);
+  let rows: Task[] = [];
+
+  if (role === "admin") {
+    rows = await query<Task>(`
+      SELECT * FROM tasks
+      WHERE inventory_product_id = $1
+      ORDER BY created_at DESC
+      LIMIT 20
+    `, [productId]);
+  } else {
+    const mine = await teamForUser(userId);
+    if (mine?.member_role === "senior") {
+      rows = await query<Task>(`
+        SELECT DISTINCT t.*
+        FROM tasks t
+        LEFT JOIN task_subtasks s ON s.task_id = t.id
+        WHERE t.inventory_product_id = $1
+          AND (t.team_id = $2 OR t.assigned_to_id = $3 OR s.assigned_to_id = $3)
+        ORDER BY t.created_at DESC
+        LIMIT 20
+      `, [productId, mine.team_id, userId]);
+    } else {
+      rows = await query<Task>(`
+        SELECT DISTINCT t.*
+        FROM tasks t
+        LEFT JOIN task_subtasks s ON s.task_id = t.id
+        WHERE t.inventory_product_id = $1
+          AND (t.assigned_to_id = $2 OR s.assigned_to_id = $2)
+        ORDER BY t.created_at DESC
+        LIMIT 20
+      `, [productId, userId]);
+    }
+  }
 
   const withMedia = await attachMedia(rows.map(t => ({ ...t, opus_score: calcScore(t) })));
   res.json(withMedia);
