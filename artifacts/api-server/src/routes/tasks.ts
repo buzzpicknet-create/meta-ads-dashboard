@@ -8,6 +8,21 @@ import { fetchAllInventory } from "./inventory.js";
 const router = Router();
 const objectStorage = new ObjectStorageService();
 
+async function leaderTeam(userId: number): Promise<number | null> {
+  try {
+    const rows=await query<{id:number}>("SELECT id FROM buyer_teams WHERE leader_user_id=$1 LIMIT 1",[userId]);
+    return rows[0]?.id ?? null;
+  } catch(e) {
+    if ((e as {code?:string}).code === "42P01") return null;
+    throw e;
+  }
+}
+async function sameTeam(teamId:number, buyerId:number):Promise<boolean> {
+  const rows=await query("SELECT 1 FROM buyer_team_members WHERE team_id=$1 AND user_id=$2",[teamId,buyerId]);
+  return rows.length>0;
+}
+
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Task {
@@ -323,13 +338,18 @@ router.get("/tasks", async (req, res) => {
   const userId = req.session!.userId;
   const role   = req.session!.role;
 
+  const teamId = role === "admin" ? null : await leaderTeam(userId);
   const rows: Task[] = role === "admin"
     ? await query<Task>(`
         SELECT * FROM tasks ORDER BY
           CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
           deadline ASC
       `)
-    : await query<Task>(`
+    : teamId ? await query<Task>(`
+        SELECT * FROM tasks WHERE assigned_to_id = $1 OR assigned_to_id IN
+          (SELECT user_id FROM buyer_team_members WHERE team_id=$2)
+        ORDER BY deadline ASC
+      `, [userId,teamId]) : await query<Task>(`
         SELECT * FROM tasks WHERE assigned_to_id = $1
         ORDER BY
           CASE status WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 WHEN 'partial_completed' THEN 3 WHEN 'expired' THEN 4 ELSE 5 END,
@@ -455,9 +475,10 @@ router.get("/tasks/stats", async (_req, res) => {
 
 // ── GET /api/tasks/assignees ──────────────────────────────────────────────────
 
-router.get("/tasks/assignees", async (_req, res) => {
+router.get("/tasks/assignees", async (req, res) => {
+  const teamId=req.session!.role==="admin" ? null : await leaderTeam(req.session!.userId);
   const rows = await query<{ id: number; username: string; role: string }>(
-    `SELECT id, username, role FROM users WHERE deleted_at IS NULL AND role IN ('admin','media_buyer') ORDER BY username`
+    `SELECT id, username, role FROM users WHERE deleted_at IS NULL AND role IN ('admin','media_buyer') AND ($1::boolean OR ($2::integer IS NOT NULL AND id IN (SELECT user_id FROM buyer_team_members WHERE team_id=$2))) ORDER BY username`, [req.session!.role === 'admin',teamId]
   );
   res.json(rows);
 });
@@ -586,7 +607,12 @@ router.delete("/tasks/score-deductions/:id", requireAdmin, async (req, res) => {
 
 // ── POST /api/tasks ───────────────────────────────────────────────────────────
 
-router.post("/tasks", requireAdmin, async (req, res) => {
+router.post("/tasks", async (req, res) => {
+  if(req.session!.role!=="admin"){
+    const teamId=await leaderTeam(req.session!.userId);
+    if(!teamId || !Number.isSafeInteger(Number(req.body?.assigned_to_id)) || !(await sameTeam(teamId,Number(req.body.assigned_to_id))))
+      return res.status(403).json({error:"يمكن لقائد الفريق إسناد المهام لأعضاء فريقه فقط"});
+  }
   const { title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes } =
     req.body as Partial<Task>;
   const inventory_product_id = (req.body.inventory_product_id as number) ?? null;
