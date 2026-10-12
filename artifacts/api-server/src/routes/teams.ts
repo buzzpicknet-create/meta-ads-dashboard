@@ -22,6 +22,7 @@ async function init() {
     ON CONFLICT(inventory_product_id) DO NOTHING`);
   await query("CREATE TABLE IF NOT EXISTS buyer_team_product_delegations (inventory_product_id INTEGER PRIMARY KEY REFERENCES buyer_team_products(inventory_product_id) ON DELETE CASCADE, assigned_to_id INTEGER NOT NULL REFERENCES users(id), assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   await query("CREATE TABLE IF NOT EXISTS buyer_team_platform_delegations (inventory_product_id INTEGER NOT NULL, team_id INTEGER NOT NULL REFERENCES buyer_teams(id), platform TEXT NOT NULL CHECK (platform IN ('meta','google','tiktok')), assigned_to_id INTEGER NOT NULL REFERENCES users(id), PRIMARY KEY (inventory_product_id,team_id,platform))");
+  await query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES buyer_teams(id)");
   initialized = true;
 }
 router.use("/teams", async (_req,res,next)=>{try{await init();next();}catch(e){next(e);}});
@@ -162,4 +163,15 @@ router.post("/teams/task-reviews/:taskId",async(req,res)=>{
  res.json(row);
 });
 
+router.patch("/teams/:id/manual-tasks/:taskId/assign",async(req,res)=>{
+ const team=Number(req.params.id),task=Number(req.params.taskId),member=Number(req.body?.assigned_to_id);
+ if(![team,task,member].every(Number.isSafeInteger))return res.status(400).json({error:"بيانات غير صحيحة"});
+ const allowed=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND ($2::boolean OR leader_user_id=$3)",[team,req.session!.role==="admin",req.session!.userId]);
+ if(!allowed.length)return res.status(403).json({error:"ليس لديك صلاحية توزيع مهام هذا الفريق"});
+ const [buyer]=await query<{username:string}>("SELECT u.username FROM buyer_team_members m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 AND m.user_id=$2 AND u.deleted_at IS NULL",[team,member]);
+ if(!buyer)return res.status(400).json({error:"العضو ليس تابعًا لهذا الفريق"});
+ const [result]=await query("UPDATE tasks SET assigned_to_id=$3,assigned_to_name=$4,updated_at=NOW() WHERE id=$1 AND team_id=$2 AND task_kind IS DISTINCT FROM 'daily_product_followup' AND status IN ('pending','in_progress') RETURNING *",[task,team,member,buyer.username]);
+ if(!result)return res.status(404).json({error:"المهمة غير موجودة في الفريق أو لم تعد قابلة للتوزيع"});
+ res.json(result);
+});
 export default router;
