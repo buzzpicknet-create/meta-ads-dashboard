@@ -145,11 +145,12 @@ export async function generateDailyProductFollowupTasks(): Promise<{ created: nu
       a.product_name,
       a.source_store,
       a.platform,
-      COALESCE(d.assigned_to_id,a.assigned_to_id) AS assigned_to_id,
+      COALESCE(pd.assigned_to_id,a.assigned_to_id) AS assigned_to_id,
       COALESCE(du.username,a.assigned_to_name) AS assigned_to_name
     FROM inventory_media_assignments a
-    LEFT JOIN buyer_team_product_delegations d ON d.inventory_product_id=a.inventory_product_id
-    LEFT JOIN users du ON du.id=d.assigned_to_id AND du.deleted_at IS NULL
+    LEFT JOIN buyer_teams team ON team.leader_user_id=a.assigned_to_id
+    LEFT JOIN buyer_team_platform_delegations pd ON pd.inventory_product_id=a.inventory_product_id AND pd.team_id=team.id AND pd.platform=a.platform
+    LEFT JOIN users du ON du.id=pd.assigned_to_id AND du.deleted_at IS NULL
     INNER JOIN users u ON u.id = COALESCE(du.id,a.assigned_to_id)
     WHERE a.is_active = TRUE
       AND u.deleted_at IS NULL
