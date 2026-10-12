@@ -21,6 +21,7 @@ async function init() {
     ORDER BY a.inventory_product_id,t.id
     ON CONFLICT(inventory_product_id) DO NOTHING`);
   await query("CREATE TABLE IF NOT EXISTS buyer_team_product_delegations (inventory_product_id INTEGER PRIMARY KEY REFERENCES buyer_team_products(inventory_product_id) ON DELETE CASCADE, assigned_to_id INTEGER NOT NULL REFERENCES users(id), assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await query("CREATE TABLE IF NOT EXISTS buyer_team_platform_delegations (inventory_product_id INTEGER NOT NULL, team_id INTEGER NOT NULL REFERENCES buyer_teams(id), platform TEXT NOT NULL CHECK (platform IN ('meta','google','tiktok')), assigned_to_id INTEGER NOT NULL REFERENCES users(id), PRIMARY KEY (inventory_product_id,team_id,platform))");
   initialized = true;
 }
 router.use("/teams", async (_req,res,next)=>{try{await init();next();}catch(e){next(e);}});
@@ -62,11 +63,30 @@ router.put("/teams/:id/products/:productId/delegate",async(req,res)=>{
  await query("INSERT INTO buyer_team_product_delegations(inventory_product_id,assigned_to_id) VALUES($1,$2) ON CONFLICT(inventory_product_id) DO UPDATE SET assigned_to_id=EXCLUDED.assigned_to_id,assigned_at=NOW()",[productId,buyerId]);
  res.json({success:true,assigned_to_id:buyerId});
 });
+router.put("/teams/:id/products/:productId/platform/:platform/delegate",async(req,res)=>{
+ const team=Number(req.params.id),product=Number(req.params.productId),platform=String(req.params.platform),member=req.body?.assigned_to_id==null?null:Number(req.body.assigned_to_id);
+ if(!Number.isSafeInteger(team)||!Number.isSafeInteger(product)||!["meta","google","tiktok"].includes(platform)||(member!==null&&!Number.isSafeInteger(member)))return res.status(400).json({error:"بيانات غير صحيحة"});
+ const owner=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND ($2::boolean OR leader_user_id=$3)",[team,req.session!.role==="admin",req.session!.userId]);
+ if(!owner.length)return res.status(403).json({error:"غير مسموح بالتوزيع لهذا الفريق"});
+ const active=await query("SELECT 1 FROM inventory_media_assignments a JOIN buyer_teams t ON t.leader_user_id=a.assigned_to_id WHERE t.id=$1 AND a.inventory_product_id=$2 AND a.platform=$3 AND a.is_active=TRUE",[team,product,platform]);
+ if(!active.length)return res.status(403).json({error:"هذه المنصة غير مسندة لفريقك"});
+ if(member===null){await query("DELETE FROM buyer_team_platform_delegations WHERE team_id=$1 AND inventory_product_id=$2 AND platform=$3",[team,product,platform]);return res.json({success:true});}
+ const allowed=await query("SELECT 1 FROM buyer_team_members m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 AND m.user_id=$2 AND u.deleted_at IS NULL",[team,member]);
+ if(!allowed.length)return res.status(400).json({error:"العضو غير تابع لفريقك"});
+ await query("INSERT INTO buyer_team_platform_delegations(inventory_product_id,team_id,platform,assigned_to_id) VALUES($1,$2,$3,$4) ON CONFLICT(inventory_product_id,team_id,platform) DO UPDATE SET assigned_to_id=EXCLUDED.assigned_to_id",[product,team,platform,member]);
+ res.json({success:true});
+});
 router.get("/teams/:id/products",async(req,res)=>{
  const team=Number(req.params.id),uid=req.session!.userId;
  const access=await query("SELECT 1 FROM buyer_teams t WHERE t.id=$1 AND ($2::boolean OR t.leader_user_id=$3 OR EXISTS(SELECT 1 FROM buyer_team_members m WHERE m.team_id=t.id AND m.user_id=$3))",[team,req.session!.role==="admin",uid]);
  if(!access.length)return res.status(403).json({error:"Not authorized"});
- const rows=await query("SELECT p.inventory_product_id,a.product_name,a.source_store,d.assigned_to_id,u.username AS assigned_to_name FROM buyer_team_products p LEFT JOIN buyer_team_product_delegations d ON d.inventory_product_id=p.inventory_product_id LEFT JOIN users u ON u.id=d.assigned_to_id LEFT JOIN LATERAL (SELECT product_name,source_store FROM inventory_media_assignments WHERE inventory_product_id=p.inventory_product_id ORDER BY is_active DESC LIMIT 1) a ON TRUE WHERE p.team_id=$1 ORDER BY a.product_name",[team]);
+ const rows=await query(`SELECT a.inventory_product_id,MAX(a.product_name) AS product_name,MAX(a.source_store) AS source_store,
+ ARRAY_AGG(DISTINCT a.platform) AS platforms,
+ jsonb_object_agg(a.platform, d.assigned_to_id) AS platform_delegations,
+ MIN(d.assigned_to_id) AS assigned_to_id
+ FROM inventory_media_assignments a JOIN buyer_teams t ON t.leader_user_id=a.assigned_to_id
+ LEFT JOIN buyer_team_platform_delegations d ON d.inventory_product_id=a.inventory_product_id AND d.team_id=t.id AND d.platform=a.platform
+ WHERE t.id=$1 AND a.is_active=TRUE GROUP BY a.inventory_product_id ORDER BY product_name`,[team]);
  res.json(rows);
 });
 router.put("/teams/:id/products/:productId",requireAdmin,async(req,res)=>{
