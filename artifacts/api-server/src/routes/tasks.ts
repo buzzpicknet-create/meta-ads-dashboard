@@ -589,14 +589,40 @@ router.get("/tasks/by-product/:productId", async (req, res) => {
 
 // ── GET /api/tasks/stats ──────────────────────────────────────────────────────
 
-router.get("/tasks/stats", async (_req, res) => {
-  const rows = await query<Task>(`
-    SELECT t.* FROM tasks t
-    INNER JOIN users u ON u.id = t.assigned_to_id
-    WHERE t.assigned_to_id IS NOT NULL
-      AND u.role = 'media_buyer'
-      AND u.deleted_at IS NULL
-  `);
+router.get("/tasks/stats", async (req, res) => {
+  const role = req.session!.role;
+  const userId = req.session!.userId;
+  let allowedIds: number[] | null = null;
+
+  if (role !== "admin") {
+    const mine = await teamForUser(userId);
+    if (mine?.member_role === "senior") {
+      const members = await query<{ user_id: number }>(`
+        SELECT user_id
+        FROM media_buyer_team_members
+        WHERE team_id = $1 AND is_active = TRUE
+      `, [mine.team_id]);
+      allowedIds = members.map((m) => m.user_id);
+    } else {
+      allowedIds = [userId];
+    }
+  }
+
+  const rows = allowedIds === null
+    ? await query<Task>(`
+        SELECT t.* FROM tasks t
+        INNER JOIN users u ON u.id = t.assigned_to_id
+        WHERE t.assigned_to_id IS NOT NULL
+          AND u.role = 'media_buyer'
+          AND u.deleted_at IS NULL
+      `)
+    : await query<Task>(`
+        SELECT t.* FROM tasks t
+        INNER JOIN users u ON u.id = t.assigned_to_id
+        WHERE t.assigned_to_id = ANY($1::int[])
+          AND u.role = 'media_buyer'
+          AND u.deleted_at IS NULL
+      `, [allowedIds]);
 
   type BuyerStat = {
     userId: number; name: string; total_tasks: number;
@@ -629,12 +655,21 @@ router.get("/tasks/stats", async (_req, res) => {
     else if (t.status === "expired") s.expired++;
   }
 
-  const deductionRows = await query<{ media_buyer_id: number; total: string }>(`
-    SELECT media_buyer_id, COALESCE(SUM(points), 0)::text AS total
-    FROM media_buyer_score_deductions
-    WHERE reversed_at IS NULL
-    GROUP BY media_buyer_id
-  `);
+  const deductionRows = allowedIds === null
+    ? await query<{ media_buyer_id: number; total: string }>(`
+        SELECT media_buyer_id, COALESCE(SUM(points), 0)::text AS total
+        FROM media_buyer_score_deductions
+        WHERE reversed_at IS NULL
+        GROUP BY media_buyer_id
+      `)
+    : await query<{ media_buyer_id: number; total: string }>(`
+        SELECT media_buyer_id, COALESCE(SUM(points), 0)::text AS total
+        FROM media_buyer_score_deductions
+        WHERE reversed_at IS NULL
+          AND media_buyer_id = ANY($1::int[])
+        GROUP BY media_buyer_id
+      `, [allowedIds]);
+
   const deductionMap = new Map(
     deductionRows.map((row) => [row.media_buyer_id, Number(row.total || 0)])
   );
@@ -646,13 +681,12 @@ router.get("/tasks/stats", async (_req, res) => {
       ? Math.round(s.score / (s.completed_on_time + s.completed_late)) : 0,
   }));
 
-  // أكبر عدد تاسكات مكتملة بين كل الميديا باير
   const maxCompleted = Math.max(1, ...rawStats.map(s => s.completed_on_time + s.completed_late));
 
   const stats = rawStats.map(s => {
-    const speedScore    = s.avg_score; // 0-100
+    const speedScore = s.avg_score;
     const totalCompleted = s.completed_on_time + s.completed_late;
-    const volumeScore   = Math.round((totalCompleted / maxCompleted) * 100); // 0-100
+    const volumeScore = Math.round((totalCompleted / maxCompleted) * 100);
     const scoreBeforeDeductions = Math.round(speedScore * 0.7 + volumeScore * 0.3);
     const finalScore = Math.max(0, scoreBeforeDeductions - s.deduction_points);
     return {
@@ -670,10 +704,36 @@ router.get("/tasks/stats", async (_req, res) => {
 
 // ── GET /api/tasks/assignees ──────────────────────────────────────────────────
 
-router.get("/tasks/assignees", async (_req, res) => {
-  const rows = await query<{ id: number; username: string; role: string }>(
-    `SELECT id, username, role FROM users WHERE deleted_at IS NULL AND role IN ('admin','media_buyer') ORDER BY username`
-  );
+router.get("/tasks/assignees", async (req, res) => {
+  const role = req.session!.role;
+  const userId = req.session!.userId;
+
+  if (role === "admin") {
+    const rows = await query<{ id: number; username: string; role: string }>(
+      `SELECT id, username, role FROM users WHERE deleted_at IS NULL AND role IN ('admin','media_buyer') ORDER BY username`
+    );
+    return res.json(rows);
+  }
+
+  const mine = await teamForUser(userId);
+  if (mine?.member_role === "senior") {
+    const rows = await query<{ id: number; username: string; role: string }>(`
+      SELECT u.id, u.username, u.role
+      FROM media_buyer_team_members m
+      INNER JOIN users u ON u.id = m.user_id
+      WHERE m.team_id = $1
+        AND m.is_active = TRUE
+        AND u.deleted_at IS NULL
+      ORDER BY CASE WHEN m.member_role = 'senior' THEN 0 ELSE 1 END, u.username
+    `, [mine.team_id]);
+    return res.json(rows);
+  }
+
+  const rows = await query<{ id: number; username: string; role: string }>(`
+    SELECT id, username, role
+    FROM users
+    WHERE id = $1 AND deleted_at IS NULL
+  `, [userId]);
   res.json(rows);
 });
 
@@ -801,29 +861,175 @@ router.delete("/tasks/score-deductions/:id", requireAdmin, async (req, res) => {
 
 // ── POST /api/tasks ───────────────────────────────────────────────────────────
 
-router.post("/tasks", requireAdmin, async (req, res) => {
-  const { title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes } =
-    req.body as Partial<Task>;
+router.post("/tasks", async (req, res) => {
+  const sessionRole = req.session!.role;
+  const creatorId = req.session!.userId;
+  const {
+    title,
+    product_name,
+    assigned_to_id,
+    deadline,
+    success_metric,
+    notes,
+  } = req.body as Partial<Task>;
+
   const inventory_product_id = (req.body.inventory_product_id as number) ?? null;
   const inventory_snapshot = req.body.inventory_snapshot ?? null;
+  const assignmentMode = String(req.body?.assignment_mode || "whole");
+  const requestedTeamId = req.body?.team_id == null ? null : Number(req.body.team_id);
+  const branches = Array.isArray(req.body?.branches) ? req.body.branches : [];
 
   if (!title || !deadline) return res.status(400).json({ error: "title وdeadline مطلوبان" });
 
-  // تحقق من وجود تاسكات شغالة — للمعلومية بس مش للمنع
-  let existingTasks: { id: number; title: string; assigned_to_name: string | null; status: string }[] = [];
-  if (inventory_product_id) {
-    existingTasks = await query<{ id: number; title: string; assigned_to_name: string | null; status: string }>(
-      `SELECT id, title, assigned_to_name, status FROM tasks WHERE inventory_product_id = $1 AND status IN ('pending', 'in_progress')`,
-      [inventory_product_id]
-    );
+  const mine = sessionRole === "admin" ? null : await teamForUser(creatorId);
+  if (sessionRole !== "admin" && mine?.member_role !== "senior") {
+    return res.status(403).json({ error: "إنشاء وتوزيع المهام متاح للأدمن والسنيور فقط" });
+  }
+
+  let teamId: number | null = requestedTeamId;
+  if (sessionRole !== "admin") {
+    teamId = mine!.team_id;
+    if (requestedTeamId && requestedTeamId !== teamId) {
+      return res.status(403).json({ error: "تقدر توزع داخل فريقك فقط" });
+    }
+  }
+
+  // Backward-compatible inference for admin-created tasks: infer the team from assignee.
+  if (!teamId && assigned_to_id) {
+    const [membership] = await query<{ team_id: number }>(`
+      SELECT team_id
+      FROM media_buyer_team_members
+      WHERE user_id = $1 AND is_active = TRUE
+      LIMIT 1
+    `, [assigned_to_id]);
+    teamId = membership?.team_id ?? null;
+  }
+
+  async function validateMember(memberId: number) {
+    if (!Number.isSafeInteger(memberId)) return null;
+    if (!teamId) {
+      if (sessionRole !== "admin") return null;
+      const [user] = await query<{ id: number; username: string }>(`
+        SELECT id, username
+        FROM users
+        WHERE id = $1 AND role = 'media_buyer' AND deleted_at IS NULL
+      `, [memberId]);
+      return user ?? null;
+    }
+    const [member] = await query<{ id: number; username: string }>(`
+      SELECT u.id, u.username
+      FROM media_buyer_team_members m
+      INNER JOIN users u ON u.id = m.user_id
+      WHERE m.team_id = $1
+        AND m.user_id = $2
+        AND m.is_active = TRUE
+        AND u.deleted_at IS NULL
+        AND u.role = 'media_buyer'
+    `, [teamId, memberId]);
+    return member ?? null;
+  }
+
+  if (assignmentMode === "split") {
+    if (!teamId) return res.status(400).json({ error: "اختار الفريق قبل تقسيم المهمة" });
+
+    const requiredBranches = ["creative", "landing_copy", "campaign"];
+    const branchMap = new Map<string, number>();
+    for (const branch of branches) {
+      const type = String(branch?.branch_type || "");
+      const memberId = Number(branch?.assigned_to_id);
+      if (requiredBranches.includes(type) && Number.isSafeInteger(memberId)) {
+        branchMap.set(type, memberId);
+      }
+    }
+    if (requiredBranches.some((type) => !branchMap.has(type))) {
+      return res.status(400).json({ error: "لازم توزع كريتف + لاند واد كوبي + الكامبين" });
+    }
+
+    const resolvedBranches: Array<{ branch_type: string; id: number; username: string }> = [];
+    for (const type of requiredBranches) {
+      const member = await validateMember(branchMap.get(type)!);
+      if (!member) return res.status(400).json({ error: "كل فرع لازم يتسند لعضو داخل الفريق" });
+      resolvedBranches.push({ branch_type: type, id: member.id, username: member.username });
+    }
+
+    const [row] = await query<Task>(`
+      INSERT INTO tasks (
+        title, product_name, assigned_to_id, assigned_to_name,
+        deadline, success_metric, notes,
+        created_by_id, created_by_name,
+        inventory_product_id, inventory_snapshot,
+        task_kind, team_id, score_penalty_enabled
+      )
+      VALUES ($1,$2,NULL,NULL,$3,$4,$5,$6,$7,$8,$9,'manual_split',$10,TRUE)
+      RETURNING *
+    `, [
+      title,
+      product_name ?? null,
+      deadline,
+      success_metric ?? null,
+      notes ?? null,
+      creatorId,
+      req.session!.username,
+      inventory_product_id,
+      inventory_snapshot ? JSON.stringify(inventory_snapshot) : null,
+      teamId,
+    ]);
+
+    for (const branch of resolvedBranches) {
+      await query(`
+        INSERT INTO task_subtasks (
+          task_id, branch_type, assigned_to_id, assigned_to_name
+        )
+        VALUES ($1,$2,$3,$4)
+      `, [row.id, branch.branch_type, branch.id, branch.username]);
+    }
+
+    const recipientIds = Array.from(new Set(resolvedBranches.map((b) => b.id)));
+    if (recipientIds.length) {
+      await createInboxAndPush({
+        eventType: "task_assigned",
+        recipientUserIds: recipientIds,
+        title: "مهمة جديدة مقسمة",
+        body: row.title,
+        url: "/tasks",
+        metadata: { taskId: row.id, teamId },
+      });
+    }
+
+    const [withMedia] = await attachMedia([row]);
+    return res.status(201).json(withMedia);
+  }
+
+  const assigneeId = assigned_to_id == null ? null : Number(assigned_to_id);
+  const member = assigneeId ? await validateMember(assigneeId) : null;
+  if (assigneeId && !member) {
+    return res.status(400).json({ error: "المسؤول لازم يكون عضو داخل الفريق" });
   }
 
   const [row] = await query<Task>(`
-    INSERT INTO tasks (title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes, created_by_id, created_by_name, inventory_product_id, inventory_snapshot)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *
-  `, [title, product_name ?? null, assigned_to_id ?? null, assigned_to_name ?? null,
-      deadline, success_metric ?? null, notes ?? null, req.session!.userId, req.session!.username,
-      inventory_product_id, inventory_snapshot ? JSON.stringify(inventory_snapshot) : null]);
+    INSERT INTO tasks (
+      title, product_name, assigned_to_id, assigned_to_name,
+      deadline, success_metric, notes,
+      created_by_id, created_by_name,
+      inventory_product_id, inventory_snapshot,
+      task_kind, team_id, score_penalty_enabled
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'manual',$12,TRUE)
+    RETURNING *
+  `, [
+    title,
+    product_name ?? null,
+    member?.id ?? null,
+    member?.username ?? null,
+    deadline,
+    success_metric ?? null,
+    notes ?? null,
+    creatorId,
+    req.session!.username,
+    inventory_product_id,
+    inventory_snapshot ? JSON.stringify(inventory_snapshot) : null,
+    teamId,
+  ]);
 
   const [withMedia] = await attachMedia([row]);
   if (row.assigned_to_id) {
@@ -833,7 +1039,7 @@ router.post("/tasks", requireAdmin, async (req, res) => {
       title: "مهمة جديدة",
       body: row.title,
       url: "/tasks",
-      metadata: { taskId: row.id },
+      metadata: { taskId: row.id, teamId },
     });
   }
   res.status(201).json(withMedia);
