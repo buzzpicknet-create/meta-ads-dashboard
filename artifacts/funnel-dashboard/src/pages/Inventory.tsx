@@ -665,6 +665,19 @@ function PlatformAssignmentSelect({
 export default function InventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [leaderTeam, setLeaderTeam] = useState<{id:number; members:{user_id:number; username:string}[]} | null>(null);
+  const [ownedProducts, setOwnedProducts] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (!user || isAdmin) return;
+    fetch("/api/teams",{credentials:"include"}).then(r=>r.ok?r.json():[]).then(async (teams:{id:number;leader_user_id:number;members:{user_id:number;username:string}[]}[])=>{
+      const mine=teams.find(t=>t.leader_user_id===user.id);
+      setLeaderTeam(mine??null);
+      if(!mine)return;
+      const response=await fetch(`/api/teams/${mine.id}/products`,{credentials:"include"});
+      if(response.ok){const products:{inventory_product_id:number}[]=await response.json();setOwnedProducts(new Set(products.map(p=>p.inventory_product_id)));}
+    }).catch(()=>{});
+  },[user?.id,isAdmin]);
+  const canAssignPlatforms = isAdmin || !!leaderTeam;
   const [taskProduct, setTaskProduct] = useState<Product | null>(null);
 
   const [products, setProducts]       = useState<Product[]>([]);
@@ -1252,7 +1265,7 @@ export default function InventoryPage() {
                   <th className="text-right px-3 py-3 font-semibold text-muted-foreground">الوحدة</th>
                   <th className="text-center px-4 py-3 font-semibold">الكمية</th>
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground">معدل البيع</th>
-                  {isAdmin && (
+                  {canAssignPlatforms && (
                     <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[205px]">توزيع المنصات</th>
                   )}
                   <th className="text-center px-3 py-3 font-semibold text-muted-foreground min-w-[100px]">المهام</th>
@@ -1262,7 +1275,7 @@ export default function InventoryPage() {
                 {loading && products.length === 0 ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} className="border-b border-border/50">
-                      {Array.from({ length: isAdmin ? 9 : 8 }).map((_, j) => (
+                      {Array.from({ length: canAssignPlatforms ? 9 : 8 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 rounded bg-muted/60 animate-pulse" style={{ width: j === 1 ? "80%" : j === 0 ? "40px" : "60%" }} />
                         </td>
@@ -1322,7 +1335,7 @@ export default function InventoryPage() {
                       <td className="px-3 py-3 text-center">
                         <SalesRateBadge rate={salesRates?.[p.id] ?? null} loading={loadingRates} stock={available(p)} />
                       </td>
-                      {isAdmin && (
+                      {canAssignPlatforms && (
                         <td className="px-3 py-2">
                           <div className="space-y-1 min-w-[195px]">
                             {([
@@ -1337,9 +1350,9 @@ export default function InventoryPage() {
                                   <PlatformAssignmentSelect
                                     product={p}
                                     platform={platform}
-                                    assignees={mediaAssignees}
+                                    assignees={isAdmin ? mediaAssignees : mediaAssignees.filter(a=>leaderTeam?.members.some(m=>m.user_id===a.id))}
                                     assignment={mediaAssignments[key]}
-                                    isAdmin={isAdmin}
+                                    isAdmin={isAdmin || ownedProducts.has(p.id)}
                                     saving={savingAssignment === key}
                                     onSave={saveMediaAssignment}
                                   />
