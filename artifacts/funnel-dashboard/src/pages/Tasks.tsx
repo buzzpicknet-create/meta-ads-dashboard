@@ -1,3 +1,4 @@
+import TaskEvaluation from "@/components/TaskEvaluation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus, CheckCircle2, Clock, AlertTriangle, Loader2, Trash2,
@@ -854,8 +855,8 @@ function InventoryResultSection({ taskId, existingResult }: {
 
 // ── Task Detail Modal ──────────────────────────────────────────────────────────
 
-function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit, onClearHighlight, onChanged }: {
-  task: Task; isAdmin: boolean;
+function TaskDetailModal({ task, isAdmin, isLeader, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit, onClearHighlight, onChanged }: {
+  task: Task; isAdmin: boolean; isLeader: boolean;
   onClose: () => void;
   onCheckin: (task: Task) => void;
   onComplete: (id: number) => void;
@@ -1298,6 +1299,8 @@ function TaskDetailModal({ task, isAdmin, onClose, onCheckin, onComplete, onDele
             <span>الموعد انتهى من غير ما تتم متابعة أي منصة. تقدر تكمل المهمة متأخرًا، وهيتحسب لك Score أقل.</span>
           </div>
         )}
+
+        <div className="px-4"><TaskEvaluation taskId={task.id} completed={task.status==="completed"} canReview={isAdmin||isLeader} /></div>
 
         {/* Footer actions */}
         <div className="flex items-center gap-2 p-4 border-t border-slate-700/60 bg-slate-900/80 flex-wrap">
@@ -2508,6 +2511,7 @@ export default function TasksPage() {
         <TaskDetailModal
           task={detailTask}
           isAdmin={isAdmin}
+          isLeader={isLeader}
           onClose={() => setDetailTask(null)}
           onCheckin={t => { setDetailTask(null); setCheckinTask(t); }}
           onComplete={id => { patchTask(id, { action: "complete" }); setDetailTask(null); }}
