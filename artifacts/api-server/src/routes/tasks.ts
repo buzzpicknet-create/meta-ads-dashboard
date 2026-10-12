@@ -641,8 +641,8 @@ router.post("/tasks", async (req, res) => {
   }
 
   const [row] = await query<Task>(`
-    INSERT INTO tasks (title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes, created_by_id, created_by_name, inventory_product_id, inventory_snapshot)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *
+    INSERT INTO tasks (title, product_name, assigned_to_id, assigned_to_name, deadline, success_metric, notes, created_by_id, created_by_name, inventory_product_id, inventory_snapshot, team_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *
   `, [title, product_name ?? null, assigned_to_id ?? null, assigned_to_name ?? null,
       deadline, success_metric ?? null, notes ?? null, req.session!.userId, req.session!.username,
       inventory_product_id, inventory_snapshot ? JSON.stringify(inventory_snapshot) : null,team_id]);
