@@ -20,6 +20,7 @@ async function init() {
     WHERE a.is_active=TRUE AND a.inventory_product_id IS NOT NULL
     ORDER BY a.inventory_product_id,t.id
     ON CONFLICT(inventory_product_id) DO NOTHING`);
+  await query("CREATE TABLE IF NOT EXISTS buyer_team_product_delegations (inventory_product_id INTEGER PRIMARY KEY REFERENCES buyer_team_products(inventory_product_id) ON DELETE CASCADE, assigned_to_id INTEGER NOT NULL REFERENCES users(id), assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   initialized = true;
 }
 router.use("/teams", async (_req,res,next)=>{try{await init();next();}catch(e){next(e);}});
@@ -48,11 +49,24 @@ router.put("/teams/:id/members",requireAdmin,async(req,res)=>{
  res.json({success:true});
 });
 router.post("/teams/:id/reviews",(_req,res)=>res.status(410).json({error:"التقييم يتم من داخل التاسك المكتمل فقط"}));
+router.put("/teams/:id/products/:productId/delegate",async(req,res)=>{
+ const teamId=Number(req.params.id),productId=Number(req.params.productId),buyerId=req.body?.assigned_to_id==null?null:Number(req.body.assigned_to_id),uid=req.session!.userId;
+ if(!Number.isSafeInteger(teamId)||!Number.isSafeInteger(productId)||productId===0||(buyerId!==null&&!Number.isSafeInteger(buyerId)))return res.status(400).json({error:"بيانات توزيع غير صحيحة"});
+ const team=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND ($2::boolean OR leader_user_id=$3)",[teamId,req.session!.role==="admin",uid]);
+ if(!team.length)return res.status(403).json({error:"توزيع المنتجات لقائد الفريق أو الأدمن فقط"});
+ const owned=await query("SELECT 1 FROM buyer_team_products WHERE team_id=$1 AND inventory_product_id=$2",[teamId,productId]);
+ if(!owned.length)return res.status(403).json({error:"المنتج مش تابع للفريق"});
+ if(buyerId===null){await query("DELETE FROM buyer_team_product_delegations WHERE inventory_product_id=$1",[productId]);return res.json({success:true,assigned_to_id:null});}
+ const member=await query("SELECT 1 FROM buyer_team_members m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 AND m.user_id=$2 AND u.deleted_at IS NULL",[teamId,buyerId]);
+ if(!member.length)return res.status(400).json({error:"العضو مش تابع للفريق"});
+ await query("INSERT INTO buyer_team_product_delegations(inventory_product_id,assigned_to_id) VALUES($1,$2) ON CONFLICT(inventory_product_id) DO UPDATE SET assigned_to_id=EXCLUDED.assigned_to_id,assigned_at=NOW()",[productId,buyerId]);
+ res.json({success:true,assigned_to_id:buyerId});
+});
 router.get("/teams/:id/products",async(req,res)=>{
  const team=Number(req.params.id),uid=req.session!.userId;
  const access=await query("SELECT 1 FROM buyer_teams t WHERE t.id=$1 AND ($2::boolean OR t.leader_user_id=$3 OR EXISTS(SELECT 1 FROM buyer_team_members m WHERE m.team_id=t.id AND m.user_id=$3))",[team,req.session!.role==="admin",uid]);
  if(!access.length)return res.status(403).json({error:"Not authorized"});
- const rows=await query("SELECT p.inventory_product_id,a.product_name,a.source_store FROM buyer_team_products p LEFT JOIN LATERAL (SELECT product_name,source_store FROM inventory_media_assignments WHERE inventory_product_id=p.inventory_product_id ORDER BY is_active DESC LIMIT 1) a ON TRUE WHERE p.team_id=$1 ORDER BY a.product_name",[team]);
+ const rows=await query("SELECT p.inventory_product_id,a.product_name,a.source_store,d.assigned_to_id,u.username AS assigned_to_name FROM buyer_team_products p LEFT JOIN buyer_team_product_delegations d ON d.inventory_product_id=p.inventory_product_id LEFT JOIN users u ON u.id=d.assigned_to_id LEFT JOIN LATERAL (SELECT product_name,source_store FROM inventory_media_assignments WHERE inventory_product_id=p.inventory_product_id ORDER BY is_active DESC LIMIT 1) a ON TRUE WHERE p.team_id=$1 ORDER BY a.product_name",[team]);
  res.json(rows);
 });
 router.put("/teams/:id/products/:productId",requireAdmin,async(req,res)=>{
