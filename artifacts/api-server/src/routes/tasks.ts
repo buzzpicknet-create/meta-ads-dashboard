@@ -1045,6 +1045,26 @@ router.post("/tasks", async (req, res) => {
   res.status(201).json(withMedia);
 });
 
+async function canAccessTask(task: Task, role: string, userId: number) {
+  if (role === "admin") return true;
+  if (task.assigned_to_id === userId) return true;
+
+  const [subtask] = await query<{ id: number }>(`
+    SELECT id FROM task_subtasks
+    WHERE task_id = $1 AND assigned_to_id = $2
+    LIMIT 1
+  `, [task.id, userId]);
+  if (subtask) return true;
+
+  const mine = await teamForUser(userId);
+  return Boolean(mine?.member_role === "senior" && task.team_id === mine.team_id);
+}
+
+async function isSeniorForTask(task: Task, userId: number) {
+  const mine = await teamForUser(userId);
+  return Boolean(mine?.member_role === "senior" && task.team_id === mine.team_id);
+}
+
 // ── POST /api/tasks/:id/media ─────────────────────────────────────────────────
 
 router.post("/tasks/:id/media", async (req, res) => {
@@ -1059,9 +1079,9 @@ router.post("/tasks/:id/media", async (req, res) => {
   const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [id]);
   if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
 
-  const role   = req.session!.role;
+  const role = req.session!.role;
   const userId = req.session!.userId;
-  if (role !== "admin" && task.assigned_to_id !== userId)
+  if (!(await canAccessTask(task, role, userId)))
     return res.status(403).json({ error: "غير مصرح" });
 
   const [countRow] = await query<{ c: string }>(
@@ -1088,8 +1108,8 @@ router.patch("/tasks/media/:mediaId/primary", async (req, res) => {
 
   const role   = req.session!.role;
   const userId = req.session!.userId;
-  const [task] = await query<Task>(`SELECT assigned_to_id FROM tasks WHERE id = $1`, [m.task_id]);
-  if (role !== "admin" && task?.assigned_to_id !== userId) return res.status(403).json({ error: "غير مصرح" });
+  const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [m.task_id]);
+  if (!task || !(await canAccessTask(task, role, userId))) return res.status(403).json({ error: "غير مصرح" });
 
   await query(`UPDATE task_media SET is_primary = FALSE WHERE task_id = $1`, [m.task_id]);
   await query(`UPDATE task_media SET is_primary = TRUE WHERE id = $1`, [mediaId]);
@@ -1126,6 +1146,93 @@ router.delete("/tasks/media/:mediaId", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── PATCH /api/tasks/:id/subtasks/:subtaskId ──────────────────────────────────
+
+router.patch("/tasks/:id/subtasks/:subtaskId", async (req, res) => {
+  const taskId = Number(req.params.id);
+  const subtaskId = Number(req.params.subtaskId);
+  const role = req.session!.role;
+  const userId = req.session!.userId;
+  const action = String(req.body?.action || "");
+  const notes = String(req.body?.notes || "").trim() || null;
+
+  if (!Number.isSafeInteger(taskId) || !Number.isSafeInteger(subtaskId)) {
+    return res.status(400).json({ error: "رقم المهمة غير صحيح" });
+  }
+
+  const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [taskId]);
+  const [subtask] = await query<TaskSubtask>(`
+    SELECT * FROM task_subtasks WHERE id = $1 AND task_id = $2
+  `, [subtaskId, taskId]);
+  if (!task || !subtask) return res.status(404).json({ error: "فرع المهمة غير موجود" });
+
+  const seniorAccess = role === "admin" || await isSeniorForTask(task, userId);
+  if (!seniorAccess && subtask.assigned_to_id !== userId) {
+    return res.status(403).json({ error: "الفرع مش مسند ليك" });
+  }
+
+  if (action === "start") {
+    await query(`
+      UPDATE task_subtasks
+      SET status = CASE WHEN status = 'pending' THEN 'in_progress' ELSE status END,
+          notes = COALESCE($3, notes),
+          updated_at = NOW()
+      WHERE id = $1 AND task_id = $2
+    `, [subtaskId, taskId, notes]);
+
+    await query(`
+      UPDATE tasks
+      SET status = CASE WHEN status = 'pending' THEN 'in_progress' ELSE status END,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [taskId]);
+  } else if (action === "complete") {
+    if (subtask.status === "completed") {
+      return res.status(400).json({ error: "الفرع مكتمل بالفعل" });
+    }
+
+    await query(`
+      UPDATE task_subtasks
+      SET status = 'completed',
+          notes = COALESCE($3, notes),
+          completed_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1 AND task_id = $2
+    `, [subtaskId, taskId, notes]);
+
+    const [progress] = await query<{ total: string; completed: string }>(`
+      SELECT
+        COUNT(*)::text AS total,
+        COUNT(*) FILTER (WHERE status = 'completed')::text AS completed
+      FROM task_subtasks
+      WHERE task_id = $1
+    `, [taskId]);
+
+    const total = Number(progress?.total || 0);
+    const completed = Number(progress?.completed || 0);
+    const allDone = total > 0 && total === completed;
+
+    await query(`
+      UPDATE tasks
+      SET status = CASE
+            WHEN $2::boolean THEN 'completed'
+            ELSE 'in_progress'
+          END,
+          completed_at = CASE WHEN $2::boolean THEN NOW() ELSE NULL END,
+          checkin_count = checkin_count + 1,
+          last_checkin_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1
+    `, [taskId, allDone]);
+  } else {
+    return res.status(400).json({ error: "الإجراء غير صحيح" });
+  }
+
+  const [updatedTask] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [taskId]);
+  const [payload] = await attachMedia([{ ...updatedTask, opus_score: calcScore(updatedTask) }]);
+  res.json(payload);
+});
+
 // ── PATCH /api/tasks/:id ──────────────────────────────────────────────────────
 
 router.patch("/tasks/:id", async (req, res) => {
@@ -1138,8 +1245,12 @@ router.patch("/tasks/:id", async (req, res) => {
   const [task] = await query<Task>(`SELECT * FROM tasks WHERE id = $1`, [id]);
   if (!task) return res.status(404).json({ error: "المهمة غير موجودة" });
 
-  if (role !== "admin" && task.assigned_to_id !== userId)
+  if (!(await canAccessTask(task, role, userId)))
     return res.status(403).json({ error: "غير مصرح" });
+
+  if (task.task_kind === "manual_split" && role !== "admin" && !(await isSeniorForTask(task, userId))) {
+    return res.status(403).json({ error: "نفّذ الفرع المسند ليك بدل إغلاق المهمة الرئيسية" });
+  }
 
   const { action, notes, platform } = req.body as { action?: string; notes?: string; platform?: string };
 
