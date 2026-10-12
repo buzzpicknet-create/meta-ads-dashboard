@@ -2,6 +2,10 @@ import { Router, type Request, type Response } from "express";
 import { query } from "../lib/db";
 
 const router = Router();
+router.use("/product-hunting", (req: Request, res: Response, next) => {
+  if (req.session?.role !== "admin") return res.status(403).json({error:"صفحة صيد المنتجات متاحة للأدمن فقط"});
+  next();
+});
 const STATUSES = new Set(["new", "reviewing", "interested", "sample", "needs_price", "imported", "rejected"]);
 
 type ProductMedia = {
