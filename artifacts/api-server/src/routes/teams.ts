@@ -9,6 +9,8 @@ async function init() {
   await query("CREATE TABLE IF NOT EXISTS buyer_team_members (user_id INTEGER PRIMARY KEY REFERENCES users(id), team_id INTEGER NOT NULL REFERENCES buyer_teams(id))");
   await query("CREATE TABLE IF NOT EXISTS buyer_team_reviews (id SERIAL PRIMARY KEY, team_id INTEGER REFERENCES buyer_teams(id), member_user_id INTEGER REFERENCES users(id), reviewer_user_id INTEGER REFERENCES users(id), speed INTEGER CHECK(speed BETWEEN 1 AND 10), accuracy INTEGER CHECK(accuracy BETWEEN 1 AND 10), followup INTEGER CHECK(followup BETWEEN 1 AND 10), notes TEXT, created_at TIMESTAMPTZ DEFAULT NOW())");
   await query("CREATE TABLE IF NOT EXISTS buyer_team_products (inventory_product_id INTEGER PRIMARY KEY, team_id INTEGER NOT NULL REFERENCES buyer_teams(id), assigned_at TIMESTAMPTZ DEFAULT NOW())");
+  await query("ALTER TABLE buyer_team_reviews ADD COLUMN IF NOT EXISTS task_id INTEGER REFERENCES tasks(id)");
+  await query("CREATE UNIQUE INDEX IF NOT EXISTS buyer_team_reviews_task_unique ON buyer_team_reviews(task_id) WHERE task_id IS NOT NULL");
   initialized = true;
 }
 router.use("/teams", async (_req,res,next)=>{try{await init();next();}catch(e){next(e);}});
@@ -81,4 +83,50 @@ router.patch("/teams/:id/tasks/:taskId/assign",async(req,res)=>{
  const [updated]=await query("UPDATE tasks SET assigned_to_id=$2,assigned_to_name=$3,updated_at=NOW() WHERE id=$1 RETURNING *",[task,buyer,(member[0] as {username:string}).username]);
  res.json(updated);
 });
+
+router.patch("/teams/:id",requireAdmin,async(req,res)=>{
+ const team=Number(req.params.id),name=String(req.body?.name||"").trim(),leader=Number(req.body?.leader_user_id);
+ if(!Number.isSafeInteger(team)||!Number.isSafeInteger(leader)||!name)return res.status(400).json({error:"بيانات الفريق غير صحيحة"});
+ const valid=await query("SELECT 1 FROM users WHERE id=$1 AND role='media_buyer' AND deleted_at IS NULL",[leader]);
+ if(!valid.length)return res.status(400).json({error:"قائد الفريق غير صالح"});
+ const [result]=await query("UPDATE buyer_teams SET name=$2,leader_user_id=$3 WHERE id=$1 RETURNING *",[team,name,leader]);
+ if(!result)return res.status(404).json({error:"الفريق غير موجود"});
+ await query("INSERT INTO buyer_team_members(user_id,team_id) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET team_id=EXCLUDED.team_id",[leader,team]);
+ res.json(result);
+});
+router.delete("/teams/:id/members/:userId",requireAdmin,async(req,res)=>{
+ const team=Number(req.params.id),user=Number(req.params.userId);
+ if(!Number.isSafeInteger(team)||!Number.isSafeInteger(user))return res.status(400).json({error:"معرّف غير صالح"});
+ const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND leader_user_id=$2",[team,user]);
+ if(leader.length)return res.status(400).json({error:"غيّر قائد الفريق أولًا قبل إزالته"});
+ await query("DELETE FROM buyer_team_members WHERE team_id=$1 AND user_id=$2",[team,user]);
+ res.json({success:true});
+});
+router.get("/teams/task-reviews/:taskId",async(req,res)=>{
+ const task=Number(req.params.taskId);
+ if(!Number.isSafeInteger(task))return res.status(400).json({error:"رقم التاسك غير صحيح"});
+ const [target]=await query<any>("SELECT assigned_to_id FROM tasks WHERE id=$1",[task]);
+ if(!target)return res.status(404).json({error:"التاسك غير موجود"});
+ const uid=req.session!.userId;
+ const access=await query("SELECT 1 FROM buyer_team_members m JOIN buyer_teams t ON t.id=m.team_id WHERE m.user_id=$1 AND (t.leader_user_id=$2 OR $3::boolean)",[target.assigned_to_id,uid,req.session!.role==="admin"]);
+ if(req.session!.role!=="admin"&&target.assigned_to_id!==uid&&!access.length)return res.status(403).json({error:"غير مصرح"});
+ res.json(await query("SELECT r.*,u.username AS reviewer_name FROM buyer_team_reviews r JOIN users u ON u.id=r.reviewer_user_id WHERE task_id=$1",[task]));
+});
+router.post("/teams/task-reviews/:taskId",async(req,res)=>{
+ const task=Number(req.params.taskId),uid=req.session!.userId;
+ if(!Number.isSafeInteger(task))return res.status(400).json({error:"رقم التاسك غير صحيح"});
+ const [target]=await query<any>("SELECT id,assigned_to_id,status FROM tasks WHERE id=$1",[task]);
+ if(!target)return res.status(404).json({error:"التاسك غير موجود"});
+ if(target.status!=="completed")return res.status(400).json({error:"التقييم متاح بعد إكمال التاسك فقط"});
+ if(!target.assigned_to_id)return res.status(400).json({error:"التاسك غير مسند لعضو"});
+ const [membership]=await query<any>("SELECT team_id FROM buyer_team_members WHERE user_id=$1",[target.assigned_to_id]);
+ if(!membership)return res.status(400).json({error:"عضو التاسك غير تابع لفريق"});
+ const [team]=await query<any>("SELECT id FROM buyer_teams WHERE id=$1 AND leader_user_id=$2",[membership.team_id,uid]);
+ if(req.session!.role!=="admin"&&!team)return res.status(403).json({error:"التقييم لقائد الفريق أو الأدمن فقط"});
+ const scores=[req.body?.speed,req.body?.accuracy,req.body?.followup].map(Number);
+ if(scores.some(s=>!Number.isInteger(s)||s<1||s>10))return res.status(400).json({error:"كل معيار من 1 إلى 10 نقاط"});
+ const [row]=await query("INSERT INTO buyer_team_reviews(task_id,team_id,member_user_id,reviewer_user_id,speed,accuracy,followup,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(task_id) WHERE task_id IS NOT NULL DO UPDATE SET speed=EXCLUDED.speed,accuracy=EXCLUDED.accuracy,followup=EXCLUDED.followup,notes=EXCLUDED.notes,reviewer_user_id=EXCLUDED.reviewer_user_id RETURNING *",[task,membership.team_id,target.assigned_to_id,uid,...scores,String(req.body?.notes||"").slice(0,2000)]);
+ res.json(row);
+});
+
 export default router;
