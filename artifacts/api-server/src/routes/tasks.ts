@@ -355,6 +355,14 @@ function ensureTeamTaskColumn() {
 
 router.get("/tasks", async (req, res) => {
   await ensureTeamTaskColumn();
+  // One-time guarded correction requested by admin: only change the team owner,
+  // never touch task text, status, attachments, or assignments.
+  await query(`UPDATE tasks SET team_id = 1, updated_at = NOW()
+    WHERE id = 1501 AND team_id = 2
+      AND assigned_to_id IS NULL
+      AND title = 'مانع الاتربه والضوضاء ودخول الحشرات'
+      AND NOT EXISTS (SELECT 1 FROM tasks child WHERE child.parent_task_id = 1501)
+      AND EXISTS (SELECT 1 FROM buyer_teams WHERE id = 1 AND leader_user_id = 3)`);
   await autoExpire();
   const userId = req.session!.userId;
   const role   = req.session!.role;
