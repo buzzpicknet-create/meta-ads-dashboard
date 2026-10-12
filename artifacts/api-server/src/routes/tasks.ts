@@ -336,7 +336,18 @@ async function attachMedia(tasks: (Task & { media?: TaskMedia[]; opus_score?: nu
 
 // ── GET /api/tasks ────────────────────────────────────────────────────────────
 
+let teamTaskColumnReady: Promise<void> | null = null;
+function ensureTeamTaskColumn() {
+  if (!teamTaskColumnReady) {
+    teamTaskColumnReady = query("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS team_id INTEGER")
+      .then(() => undefined)
+      .catch(error => { teamTaskColumnReady = null; throw error; });
+  }
+  return teamTaskColumnReady;
+}
+
 router.get("/tasks", async (req, res) => {
+  await ensureTeamTaskColumn();
   await autoExpire();
   const userId = req.session!.userId;
   const role   = req.session!.role;
@@ -611,6 +622,7 @@ router.delete("/tasks/score-deductions/:id", requireAdmin, async (req, res) => {
 // ── POST /api/tasks ───────────────────────────────────────────────────────────
 
 router.post("/tasks", async (req, res) => {
+  await ensureTeamTaskColumn();
   if(req.session!.role!=="admin"){
     const teamId=await leaderTeam(req.session!.userId);
     if(!teamId || !Number.isSafeInteger(Number(req.body?.assigned_to_id)) || !(await sameTeam(teamId,Number(req.body.assigned_to_id))))
