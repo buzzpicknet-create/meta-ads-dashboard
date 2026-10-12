@@ -105,22 +105,24 @@ router.put("/teams/:id/products/:productId",requireAdmin,async(req,res)=>{
 });
 router.patch("/teams/:id/tasks/:taskId/assign",async(req,res)=>{
  const team=Number(req.params.id),task=Number(req.params.taskId),buyer=Number(req.body?.assigned_to_id),uid=req.session!.userId;
- if(![team,task,buyer].every(Number.isSafeInteger))return res.status(400).json({error:"Invalid identifiers"});
- const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND leader_user_id=$2",[team,uid]);
- if(req.session!.role!=="admin"&&!leader.length)return res.status(403).json({error:"Only a team leader may assign work"});
- const member=await query("SELECT u.username FROM buyer_team_members m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 AND m.user_id=$2 AND u.deleted_at IS NULL",[team,buyer]);
- if(!member.length)return res.status(400).json({error:"Assignee is not in this team"});
- const target=await query<any>("SELECT id,assigned_to_id,inventory_product_id FROM tasks WHERE id=$1",[task]);
- if(!target.length)return res.status(404).json({error:"Task not found"});
- if(req.session!.role!=="admin"){
-   const owner=await query("SELECT 1 FROM buyer_team_members WHERE team_id=$1 AND user_id=$2",[team,target[0].assigned_to_id]);
-   const product=target[0].inventory_product_id == null ? [] : await query("SELECT 1 FROM buyer_team_products WHERE team_id=$1 AND inventory_product_id=$2",[team,target[0].inventory_product_id]);
-   if(!owner.length&&!product.length)return res.status(403).json({error:"Task belongs to another team"});
- }
- const [updated]=await query("UPDATE tasks SET assigned_to_id=$2,assigned_to_name=$3,updated_at=NOW() WHERE id=$1 RETURNING *",[task,buyer,(member[0] as {username:string}).username]);
+ if(![team,task,buyer].every(Number.isSafeInteger)||team<=0||task<=0||buyer<=0)return res.status(400).json({error:"بيانات غير صحيحة"});
+ const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND ($2::boolean OR leader_user_id=$3)",[team,req.session!.role==="admin",uid]);
+ if(!leader.length)return res.status(403).json({error:"إعادة الإسناد لقائد الفريق أو الأدمن فقط"});
+ const [member]=await query<{username:string}>("SELECT u.username FROM buyer_team_members m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 AND m.user_id=$2 AND u.deleted_at IS NULL",[team,buyer]);
+ if(!member)return res.status(400).json({error:"العضو خارج الفريق"});
+ const [target]=await query<any>("SELECT id,assigned_to_id,inventory_product_id,task_kind,status,platform FROM tasks WHERE id=$1",[task]);
+ if(!target)return res.status(404).json({error:"المهمة غير موجودة"});
+ if(target.task_kind!=="daily_product_followup")return res.status(400).json({error:"هذا الخيار للمهام اليومية فقط"});
+ if(!["pending","in_progress"].includes(target.status))return res.status(409).json({error:"لا يمكن إعادة توزيع مهمة مكتملة أو منتهية"});
+ // Verify the team actually owns an active platform for this product. This is safe for shared products.
+ const owned=await query("SELECT 1 FROM inventory_media_assignments a JOIN buyer_teams t ON t.leader_user_id=a.assigned_to_id WHERE t.id=$1 AND a.inventory_product_id=$2 AND a.is_active=TRUE LIMIT 1",[team,target.inventory_product_id]);
+ if(!owned.length)return res.status(403).json({error:"المنتج ليس تابعًا لهذا الفريق"});
+ // Never allow moving work already assigned to another team's member.
+ const previous=await query("SELECT 1 FROM buyer_team_members WHERE team_id=$1 AND user_id=$2",[team,target.assigned_to_id]);
+ if(!previous.length)return res.status(403).json({error:"هذه المهمة مسندة لعضو خارج فريقك"});
+ const [updated]=await query("UPDATE tasks SET assigned_to_id=$2,assigned_to_name=$3,updated_at=NOW() WHERE id=$1 AND status IN ('pending','in_progress') RETURNING *",[task,buyer,member.username]);
  res.json(updated);
 });
-
 router.patch("/teams/:id",requireAdmin,async(req,res)=>{
  const team=Number(req.params.id),name=String(req.body?.name||"").trim(),leader=Number(req.body?.leader_user_id);
  if(!Number.isSafeInteger(team)||!Number.isSafeInteger(leader)||!name)return res.status(400).json({error:"بيانات الفريق غير صحيحة"});
