@@ -1,3 +1,4 @@
+import TeamsAdmin from "@/components/TeamsAdmin";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -1466,6 +1467,8 @@ export default function AdminPage() {
         {/* Log */}
         <NotificationLogSection />
       </div>
+
+      <TeamsAdmin />
 
       {showAdd && <AddUserModal onClose={() => setShowAdd(false)} />}
       {resetTarget && <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />}
