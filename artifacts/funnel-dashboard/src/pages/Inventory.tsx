@@ -706,6 +706,7 @@ export default function InventoryPage() {
   const [sort, setSort]                   = useState<SortKey>("stock_desc");
   const [assignmentOwnerFilter, setAssignmentOwnerFilter] = useState<"all" | "unassigned" | string>("all");
   const [teamOnlyFilter, setTeamOnlyFilter] = useState(false);
+  const [teamMemberFilter, setTeamMemberFilter] = useState<string>("all");
 
   // "دون حركة مبيعات" filter data
   const [noMovementIds, setNoMovementIds]     = useState<Set<number> | null>(null);
@@ -927,7 +928,12 @@ export default function InventoryPage() {
       list = list.filter(p => !noMovementIds.has(p.id));
     }
 
-    if (!isAdmin && leaderTeam && teamOnlyFilter) list = list.filter(p => ownedProducts.has(p.id));
+    if (!isAdmin && leaderTeam && (teamOnlyFilter || teamMemberFilter !== "all")) list = list.filter(p => ownedProducts.has(p.id));
+    if (!isAdmin && leaderTeam && teamMemberFilter !== "all") {
+      list = list.filter(p => teamMemberFilter === "unassigned"
+        ? productDelegations[p.id] == null
+        : productDelegations[p.id] === Number(teamMemberFilter));
+    }
 
     if (isAdmin && assignmentOwnerFilter !== "all") {
       if (assignmentOwnerFilter === "unassigned") {
@@ -961,7 +967,7 @@ export default function InventoryPage() {
     });
 
     return list;
-  }, [products, warehouse, stockFilter, search, sort, noMovementIds, assignmentOwnerFilter, mediaAssignments, isAdmin, leaderTeam, teamOnlyFilter, ownedProducts]);
+  }, [products, warehouse, stockFilter, search, sort, noMovementIds, assignmentOwnerFilter, mediaAssignments, isAdmin, leaderTeam, teamOnlyFilter, teamMemberFilter, productDelegations, ownedProducts]);
 
   // KPIs
   const availableCount = products.filter(p => available(p) > 0).length;
@@ -1061,6 +1067,39 @@ export default function InventoryPage() {
               sub={stats ? `مبيعات: ${stats.totalSalesToday} · وارد: ${stats.totalInToday}` : undefined}
               color="border-border"
             />
+          </div>
+        )}
+
+        {!loading && leaderTeam && !isAdmin && (
+          <div className="rounded-xl border border-border bg-card/60 p-4 space-y-3" dir="rtl">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-sm font-bold">توزيع منتجات فريقي على الأعضاء</h2>
+                <p className="text-xs text-muted-foreground mt-1">العدد محسوب لكل منتج مرة واحدة، بغض النظر عن المنصات.</p>
+              </div>
+              <button type="button" className="text-xs rounded-lg border border-border px-3 py-1.5 hover:bg-muted" onClick={()=>{setTeamMemberFilter("all");setTeamOnlyFilter(false);}}>عرض كل المنتجات</button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {leaderTeam.members.map(member=>{
+                const count=Array.from(ownedProducts).filter(id=>productDelegations[id]===member.user_id).length;
+                const active=teamMemberFilter===String(member.user_id);
+                return <button type="button" key={member.user_id} onClick={()=>{setTeamMemberFilter(active?"all":String(member.user_id));setTeamOnlyFilter(true);}}
+                  className={`rounded-xl border p-3 text-right transition-colors ${active?"border-primary bg-primary/10":"border-border bg-background/70 hover:border-primary/40"}`}>
+                  <div className="flex justify-between items-center gap-3">
+                    <div><div className="font-semibold text-sm">{member.username}</div><div className="text-[11px] text-muted-foreground">اضغط لعرض المنتجات المسندة له</div></div>
+                    <div className="font-bold text-2xl text-primary tabular-nums">{count}</div>
+                  </div>
+                </button>;
+              })}
+              <button type="button" onClick={()=>{setTeamMemberFilter(teamMemberFilter==="unassigned"?"all":"unassigned");setTeamOnlyFilter(true);}}
+                className={`rounded-xl border p-3 text-right ${teamMemberFilter==="unassigned"?"border-amber-500 bg-amber-500/10":"border-amber-500/30 bg-amber-500/5"}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div><div className="font-semibold text-sm text-amber-500">لم يتم التوزيع</div><div className="text-[11px] text-muted-foreground">منتجات الفريق التي لم تُسند لعضو</div></div>
+                  <div className="font-bold text-2xl text-amber-500 tabular-nums">{Array.from(ownedProducts).filter(id=>productDelegations[id]==null).length}</div>
+                </div>
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">إجمالي منتجات الفريق: {ownedProducts.size}</p>
           </div>
         )}
 
