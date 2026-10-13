@@ -1090,10 +1090,11 @@ function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, o
           <div className="p-5 space-y-3">
             {/* Assignee + deadline row */}
             <div className="grid grid-cols-2 gap-3">
-              {task.assigned_to_name && (
+              {(task.assigned_to_name || task.team_id) && (
                 <div className="bg-slate-800/50 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><User size={10} /> المسؤول</p>
-                  <p className="text-sm font-semibold text-blue-300">{task.assigned_to_name}</p>
+                  <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1"><User size={10} /> {task.assigned_to_name ? "المسؤول" : "الفريق المسؤول"}</p>
+                  <p className="text-sm font-semibold text-blue-300">{task.assigned_to_name || `فريق ${task.team_name || task.team_id}`}</p>
+                  {!task.assigned_to_name && <p className="text-[11px] text-amber-300 mt-1">بانتظار توزيع السينيور</p>}
                 </div>
               )}
               <div className="bg-slate-800/50 rounded-xl p-3">
@@ -1542,7 +1543,9 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
                 {task.assigned_to_name}
               </span>
             ) : (
-              <span className="text-[10px] text-slate-600">بدون مسؤول</span>
+              <span className={task.team_id ? "text-[11px] font-medium text-blue-300" : "text-[10px] text-slate-600"}>
+                {task.team_id ? `فريق ${task.team_name || task.team_id} — بانتظار توزيع السينيور` : "بدون مسؤول"}
+              </span>
             )}
           </div>
           <Countdown deadline={task.deadline} status={task.status} />
