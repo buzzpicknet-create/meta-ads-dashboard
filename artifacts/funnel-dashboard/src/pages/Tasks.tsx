@@ -1,3 +1,4 @@
+import DailyManagerReport from "@/components/DailyManagerReport";
 import TaskEvaluation from "@/components/TaskEvaluation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -2034,7 +2035,7 @@ export default function TasksPage() {
   const [stats,     setStats]     = useState<BuyerStat[]>([]);
   const [assignees, setAssignees] = useState<Assignee[]>([]);
   const [loading,   setLoading]   = useState(true);
-  const [tab,       setTab]       = useState<"tasks" | "leaderboard">("tasks");
+  const [tab,       setTab]       = useState<"tasks" | "leaderboard" | "report">("tasks");
   const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
   const [taskTypeFilter, setTaskTypeFilter] = useState<"all" | "followup" | "manual">("all");
   const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "all" | "custom">("today");
@@ -2352,10 +2353,11 @@ export default function TasksPage() {
       <div className="flex gap-2 mb-5 border-b border-slate-800">
         {[
           { key: "tasks",       label: "مركز المهام",  icon: <Target size={14} /> },
+          ...(isAdmin ? [{ key: "report", label: "تقرير المدير", icon: <ClipboardList size={14} /> }] : []),
           { key: "leaderboard", label: "لوحة الإنجاز", icon: <BarChart3 size={14} /> },
         ].map(t => (
           <button key={t.key}
-            onClick={() => setTab(t.key as "tasks" | "leaderboard")}
+            onClick={() => setTab(t.key as "tasks" | "leaderboard" | "report")}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-all border-b-2 -mb-px
               ${tab === t.key ? "text-blue-400 border-blue-400" : "text-slate-400 border-transparent hover:text-slate-200"}`}>
             {t.icon} {t.label}
@@ -2376,6 +2378,8 @@ export default function TasksPage() {
           <Loader2 size={28} className="animate-spin mr-3" /><span>جاري التحميل...</span>
         </div>
       )}
+
+      {isAdmin && tab === "report" && <DailyManagerReport />}
 
       {/* Tasks tab */}
       {!loading && tab === "tasks" && (
