@@ -6,7 +6,7 @@ import {
   RefreshCw, LogIn, Trophy, Flame, Star, User, Target,
   ChevronDown, ChevronUp, BarChart3, Calendar, X, Upload,
   Image as ImageIcon, Video, Filter, ShieldAlert, Download,
-  FileText, Eye, Pencil, MessageSquare, Send, Search, MinusCircle, History, RotateCcw,
+  FileText, Eye, Pencil, MessageSquare, Send, Search, MinusCircle, History, RotateCcw, ClipboardList,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
