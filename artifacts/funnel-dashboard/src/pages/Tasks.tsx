@@ -2248,6 +2248,11 @@ export default function TasksPage() {
     : null;
 
   const dateScopedTasks = tasks.filter(task => {
+    // Team tasks awaiting distribution must remain visible to the senior,
+    // regardless of when the administrator created them.
+    if (isLeader && leaderTeamId && task.team_id === leaderTeamId
+        && !task.assigned_to_id && task.task_kind !== "daily_product_followup"
+        && task.task_kind !== "team_parent_distributed") return true;
     if (!selectedDateKey) return true;
     return taskOperationalDateKey(task) === selectedDateKey;
   });
