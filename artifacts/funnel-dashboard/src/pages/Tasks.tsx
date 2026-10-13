@@ -2387,7 +2387,7 @@ export default function TasksPage() {
         </div>
       )}
 
-      {isAdmin && tab === "report" && <DailyManagerReport />}
+      {isAdmin && tab === "report" && <DailyManagerReport onOpenTask={(id)=>{const task=tasks.find(t=>t.id===id);if(task)setDetailTask(task);else setError("تعذر العثور على تفاصيل المهمة. جرّب تحديث الصفحة.");}} />}
 
       {/* Tasks tab */}
       {!loading && tab === "tasks" && (
