@@ -5,7 +5,7 @@ type Person={id:number;name:string;tasks:Task[];comments:Comment[]};
 type Report={date:string;people:Person[]};
 const dateInCairo=(offset=0)=>new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Cairo",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(Date.now()+offset*86400000));
 const statusName:Record<string,string>={pending:"معلقة",in_progress:"جارية",partial_completed:"مكتملة جزئيًا",completed:"مكتملة",expired:"منتهية"};
-export default function DailyManagerReport(){
+export default function DailyManagerReport({onOpenTask}:{onOpenTask:(taskId:number)=>void}){
  const [date,setDate]=useState(dateInCairo()),[report,setReport]=useState<Report|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState("");
  const [person,setPerson]=useState("all");
  useEffect(()=>{let active=true;setLoading(true);setError("");
@@ -46,7 +46,7 @@ export default function DailyManagerReport(){
     <tbody className="divide-y divide-slate-800">
      {rows.map(r=><tr key={r.personId+"-"+r.task.id} className="bg-slate-900/50 align-top hover:bg-slate-800/60">
       <td className="p-3 font-semibold text-slate-200">{r.person}</td>
-      <td className="p-3 text-slate-200">{r.task.title}<span className="block mt-1 text-[10px] text-slate-500">#{r.task.id} {r.task.kind==="يومية"?"• يومية":r.task.kind==="عادية"?"• عادية":""}</span></td>
+      <td className="p-3 text-slate-200"><button type="button" onClick={()=>onOpenTask(r.task.id)} className="text-right font-semibold text-blue-200 hover:text-blue-100 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 rounded" title="فتح تفاصيل المهمة">{r.task.title}</button><span className="block mt-1 text-[10px] text-slate-500">#{r.task.id} {r.task.kind==="يومية"?"• يومية":r.task.kind==="عادية"?"• عادية":""}</span></td>
       <td className="p-3 text-slate-300">{r.notes.length?r.notes.map((n,i)=><p key={i} className="whitespace-pre-wrap break-words mb-1">{n.platform&&<span className="text-blue-300">{n.platform}: </span>}{n.text}</p>):<span className="text-slate-500">لم يُكتب تعليق في اليوم المحدد</span>}</td>
       <td className="p-3"><span className={r.task.status==="completed"?"text-emerald-400":r.task.status==="expired"?"text-red-400":"text-amber-300"}>{statusName[r.task.status]||"غير محددة لهذا اليوم"}</span></td>
      </tr>)}
