@@ -33,7 +33,7 @@ export default function TeamsAdmin(){
    <select className="rounded border bg-background p-2 text-sm" value={leader} onChange={e=>setLeader(e.target.value)}><option value="">اختر قائد الفريق</option>{buyers.map(u=><option key={u.id} value={u.id}>{u.username}</option>)}</select>
    <button className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50" disabled={busy||!leader||!name.trim()} onClick={()=>write("/teams","POST",{name,leader_user_id:Number(leader)})}>إنشاء فريق</button>
   </div>
-  {teams.map(t=>{const rating=ratings[t.id]||{member:"",speed:5,accuracy:5,followup:5,notes:""};const set=(update:Partial<typeof rating>)=>setRatings(p=>({...p,[t.id]:{...rating,...update}}));return <div key={t.id} className="rounded-lg border p-3 space-y-3">
+  {teams.map(t=><div key={t.id} className="rounded-lg border p-3 space-y-3">
    <h3 className="font-semibold">{t.name} <span className="text-xs text-muted-foreground">— القائد: {t.leader_name}</span></h3>
    <div className="text-sm">الأعضاء: {t.members.map(m=>m.username).join("، ")||"لا يوجد"} — المنتجات التابعة للفريق: {productCounts[t.id] ?? "…"}</div>
    <div className="flex gap-2"><select className="rounded border bg-background p-2 text-sm" defaultValue="" id={"member-"+t.id}><option value="">إضافة عضو</option>{buyers.filter(u=>!t.members.some(m=>m.user_id===u.id)).map(u=><option key={u.id} value={u.id}>{u.username}</option>)}</select><button className="rounded border px-3 py-1" disabled={busy} onClick={()=>{const el=document.getElementById("member-"+t.id) as HTMLSelectElement;if(el?.value)write("/teams/"+t.id+"/members","PUT",{user_id:Number(el.value)})}}>إضافة</button></div>
@@ -51,6 +51,6 @@ export default function TeamsAdmin(){
        </select>
      </div>
    </div>
-  </div>})}
+  </div>)}
  </section>;
 }
