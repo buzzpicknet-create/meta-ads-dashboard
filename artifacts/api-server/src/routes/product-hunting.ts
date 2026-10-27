@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import * as cheerio from "cheerio";
 import { query } from "../lib/db";
 
 const router = Router();
@@ -14,7 +15,16 @@ type ProductMedia = {
   thumbnail_url?: string | null;
 };
 
-type TelegramScrape = {
+type WebScrape = {
+  title?: string | null;
+  description?: string | null;
+  image_url?: string | null;
+  media?: ProductMedia[];
+  target_price_egp?: number | null;
+  scrape_source?: string;
+};
+
+type TelegramScrape = WebScrape & {
   title?: string | null;
   description?: string | null;
   image_url?: string | null;
@@ -123,6 +133,175 @@ function extractEgpPrice(text?: string | null) {
     }
   }
   return null;
+}
+
+
+function absoluteUrl(raw: string | undefined | null, baseUrl: string) {
+  if (!raw) return null;
+  const value = decodeHtml(String(raw)).replace(/\\\//g, "/").trim().replace(/^['"]|['"]$/g, "");
+  if (!value || value.startsWith("data:") || value.startsWith("blob:")) return null;
+  try {
+    const resolved = new URL(value, baseUrl);
+    if (!["http:", "https:"].includes(resolved.protocol)) return null;
+    return resolved.toString();
+  } catch {
+    return null;
+  }
+}
+
+function jsonLdObjects(value: unknown): any[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.flatMap(jsonLdObjects);
+  if (typeof value !== "object") return [];
+  const obj = value as Record<string, unknown>;
+  const graph = Array.isArray(obj["@graph"]) ? (obj["@graph"] as unknown[]) : [];
+  return [obj, ...graph.flatMap(jsonLdObjects)];
+}
+
+function productJsonLd(html: string) {
+  const $ = cheerio.load(html);
+  const objects: any[] = [];
+  $('script[type="application/ld+json"]').each((_i, el) => {
+    const raw = $(el).text().trim();
+    if (!raw) return;
+    try {
+      objects.push(...jsonLdObjects(JSON.parse(raw)));
+    } catch {
+      // Ignore invalid structured data and continue with meta/DOM fallbacks.
+    }
+  });
+  return objects.find((obj) => {
+    const type = obj?.["@type"];
+    return type === "Product" || (Array.isArray(type) && type.includes("Product"));
+  }) ?? null;
+}
+
+function extractOffer(product: any) {
+  const offers = Array.isArray(product?.offers) ? product.offers : product?.offers ? [product.offers] : [];
+  const offer = offers.find((x: any) => x && typeof x === "object") ?? null;
+  if (!offer) return { price: null as number | null, currency: null as string | null };
+  const raw = offer.price ?? offer.lowPrice ?? offer.highPrice;
+  const price = Number(String(raw ?? "").replace(/[^0-9.,-]/g, "").replace(/,/g, ""));
+  return {
+    price: Number.isFinite(price) && price > 0 ? price : null,
+    currency: typeof offer.priceCurrency === "string" ? offer.priceCurrency.toUpperCase() : null,
+  };
+}
+
+function genericProductMedia(html: string, baseUrl: string, product: any, fallbackImage?: string | null) {
+  const $ = cheerio.load(html);
+  const media: ProductMedia[] = [];
+  const seen = new Set<string>();
+  const add = (type: "image" | "video", raw: string | null | undefined, thumbnail?: string | null) => {
+    const url = absoluteUrl(raw, baseUrl);
+    if (!url || seen.has(url)) return;
+    if (/\.svg(?:\?|$)/i.test(url)) return;
+    seen.add(url);
+    media.push({ type, url, thumbnail_url: absoluteUrl(thumbnail, baseUrl) });
+  };
+
+  const structuredImages = Array.isArray(product?.image) ? product.image : product?.image ? [product.image] : [];
+  for (const image of structuredImages) {
+    if (typeof image === "string") add("image", image);
+    else if (image && typeof image === "object") add("image", image.url ?? image.contentUrl);
+  }
+  add("image", fallbackImage);
+
+  const imageSelectors = [
+    '[itemprop="image"]',
+    '.o_wsale_product_images img',
+    '.o_product_image img',
+    '.product_detail img',
+    '.product-image img',
+    '.product-gallery img',
+    '.product__media img',
+    'main img',
+  ].join(",");
+  $(imageSelectors).each((_i, el) => {
+    const node = $(el);
+    add("image", node.attr("data-zoom") || node.attr("data-src") || node.attr("data-lazy-src") || node.attr("src"));
+    const srcset = node.attr("srcset") || node.attr("data-srcset");
+    if (srcset) {
+      const best = srcset.split(",").map(x => x.trim().split(/\s+/)[0]).filter(Boolean).pop();
+      add("image", best);
+    }
+  });
+
+  $('video, video source').each((_i, el) => {
+    const node = $(el);
+    const video = node.attr("src") || node.attr("data-src");
+    const poster = node.is("video") ? node.attr("poster") : node.closest("video").attr("poster");
+    add("video", video, poster || fallbackImage);
+  });
+
+  return media.slice(0, 30);
+}
+
+async function scrapePublicProduct(rawUrl: string): Promise<WebScrape> {
+  try {
+    const response = await fetch(rawUrl, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+        "accept-language": "ar-EG,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    if (!response.ok) return {};
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) return {};
+    const html = await response.text();
+    if (!html) return {};
+
+    const finalUrl = response.url || rawUrl;
+    const product = productJsonLd(html);
+    const $ = cheerio.load(html);
+    const offer = extractOffer(product);
+
+    const title =
+      (typeof product?.name === "string" ? product.name.trim() : "") ||
+      meta(html, "og:title") ||
+      $('h1[itemprop="name"], h1').first().text().trim() ||
+      $('title').first().text().trim() ||
+      null;
+
+    const description =
+      (typeof product?.description === "string" ? stripHtml(product.description) : "") ||
+      meta(html, "og:description") ||
+      meta(html, "description") ||
+      $('[itemprop="description"]').first().text().trim() ||
+      null;
+
+    const structuredImage = Array.isArray(product?.image) ? product.image[0] : product?.image;
+    const imageCandidate =
+      (typeof structuredImage === "string" ? structuredImage : structuredImage?.url ?? structuredImage?.contentUrl) ||
+      meta(html, "og:image") ||
+      $('[itemprop="image"]').first().attr("content") ||
+      $('[itemprop="image"]').first().attr("src") ||
+      null;
+    const imageUrl = absoluteUrl(imageCandidate, finalUrl);
+    const media = genericProductMedia(html, finalUrl, product, imageUrl);
+
+    let targetPriceEgp: number | null = null;
+    if (offer.price && offer.currency === "EGP") targetPriceEgp = offer.price;
+    if (!targetPriceEgp) {
+      const bodyPrice = extractEgpPrice([description, $('body').text().slice(0, 20000)].filter(Boolean).join(" "));
+      if (bodyPrice) targetPriceEgp = bodyPrice;
+    }
+
+    return {
+      title: title ? decodeHtml(title).replace(/\s+/g, " ").trim() : null,
+      description: description ? decodeHtml(description).replace(/\s+/g, " ").trim() : null,
+      image_url: imageUrl ?? media.find(m => m.type === "image")?.url ?? null,
+      media,
+      target_price_egp: targetPriceEgp,
+      scrape_source: product ? "json-ld+page" : "page-meta",
+    };
+  } catch (error) {
+    console.error("product page scrape failed", { rawUrl, error });
+    return {};
+  }
 }
 
 function cleanMediaUrl(raw: string | undefined | null) {
@@ -409,9 +588,9 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
 
     const parsed = new URL(sourceUrl);
     const host = parsed.hostname.toLowerCase();
-    const sourceType = host.includes("t.me") || host.includes("telegram.me") ? "telegram" : host.includes("tiktok") ? "tiktok" : host.includes("aliexpress") ? "aliexpress" : "other";
-    const scraped = sourceType === "telegram" ? await scrapePublicTelegram(sourceUrl) : {};
-    const scrapedMedia = Array.isArray((scraped as TelegramScrape).media) ? (scraped as TelegramScrape).media! : [];
+    const sourceType = host.includes("t.me") || host.includes("telegram.me") ? "telegram" : host.includes("tiktok") ? "tiktok" : host.includes("aliexpress") ? "aliexpress" : host.includes("odoo.com") ? "odoo" : "other";
+    const scraped: TelegramScrape | WebScrape = sourceType === "telegram" ? await scrapePublicTelegram(sourceUrl) : await scrapePublicProduct(sourceUrl);
+    const scrapedMedia = Array.isArray(scraped.media) ? scraped.media : [];
 
     const userId = req.session?.userId ?? null;
     let addedByName: string | null = null;
@@ -429,15 +608,15 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
         sourceUrl,
         normalized,
         sourceType,
-        (scraped as TelegramScrape).title ?? req.body?.title ?? null,
-        (scraped as TelegramScrape).description ?? req.body?.description ?? null,
-        (scraped as TelegramScrape).image_url ?? req.body?.image_url ?? null,
+        scraped.title ?? req.body?.title ?? null,
+        scraped.description ?? req.body?.description ?? null,
+        scraped.image_url ?? req.body?.image_url ?? null,
         JSON.stringify(scrapedMedia),
         (scraped as TelegramScrape).channel_name ?? null,
         req.body?.category ?? null,
         req.body?.notes ?? null,
         req.body?.supplier_url ?? null,
-        (scraped as TelegramScrape).target_price_egp ?? req.body?.target_price_egp ?? null,
+        scraped.target_price_egp ?? req.body?.target_price_egp ?? null,
         req.body?.cost_price ?? null,
         req.body?.cost_currency ?? "CNY",
         userId,
@@ -446,9 +625,10 @@ router.post("/product-hunting", async (req: Request, res: Response) => {
     );
     res.status(201).json({
       item: rows[0],
-      scraped: Boolean((scraped as TelegramScrape).title || (scraped as TelegramScrape).image_url || (scraped as TelegramScrape).description || scrapedMedia.length),
+      scraped: Boolean(scraped.title || scraped.image_url || scraped.description || scrapedMedia.length),
       media_count: scrapedMedia.length,
-      media_from_post_id: (scraped as TelegramScrape).media_from_post_id ?? null,
+      source_type: sourceType,
+      media_from_post_id: "media_from_post_id" in scraped ? scraped.media_from_post_id ?? null : null,
     });
   } catch (error) {
     console.error("product-hunting create error", error);
