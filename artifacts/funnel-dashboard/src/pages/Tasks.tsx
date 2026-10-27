@@ -204,6 +204,8 @@ function nowPlusHours(h: number): string {
 }
 
 function mediaUrl(m: TaskMedia): string {
+  // Product Hunting can attach media hosted on the source store directly.
+  if (/^https?:\/\//i.test(m.file_path)) return m.file_path;
   // file_path is objectPath from GCS e.g. "/objects/uploads/uuid"
   // serving route: GET /api/storage/objects/*path → prepends /objects/
   const stripped = m.file_path.replace(/^\/objects\//, "");
@@ -2254,6 +2256,17 @@ export default function TasksPage() {
         && !task.assigned_to_id && task.task_kind !== "daily_product_followup"
         && task.task_kind !== "team_parent_distributed") return true;
     if (!selectedDateKey) return true;
+
+    // Normal/manual tasks are deadline-driven, not calendar-day tasks.
+    // When viewing "today", keep any still-open manual task visible until its
+    // actual deadline even if it was created before midnight.
+    if (dateFilter === "today"
+        && task.task_kind !== "daily_product_followup"
+        && (task.status === "pending" || task.status === "in_progress")
+        && new Date(task.deadline).getTime() >= Date.now()) {
+      return true;
+    }
+
     return taskOperationalDateKey(task) === selectedDateKey;
   });
 
