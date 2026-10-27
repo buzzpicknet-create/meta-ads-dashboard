@@ -38,7 +38,10 @@ function cairoLocalPlusHours(hours: number) {
 
 function mediaObjectPath(url: string) {
   const match = url.match(/\/api\/telegram-product-bot\/media\/([^/?#]+)/);
-  return match ? `/objects/telegram-product/${decodeURIComponent(match[1])}` : null;
+  if (match) return `/objects/telegram-product/${decodeURIComponent(match[1])}`;
+  // Store-hosted Product Hunting media (Odoo and other public product pages)
+  // is attached by its absolute URL and rendered directly in the task.
+  return /^https?:\/\//i.test(url) ? url : null;
 }
 
 function stripTelegramSourceLinks(value: string) {
