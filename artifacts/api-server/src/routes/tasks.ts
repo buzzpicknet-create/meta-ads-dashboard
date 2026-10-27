@@ -23,6 +23,51 @@ async function sameTeam(teamId:number, buyerId:number):Promise<boolean> {
 }
 
 
+async function completeDistributedParentIfReady(parentTaskId: number | null | undefined) {
+  if (!parentTaskId || !Number.isSafeInteger(parentTaskId)) return null;
+  const [parent] = await query<Task>(`
+    UPDATE tasks p
+    SET status = 'completed',
+        completed_at = COALESCE(p.completed_at, NOW()),
+        updated_at = NOW()
+    WHERE p.id = $1
+      AND p.task_kind = 'team_parent_distributed'
+      AND EXISTS (
+        SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM tasks c
+        WHERE c.parent_task_id = p.id
+          AND c.status <> 'completed'
+      )
+      AND p.status <> 'completed'
+    RETURNING p.*
+  `, [parentTaskId]);
+  return parent ?? null;
+}
+
+async function reconcileCompletedDistributedParents() {
+  await query(`
+    UPDATE tasks p
+    SET status = 'completed',
+        completed_at = COALESCE(p.completed_at, NOW()),
+        updated_at = NOW()
+    WHERE p.task_kind = 'team_parent_distributed'
+      AND p.status <> 'completed'
+      AND EXISTS (
+        SELECT 1 FROM tasks c WHERE c.parent_task_id = p.id
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM tasks c
+        WHERE c.parent_task_id = p.id
+          AND c.status <> 'completed'
+      )
+  `);
+}
+
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Task {
@@ -364,6 +409,7 @@ router.get("/tasks", async (req, res) => {
       AND NOT EXISTS (SELECT 1 FROM tasks child WHERE child.parent_task_id = 1501)
       AND EXISTS (SELECT 1 FROM buyer_teams WHERE id = 1 AND leader_user_id = 3)`);
   await autoExpire();
+  await reconcileCompletedDistributedParents();
   const userId = req.session!.userId;
   const role   = req.session!.role;
 
@@ -979,6 +1025,7 @@ router.patch("/tasks/:id", async (req, res) => {
       );
     }
 
+    await completeDistributedParentIfReady(updated.parent_task_id);
     const [withMedia] = await attachMedia([updated]);
 
     await createInboxAndPush({
@@ -1068,6 +1115,9 @@ router.patch("/tasks/:id", async (req, res) => {
     `, [id, title ?? null, product_name ?? null, assigned_to_id ?? null,
         assigned_to_name ?? null, newDeadline, success_metric ?? null,
         status ?? null, notes ?? null]);
+    if (updated.status === "completed") {
+      await completeDistributedParentIfReady(updated.parent_task_id);
+    }
     const [withMedia] = await attachMedia([updated]);
     if (
       assigned_to_id !== undefined &&
