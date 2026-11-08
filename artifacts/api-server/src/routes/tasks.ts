@@ -988,6 +988,8 @@ router.patch("/tasks/:id", async (req, res) => {
   }
 
   if (action === "complete") {
+    if (task.task_kind === "team_parent_distributed")
+      return res.status(409).json({ error: "المهمة الأساسية تكتمل تلقائيًا بعد إتمام كل الفروع" });
     if (task.task_kind === "daily_product_followup") {
       const [platformProgress] = await query<{ total: string; completed: string }>(`
         SELECT

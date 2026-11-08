@@ -182,17 +182,23 @@ router.patch("/teams/:id/manual-tasks/:taskId/assign",async(req,res)=>{
 router.post("/teams/:id/manual-tasks/:taskId/branches",async(req,res)=>{
  const teamId=Number(req.params.id),parentId=Number(req.params.taskId),userId=req.session!.userId;
  if(!Number.isSafeInteger(teamId)||!Number.isSafeInteger(parentId))return res.status(400).json({error:"بيانات غير صحيحة"});
- const leader=await query("SELECT 1 FROM buyer_teams WHERE id=$1 AND ($2::boolean OR leader_user_id=$3)",[teamId,req.session!.role==="admin",userId]);
- if(!leader.length)return res.status(403).json({error:"التوزيع لقائد الفريق فقط"});
- const [parent]=await query<any>("SELECT * FROM tasks WHERE id=$1 AND team_id=$2 AND assigned_to_id IS NULL AND task_kind IS DISTINCT FROM 'daily_product_followup'",[parentId,teamId]);
+ const [leader]=await query<{leader_user_id:number}>("SELECT leader_user_id FROM buyer_teams WHERE id=$1 AND ($2::boolean OR leader_user_id=$3)",[teamId,req.session!.role==="admin",userId]);
+ if(!leader)return res.status(403).json({error:"التوزيع لقائد الفريق فقط"});
+ const [parent]=await query<any>(`SELECT * FROM tasks WHERE id=$1 AND parent_task_id IS NULL
+   AND task_kind IS DISTINCT FROM 'daily_product_followup'
+   AND task_kind IS DISTINCT FROM 'team_parent_distributed'
+   AND ((team_id=$2 AND assigned_to_id IS NULL)
+     OR (inventory_product_id IS NOT NULL AND assigned_to_id=$3
+       AND status IN ('pending','in_progress') AND (team_id IS NULL OR team_id=$2)))`,
+   [parentId,teamId,leader.leader_user_id]);
  if(!parent)return res.status(404).json({error:"المهمة مش موجودة أو اتوزعت بالفعل"});
- const allowed=["creative","ad_copy","campaign"];
+ const allowed=parent.inventory_product_id?["creative","landing","campaign"]:["creative","ad_copy","campaign"];
  const branches=req.body?.branches;
  if(!Array.isArray(branches)||branches.length!==3||branches.some((b:any)=>!allowed.includes(b?.key)||!Number.isSafeInteger(Number(b?.assigned_to_id)))||new Set(branches.map((b:any)=>b.key)).size!==3)return res.status(400).json({error:"يجب توزيع الفروع الثلاثة على أعضاء الفريق"});
  const members=await query<{id:number;username:string}>("SELECT u.id,u.username FROM users u JOIN buyer_team_members m ON m.user_id=u.id WHERE m.team_id=$1 AND u.deleted_at IS NULL",[teamId]);
  const names=new Map(members.map(m=>[m.id,m.username]));
  if(branches.some((b:any)=>!names.has(Number(b.assigned_to_id))))return res.status(400).json({error:"أحد الأعضاء خارج الفريق"});
- const labels:Record<string,string>={creative:"كريتف",ad_copy:"أد كوبي",campaign:"كامبين"};
+ const labels:Record<string,string>={creative:"كريتف",landing:"لاندينج",ad_copy:"أد كوبي",campaign:"كامبين"};
  const created=[];
  for(const b of branches){
    const id=Number(b.assigned_to_id);
@@ -203,7 +209,7 @@ router.post("/teams/:id/manual-tasks/:taskId/branches",async(req,res)=>{
    [`${parent.title} — ${labels[b.key]}`,parent.product_name,id,names.get(id),parent.deadline,parent.success_metric,parent.notes,parent.created_by_id,parent.created_by_name,teamId,parentId,b.key]);
    created.push(row);
  }
- await query("UPDATE tasks SET task_kind=$2,updated_at=NOW() WHERE id=$1", [parentId,"team_parent_distributed"]);
+ await query("UPDATE tasks SET task_kind=$2,team_id=$3,updated_at=NOW() WHERE id=$1", [parentId,"team_parent_distributed",teamId]);
  res.json({tasks:created});
 });
 export default router;

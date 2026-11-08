@@ -862,7 +862,9 @@ function TeamTaskDistribution({task,teamId,members,onDistributed}:{task:Task;tea
  const [choices,setChoices]=useState<Record<string,string>>({});
  const [saving,setSaving]=useState(false);
  const [error,setError]=useState("");
- const branches=[["creative","كريتف"],["ad_copy","أد كوبي"],["campaign","كامبين"]] as const;
+ const branches=task.inventory_product_id
+  ? [["creative","كريتف"],["landing","لاندينج"],["campaign","كامبين"]] as const
+  : [["creative","كريتف"],["ad_copy","أد كوبي"],["campaign","كامبين"]] as const;
  const submit=async()=>{
   setSaving(true);setError("");
   try{
@@ -890,8 +892,8 @@ function TeamTaskDistribution({task,teamId,members,onDistributed}:{task:Task;tea
 
 // ── Task Detail Modal ──────────────────────────────────────────────────────────
 
-function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit, onClearHighlight, onChanged }: {
-  task: Task; isAdmin: boolean; isLeader: boolean; leaderTeamId:number|null; teamMembers:{user_id:number;username:string}[];
+function TaskDetailModal({ task, isAdmin, isLeader, userId, leaderTeamId, teamMembers, onClose, onCheckin, onComplete, onDelete, onReopen, onEdit, onClearHighlight, onChanged }: {
+  task: Task; isAdmin: boolean; isLeader: boolean; userId:number|undefined; leaderTeamId:number|null; teamMembers:{user_id:number;username:string}[];
   onClose: () => void;
   onCheckin: (task: Task) => void;
   onComplete: (id: number) => void;
@@ -916,7 +918,7 @@ function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, o
   const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
   const [platformError, setPlatformError] = useState<string | null>(null);
   const isActive = task.status === "pending" || task.status === "in_progress";
-  const canFinish = isActive || task.status === "expired" || task.status === "partial_completed";
+  const canFinish = task.task_kind !== "team_parent_distributed" && (isActive || task.status === "expired" || task.status === "partial_completed");
   const score = task.opus_score ?? 0;
   const completedLate = isLateCompleted(task);
 
@@ -1360,7 +1362,12 @@ function TaskDetailModal({ task, isAdmin, isLeader, leaderTeamId, teamMembers, o
             {dailyAssignError&&<p className="text-xs text-red-400">{dailyAssignError}</p>}
           </section>
         </div>}
-        {isLeader && leaderTeamId && task.team_id===leaderTeamId && !task.assigned_to_id && task.task_kind!=="team_parent_distributed" && <div className="px-4 pb-3"><TeamTaskDistribution task={task} teamId={leaderTeamId} members={teamMembers} onDistributed={async()=>{await onChanged();onClose();}} /></div>}
+        {isLeader && leaderTeamId && task.task_kind!=="team_parent_distributed" && (
+          (task.team_id===leaderTeamId && !task.assigned_to_id) ||
+          (task.inventory_product_id && task.assigned_to_id===userId
+            && (task.status==="pending" || task.status==="in_progress")
+            && (!task.team_id || task.team_id===leaderTeamId))
+        ) && <div className="px-4 pb-3"><TeamTaskDistribution task={task} teamId={leaderTeamId} members={teamMembers} onDistributed={async()=>{await onChanged();onClose();}} /></div>}
         <div className="px-4"><TaskEvaluation taskId={task.id} completed={task.status==="completed"} canReview={isAdmin||isLeader} /></div>
 
         {/* Footer actions */}
@@ -1433,7 +1440,7 @@ function TaskCard({ task, isAdmin, onCheckin, onComplete, onDelete, onReopen, on
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const score = task.opus_score ?? 0;
   const isActive = task.status === "pending" || task.status === "in_progress";
-  const canFinish = isActive || task.status === "expired";
+  const canFinish = task.task_kind !== "team_parent_distributed" && (isActive || task.status === "expired");
   const completedLate = isLateCompleted(task);
   const storeName = getTaskStoreName(task);
 
@@ -2588,6 +2595,7 @@ export default function TasksPage() {
           task={detailTask}
           isAdmin={isAdmin}
           isLeader={isLeader}
+          userId={user?.id}
           leaderTeamId={leaderTeamId}
           teamMembers={teamMembers}
           onClose={() => setDetailTask(null)}
