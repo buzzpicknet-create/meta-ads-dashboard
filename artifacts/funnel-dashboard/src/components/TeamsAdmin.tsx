@@ -26,7 +26,7 @@ export default function TeamsAdmin(){
  const buyers=users.filter(u=>u.role==="media_buyer");
  return <section className="mt-8 space-y-4 rounded-xl border border-border p-4" dir="rtl">
   <h2 className="font-bold text-lg">إدارة فرق الميديا باير</h2>
-  <p className="text-xs text-muted-foreground">إنشاء الفرق وتعديل أسمائها وقادتها وإضافة الأعضاء أو إزالتهم. تقييم الأداء من داخل التاسك المكتمل.</p>
+  <p className="text-xs text-muted-foreground">إنشاء الفرق وتعديل أسمائها وقادتها وإضافة الأعضاء أو إزالتهم. حذف الفريق لا يحذف المستخدمين أو المهام؛ المهام غير المسندة تتحول للقائد كمهام فردية.</p>
   {error&&<p className="text-red-500 text-sm">{error}</p>}
   <div className="flex flex-wrap gap-2">
    <input className="rounded border bg-background p-2 text-sm" value={name} onChange={e=>setName(e.target.value)} placeholder="اسم الفريق"/>
@@ -49,6 +49,7 @@ export default function TeamsAdmin(){
        <select className="rounded border bg-background p-2 text-sm" value={t.leader_user_id} onChange={e=>{const next=Number(e.target.value);if(window.confirm("تغيير قائد الفريق؟"))write("/teams/"+t.id,"PATCH",{name:t.name,leader_user_id:next})}}>
         {buyers.map(u=><option key={u.id} value={u.id}>{u.username}</option>)}
        </select>
+       <button className="rounded border border-red-400 px-3 py-2 text-sm text-red-600 disabled:opacity-50" disabled={busy} onClick={()=>{if(window.confirm(`حذف فريق "${t.name}" نهائيًا؟ الأعضاء (بما فيهم القائد) سيرجعون ميديا باير بدون فريق، والتاسكات المسندة ستظل لأصحابها، وغير المسندة ستنتقل للقائد كمهام فردية.`))write("/teams/"+t.id,"DELETE",undefined)}}>حذف الفريق</button>
      </div>
    </div>
   </div>)}
