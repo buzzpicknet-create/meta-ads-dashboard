@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { query } from "../lib/db.js";
+import { pool, query } from "../lib/db.js";
 import { requireAdmin } from "../lib/auth-middleware.js";
 const router = Router();
 let initialized = false;
@@ -132,6 +132,30 @@ router.patch("/teams/:id",requireAdmin,async(req,res)=>{
  if(!result)return res.status(404).json({error:"الفريق غير موجود"});
  await query("INSERT INTO buyer_team_members(user_id,team_id) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET team_id=EXCLUDED.team_id",[leader,team]);
  res.json(result);
+});
+router.delete("/teams/:id",requireAdmin,async(req,res,next)=>{
+ const teamId=Number(req.params.id);
+ if(!Number.isSafeInteger(teamId)||teamId<=0)return res.status(400).json({error:"رقم الفريق غير صحيح"});
+ const client=await pool.connect();
+ try{
+  await client.query("BEGIN");
+  const {rows:[team]}=await client.query<{id:number;leader_user_id:number}>("SELECT id,leader_user_id FROM buyer_teams WHERE id=$1 FOR UPDATE",[teamId]);
+  if(!team){await client.query("ROLLBACK");return res.status(404).json({error:"الفريق غير موجود"});}
+  // Preserve assigned tasks; convert unassigned team tasks into the former leader's personal tasks.
+  const {rows:[leader]}=await client.query<{username:string}>("SELECT username FROM users WHERE id=$1",[team.leader_user_id]);
+  await client.query(`UPDATE tasks SET assigned_to_id=$2,assigned_to_name=$3
+    WHERE team_id=$1 AND assigned_to_id IS NULL`,[teamId,team.leader_user_id,leader.username]);
+  await client.query("UPDATE tasks SET team_id=NULL WHERE team_id=$1",[teamId]);
+  // Keep historical reviews, without a reference to a deleted team.
+  await client.query("UPDATE buyer_team_reviews SET team_id=NULL WHERE team_id=$1",[teamId]);
+  await client.query("DELETE FROM buyer_team_platform_delegations WHERE team_id=$1",[teamId]);
+  await client.query("DELETE FROM buyer_team_products WHERE team_id=$1",[teamId]);
+  await client.query("DELETE FROM buyer_team_members WHERE team_id=$1",[teamId]);
+  await client.query("DELETE FROM buyer_teams WHERE id=$1",[teamId]);
+  await client.query("COMMIT");
+  res.json({success:true,former_leader_user_id:team.leader_user_id});
+ }catch(error){await client.query("ROLLBACK");next(error);}
+ finally{client.release();}
 });
 router.delete("/teams/:id/members/:userId",requireAdmin,async(req,res)=>{
  const team=Number(req.params.id),user=Number(req.params.userId);
